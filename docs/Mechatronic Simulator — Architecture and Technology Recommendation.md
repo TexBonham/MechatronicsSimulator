@@ -45,6 +45,21 @@ These rulings were made in the planning session of Nov 1, 2026 and are the basis
 | 27 | Interface | Desktop app; a browser-based 3D viewer only if easier. | No |
 | 28 | Contact | Floor contact plus collisions (hook catching an obstacle, carriage hitting a hard stop). | No |
 | 29 | File format | YAML with JSON Schema validation. | No |
+| 30 | Physics engine | Own physics engine in C++20 with Eigen, pybind11 and CMake, in its own CMake tree in this repo; sanitizers, clang-tidy and warnings as errors from the first commit; lumped domain models are ours; a calibration spike precedes phase 1 (docs/adr/0001-own-physics-engine.md). | Yes |
+| 31 | Collision and contact | Collision detection is in-house with a reference library only as a test oracle; v1 contact is primitives and convex hulls with soft contact and implicit integration (docs/adr/0002-collision-and-contact-scope.md). | Yes |
+| 32 | Physics model | The builder emits an engine-neutral physics model that each adapter translates, replacing MJCF output; integrator is per adapter (docs/adr/0003-neutral-physics-model-and-adapters.md). | Yes |
+| 33 | MuJoCo role | A thin MuJoCo adapter carries milestones 1 and 2 and is the own engine's differential oracle, retired once the own engine passes the analytical suite and matches the gantry baselines (docs/adr/0004-mujoco-adapter-lifecycle.md). | Yes |
+| 34 | Core runtime and language | Engine, kernel, built-in signal components and both controller runtimes form one C++ library with one Python binding; Python for everything else; component plugins are tiered (docs/adr/0005-core-runtime-and-language-split.md). | Yes |
+| 35 | Headless core | No Qt or display dependency outside viewer code, one serializable facade, replay from archives, a recorder streaming seam from milestone 1, and the CLI as first client (docs/adr/0006-headless-core-and-facade.md). | No |
+| 36 | Front end | A browser client over a local Python service, replaceable by a standalone app, plus a minimal C++ engine debug viewer; PySide6 and MuJoCo's viewer are dropped (docs/adr/0007-front-end.md). | Yes |
+| 37 | Spec first | One spec per module with numbered, traced requirements, strict expected-failure stubs before code, a traceability test, and four test tiers (docs/adr/0008-spec-first-and-test-tiers.md). | No |
+| 38 | Mechanical integrity | Checks are data-driven, tiered plugins with analytical references; the structural module becomes integrity/ with a milestone 3 and 4 check set (docs/adr/0009-mechanical-integrity-scope.md). | Yes |
+| 39 | Mid-run failure | A kernel party detects member limit crossings every tick from live loads, and failures change the model; physics publishes live member end-loads (docs/adr/0010-mid-run-structural-failure.md). | No |
+| 40 | Firmware build and native tick | C11 firmware against a C board interface, CMake host and target presets, a polled fixed-rate native tick through a plain C struct, vendor HAL only under firmware/board/\<chip>/ (docs/adr/0011-firmware-and-native-tick-contract.md). | Yes |
+| 41 | Data and tooling conventions | Python 3.12 with uv, ruff and mypy; pydantic-generated schemas; unit strings in files; HDF5 archives; one seed per run; dotted signal names; YAML baselines in git; Ubuntu CI; merge-commit round branches (docs/adr/0012-data-conventions.md). | No |
+| 42 | Product scope (R-01) | Standalone general mechatronic simulator; the gantry is the first test case and reference design, never the design target. | No |
+| 43 | Firmware location (R-02) | Firmware lives in this repo under firmware/, split out only if it becomes independently useful. | No |
+| 44 | Second design (R-03) | A pendulum design under designs/pendulum/ from milestone 1 as the rope analytical reference and first generality guard; the two-joint arm remains the milestone 5 proof. | No |
 
 ## System overview
 
@@ -132,6 +147,8 @@ Injected faults fan out to the module that owns the thing being broken:
 
 ## Technology recommendation
 
+Superseded in part on 2026-11-02: the physics engine recommendation (MuJoCo as the v1 engine) is replaced by an own C++ engine, ADR 0001, with MuJoCo kept as a bridge and oracle per ADR 0004; the builder's output and the adapter model by the engine-neutral physics model, ADR 0003; Python for the kernel and signal layer by the C++ core runtime, ADR 0005; the PySide6 shell and MuJoCo viewer by a browser client and an engine debug viewer, ADR 0007. The comparison table and prose below are kept as the historical record.
+
 Recommendation: Python for the application, MuJoCo as the v1 physics engine behind an adapter, Renode for emulated mode, a PySide6 desktop shell, YAML files with JSON Schema. Project Chrono is held as a second physics adapter if flexible-member fidelity ever needs true beam elements.
 
 **Language.** Python for every module the tool owns: model builder, kernel, signal layer, test runner, structural analysis, scoring, viewer shell. The hot loops live inside the physics engine and the emulator, both compiled; what remains is per-tick arithmetic on a few hundred signals, which numpy handles at well over real time. Under 50 runs a day on a small team makes development speed and a clear codebase worth more than raw throughput. If the signal layer ever becomes the bottleneck, that one module can move to C++ or Rust with Python bindings without touching the rest. The firmware is C/C++ by ruling.
@@ -166,29 +183,42 @@ Verdict: MuJoCo for v1. It installs everywhere the team works, its tendons map d
 An agent or a person creating the repository should lay it out as below, enforce the invariants from the first commit, and build the milestone 1 slice before anything else. One Python package, one subpackage per module in this doc, so the code map and the architecture map are the same map.
 
 ```markdown
+core/                 C++ core runtime: one compiled library, own CMake tree
+  engine/             own physics engine: math core, integrators, multibody, collision, contact
+  kernel/             co-simulation kernel: time, rates, sync points, seeds
+  signals/            built-in signal-layer components: sensors, front-ends, rails, safety hardware, operator link, pin bindings
+  controller/         controller runtimes: native shim, Renode bridge
+  bindings/           pybind11 binding exposing the core runtime to Python
+  viewer_debug/       minimal immediate-mode C++ window for engine development
 mechsim/              Python package; one subpackage per module
   library/            component types, plugin interface, shipped catalog (YAML)
   materials/          materials database, process rules, direction-dependent limits
   design/             design-file schema, loader, validation, CAD import (STEP, URDF)
-  builder/            model builder: design file -> engine models, wiring, chip config
-  kernel/             co-simulation kernel: time, rates, sync points, seeds
-  physics/            engine adapters: mujoco/ (v1), chrono/ (reserved)
-  signals/            sensors, front-ends, rails, safety hardware, operator link, pin bindings
-  controller/         runtime interface; native/ (cffi shim), emulated/ (Renode bridge)
+  builder/            model builder: design file -> engine-neutral physics model, wiring, chip config
+  physics/            adapter package: mujoco/ (bridge), native/ (own engine binding), chrono/ (reserved)
   testing/            test-case schema, runner, fault fan-out, sweeps, regression
   record/             recorder, run archive (HDF5), CSV/JSON/MAT exports
-  structural/         beam and plate checks, safety factors, load-case export
+  integrity/          mechanical integrity check plugins, safety factors, load-case export
   scoring/            pass criteria, suite reports, regression diffs
-  viewer/             PySide6 shell, replay, event timeline
-board_interface/      the C header firmware writes against, and the host shim sources
+  facade/             facade service and protocol
+  viewer/             replay and event timeline, served to clients through facade/
+board_interface/      the C header firmware writes against
 chips/                chip definitions: platform description, SVD, pin-map template
-schemas/              JSON Schema for every YAML file type
-designs/              design files; designs/gantry/ is the reference design
+schemas/              JSON Schema for every YAML file type, generated from the pydantic models
+designs/              design files; designs/gantry/ is the reference design, designs/pendulum/ the second
 test_cases/           test suites; test_cases/gantry/ holds G1 to G16
-firmware/             the gantry controller source tree (or a git submodule)
+firmware/             controller source trees in this repo; vendor HAL only under firmware/board/<chip>/
+web/                  browser client
 tests/                the simulator's own unit and reference tests
-docs/                 this doc, the requirements doc, architecture decision records
+docs/                 this doc, the requirements doc
+  adr/                architecture decision records
+  spec/               one spec per module, numbered requirements
+  rulings/            planning rulings, the handoff records for ADRs
+  queue.md            the dispatch queue and next brief
+  cost-log.md         session cost log
 ```
+
+The layout was revised on 2026-11-02 per ADRs 0001, 0005, 0006 and 0007.
 
 Invariants every change must keep:
 
@@ -196,12 +226,13 @@ Invariants every change must keep:
 2. Nothing design-specific in code. The gantry exists only under designs/, test\_cases/ and firmware/. A requirement that can only be met by special-casing a design is a gap in the library and is flagged, not patched.
 3. Data files are the source of truth. Every YAML file validates against its schema; SI units internally, units explicit in files; the GUI editor, when it exists, writes the same files.
 4. Determinism. The same design, test case, seed and controller mode give an identical recording. Any source of nondeterminism is seeded or removed.
-5. Engines and emulators stay behind adapters. No MuJoCo or Renode type crosses the physics/ or controller/ boundary.
+5. Engines and emulators stay behind adapters. No MuJoCo or Renode type crosses the mechsim/physics/ adapter boundary or the core/controller/ runtime boundary; the engine-neutral physics model (ADR 0003) is the only thing that crosses into an adapter.
 6. Fidelity tiers are additive. Adding a higher tier to a component never changes the lower tier's results.
 7. Failures are errors. Solver drift, solver failure and emulator faults end the run with a report; they never produce silent numbers.
 8. The board interface is the only coupling to firmware. Firmware application code includes the interface header and nothing else from the simulator or any vendor HAL.
+9. The core is headless. Nothing outside viewer code depends on Qt or a display. Every client drives the simulator through one serializable facade; replay reads run archives; the recorder's streaming seam exists from milestone 1. The CLI is the first client and the one CI uses.
 
-Milestone 1, the first vertical slice, is the requirements doc's milestone 1 made concrete: load designs/gantry, build a MuJoCo model, run a test case against the native controller runtime, record, score, replay in MuJoCo's viewer, and pass G1 to G4. The signal layer at that point needs only limit switches, encoders, step/dir drivers, the UART operator link and a power rail with the E-stop relay. Flexible members, ropes, emulated mode and structural analysis come in later milestones as the requirements doc orders them.
+Milestone 1, the first vertical slice, is the requirements doc's milestone 1 made concrete: load designs/gantry and designs/pendulum, build the engine-neutral physics model and run it on the MuJoCo adapter (ADR 0004), run a test case against the native controller runtime, record, score, replay from the run archive, and pass G1 to G4 plus the pendulum references. The signal layer at that point needs only limit switches, encoders, step/dir drivers, the UART operator link and a power rail with the E-stop relay. Flexible members, ropes, emulated mode and structural analysis come in later milestones as the requirements doc orders them.
 
 How to extend the repository:
 
@@ -209,9 +240,10 @@ How to extend the repository:
 | --- | --- | --- |
 | A component type | library/ plugin class, its schema entry, a catalog YAML, a reference test | The reference test matches an analytical result or a datasheet curve within a stated tolerance |
 | A chip | chips/\<name>/ with platform description, SVD and pin-map template | The peripheral smoke test passes in emulated mode for every peripheral the pin map names |
-| A physics engine | physics/\<name>/ adapter implementing the physics interface | The analytical reference suite passes with the new adapter |
+| A physics engine | mechsim/physics/\<name>/ adapter plus its translation of the engine-neutral physics model | The analytical reference suite passes with the new adapter |
 | A design | designs/\<name>/ and test\_cases/\<name>/, no code | The design builds, runs and scores with the library as shipped |
-| A controller mode | controller/\<name>/ implementing the runtime interface | G1 to G4 pass with the same firmware in the new mode |
+| A controller mode | core/controller/\<name>/ implementing the runtime interface | G1 to G4 pass with the same firmware in the new mode |
+| A mechanical integrity check | integrity/ plugin class, its schema entry, a reference test | The reference test matches an analytical result within a stated tolerance |
 
 When a question is not settled here, the Decisions log wins over the requirements doc, and anything still open is listed under Risks and open questions. New decisions go into docs/ as architecture decision records and get a row in the Decisions log.
 
@@ -223,7 +255,8 @@ Each of these is a slot in the v1 data model or an interface with one implementa
 | --- | --- | --- |
 | Thermal engine (motor heating, driver losses, material drift) | A thermal facet on every component type; a thermal party registered with the kernel; loss outputs on driver and motor models | Facet held constant; kernel party absent; losses recorded but not integrated |
 | Phase-current stepper with driver current limit and microstepping | Fidelity tier 2 of the stepper and driver types | Tier 1 behavioral model only |
-| Engineering beam elements and embedded FEA | physics/chrono/ adapter; structural/ accepts engine-computed stresses as an alternative source | Reduced flexible model in MuJoCo; beam theory from member loads |
+| Engineering beam elements and embedded FEA | A beam-element tier in the own engine, or a physics/chrono/ adapter; integrity/ accepts engine-computed stresses as an alternative source | Multi-segment lumped beams with stress recovery (ADR 0010); beam theory from member loads |
+| Wear and backlash growth over cycles | A wear facet on transmission and joint types; a cycle counter in integrity/ | Facet held constant; cycles recorded but not integrated (ADR 0009) |
 | Real-chip library growth | chips/ as data; peripheral models contributed to the emulator | One STM32 part with a smoke-tested pin map |
 | Hardware-in-the-loop | A third controller runtime implementation driving a real board over a debug probe and serial, with the signal layer as its I/O | Runtime interface designed so the real board is one more implementation |
 | Monte Carlo over tolerances | min/typ/max spreads already in the materials and component schemas; the test runner's seeded variations | Spreads stored; variations seeded but nominal values used |
@@ -243,6 +276,9 @@ The risks below could block a milestone; the open questions are decisions still 
 | STEP import is fragile (bad geometry, missing materials, slow meshing) | Milestone 4 | URDF carries bodies and joints; STEP is used for shapes and a mass cross-check; validation errors on import rather than at run time |
 | Process-aware material data for printed parts is thin and varies by printer | Milestone 3 | Ship conservative defaults with wide spreads; let the team override from coupon tests |
 | Scope creep from the roadmap items into v1 | Every milestone | The Seams table is the boundary: a slot, not an implementation |
+| The own engine's contact solver slips | The own engine becoming the default engine | Per ADR 0004: the MuJoCo adapter keeps carrying runs until the own engine passes the analytical suite and matches the gantry baselines |
+| The C++ core runtime delays milestone 1 by the time to build the kernel and native runtime | Milestone 1 | Build the kernel and native runtime concurrently with the engine packages; the MuJoCo adapter carries milestone 1 |
+| Agent-written C++ contains undefined behavior | Milestone 1 onward | Address and undefined-behavior sanitizers, clang-tidy, warnings as errors and a coding subset from the first commit |
 
 Open questions, owed by the gantry team:
 
@@ -252,7 +288,7 @@ Open questions, owed by the gantry team:
 - [ ] Workspace dimensions and rated load
 - [ ] Swing angle and settle time limits for G12, and the minimum structural safety factor
 - [ ] Policy for a new target during a move, and for lifting while moving
-- [ ] Whether the firmware lives in this repository or in its own
+- [x] Whether the firmware lives in this repository or in its own: in this repository under firmware/ (Decisions log row 43)
 
 ## Sources
 

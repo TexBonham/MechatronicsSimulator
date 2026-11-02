@@ -1,0 +1,53 @@
+# ADR 0010: In-loop detection and modeled consequences of structural failure
+
+Date: 2026-11-02
+Status: Accepted
+Closes rulings: R-21
+Supersedes: none
+
+## Context
+The architecture doc computes stress from member loads after the fact (Technology recommendation verdict; `structural/`
+in the layout). The requirements doc's milestone 3 adds rope swing, flexible members and structural checks. A member that
+yields, buckles or loses a fastener mid-move changes what the controller sees, so post-run checks alone cannot show
+whether the firmware handles the failure.
+
+## Decision
+Tier 1, detection:
+
+| Aspect | Decision |
+|---|---|
+| Where | A kernel party, evaluated every tick |
+| Inputs | Live loads from physics |
+| Quantities | Member stress, buckling margin, fastener load, deflection |
+| On a limit crossing | Raise a timestamped event; fail the case; optionally halt the run |
+
+Tier 2, modeled consequences:
+
+| Failure | Model change |
+|---|---|
+| Yield | Sets a permanent spring offset |
+| Buckling | Collapses stiffness |
+| Fastener break | Disables its constraint |
+| Rope snap | Drops the load |
+
+| Milestone | Scope |
+|---|---|
+| 3 | Tier 1 and multi-segment beams |
+| 3 and 4 | Tier 2, spread across both |
+
+Interface requirement: physics publishes live member end-loads every tick.
+
+## Consequences
+- Every adapter that carries milestone 3 or later publishes member end-loads every tick (ADR 0003); the own engine is
+  designed for it from the start (ADR 0001).
+- Tier 2 requires the physics interface to accept model changes mid-run: spring offsets, stiffness changes, constraint
+  removal and load release.
+- Failure events are part of the recording and must be deterministic (invariant 4).
+- The tier 1 party follows the plugin tiers of ADR 0005 and ADR 0009: a check may start on the Python slow path and be
+  promoted to C++.
+- Rope snap depends on the rope model of the milestone 3 ADR (ADR 0003, P4).
+
+## Open items
+- Split of tier 2 failure modes between milestones 3 and 4: not ruled; set in the milestone 3 plan.
+- Rope model: milestone 3 ADR.
+- Where the optional halt is configured (test case or design) and its default: not ruled; phase 1 schemas.
