@@ -24,3 +24,6 @@ type live in the root `CLAUDE.md` dispatch table once measured.
 | 2026-11-03 | Phase 1 C3: design file contract, CAD import interface, catalog registry, gantry and pendulum designs, 27 DES stubs converted | schema-author (opus), worktree | 205K | 37 calls, 16 min |
 | 2026-11-03 | Phase 1 C5 fix round: rational tick time base, PreparedModel load, adapter surface, pin contract, 109 tests | module-writer (opus), resumed | ~47K | 24 calls, 19 min |
 | 2026-11-03 | Phase 1 inline: batch merges, FW stub removal, verification | inline | ~20K | |
+| 2026-11-03 | Phase 1 C3 stage review | general-purpose (fable) | 151K | 32 calls, 6 min; 1 mechanical blocker (matrix), 2 medium, 5 low, 4 owner items |
+| 2026-11-03 | Phase 1 batch B invariant audit (landed commit) | invariant-auditor (sonnet) | 51K | 10 calls, 0.8 min; clean, 2 minor |
+| 2026-11-03 | Phase 1 C3 fix round: heartbeat routing, DES-041, supports, style | schema-author (opus), resumed | ~30K | ~14 calls |

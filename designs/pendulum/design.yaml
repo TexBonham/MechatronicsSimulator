@@ -1,0 +1,46 @@
+# Pendulum (DES-026): one rigid link on a revolute joint with viscous damping, the engine reference geometry
+# (ENG-036, ENG-037): uniform rod L = 0.5 m, m = 1 kg along body x, radius 0.01 m, pivot at the world origin, joint
+# frame turned -90 deg about z so the rod hangs along -y. Inertia about the center of mass: ixx = m r^2 / 2,
+# iyy = izz = m L^2 / 12. Damping d = 2 zeta I omega, zeta = 0.05, I = m L^2 / 3, omega = sqrt(m g (L/2) / I).
+# Ambient temperature is the catalog's held-constant temperature; the pendulum has no thermal behavior.
+name: pendulum
+version: 0.1.0
+source_hash: unset
+status: release
+description: Single rigid link on a damped revolute joint; the second reference design.
+environment:
+  gravity: [0 m/s**2, -9.81 m/s**2, 0 m/s**2]
+  ambient_temperature: 298.15 K
+bodies:
+  - name: link
+    material: aluminium_6063_t5_extrusion
+    process:
+      kind: extrusion
+    geometry:
+      kind: primitives
+      shapes:
+        - shape: cylinder
+          position: [0.25 m, 0 m, 0 m]
+          orientation: [0.7071067811865476, 0.0, 0.7071067811865476, 0.0]
+          radius: 0.01 m
+          length: 0.5 m
+    mass_properties:
+      mass: 1 kg
+      com: [0.25 m, 0 m, 0 m]
+      inertia:
+        ixx: 5e-5 kg*m**2
+        iyy: 0.020833333333333332 kg*m**2
+        izz: 0.020833333333333332 kg*m**2
+joints:
+  - name: pivot
+    type: revolute
+    parent: world
+    child: link
+    placement:
+      position: [0 m, 0 m, 0 m]
+      orientation: [0.7071067811865476, 0.0, 0.0, -0.7071067811865476]
+    axis: [0.0, 0.0, 1.0]
+    angular:
+      - friction: 0 N*m
+        damping: 0.04520785330006282 N*m*s/rad
+        backlash: 0 rad

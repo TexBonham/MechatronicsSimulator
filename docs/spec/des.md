@@ -64,6 +64,10 @@ proposed <value>)".
 | DES-035 | Imported FEA results (stiffness, deflection, natural frequencies) for a flexible member shall be accepted into the design together with the design version they belong to. | Requirements doc, Load handoff with FEA tools, items 2 and 3 | M4 | unit | n/a |
 | DES-036 | Loading and validating a design shall be callable without starting a run and shall return every error found, for the CLI validate command. | Ruling L9; ADR 0012 | phase 1 | unit | n/a |
 | DES-037 | An imported body's material and process shall be declared in the design file when the CAD source does not supply them, and a body without them shall be rejected at load. | Architecture doc, Modules: inputs, Design files row; Modules: core, Model builder row (missing material) | M4 | unit | n/a |
+| DES-038 | A draft design may declare open parameters (name, dimension, owed by, note) and reference them as `${name}` in place of a value; a release design shall declare none, and a reference to an undeclared open parameter or one of the wrong dimension shall be rejected at load. | ADR 0012, Architecture doc invariant 3; Requirements doc, Reference design ("not set" items are parameters) | phase 1 | unit | n/a |
+| DES-039 | The design loader shall resolve component types and catalog parts through one registry built from every shipped catalog file, and a type or part name declared in two catalog files shall be rejected. | Requirements doc, Component library requirements (validation on load); Decisions log row 19 | phase 1 | unit | n/a |
+| DES-040 | A design file shall name its firmware tree, its chip definition and its control tick rate as data. | C4; ADR 0011; Architecture doc, Modules: inputs, Design files row | phase 1 | unit | n/a |
+| DES-041 | A design file shall declare the electrical wiring between component instances (driver to motor, supply to driver) and the consumers of each power rail, so the builder can gate motor power and wire the signal layer (BLD-006, G7, G8). | Architecture doc, Modules: inputs, Design files row (cross-domain bindings, power rails) | M1 | unit | n/a |
 
 ## Open parameters
 
@@ -76,7 +80,10 @@ proposed <value>)".
 | Gantry rated load and workspace dimensions | not set | gantry team |
 | Whether the gantry deflection target is static or dynamic (DES-032) | not set; planning default static with dynamic reported | gantry team |
 | Which gantry members are flexible and their sections (DES-033) | not set; planning default rails, extrusion sections | gantry team |
-| Where the minimum safety factor is declared (design or test case) | not set | owner |
+| Where the minimum safety factor is declared (design or test case); the design schema carries an optional `structural.minimum_safety_factor` meanwhile | not set | owner |
+| Wiring between component instances (driver coils to motor, supply to driver) beyond the controller-facing pin-binding table | not set; required by DES-041 | owner |
+| Closed-loop mates (DES-002): not representable yet; every body has exactly one parent joint, and loop closure arrives with the constraint element | not set | owner |
+| Where contact model parameters and the floor live: design environment or test case | not ruled | owner |
 
 ## Out of scope
 

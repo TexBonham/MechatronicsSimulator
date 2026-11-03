@@ -32,6 +32,17 @@ Owner-reviewed commits carry `Reviewed-by: Tex Bonham <bo1750te0130@gmail.com>`.
   with state and fault codes (CTL-018 channel). The rail voltage is not a firmware input.
 - PhysicsAdapter.load takes a prepared model (neutral JSON plus an engine artifact such as MJCF) per ADR 0014.
 
+## Rulings owed by the owner before milestone 1 (surfaced by the C3 review)
+
+- Operator message labels: the requirements doc's "current position, ready / fault" was split into two messages; D2 says
+  verbatim labels. Confirm the split or rule one label.
+- Heartbeat routing: a pin signal into the E-stop relay or watchdog, not an operator message (applied in the C3 fix
+  round). The catalog has no watchdog type yet (LIB-019, M2) and estop_relay has no heartbeat input; both are owed.
+- Where contact model parameters and the floor live: design environment or test case.
+- Instance wiring and rail consumers are now DES-041 (design file), owed before the builder brief.
+- Gantry kinematic chain, hook on a spherical joint standing in for the M3 rope, joint limits 0 to workspace: writer
+  defaults until the gantry team's CAD arrives; record the hook placeholder in the M3 rope ADR.
+
 ## Rulings made at merge-back, confirmed by the owner 2026-11-03 with the round 1 commit
 
 - Steppers and drivers are signal-layer models (SIG-032 to SIG-036); transmissions, ropes and lumped beams are
