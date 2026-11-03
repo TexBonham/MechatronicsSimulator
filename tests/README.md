@@ -34,18 +34,40 @@ verifies; the traceability test (ADR 0008) fails on a requirement with no test a
   ```
 
 - C++ (Catch2 v3): a tag holding the requirement ID, e.g. `TEST_CASE("pendulum period", "[ENG-001]")`. Tags are
-  free-form in Catch2, so nothing is registered; the traceability test will read them. `[smoke]` marks build smoke tests
+  free-form in Catch2, so nothing is registered; the traceability test reads them. `[smoke]` marks build smoke tests
   that verify no requirement.
 
 ## Stubs before code (ruling T3)
 
 Every requirement gets a test stub committed as a strict expected failure before any code is written for it.
 
-- Python: `@pytest.mark.xfail(reason="stub: <ID> not implemented")`. `xfail_strict = true` in `pyproject.toml` turns
-  a stub that starts passing into a failure, so it must be converted (marker removed) in the commit that implements
-  the requirement.
-- C++: not yet ruled (ADR 0008 open item). Catch2's `[!shouldfail]` tag has the same strict semantics (the test
-  fails if its body passes) and is the candidate convention.
+## Stub conventions
+
+- Python: a stub carries the requirement marker and a strict xfail marker, and its body raises `NotImplementedError`.
+
+  ```python
+  @pytest.mark.req("ENG-001")
+  @pytest.mark.xfail(strict=True, reason="stub")
+  def test_pendulum_period_matches_closed_form() -> None:
+      raise NotImplementedError
+  ```
+
+  Converting a stub means removing the xfail marker and writing the real test; the `req` marker stays.
+
+- C++ (Catch2 v3): a stub is `TEST_CASE("<ID> <short title>", "[<ID>][!shouldfail][stub]")` with the body
+  `FAIL("stub");`.
+
+  ```cpp
+  TEST_CASE("ENG-001 pendulum period", "[ENG-001][!shouldfail][stub]") {
+      FAIL("stub");
+  }
+  ```
+
+  Converting a stub removes the `[!shouldfail]` and `[stub]` tags and writes the real test; the ID tag stays.
+
+Both conventions share one property: a stub that starts passing fails the run (pytest strict xfail; Catch2
+`[!shouldfail]` fails a test whose body passes). A stub must therefore be converted in the commit that implements its
+requirement.
 
 Tolerances come from the spec, never from the test (ruling T4); a tolerance change is a spec edit.
 

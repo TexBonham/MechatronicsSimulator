@@ -14,3 +14,11 @@ type live in the root `CLAUDE.md` dispatch table once measured.
 | 2026-11-02 | 0c merge-back, verification, ruff fix | inline | ~15K | cherry-pick x3, full suite, C++ debug preset |
 | 2026-11-02 | 0c stage review from plan and diff | general-purpose (fable) | 136K | 19 calls, 5.5 min; 0 blockers, 5 should-fix, 8 nits |
 | 2026-11-02 | 0c invariant-auditor smoke run and definition feedback | general-purpose (sonnet) | 69K | 6 calls, 0.5 min |
+| 2026-11-03 | 0b S0: traceability tool, spec template, stub conventions | module-writer (opus), worktree | 107K | 14 calls, 5 min; first module-writer reference size |
+| 2026-11-03 | 0b S1: ENG KER SIG CTL FW specs, 152 stubs, ADR 0013 draft | general-purpose (opus), worktree | 143K | 29 calls, 7 min |
+| 2026-11-03 | 0b S2: LIB MAT DES BLD PHY specs, 158 stubs | general-purpose (opus), worktree | 120K | 24 calls, 6 min |
+| 2026-11-03 | 0b S3: TST REC INT SCO FAC VIE INV ACC specs, 224 stubs | general-purpose (opus), worktree | 141K | 29 calls, 8 min |
+| 2026-11-03 | 0b merge-back, matrix regeneration, ENG-011 fix, verification | inline | ~12K | cherry-pick x4, full suite |
+| 2026-11-03 | 0b cross-spec stage review | general-purpose (fable) | 182K | 22 calls, 6.5 min; 0 blockers, 12 should-fix |
+| 2026-11-03 | 0b invariant audit | invariant-auditor (sonnet) | 25K | 5 calls, 0.4 min; caught stale matrix |
+| 2026-11-03 | 0b fix pass: 15 review items, 12 new IDs | general-purpose (opus) | 137K | 27 calls, 5 min |

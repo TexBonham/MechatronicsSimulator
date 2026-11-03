@@ -4,17 +4,24 @@ State for the coordinating session. A new session reads this, then `docs/rulings
 
 ## Current checkpoint
 
-Phase 0a and 0c committed and pushed; first CI run on the 0c push not yet observed. Nothing dispatched.
+Phase 0b round 1 (18 specs, 548 requirements, strict-xfail stubs, traceability tool, ADR 0013 proposed) staged and
+reviewed; awaiting owner gate review and commit. Nothing dispatched.
 
 ## Next
 
-1. Confirm the first CI run (python and cpp workflows) is green on the 0c commit.
-2. Phase 0b plan for sign-off: spec template, one spec per module, test stubs, traceability test; calibration spike brief (engine packages 1 and 2, pendulum and loaded-beam references) alongside.
-3. Phase 1: contracts and schemas, facade protocol ADR, own-engine integrator ADR.
+1. Owner gate review of round 1: the specs (read `eng.md`, `phy.md`, `int.md` most carefully), the three boundary
+   rulings below, and ADR 0013 (own-engine integrator), which must be Accepted or changed before the spike.
+2. Round 2, the calibration spike: engine packages 1 and 2 against the ENG spec's "spike" rows, converting their stubs,
+   through module-writer, logging tokens, calls and defects per package. Brief to be posted for sign-off after the gate.
+3. Phase 1: contracts and schemas, facade protocol ADR.
 
-## In flight
+## Rulings made at merge-back, confirmed by the owner 2026-11-03 with the round 1 commit
 
-None.
+- Steppers and drivers are signal-layer models (SIG-032 to SIG-036); transmissions, ropes and lumped beams are
+  engine-side neutral-model elements (ENG-043 to ENG-048). Shaft torque crosses out, load torque crosses back.
+- ENG-011: the sixth joint type is the free joint (six degrees of freedom) for unattached bodies.
+- Flexible-member tuning: the builder tunes (BLD-019); integrity imports FEA results into the design file (INT-034).
+- Tier 1 integrity reads live loads through the kernel; everything else reads the recording (REC-001 carve-out).
 
 ## Parked
 

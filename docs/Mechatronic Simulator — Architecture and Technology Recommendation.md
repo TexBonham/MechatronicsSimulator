@@ -60,6 +60,7 @@ These rulings were made in the planning session of Nov 1, 2026 and are the basis
 | 42 | Product scope (R-01) | Standalone general mechatronic simulator; the gantry is the first test case and reference design, never the design target. | No |
 | 43 | Firmware location (R-02) | Firmware lives in this repo under firmware/, split out only if it becomes independently useful. | No |
 | 44 | Second design (R-03) | A pendulum design under designs/pendulum/ from milestone 1 as the rope analytical reference and first generality guard; the two-joint arm remains the milestone 5 proof. | No |
+| 45 | Own-engine integrator | Semi-implicit Euler with implicit springs and contacts, post-step projection, projected Gauss-Seidel with a fixed cap, Newmark reserved as a later tier, four lumped-beam segments by default (docs/adr/0013-own-engine-integrator.md). | No |
 
 ## System overview
 

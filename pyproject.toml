@@ -45,7 +45,7 @@ quote-style = "double"
 python_version = "3.12"
 strict = true
 packages = ["mechsim"]
-modules = ["check_imports"]
+modules = ["check_imports", "traceability"]
 mypy_path = "tools"
 warn_unreachable = true
 
