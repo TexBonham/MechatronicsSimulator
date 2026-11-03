@@ -49,7 +49,7 @@ proposed <value>)".
 | SCO-017 | Scoring shall take every criterion, measure and limit from the test case file, with no design-specific criterion in code. | Architecture doc, Repository starting point, invariants 2 and 3; Modules: inputs, Test case files row | M1 | unit | n/a |
 | SCO-018 | Scoring shall report a sweep's criterion values per sweep value side by side. | Requirements doc, Test cases, Batches and sweeps | M3 | unit | n/a |
 | SCO-019 | Scoring shall report the results of seeded variations per variation seed. | Requirements doc, Test cases, Batches and sweeps | M3 | unit | n/a |
-| SCO-020 | Scoring shall support a criterion comparing the peak, minimum or final value of a recorded series with a limit. | Requirements doc, Test cases, gantry suite table, Pass criteria column | M1 | unit | n/a |
+| SCO-020 | Scoring shall support a criterion comparing a statistic of a recorded series with a limit, the statistics being final value, minimum, maximum, peak absolute value, and period (zero-crossing method over a window, as the engine reference tests do). | Requirements doc, Test cases (G12 swing, pendulum references); Architecture doc, Validation | M1 | unit | n/a |
 | SCO-021 | Scoring shall support a criterion comparing the simulated time between two recorded events with a limit. | Requirements doc, Test cases, gantry suite table, Pass criteria column | M2 | unit | n/a |
 | SCO-022 | Scoring shall support a criterion requiring the presence or absence of a recorded event or operator message within a time window. | Requirements doc, Test cases, gantry suite table, Pass criteria column | M1 | unit | n/a |
 | SCO-023 | Scoring shall support a criterion requiring no actuator motion within a time window, measured against a motion threshold. | Requirements doc, Test cases, gantry suite table, Pass criteria column | M1 | unit | not set (owed by owner) |
@@ -60,10 +60,10 @@ proposed <value>)".
 
 | Parameter | Current value | Owed by |
 |---|---|---|
-| Criterion vocabulary and its schema | not set | phase 1 schemas |
+| Criterion vocabulary and its schema | `value` (final, minimum, maximum, peak_absolute, period against `below`, `at_most`, `above`, `at_least` or `within` an absolute or relative limit), `interval`, `event`, `no_motion`, `settle_time`, `no_overlap` (`schemas/test_case.json`) | set in phase 1 C4 |
 | Motion threshold for "no actuator motion" | not set | owner |
 | Shareable report format | not set | SCO module plan |
-| Regression baseline YAML layout | not set | phase 1 schemas |
+| Regression baseline YAML layout | design name and version, suite, entries sorted by case id (natural order) then criterion, each with status `pass\|fail\|not_run\|error`, measured value, limit text, worst-case time and run identity (`schemas/baseline.json`); a diff classes entries as newly passing, newly failing (passed before, not now), unchanged, missing, added | set in phase 1 C4 |
 | Whether a baseline diff flags changed measured values that still pass | not set | owner |
 
 ## Out of scope

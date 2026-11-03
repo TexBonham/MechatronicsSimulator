@@ -1,7 +1,7 @@
 # ADR 0015: Facade protocol, JSON over WebSocket with binary series frames
 
 Date: 2026-11-03
-Status: Proposed
+Status: Accepted (owner ruling 2026-11-04: option A, JSON over WebSocket with binary series frames)
 Closes rulings: none (closes the protocol open items of ADR 0006 and ADR 0007)
 Supersedes: none
 

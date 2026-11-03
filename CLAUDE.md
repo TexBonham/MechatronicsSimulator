@@ -64,18 +64,18 @@ docs/            adr/ spec/ rulings/ queue.md cost-log.md
 | Task | Touch, in order | Done when |
 |---|---|---|
 | Component type | `mechsim/library/` plugin class, schema entry, catalog YAML, reference test | Reference test within stated tolerance of analytical result or datasheet |
-| Chip | `chips/<name>/` platform description, SVD, pin map | Peripheral smoke test passes in emulated mode |
+| Chip | `chips/<name>/` platform description, SVD, pin map | Peripheral smoke test passes emulated |
 | Physics engine | `mechsim/physics/<name>/` adapter + neutral-model translation | Analytical reference suite passes with it |
 | Design | `designs/<name>/`, `test_cases/<name>/`; no code | Builds, runs, scores with the shipped library |
 | Controller mode | `core/controller/<name>/` implementing runtime interface | G1-G4 pass with same firmware |
 | Integrity check | `mechsim/integrity/` plugin class, schema entry, reference test | Reference within stated tolerance |
-| Spec requirement | `docs/spec/<module>.md`, then a stub | Traceability test passes |
+| Spec requirement | `docs/spec/<module>.md`, then a stub | Traceability passes |
 | Test stub | `tests/<tier>/` test with requirement marker, strict xfail | Reported xfail; traceability passes |
 | ADR | copy `docs/adr/0000-template.md`, `docs/adr/README.md` row, Decisions log row | Owner reviewed |
 | Agent | `.claude/agents/<name>.md`, Agents table below | First run logged, reference size recorded |
 | Tolerance | `docs/spec/<module>.md` only (T4) | Reviewed spec edit; never edit the test alone |
 | Run the suite | `uv run pytest` | All tiers green, stubs xfail |
-| Run the C++ build | `cmake --preset debug-sanitize`, `cmake --build --preset debug-sanitize`, `ctest --preset debug-sanitize` (`-L reference` for the reference tier) | Clean, green |
+| Run the C++ build | `cmake --preset debug-sanitize`, `cmake --build --preset debug-sanitize`, `ctest --preset debug-sanitize` (`-L reference` = reference tier) | Clean, green |
 
 ## Test conventions
 
@@ -101,23 +101,22 @@ C11, fixed-width types. Application code includes nothing outside `board_interfa
 
 ## Agents and dispatch
 
-Measured on the calibration spike (2026-11-03). Supersedes the global dispatch defaults (override rule). Judge a run
-against its row.
+Measured on the spike and phase 1 (2026-11-03). Supersedes the global dispatch defaults (override rule).
 
 | Agent | Model | Purpose | Reference run (tokens / calls) |
 |---|---|---|---|
 | module-writer | Opus | Engine or module package against spec IDs | 110K-220K / 21-50; fix round on resume ~15K / 7-14 |
-| schema-author | Opus | Pydantic models, schemas | not yet measured |
+| schema-author | Opus | Models, schemas, examples, tests | 123K-210K / 26-42; fix round ~3K-30K |
 | invariant-auditor | Sonnet; Opus at gates | Audits invariants beside stage review | 25K-36K / 5-7 |
 | reference-validator | Sonnet | Reference tier, reports numbers | 30K / 8 |
-| firmware-builder | Sonnet; Opus for first shim | Firmware, native shim | not yet measured |
+| firmware-builder | Sonnet; Opus for first shim | Firmware, native shim | 118K / 27 (Opus); fix round ~29K |
 | docs-indexer | Haiku | Docs and `CLAUDE.md` upkeep | 57K / 15 |
 | Fable stage review (general-purpose) | Fable | Review from spec and diff | 108K-182K / 12-24; re-review on resume ~11K |
 | docs writer (general-purpose) | Opus | ADRs, specs, scaffolding | 93K-143K / 17-29 |
 
-Per engine package all in: ~290K small, ~430K large, exactly one fix round each. Review found one blocker (p1, a wrong
-formula in the brief) and no algorithm defects in p2a or p2b. Briefs carry the derivation and physics-derived bounds;
-tests derived from the implementation do not catch the implementation.
+Per engine package all in: ~290K small, ~430K large, one fix round each; per schema brief ~350K with review. One
+blocker so far (p1, a wrong formula in the brief), no algorithm defects since. Briefs carry derivations and
+physics-derived bounds; tests derived from the implementation do not catch the implementation.
 
 Model-gated stage commits per W-02; owner reviews gates, ADRs, contracts and one stage commit in five.
 
@@ -129,7 +128,7 @@ Detail: `docs/milestones.md`.
 |---|---|
 | 0a, 0c, 0b | Rulings and ADRs; scaffolding, agents, hooks, CI; specs and stubs: done |
 | Spike | Engine packages 1, 2a, 2b: done |
-| 1 | Contracts, schemas, facade protocol |
+| 1 | Contracts, schemas, facade protocol: done, at owner gate |
 | M1-M5 | Requirements doc milestone plan |
 
 ## Decisions

@@ -68,6 +68,7 @@ proposed <value>)".
 | DES-039 | The design loader shall resolve component types and catalog parts through one registry built from every shipped catalog file, and a type or part name declared in two catalog files shall be rejected. | Requirements doc, Component library requirements (validation on load); Decisions log row 19 | phase 1 | unit | n/a |
 | DES-040 | A design file shall name its firmware tree, its chip definition and its control tick rate as data. | C4; ADR 0011; Architecture doc, Modules: inputs, Design files row | phase 1 | unit | n/a |
 | DES-041 | A design file shall declare the electrical wiring between component instances (driver to motor, supply to driver) and the consumers of each power rail, so the builder can gate motor power and wire the signal layer (BLD-006, G7, G8). | Architecture doc, Modules: inputs, Design files row (cross-domain bindings, power rails) | M1 | unit | n/a |
+| DES-042 | A design file's environment shall declare the contact model defaults (normal stiffness, damping, friction), per-material-pair overrides, body-pair exclusions and the floor plane, from which the builder fills the neutral model's contact section. | Owner ruling 2026-11-04; ADR 0002; ADR 0003 (contacts element) | M1 | unit | n/a |
 
 ## Open parameters
 
@@ -83,7 +84,7 @@ proposed <value>)".
 | Where the minimum safety factor is declared (design or test case); the design schema carries an optional `structural.minimum_safety_factor` meanwhile | not set | owner |
 | Wiring between component instances (driver coils to motor, supply to driver) beyond the controller-facing pin-binding table | not set; required by DES-041 | owner |
 | Closed-loop mates (DES-002): not representable yet; every body has exactly one parent joint, and loop closure arrives with the constraint element | not set | owner |
-| Where contact model parameters and the floor live: design environment or test case | not ruled | owner |
+| Where contact model parameters and the floor live | design environment (owner ruling 2026-11-04); DES-042 carries it | owner |
 
 ## Out of scope
 

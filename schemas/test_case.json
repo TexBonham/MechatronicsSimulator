@@ -1,0 +1,1827 @@
+{
+  "$defs": {
+    "Command": {
+      "additionalProperties": false,
+      "description": "An operator message sent through the operator link at `at`; payload keys are the message's field names.",
+      "properties": {
+        "at": {
+          "anyOf": [
+            {
+              "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s+\\S.*)?$",
+              "type": "string"
+            },
+            {
+              "pattern": "^\\$\\{[a-z][a-z0-9_]*\\}$",
+              "type": "string"
+            }
+          ],
+          "title": "At"
+        },
+        "message": {
+          "pattern": "^[a-z][a-z0-9_]*$",
+          "title": "Message",
+          "type": "string"
+        },
+        "payload": {
+          "patternProperties": {
+            "^[a-z][a-z0-9_]*$": {
+              "anyOf": [
+                {
+                  "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s+\\S.*)?$",
+                  "type": "string"
+                },
+                {
+                  "pattern": "^\\$\\{[a-z][a-z0-9_]*\\}$",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "title": "Payload",
+          "type": "object"
+        }
+      },
+      "required": [
+        "at",
+        "message"
+      ],
+      "title": "Command",
+      "type": "object"
+    },
+    "ControllerFreeze": {
+      "additionalProperties": false,
+      "properties": {
+        "duration": {
+          "anyOf": [
+            {
+              "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s+\\S.*)?$",
+              "type": "string"
+            },
+            {
+              "pattern": "^\\$\\{[a-z][a-z0-9_]*\\}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Duration"
+        },
+        "end": {
+          "anyOf": [
+            {
+              "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s+\\S.*)?$",
+              "type": "string"
+            },
+            {
+              "pattern": "^\\$\\{[a-z][a-z0-9_]*\\}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "End"
+        },
+        "kind": {
+          "const": "controller_freeze",
+          "title": "Kind",
+          "type": "string"
+        },
+        "start": {
+          "anyOf": [
+            {
+              "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s+\\S.*)?$",
+              "type": "string"
+            },
+            {
+              "pattern": "^\\$\\{[a-z][a-z0-9_]*\\}$",
+              "type": "string"
+            }
+          ],
+          "title": "Start"
+        }
+      },
+      "required": [
+        "start",
+        "kind"
+      ],
+      "title": "ControllerFreeze",
+      "type": "object"
+    },
+    "DesignRef": {
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "pattern": "^[a-z][a-z0-9_]*$",
+          "title": "Name",
+          "type": "string"
+        },
+        "version": {
+          "pattern": "^\\d+\\.\\d+\\.\\d+$",
+          "title": "Version",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "version"
+      ],
+      "title": "DesignRef",
+      "type": "object"
+    },
+    "EndCondition": {
+      "additionalProperties": false,
+      "description": "Ends at a time, on an observed operator message, or when the controller enters a state; never later than\n`max_duration`.",
+      "properties": {
+        "at": {
+          "anyOf": [
+            {
+              "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s+\\S.*)?$",
+              "type": "string"
+            },
+            {
+              "pattern": "^\\$\\{[a-z][a-z0-9_]*\\}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "At"
+        },
+        "controller_state": {
+          "anyOf": [
+            {
+              "pattern": "^[a-z][a-z0-9_]*$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Controller State"
+        },
+        "max_duration": {
+          "anyOf": [
+            {
+              "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s+\\S.*)?$",
+              "type": "string"
+            },
+            {
+              "pattern": "^\\$\\{[a-z][a-z0-9_]*\\}$",
+              "type": "string"
+            }
+          ],
+          "title": "Max Duration"
+        },
+        "message": {
+          "anyOf": [
+            {
+              "pattern": "^[a-z][a-z0-9_]*$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Message"
+        }
+      },
+      "required": [
+        "max_duration"
+      ],
+      "title": "EndCondition",
+      "type": "object"
+    },
+    "EstopPress": {
+      "additionalProperties": false,
+      "properties": {
+        "duration": {
+          "anyOf": [
+            {
+              "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s+\\S.*)?$",
+              "type": "string"
+            },
+            {
+              "pattern": "^\\$\\{[a-z][a-z0-9_]*\\}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Duration"
+        },
+        "end": {
+          "anyOf": [
+            {
+              "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s+\\S.*)?$",
+              "type": "string"
+            },
+            {
+              "pattern": "^\\$\\{[a-z][a-z0-9_]*\\}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "End"
+        },
+        "kind": {
+          "const": "estop_press",
+          "title": "Kind",
+          "type": "string"
+        },
+        "start": {
+          "anyOf": [
+            {
+              "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s+\\S.*)?$",
+              "type": "string"
+            },
+            {
+              "pattern": "^\\$\\{[a-z][a-z0-9_]*\\}$",
+              "type": "string"
+            }
+          ],
+          "title": "Start"
+        },
+        "target": {
+          "pattern": "^[a-z][a-z0-9_]*$",
+          "title": "Target",
+          "type": "string"
+        }
+      },
+      "required": [
+        "start",
+        "kind",
+        "target"
+      ],
+      "title": "EstopPress",
+      "type": "object"
+    },
+    "EventCriterion": {
+      "additionalProperties": false,
+      "description": "Presence or absence of an operator message or controller state within a window (SCO-022).",
+      "properties": {
+        "check": {
+          "const": "event",
+          "title": "Check",
+          "type": "string"
+        },
+        "event": {
+          "pattern": "^(message|state):[a-z][a-z0-9_]*$",
+          "title": "Event",
+          "type": "string"
+        },
+        "expect": {
+          "enum": [
+            "present",
+            "absent"
+          ],
+          "title": "Expect",
+          "type": "string"
+        },
+        "name": {
+          "pattern": "^[a-z][a-z0-9_]*$",
+          "title": "Name",
+          "type": "string"
+        },
+        "window": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Window"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "required": [
+        "name",
+        "check",
+        "event",
+        "expect"
+      ],
+      "title": "EventCriterion",
+      "type": "object"
+    },
+    "InitialState": {
+      "additionalProperties": false,
+      "properties": {
+        "controller": {
+          "description": "controller state assumptions",
+          "patternProperties": {
+            "^[a-z][a-z0-9_]*$": {
+              "anyOf": [
+                {
+                  "type": "boolean"
+                },
+                {
+                  "pattern": "^[a-z][a-z0-9_]*$",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "title": "Controller",
+          "type": "object"
+        },
+        "joints": {
+          "items": {
+            "$ref": "#/$defs/JointState"
+          },
+          "title": "Joints",
+          "type": "array"
+        },
+        "payload": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Payload"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "title": "InitialState",
+      "type": "object"
+    },
+    "IntervalCriterion": {
+      "additionalProperties": false,
+      "description": "The simulated time from one recorded event to the next (SCO-021).",
+      "properties": {
+        "check": {
+          "const": "interval",
+          "title": "Check",
+          "type": "string"
+        },
+        "comparison": {
+          "enum": [
+            "below",
+            "at_most",
+            "above",
+            "at_least"
+          ],
+          "title": "Comparison",
+          "type": "string"
+        },
+        "end_event": {
+          "pattern": "^(message|state):[a-z][a-z0-9_]*$",
+          "title": "End Event",
+          "type": "string"
+        },
+        "limit": {
+          "anyOf": [
+            {
+              "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s+\\S.*)?$",
+              "type": "string"
+            },
+            {
+              "pattern": "^\\$\\{[a-z][a-z0-9_]*\\}$",
+              "type": "string"
+            }
+          ],
+          "title": "Limit"
+        },
+        "name": {
+          "pattern": "^[a-z][a-z0-9_]*$",
+          "title": "Name",
+          "type": "string"
+        },
+        "start_event": {
+          "pattern": "^(message|state):[a-z][a-z0-9_]*$",
+          "title": "Start Event",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "check",
+        "start_event",
+        "end_event",
+        "comparison",
+        "limit"
+      ],
+      "title": "IntervalCriterion",
+      "type": "object"
+    },
+    "JointState": {
+      "additionalProperties": false,
+      "description": "A single-DOF joint's start: a length and a speed (prismatic) or an angle and an angular rate (revolute).",
+      "properties": {
+        "joint": {
+          "pattern": "^[a-z][a-z0-9_]*$",
+          "title": "Joint",
+          "type": "string"
+        },
+        "position": {
+          "anyOf": [
+            {
+              "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s+\\S.*)?$",
+              "type": "string"
+            },
+            {
+              "pattern": "^\\$\\{[a-z][a-z0-9_]*\\}$",
+              "type": "string"
+            }
+          ],
+          "title": "Position"
+        },
+        "velocity": {
+          "anyOf": [
+            {
+              "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s+\\S.*)?$",
+              "type": "string"
+            },
+            {
+              "pattern": "^\\$\\{[a-z][a-z0-9_]*\\}$",
+              "type": "string"
+            }
+          ],
+          "title": "Velocity"
+        }
+      },
+      "required": [
+        "joint",
+        "position",
+        "velocity"
+      ],
+      "title": "JointState",
+      "type": "object"
+    },
+    "MotorStall": {
+      "additionalProperties": false,
+      "properties": {
+        "available_torque": {
+          "anyOf": [
+            {
+              "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s+\\S.*)?$",
+              "type": "string"
+            },
+            {
+              "pattern": "^\\$\\{[a-z][a-z0-9_]*\\}$",
+              "type": "string"
+            }
+          ],
+          "title": "Available Torque"
+        },
+        "duration": {
+          "anyOf": [
+            {
+              "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s+\\S.*)?$",
+              "type": "string"
+            },
+            {
+              "pattern": "^\\$\\{[a-z][a-z0-9_]*\\}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Duration"
+        },
+        "end": {
+          "anyOf": [
+            {
+              "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s+\\S.*)?$",
+              "type": "string"
+            },
+            {
+              "pattern": "^\\$\\{[a-z][a-z0-9_]*\\}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "End"
+        },
+        "kind": {
+          "const": "motor_stall",
+          "title": "Kind",
+          "type": "string"
+        },
+        "start": {
+          "anyOf": [
+            {
+              "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s+\\S.*)?$",
+              "type": "string"
+            },
+            {
+              "pattern": "^\\$\\{[a-z][a-z0-9_]*\\}$",
+              "type": "string"
+            }
+          ],
+          "title": "Start"
+        },
+        "target": {
+          "pattern": "^[a-z][a-z0-9_]*$",
+          "title": "Target",
+          "type": "string"
+        }
+      },
+      "required": [
+        "start",
+        "kind",
+        "target",
+        "available_torque"
+      ],
+      "title": "MotorStall",
+      "type": "object"
+    },
+    "NoMotionCriterion": {
+      "additionalProperties": false,
+      "description": "No actuator motion above `threshold` within the window (SCO-023).",
+      "properties": {
+        "actuators": {
+          "items": {
+            "pattern": "^[a-z][a-z0-9_]*$",
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Actuators",
+          "type": "array"
+        },
+        "check": {
+          "const": "no_motion",
+          "title": "Check",
+          "type": "string"
+        },
+        "name": {
+          "pattern": "^[a-z][a-z0-9_]*$",
+          "title": "Name",
+          "type": "string"
+        },
+        "threshold": {
+          "anyOf": [
+            {
+              "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s+\\S.*)?$",
+              "type": "string"
+            },
+            {
+              "pattern": "^\\$\\{[a-z][a-z0-9_]*\\}$",
+              "type": "string"
+            }
+          ],
+          "title": "Threshold"
+        },
+        "window": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Window"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "required": [
+        "name",
+        "actuators",
+        "check",
+        "threshold"
+      ],
+      "title": "NoMotionCriterion",
+      "type": "object"
+    },
+    "NoOverlapCriterion": {
+      "additionalProperties": false,
+      "description": "No two commands active at once on the same actuator (SCO-025).",
+      "properties": {
+        "actuators": {
+          "items": {
+            "pattern": "^[a-z][a-z0-9_]*$",
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Actuators",
+          "type": "array"
+        },
+        "check": {
+          "const": "no_overlap",
+          "title": "Check",
+          "type": "string"
+        },
+        "name": {
+          "pattern": "^[a-z][a-z0-9_]*$",
+          "title": "Name",
+          "type": "string"
+        },
+        "window": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Window"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "required": [
+        "name",
+        "actuators",
+        "check"
+      ],
+      "title": "NoOverlapCriterion",
+      "type": "object"
+    },
+    "OpenParameter": {
+      "additionalProperties": false,
+      "properties": {
+        "dimension": {
+          "description": "pint dimensionality string, or \"choice\" for a non-quantity",
+          "minLength": 1,
+          "title": "Dimension",
+          "type": "string"
+        },
+        "name": {
+          "pattern": "^[a-z][a-z0-9_]*$",
+          "title": "Name",
+          "type": "string"
+        },
+        "note": {
+          "minLength": 1,
+          "title": "Note",
+          "type": "string"
+        },
+        "owed_by": {
+          "minLength": 1,
+          "title": "Owed By",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "dimension",
+        "owed_by",
+        "note"
+      ],
+      "title": "OpenParameter",
+      "type": "object"
+    },
+    "Payload": {
+      "additionalProperties": false,
+      "properties": {
+        "attached": {
+          "title": "Attached",
+          "type": "boolean"
+        },
+        "body": {
+          "anyOf": [
+            {
+              "pattern": "^[a-z][a-z0-9_]*$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Body"
+        },
+        "mass": {
+          "anyOf": [
+            {
+              "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s+\\S.*)?$",
+              "type": "string"
+            },
+            {
+              "pattern": "^\\$\\{[a-z][a-z0-9_]*\\}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Mass"
+        }
+      },
+      "required": [
+        "attached"
+      ],
+      "title": "Payload",
+      "type": "object"
+    },
+    "PayloadChange": {
+      "additionalProperties": false,
+      "description": "Instantaneous: at `start` the payload on `target` becomes `mass`; 0 kg detaches it.",
+      "properties": {
+        "kind": {
+          "const": "payload_change",
+          "title": "Kind",
+          "type": "string"
+        },
+        "mass": {
+          "anyOf": [
+            {
+              "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s+\\S.*)?$",
+              "type": "string"
+            },
+            {
+              "pattern": "^\\$\\{[a-z][a-z0-9_]*\\}$",
+              "type": "string"
+            }
+          ],
+          "title": "Mass"
+        },
+        "start": {
+          "anyOf": [
+            {
+              "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s+\\S.*)?$",
+              "type": "string"
+            },
+            {
+              "pattern": "^\\$\\{[a-z][a-z0-9_]*\\}$",
+              "type": "string"
+            }
+          ],
+          "title": "Start"
+        },
+        "target": {
+          "pattern": "^[a-z][a-z0-9_]*$",
+          "title": "Target",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "start",
+        "target",
+        "mass"
+      ],
+      "title": "PayloadChange",
+      "type": "object"
+    },
+    "PowerLoss": {
+      "additionalProperties": false,
+      "properties": {
+        "duration": {
+          "anyOf": [
+            {
+              "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s+\\S.*)?$",
+              "type": "string"
+            },
+            {
+              "pattern": "^\\$\\{[a-z][a-z0-9_]*\\}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Duration"
+        },
+        "end": {
+          "anyOf": [
+            {
+              "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s+\\S.*)?$",
+              "type": "string"
+            },
+            {
+              "pattern": "^\\$\\{[a-z][a-z0-9_]*\\}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "End"
+        },
+        "kind": {
+          "const": "power_loss",
+          "title": "Kind",
+          "type": "string"
+        },
+        "rail": {
+          "pattern": "^[a-z][a-z0-9_]*$",
+          "title": "Rail",
+          "type": "string"
+        },
+        "start": {
+          "anyOf": [
+            {
+              "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s+\\S.*)?$",
+              "type": "string"
+            },
+            {
+              "pattern": "^\\$\\{[a-z][a-z0-9_]*\\}$",
+              "type": "string"
+            }
+          ],
+          "title": "Start"
+        }
+      },
+      "required": [
+        "start",
+        "kind",
+        "rail"
+      ],
+      "title": "PowerLoss",
+      "type": "object"
+    },
+    "Rates": {
+      "additionalProperties": false,
+      "description": "Overrides of the design's rates for this case; at least one is given.",
+      "properties": {
+        "control_rate": {
+          "anyOf": [
+            {
+              "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s+\\S.*)?$",
+              "type": "string"
+            },
+            {
+              "pattern": "^\\$\\{[a-z][a-z0-9_]*\\}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Control Rate"
+        },
+        "physics_step": {
+          "anyOf": [
+            {
+              "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s+\\S.*)?$",
+              "type": "string"
+            },
+            {
+              "pattern": "^\\$\\{[a-z][a-z0-9_]*\\}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Physics Step"
+        }
+      },
+      "title": "Rates",
+      "type": "object"
+    },
+    "SensorDropped": {
+      "additionalProperties": false,
+      "properties": {
+        "duration": {
+          "anyOf": [
+            {
+              "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s+\\S.*)?$",
+              "type": "string"
+            },
+            {
+              "pattern": "^\\$\\{[a-z][a-z0-9_]*\\}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Duration"
+        },
+        "end": {
+          "anyOf": [
+            {
+              "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s+\\S.*)?$",
+              "type": "string"
+            },
+            {
+              "pattern": "^\\$\\{[a-z][a-z0-9_]*\\}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "End"
+        },
+        "kind": {
+          "const": "sensor_dropped",
+          "title": "Kind",
+          "type": "string"
+        },
+        "start": {
+          "anyOf": [
+            {
+              "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s+\\S.*)?$",
+              "type": "string"
+            },
+            {
+              "pattern": "^\\$\\{[a-z][a-z0-9_]*\\}$",
+              "type": "string"
+            }
+          ],
+          "title": "Start"
+        },
+        "target": {
+          "pattern": "^[a-z][a-z0-9_]*$",
+          "title": "Target",
+          "type": "string"
+        }
+      },
+      "required": [
+        "start",
+        "kind",
+        "target"
+      ],
+      "title": "SensorDropped",
+      "type": "object"
+    },
+    "SensorForced": {
+      "additionalProperties": false,
+      "properties": {
+        "duration": {
+          "anyOf": [
+            {
+              "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s+\\S.*)?$",
+              "type": "string"
+            },
+            {
+              "pattern": "^\\$\\{[a-z][a-z0-9_]*\\}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Duration"
+        },
+        "end": {
+          "anyOf": [
+            {
+              "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s+\\S.*)?$",
+              "type": "string"
+            },
+            {
+              "pattern": "^\\$\\{[a-z][a-z0-9_]*\\}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "End"
+        },
+        "kind": {
+          "const": "sensor_forced",
+          "title": "Kind",
+          "type": "string"
+        },
+        "level": {
+          "enum": [
+            "high",
+            "low"
+          ],
+          "title": "Level",
+          "type": "string"
+        },
+        "start": {
+          "anyOf": [
+            {
+              "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s+\\S.*)?$",
+              "type": "string"
+            },
+            {
+              "pattern": "^\\$\\{[a-z][a-z0-9_]*\\}$",
+              "type": "string"
+            }
+          ],
+          "title": "Start"
+        },
+        "target": {
+          "pattern": "^[a-z][a-z0-9_]*$",
+          "title": "Target",
+          "type": "string"
+        }
+      },
+      "required": [
+        "start",
+        "kind",
+        "target",
+        "level"
+      ],
+      "title": "SensorForced",
+      "type": "object"
+    },
+    "SensorNoisy": {
+      "additionalProperties": false,
+      "properties": {
+        "duration": {
+          "anyOf": [
+            {
+              "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s+\\S.*)?$",
+              "type": "string"
+            },
+            {
+              "pattern": "^\\$\\{[a-z][a-z0-9_]*\\}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Duration"
+        },
+        "end": {
+          "anyOf": [
+            {
+              "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s+\\S.*)?$",
+              "type": "string"
+            },
+            {
+              "pattern": "^\\$\\{[a-z][a-z0-9_]*\\}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "End"
+        },
+        "kind": {
+          "const": "sensor_noisy",
+          "title": "Kind",
+          "type": "string"
+        },
+        "standard_deviation": {
+          "anyOf": [
+            {
+              "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s+\\S.*)?$",
+              "type": "string"
+            },
+            {
+              "pattern": "^\\$\\{[a-z][a-z0-9_]*\\}$",
+              "type": "string"
+            }
+          ],
+          "title": "Standard Deviation"
+        },
+        "start": {
+          "anyOf": [
+            {
+              "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s+\\S.*)?$",
+              "type": "string"
+            },
+            {
+              "pattern": "^\\$\\{[a-z][a-z0-9_]*\\}$",
+              "type": "string"
+            }
+          ],
+          "title": "Start"
+        },
+        "target": {
+          "pattern": "^[a-z][a-z0-9_]*$",
+          "title": "Target",
+          "type": "string"
+        }
+      },
+      "required": [
+        "start",
+        "kind",
+        "target",
+        "standard_deviation"
+      ],
+      "title": "SensorNoisy",
+      "type": "object"
+    },
+    "SensorStuck": {
+      "additionalProperties": false,
+      "properties": {
+        "duration": {
+          "anyOf": [
+            {
+              "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s+\\S.*)?$",
+              "type": "string"
+            },
+            {
+              "pattern": "^\\$\\{[a-z][a-z0-9_]*\\}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Duration"
+        },
+        "end": {
+          "anyOf": [
+            {
+              "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s+\\S.*)?$",
+              "type": "string"
+            },
+            {
+              "pattern": "^\\$\\{[a-z][a-z0-9_]*\\}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "End"
+        },
+        "kind": {
+          "const": "sensor_stuck",
+          "title": "Kind",
+          "type": "string"
+        },
+        "start": {
+          "anyOf": [
+            {
+              "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s+\\S.*)?$",
+              "type": "string"
+            },
+            {
+              "pattern": "^\\$\\{[a-z][a-z0-9_]*\\}$",
+              "type": "string"
+            }
+          ],
+          "title": "Start"
+        },
+        "target": {
+          "pattern": "^[a-z][a-z0-9_]*$",
+          "title": "Target",
+          "type": "string"
+        }
+      },
+      "required": [
+        "start",
+        "kind",
+        "target"
+      ],
+      "title": "SensorStuck",
+      "type": "object"
+    },
+    "SettleCriterion": {
+      "additionalProperties": false,
+      "description": "Time for a series to enter and stay in `band` around `target` (its final value when absent) (SCO-024).",
+      "properties": {
+        "band": {
+          "anyOf": [
+            {
+              "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s+\\S.*)?$",
+              "type": "string"
+            },
+            {
+              "pattern": "^\\$\\{[a-z][a-z0-9_]*\\}$",
+              "type": "string"
+            }
+          ],
+          "title": "Band"
+        },
+        "check": {
+          "const": "settle_time",
+          "title": "Check",
+          "type": "string"
+        },
+        "comparison": {
+          "enum": [
+            "below",
+            "at_most",
+            "above",
+            "at_least"
+          ],
+          "title": "Comparison",
+          "type": "string"
+        },
+        "limit": {
+          "anyOf": [
+            {
+              "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s+\\S.*)?$",
+              "type": "string"
+            },
+            {
+              "pattern": "^\\$\\{[a-z][a-z0-9_]*\\}$",
+              "type": "string"
+            }
+          ],
+          "title": "Limit"
+        },
+        "name": {
+          "pattern": "^[a-z][a-z0-9_]*$",
+          "title": "Name",
+          "type": "string"
+        },
+        "quantity": {
+          "pattern": "^(signal:[a-z][a-z0-9_]*\\.[a-z][a-z0-9_]*|pose:[a-z][a-z0-9_]*\\.(x|y|z|roll|pitch|yaw)|joint:[a-z][a-z0-9_]*\\.(position|velocity)|state:[a-z][a-z0-9_]*|count:(message|state)\\.[a-z][a-z0-9_]*)$",
+          "title": "Quantity",
+          "type": "string"
+        },
+        "target": {
+          "anyOf": [
+            {
+              "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s+\\S.*)?$",
+              "type": "string"
+            },
+            {
+              "pattern": "^\\$\\{[a-z][a-z0-9_]*\\}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Target"
+        },
+        "window": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Window"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "required": [
+        "name",
+        "check",
+        "quantity",
+        "band",
+        "comparison",
+        "limit"
+      ],
+      "title": "SettleCriterion",
+      "type": "object"
+    },
+    "Slip": {
+      "additionalProperties": false,
+      "properties": {
+        "duration": {
+          "anyOf": [
+            {
+              "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s+\\S.*)?$",
+              "type": "string"
+            },
+            {
+              "pattern": "^\\$\\{[a-z][a-z0-9_]*\\}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Duration"
+        },
+        "end": {
+          "anyOf": [
+            {
+              "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s+\\S.*)?$",
+              "type": "string"
+            },
+            {
+              "pattern": "^\\$\\{[a-z][a-z0-9_]*\\}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "End"
+        },
+        "fraction": {
+          "anyOf": [
+            {
+              "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s+\\S.*)?$",
+              "type": "string"
+            },
+            {
+              "pattern": "^\\$\\{[a-z][a-z0-9_]*\\}$",
+              "type": "string"
+            }
+          ],
+          "title": "Fraction"
+        },
+        "kind": {
+          "const": "slip",
+          "title": "Kind",
+          "type": "string"
+        },
+        "start": {
+          "anyOf": [
+            {
+              "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s+\\S.*)?$",
+              "type": "string"
+            },
+            {
+              "pattern": "^\\$\\{[a-z][a-z0-9_]*\\}$",
+              "type": "string"
+            }
+          ],
+          "title": "Start"
+        },
+        "target": {
+          "pattern": "^[a-z][a-z0-9_]*$",
+          "title": "Target",
+          "type": "string"
+        }
+      },
+      "required": [
+        "start",
+        "kind",
+        "target",
+        "fraction"
+      ],
+      "title": "Slip",
+      "type": "object"
+    },
+    "Sweep": {
+      "additionalProperties": false,
+      "description": "One run per value of a design parameter: `${name}` for an open parameter, else `<section>.<item>.<field>`.",
+      "properties": {
+        "parameter": {
+          "pattern": "^(\\$\\{[a-z][a-z0-9_]*\\}|(bodies|joints|components)\\.[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)+)$",
+          "title": "Parameter",
+          "type": "string"
+        },
+        "values": {
+          "items": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Values",
+          "type": "array"
+        }
+      },
+      "required": [
+        "parameter",
+        "values"
+      ],
+      "title": "Sweep",
+      "type": "object"
+    },
+    "ValueCriterion": {
+      "additionalProperties": false,
+      "description": "A statistic of a recorded series against a limit (SCO-020); `within` compares with `target` absolutely\n(`limit`) or relatively (`relative_limit`).",
+      "properties": {
+        "check": {
+          "const": "value",
+          "title": "Check",
+          "type": "string"
+        },
+        "comparison": {
+          "enum": [
+            "below",
+            "at_most",
+            "above",
+            "at_least",
+            "within"
+          ],
+          "title": "Comparison",
+          "type": "string"
+        },
+        "limit": {
+          "anyOf": [
+            {
+              "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s+\\S.*)?$",
+              "type": "string"
+            },
+            {
+              "pattern": "^\\$\\{[a-z][a-z0-9_]*\\}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Limit"
+        },
+        "name": {
+          "pattern": "^[a-z][a-z0-9_]*$",
+          "title": "Name",
+          "type": "string"
+        },
+        "quantity": {
+          "pattern": "^(signal:[a-z][a-z0-9_]*\\.[a-z][a-z0-9_]*|pose:[a-z][a-z0-9_]*\\.(x|y|z|roll|pitch|yaw)|joint:[a-z][a-z0-9_]*\\.(position|velocity)|state:[a-z][a-z0-9_]*|count:(message|state)\\.[a-z][a-z0-9_]*)$",
+          "title": "Quantity",
+          "type": "string"
+        },
+        "relative_limit": {
+          "anyOf": [
+            {
+              "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s+\\S.*)?$",
+              "type": "string"
+            },
+            {
+              "pattern": "^\\$\\{[a-z][a-z0-9_]*\\}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Relative Limit"
+        },
+        "statistic": {
+          "enum": [
+            "final",
+            "minimum",
+            "maximum",
+            "peak_absolute",
+            "period"
+          ],
+          "title": "Statistic",
+          "type": "string"
+        },
+        "target": {
+          "anyOf": [
+            {
+              "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s+\\S.*)?$",
+              "type": "string"
+            },
+            {
+              "pattern": "^\\$\\{[a-z][a-z0-9_]*\\}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Target"
+        },
+        "window": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Window"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "required": [
+        "name",
+        "check",
+        "quantity",
+        "statistic",
+        "comparison"
+      ],
+      "title": "ValueCriterion",
+      "type": "object"
+    },
+    "Variation": {
+      "additionalProperties": false,
+      "description": "A seeded spread about the nominal value: standard deviation (normal) or half width (uniform).",
+      "properties": {
+        "distribution": {
+          "enum": [
+            "normal",
+            "uniform"
+          ],
+          "title": "Distribution",
+          "type": "string"
+        },
+        "parameter": {
+          "pattern": "^(\\$\\{[a-z][a-z0-9_]*\\}|(bodies|joints|components)\\.[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)+)$",
+          "title": "Parameter",
+          "type": "string"
+        },
+        "spread": {
+          "anyOf": [
+            {
+              "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s+\\S.*)?$",
+              "type": "string"
+            },
+            {
+              "pattern": "^\\$\\{[a-z][a-z0-9_]*\\}$",
+              "type": "string"
+            }
+          ],
+          "title": "Spread"
+        }
+      },
+      "required": [
+        "parameter",
+        "distribution",
+        "spread"
+      ],
+      "title": "Variation",
+      "type": "object"
+    },
+    "Variations": {
+      "additionalProperties": false,
+      "description": "Stored only: v1 runs use nominal values (Architecture doc, Seams reserved for the roadmap).",
+      "properties": {
+        "count": {
+          "minimum": 1,
+          "title": "Count",
+          "type": "integer"
+        },
+        "parameters": {
+          "items": {
+            "$ref": "#/$defs/Variation"
+          },
+          "minItems": 1,
+          "title": "Parameters",
+          "type": "array"
+        }
+      },
+      "required": [
+        "count",
+        "parameters"
+      ],
+      "title": "Variations",
+      "type": "object"
+    },
+    "Window": {
+      "additionalProperties": false,
+      "properties": {
+        "end": {
+          "anyOf": [
+            {
+              "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s+\\S.*)?$",
+              "type": "string"
+            },
+            {
+              "pattern": "^\\$\\{[a-z][a-z0-9_]*\\}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "End"
+        },
+        "start": {
+          "anyOf": [
+            {
+              "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s+\\S.*)?$",
+              "type": "string"
+            },
+            {
+              "pattern": "^\\$\\{[a-z][a-z0-9_]*\\}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Start"
+        }
+      },
+      "title": "Window",
+      "type": "object"
+    }
+  },
+  "$id": "test_case.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "Root of `test_cases/<suite>/<id>[_<slug>].yaml`.",
+  "properties": {
+    "baseline": {
+      "anyOf": [
+        {
+          "pattern": "^[A-Za-z0-9_.\\-]+(/[A-Za-z0-9_.\\-]+)*$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Baseline"
+    },
+    "commands": {
+      "items": {
+        "$ref": "#/$defs/Command"
+      },
+      "title": "Commands",
+      "type": "array"
+    },
+    "controller_mode": {
+      "anyOf": [
+        {
+          "enum": [
+            "native",
+            "emulated"
+          ],
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Controller Mode"
+    },
+    "criteria": {
+      "items": {
+        "discriminator": {
+          "mapping": {
+            "event": "#/$defs/EventCriterion",
+            "interval": "#/$defs/IntervalCriterion",
+            "no_motion": "#/$defs/NoMotionCriterion",
+            "no_overlap": "#/$defs/NoOverlapCriterion",
+            "settle_time": "#/$defs/SettleCriterion",
+            "value": "#/$defs/ValueCriterion"
+          },
+          "propertyName": "check"
+        },
+        "oneOf": [
+          {
+            "$ref": "#/$defs/ValueCriterion"
+          },
+          {
+            "$ref": "#/$defs/IntervalCriterion"
+          },
+          {
+            "$ref": "#/$defs/EventCriterion"
+          },
+          {
+            "$ref": "#/$defs/NoMotionCriterion"
+          },
+          {
+            "$ref": "#/$defs/NoOverlapCriterion"
+          },
+          {
+            "$ref": "#/$defs/SettleCriterion"
+          }
+        ]
+      },
+      "minItems": 1,
+      "title": "Criteria",
+      "type": "array"
+    },
+    "description": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Description"
+    },
+    "design": {
+      "$ref": "#/$defs/DesignRef"
+    },
+    "end": {
+      "$ref": "#/$defs/EndCondition"
+    },
+    "faults": {
+      "items": {
+        "discriminator": {
+          "mapping": {
+            "controller_freeze": "#/$defs/ControllerFreeze",
+            "estop_press": "#/$defs/EstopPress",
+            "motor_stall": "#/$defs/MotorStall",
+            "payload_change": "#/$defs/PayloadChange",
+            "power_loss": "#/$defs/PowerLoss",
+            "sensor_dropped": "#/$defs/SensorDropped",
+            "sensor_forced": "#/$defs/SensorForced",
+            "sensor_noisy": "#/$defs/SensorNoisy",
+            "sensor_stuck": "#/$defs/SensorStuck",
+            "slip": "#/$defs/Slip"
+          },
+          "propertyName": "kind"
+        },
+        "oneOf": [
+          {
+            "$ref": "#/$defs/SensorStuck"
+          },
+          {
+            "$ref": "#/$defs/SensorNoisy"
+          },
+          {
+            "$ref": "#/$defs/SensorDropped"
+          },
+          {
+            "$ref": "#/$defs/SensorForced"
+          },
+          {
+            "$ref": "#/$defs/Slip"
+          },
+          {
+            "$ref": "#/$defs/MotorStall"
+          },
+          {
+            "$ref": "#/$defs/PowerLoss"
+          },
+          {
+            "$ref": "#/$defs/ControllerFreeze"
+          },
+          {
+            "$ref": "#/$defs/EstopPress"
+          },
+          {
+            "$ref": "#/$defs/PayloadChange"
+          }
+        ]
+      },
+      "title": "Faults",
+      "type": "array"
+    },
+    "id": {
+      "pattern": "^[A-Z][A-Z0-9_]*[0-9]+$",
+      "title": "Id",
+      "type": "string"
+    },
+    "initial_state": {
+      "$ref": "#/$defs/InitialState"
+    },
+    "open_parameters": {
+      "items": {
+        "$ref": "#/$defs/OpenParameter"
+      },
+      "title": "Open Parameters",
+      "type": "array"
+    },
+    "rates": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/Rates"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "seed": {
+      "maximum": 18446744073709551615,
+      "minimum": 0,
+      "title": "Seed",
+      "type": "integer"
+    },
+    "sweeps": {
+      "items": {
+        "$ref": "#/$defs/Sweep"
+      },
+      "title": "Sweeps",
+      "type": "array"
+    },
+    "title": {
+      "minLength": 1,
+      "title": "Title",
+      "type": "string"
+    },
+    "variations": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/Variations"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    }
+  },
+  "required": [
+    "id",
+    "title",
+    "design",
+    "seed",
+    "initial_state",
+    "end",
+    "criteria"
+  ],
+  "title": "TestCaseFile",
+  "type": "object"
+}

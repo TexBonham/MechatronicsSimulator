@@ -1,0 +1,123 @@
+# G3 (Requirements doc, Test cases, gantry suite): target (40, 25) after homing; the hook moves to the target. Pass:
+# final position within 1 cm (ACC-005); no travel limit exceeded (ACC-006). The target is 40 cm, 25 cm in the homed
+# origin frame of G2 (owner ruling 2026-11-04; the requirements doc gives the numbers without a unit). The start
+# position and homing time are open parameters of this case; the workspace and lift travel are the design's. "Not exceeded" is inclusive: each joint stays within its
+# design limits, ends included, because homing (G2) leaves each axis on its limit switch at the origin, 0 m.
+id: G3
+title: Target (40, 25) after homing
+design:
+  name: gantry
+  version: 0.1.0
+controller_mode: native
+seed: 3
+open_parameters:
+  - name: start_x
+    dimension: "[length]"
+    owed_by: gantry team
+    note: Carriage x position at power on, before homing; not stated.
+  - name: start_y
+    dimension: "[length]"
+    owed_by: gantry team
+    note: Trolley y position at power on, before homing; not stated.
+  - name: start_lift
+    dimension: "[length]"
+    owed_by: gantry team
+    note: Lift carriage position at power on, before homing; not stated.
+  - name: homing_time
+    dimension: "[time]"
+    owed_by: gantry team
+    note: Time allowed for homing before the target is sent; depends on workspace and axis speeds.
+  - name: run_time
+    dimension: "[time]"
+    owed_by: gantry team
+    note: Time at which the move is scored as finished; also the run's time limit.
+initial_state:
+  joints:
+    - joint: x_axis
+      position: ${start_x}
+      velocity: 0 m/s
+    - joint: y_axis
+      position: ${start_y}
+      velocity: 0 m/s
+    - joint: lift_axis
+      position: ${start_lift}
+      velocity: 0 m/s
+  controller:
+    homed: false
+  payload:
+    attached: false
+commands:
+  - at: 0 s
+    message: home
+  - at: ${homing_time}
+    message: target
+    payload:
+      x: 40 cm
+      y: 25 cm
+end:
+  at: ${run_time}
+  max_duration: ${run_time}
+criteria:
+  - name: final_x
+    check: value
+    quantity: pose:hook.x
+    statistic: final
+    comparison: within
+    target: 40 cm
+    limit: 1 cm
+  - name: final_y
+    check: value
+    quantity: pose:hook.y
+    statistic: final
+    comparison: within
+    target: 25 cm
+    limit: 1 cm
+  - name: x_travel_upper
+    check: value
+    quantity: joint:x_axis.position
+    statistic: maximum
+    comparison: at_most
+    limit: ${workspace_x}
+    window:
+      start: ${homing_time}
+  - name: x_travel_lower
+    check: value
+    quantity: joint:x_axis.position
+    statistic: minimum
+    comparison: at_least
+    limit: 0 m
+    window:
+      start: ${homing_time}
+  - name: y_travel_upper
+    check: value
+    quantity: joint:y_axis.position
+    statistic: maximum
+    comparison: at_most
+    limit: ${workspace_y}
+    window:
+      start: ${homing_time}
+  - name: y_travel_lower
+    check: value
+    quantity: joint:y_axis.position
+    statistic: minimum
+    comparison: at_least
+    limit: 0 m
+    window:
+      start: ${homing_time}
+  - name: lift_travel_upper
+    check: value
+    quantity: joint:lift_axis.position
+    statistic: maximum
+    comparison: at_most
+    limit: ${lift_travel}
+    window:
+      start: ${homing_time}
+  - name: lift_travel_lower
+    check: value
+    quantity: joint:lift_axis.position
+    statistic: minimum
+    comparison: at_least
+    limit: 0 m
+    window:
+      start: ${homing_time}
+baseline: baseline.yaml

@@ -46,6 +46,8 @@ def repo_root(path: Path) -> Path:
 def kind_for(relative: str) -> str | None:
     for prefix, kind in KINDS:
         if relative.startswith(prefix):
+            if kind == "test_case" and Path(relative).name == "baseline.yaml":
+                return "baseline"
             return kind
     return None
 

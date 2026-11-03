@@ -62,7 +62,7 @@ These rulings were made in the planning session of Nov 1, 2026 and are the basis
 | 44 | Second design (R-03) | A pendulum design under designs/pendulum/ from milestone 1 as the rope analytical reference and first generality guard; the two-joint arm remains the milestone 5 proof. | No |
 | 45 | Own-engine integrator | Semi-implicit Euler with implicit springs and contacts, post-step projection, projected Gauss-Seidel with a fixed cap, Newmark reserved as a later tier, four lumped-beam segments by default (docs/adr/0013-own-engine-integrator.md). | No |
 | 46 | MuJoCo bridge location | Neutral-model-to-MJCF translation stays in Python; MuJoCo stepping runs in C++ inside the core behind the PhysicsAdapter interface (docs/adr/0014-mujoco-bridge-split.md). | Yes |
-| 47 | Facade protocol | Proposed in docs/adr/0015-facade-protocol.md: JSON messages over WebSocket with binary frames for time series; owner ruling pending. | No |
+| 47 | Facade protocol | JSON messages over WebSocket with binary frames for time series, versioned, localhost-bound (docs/adr/0015-facade-protocol.md). | No |
 
 ## System overview
 

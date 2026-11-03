@@ -4,23 +4,22 @@ State for the coordinating session. A new session reads this, then `docs/rulings
 
 ## Current checkpoint
 
-Round 1 merged to main (PR #1, merge commit feda82d). Round 2 on branch `round/02-phase-1`. ADR 0014 (MuJoCo bridge
-split) accepted. Phase 1 wave 1 (C1 neutral model, C2 component and material files, C5 core runtime interfaces, C6
-board interface, C7 facade protocol ADR) dispatched in worktrees.
+Phase 1 complete. Waves 1 and 2 landed as four stage commits on `round/02-phase-1`; wave 3 (test case and baseline
+files) is STAGED as the phase 1 closing commit, awaiting the owner gate. Every check green on the staged tree: 2 187
+Python tests, 444 strict-xfail stubs, 558 requirements all covered, 109 core tests, 32 firmware tests, hooks pass on
+every shipped YAML. Nothing dispatched.
 
 ## Next
 
-1. Wave 1 lands: Fable stage review per brief, invariant audit, merge-back, stage commits.
-2. Wave 2: C3 design file and CAD import contract (needs C2). Wave 3: C4 test case and baseline files (needs C3).
-3. Phase 1 closing commit comes back to the owner with ADR 0015 (facade protocol) and every schema.
-4. Milestone 1 plan on the measured cost model; engine package 7 (transmissions) first.
+1. Owner gate: review the phase 1 closing commit, confirm the overnight rulings below, rule on the owner items below,
+   and accept or change ADR 0015 (facade protocol, Proposed).
+2. Round-close hygiene for round 2 (archive cost-log rows, promote the shared `_Strict`/`_format_errors` helpers to a
+   public module, sweep contract files), then the round 2 PR to main.
+3. Milestone 1 plan for sign-off on the measured cost model: builder (design to neutral model), kernel and signal
+   built-ins, native controller runtime, MuJoCo stepping adapter (ADR 0014), recorder, scoring, CLI, gantry firmware
+   for G1 to G4, engine package 7 (transmissions) first.
 
-## Commit trailers (owner ruling 2026-11-03)
-
-Owner-reviewed commits carry `Reviewed-by: Tex Bonham <bo1750te0130@gmail.com>`. Model-gated stage commits carry
-`Stage-review: Fable stage reviewer, invariant-auditor`. PR bodies carry no generated-by lines.
-
-## Rulings made overnight 2026-11-03/04 while the owner was away, for confirmation
+## Rulings made overnight 2026-11-03/04, confirmed by the owner 2026-11-04
 
 - Kernel time: integer ticks of a per-run base period (1 / lcm of all party and physics rates), rates as rational
   hertz, instead of int64 nanoseconds with whole-nanosecond periods (which rejected 3 kHz, 60 Hz and sub-hertz rates).
@@ -32,14 +31,17 @@ Owner-reviewed commits carry `Reviewed-by: Tex Bonham <bo1750te0130@gmail.com>`.
   with state and fault codes (CTL-018 channel). The rail voltage is not a firmware input.
 - PhysicsAdapter.load takes a prepared model (neutral JSON plus an engine artifact such as MJCF) per ADR 0014.
 
-## Rulings owed by the owner before milestone 1 (surfaced by the C3 review)
+## Owner rulings 2026-11-04 (from the C3 and C4 reviews)
 
-- Operator message labels: the requirements doc's "current position, ready / fault" was split into two messages; D2 says
-  verbatim labels. Confirm the split or rule one label.
+- Operator message labels: split into two messages, confirmed.
 - Heartbeat routing: a pin signal into the E-stop relay or watchdog, not an operator message (applied in the C3 fix
   round). The catalog has no watchdog type yet (LIB-019, M2) and estop_relay has no heartbeat input; both are owed.
-- Where contact model parameters and the floor live: design environment or test case.
-- Instance wiring and rail consumers are now DES-041 (design file), owed before the builder brief.
+- Contact model parameters and the floor live in the design environment (DES-042, M1).
+- Instance wiring and rail consumers are DES-041 (design file), owed before the builder brief.
+- G3 targets carry units: 40 cm, 25 cm in the homed origin frame (G2). Per-axis 1 cm criterion confirmed. P1 damped
+  period at 0.1 percent confirmed. ADR 0015 accepted.
+- Needs discussion with the owner: fault parameter forms, the controller precondition check, heartbeat wiring once a
+  watchdog type exists.
 - Gantry kinematic chain, hook on a spherical joint standing in for the M3 rope, joint limits 0 to workspace: writer
   defaults until the gantry team's CAD arrives; record the hook placeholder in the M3 rope ADR.
 

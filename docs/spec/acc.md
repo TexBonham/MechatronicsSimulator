@@ -63,7 +63,7 @@ proposed <value>)".
 | ACC-030 | Reference design (gantry), G15: under the same worst cases, member deflection shall stay under the target. | Requirements doc, Test cases, G15 | M3 | acceptance | 1 cm |
 | ACC-031 | Reference design (gantry), G16: a sweep of NEMA 17 against NEMA 23 with the rated load shall report the torque margin per motor. | Requirements doc, Test cases, G16 | M3 | acceptance | not set (owed by gantry team) |
 | ACC-032 | Reference design (gantry), G16: the same sweep shall report any missed steps per motor. | Requirements doc, Test cases, G16 | M3 | acceptance | not set (owed by gantry team) |
-| ACC-033 | Pendulum design, rigid link: the small-amplitude swing period shall match the small-angle formula for the link, 2 pi sqrt(I / (m g d)) (2 pi sqrt(L / g) for a point mass), within the period tolerance. | Ruling R-03; Architecture doc, Technology recommendation, Validation; Repository starting point, milestone 1 paragraph | M1 | acceptance | not set (owed by owner) |
+| ACC-033 | Pendulum design, rigid link: the small-amplitude swing period shall match the damped small-angle period for the link, T0 / sqrt(1 - zeta^2) with T0 = 2 pi sqrt(I / (m g d)) (2 pi sqrt(L / g) for a point mass) and zeta the damping ratio of the link's joint damping, within the period tolerance. | Ruling R-03; Architecture doc, Technology recommendation, Validation; Repository starting point, milestone 1 paragraph | M1 | acceptance | 0.1 % of the damped period (owner confirmation pending) |
 | ACC-034 | Pendulum design, rigid link: the swing amplitude decay shall match the closed-form decay for the link's stated joint damping within the decay tolerance. | Ruling R-03; Architecture doc, Technology recommendation, Validation; Repository starting point, milestone 1 paragraph | M1 | acceptance | not set (owed by owner) |
 | ACC-035 | Acceptance criterion 1: the simulator shall build the reference design from data files or an imported URDF with no design-specific code. | Requirements doc, Outputs and acceptance criteria, criterion 1; Architecture doc, Repository starting point, invariant 2 | M1 | acceptance | n/a |
 | ACC-036 | Acceptance criterion 2: the simulator shall run G1 to G16 in one batch and produce the pass/fail report. | Requirements doc, Outputs and acceptance criteria, criterion 2 | M3 | acceptance | n/a |
@@ -91,7 +91,7 @@ proposed <value>)".
 | Reference design (gantry): minimum safety factor (G15) | not set | gantry team |
 | Reference design (gantry): 1 cm deflection target static or dynamic (G15) | not set | gantry team |
 | Reference design (gantry): motion threshold for "no actuator motion" (G1, G4, G9) | not set | gantry team |
-| Pendulum period tolerance (ACC-033) | not set; proposed 0.5 % of the closed-form period at amplitude up to 5 degrees | owner |
+| Pendulum period tolerance (ACC-033) | 0.1 % of the damped period, consistent with ENG-036 (owner ruling 2026-11-04) | owner |
 | Pendulum swing decay tolerance (ACC-034) | not set; proposed 2 % of the closed-form amplitude envelope over 20 periods | owner |
 | Analytical tolerances of criteria 3 and 4 (ACC-037 to ACC-043) | not set | owner |
 | Design-load rule of the reference design | rated load plus 15 % (hoist, trolley); rated load not set | gantry team |

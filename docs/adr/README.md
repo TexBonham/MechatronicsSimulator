@@ -20,7 +20,7 @@ Decisions log.
 | [0012](0012-data-conventions.md) | Units, seeding, signal naming, versioning, archives, baselines, tooling | Accepted | L1-L10, D1, D2, D3, D4, R1, R2 |
 | [0013](0013-own-engine-integrator.md) | Own-engine integrator | Accepted | P2 (own-engine half) |
 | [0014](0014-mujoco-bridge-split.md) | MuJoCo bridge split: Python translation, C++ stepping | Accepted | refines R-11, ADR 0004 |
-| [0015](0015-facade-protocol.md) | Facade protocol: JSON over WebSocket, binary series frames | Proposed | R-16 (protocol), FAC-018 to FAC-020 |
+| [0015](0015-facade-protocol.md) | Facade protocol: JSON over WebSocket, binary series frames | Accepted | R-16 (protocol), FAC-018 to FAC-020 |
 
 To add an ADR, copy `0000-template.md` to the next free number with a short slug and fill every section. Add a row to
 the table above and a row to the Decisions log in the architecture doc, marking "Changes doc" Yes where the ADR

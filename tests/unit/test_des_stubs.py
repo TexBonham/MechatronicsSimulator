@@ -79,3 +79,11 @@ def test_des_041() -> None:
     (BLD-006, G7, G8).
     """
     raise NotImplementedError
+
+
+@pytest.mark.req("DES-042")
+@pytest.mark.xfail(strict=True, reason="stub")
+def test_des_042() -> None:
+    """A design file's environment shall declare the contact model defaults, per-material-pair overrides, body-pair
+    exclusions and the floor plane, from which the builder fills the neutral model's contact section."""
+    raise NotImplementedError

@@ -27,3 +27,7 @@ type live in the root `CLAUDE.md` dispatch table once measured.
 | 2026-11-03 | Phase 1 C3 stage review | general-purpose (fable) | 151K | 32 calls, 6 min; 1 mechanical blocker (matrix), 2 medium, 5 low, 4 owner items |
 | 2026-11-03 | Phase 1 batch B invariant audit (landed commit) | invariant-auditor (sonnet) | 51K | 10 calls, 0.8 min; clean, 2 minor |
 | 2026-11-03 | Phase 1 C3 fix round: heartbeat routing, DES-041, supports, style | schema-author (opus), resumed | ~30K | ~14 calls |
+| 2026-11-03 | Phase 1 C4: test case and baseline file kinds, G3, P1, baseline example, 13 stubs converted | schema-author (opus), worktree | 210K | 42 calls, 16 min |
+| 2026-11-03 | Phase 1 C4 stage review | general-purpose (fable) | 130K | 30 calls, 5.6 min; 1 mechanical blocker (matrix), 1 high (hook), 3 medium, owner items |
+| 2026-11-03 | Phase 1 C4 fix round: inclusive criteria, P1 damped period, SCO-020, spec rows | schema-author (opus), resumed | ~25K | ~12 calls |
+| 2026-11-03 | Phase 1 waves 2 and 3 invariant audit | invariant-auditor (sonnet) | 42K | 9 calls, 0.7 min; clean |
