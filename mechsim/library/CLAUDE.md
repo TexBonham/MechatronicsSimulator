@@ -24,6 +24,16 @@ Component types and shipped catalog (LIB). Schema `schemas/component.json` from 
 | `CatalogPart` | resolved part, SI floats; only via `CatalogPart.resolve(entry, type, overrides=None)` |
 | `CatalogFile.resolved_parts()` | every part resolved at file validation; `component_type(name)` lookup |
 
+## Section index, `schema.py`
+
+| Section | File | Line |
+|---|---|---|
+| Parameters | `mechsim/library/schema.py` | 88 |
+| Facets | `mechsim/library/schema.py` | 166 |
+| ComponentType | `mechsim/library/schema.py` | 239 |
+| CatalogPart | `mechsim/library/schema.py` | 334 |
+| CatalogFile | `mechsim/library/schema.py` | 481 |
+
 ## Rules
 
 - No default means required in every part whose tier includes the parameter.

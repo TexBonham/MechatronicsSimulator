@@ -15,7 +15,6 @@ from pathlib import Path
 from typing import Annotated, Any, ClassVar, Literal
 
 from pydantic import (
-    BaseModel,
     BeforeValidator,
     ConfigDict,
     Field,
@@ -27,6 +26,7 @@ from pydantic import (
 )
 from ruamel.yaml import YAML
 
+from mechsim.schema_base import StrictModel
 from mechsim.units import UnitError, parse_quantity
 
 SCHEMA_PATH = Path(__file__).resolve().parents[2] / "schemas" / "material.json"
@@ -53,10 +53,6 @@ LengthText = Annotated[float, BeforeValidator(_parser("[length]")), WithJsonSche
 FractionText = Annotated[float, BeforeValidator(_parser("dimensionless")), WithJsonSchema(_QUANTITY_SCHEMA)]
 
 
-class _Strict(BaseModel):
-    model_config = ConfigDict(extra="forbid", strict=True)
-
-
 class MaterialError(ValueError):
     """A material file failed to load; the message names the file."""
 
@@ -70,12 +66,12 @@ def _strictly_increasing(values: list[float], what: str) -> None:
 # ===== Spreads =========================================================
 
 
-class TemperaturePoint(_Strict):
+class TemperaturePoint(StrictModel):
     temperature: TemperatureText
     factor: float = Field(gt=0.0)
 
 
-class Spread(_Strict):
+class Spread(StrictModel):
     """min <= typ <= max, each a unit string of the subclass's dimension."""
 
     dimension: ClassVar[str] = "dimensionless"
@@ -187,7 +183,7 @@ class PositiveTemperature(TemperatureSpread):
 # ===== Fatigue =========================================================
 
 
-class SNPoint(_Strict):
+class SNPoint(StrictModel):
     cycles: float = Field(ge=1.0)
     stress_amplitude: PressureText
 
@@ -210,14 +206,14 @@ def _sn_monotone(value: list[SNPoint]) -> list[SNPoint]:
 # ===== Processes =======================================================
 
 
-class StrengthFactors(_Strict):
+class StrengthFactors(StrictModel):
     """Strength multipliers by loading direction relative to the build direction."""
 
     in_layer: float = Field(gt=0.0, le=1.0)
     interlayer: float = Field(gt=0.0, le=1.0)
 
 
-class PrintedProcess(_Strict):
+class PrintedProcess(StrictModel):
     kind: Literal["printed"]
     build_direction: list[float] = Field(min_length=3, max_length=3)
     layer_height: LengthText
@@ -249,18 +245,18 @@ class PrintedProcess(_Strict):
         return value
 
 
-class MachinedProcess(_Strict):
+class MachinedProcess(StrictModel):
     kind: Literal["machined"]
 
 
-class MoldedProcess(_Strict):
+class MoldedProcess(StrictModel):
     kind: Literal["molded"]
 
 
 # ===== Material ========================================================
 
 
-class Material(_Strict):
+class Material(StrictModel):
     """Root of a file under `mechsim/materials/data/`."""
 
     model_config = ConfigDict(extra="forbid", strict=True, title="MaterialFile")

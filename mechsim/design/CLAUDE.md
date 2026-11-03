@@ -30,12 +30,12 @@ Design files (DES). Schema `schemas/design.json` from `Design`; regenerate with
 
 ## Section index
 
-`schema.py`: Open values 100, Bodies 226, Joints 465, Components 556, Power/environment/firmware/messages 594,
-Design 689, Cross-reference checks 730, Files and schema 1026.
+`schema.py`: Open values 101, Bodies 227, Joints 466, Components 557, Power, environment, firmware, messages 595,
+Design 690, Cross-reference checks 731, Files and schema 1027.
 
-`tests/unit/test_design_schema.py`: Shipped examples 92, Header 180, Open parameters 291, Bodies 387, Joints 761,
-Components 937, Signals 1044, Power 1157, Environment/firmware/structural 1194, Operator messages 1295, Errors 1375,
-CAD mass cross-check 1432.
+`tests/unit/test_design_schema.py`: Shipped examples 92, Header and version 180, Open parameters 291, Bodies 387,
+Joints 761, Components 937, Signals and pin bindings 1044, Power 1157, Environment, firmware, structural 1194,
+Operator messages 1295, Errors 1375, CAD mass cross-check 1432.
 
 ## Open
 

@@ -18,7 +18,6 @@ from typing import Annotated, Any, Literal
 
 import pint
 from pydantic import (
-    BaseModel,
     BeforeValidator,
     ConfigDict,
     Discriminator,
@@ -33,6 +32,7 @@ from pydantic import (
 )
 from ruamel.yaml import YAML
 
+from mechsim.schema_base import StrictModel
 from mechsim.units import UnitError, parse_quantity
 
 SCHEMA_PATH = Path(__file__).resolve().parents[2] / "schemas" / "component.json"
@@ -71,10 +71,6 @@ REQUIRED_BY_CATEGORY: dict[str, tuple[str, ...]] = {
 }
 
 
-class _Strict(BaseModel):
-    model_config = ConfigDict(extra="forbid", strict=True)
-
-
 class CatalogError(ValueError):
     """A catalog file failed to load; the message names the file."""
 
@@ -92,7 +88,7 @@ def dimensions_equal(left: str, right: str) -> bool:
 # ===== Parameters ======================================================
 
 
-class QuantityParameter(_Strict):
+class QuantityParameter(StrictModel):
     kind: Literal["quantity"] = "quantity"
     name: Name
     dimension: str = Field(min_length=1)
@@ -135,7 +131,7 @@ class QuantityParameter(_Strict):
         return self
 
 
-class FlagParameter(_Strict):
+class FlagParameter(StrictModel):
     kind: Literal["flag"]
     name: Name
     default: bool | None = None
@@ -162,7 +158,7 @@ def check_bounds(parameter: QuantityParameter, value: float) -> None:
         raise ValueError(f"parameter {parameter.name!r} value {value} above maximum {parameter.maximum}")
 
 
-class Tier(_Strict):
+class Tier(StrictModel):
     name: Name
     parameters: list[Name]
 
@@ -170,22 +166,22 @@ class Tier(_Strict):
 # ===== Facets ==========================================================
 
 
-class MassFromParameter(_Strict):
+class MassFromParameter(StrictModel):
     source: Literal["parameter"]
     parameter: Name
 
 
-class MassFromGeometry(_Strict):
+class MassFromGeometry(StrictModel):
     source: Literal["geometry"]
 
 
-class Mount(_Strict):
+class Mount(StrictModel):
     name: Name
     kind: Literal["face", "bolt_pattern", "shaft", "pad", "clamp"]
     offset: list[LengthText] = Field(min_length=3, max_length=3)
 
 
-class MechanicalFacet(_Strict):
+class MechanicalFacet(StrictModel):
     mass: MassFromParameter | MassFromGeometry = Field(discriminator="source")
     mounts: list[Mount]
     shaft_axis: list[float] | None = Field(default=None, min_length=3, max_length=3)
@@ -201,7 +197,7 @@ class MechanicalFacet(_Strict):
         return value
 
 
-class Pin(_Strict):
+class Pin(StrictModel):
     name: Name
     direction: PinDirection
     signal_kind: SignalKind
@@ -209,27 +205,27 @@ class Pin(_Strict):
     current_rating: Name | None = None
 
 
-class ElectricalFacet(_Strict):
+class ElectricalFacet(StrictModel):
     pins: list[Pin]
 
 
-class AbsoluteMaximum(_Strict):
+class AbsoluteMaximum(StrictModel):
     name: Name
     parameter: Name
 
 
-class RatingsFacet(_Strict):
+class RatingsFacet(StrictModel):
     absolute_maximums: list[AbsoluteMaximum]
     holding_torque: Name | None = None
     torque_speed_curve: Literal["required", "none"] = "none"
 
 
-class ThermalFacet(_Strict):
+class ThermalFacet(StrictModel):
     held_constant: Literal[True]
     temperature: TemperatureText
 
 
-class PluginReference(_Strict):
+class PluginReference(StrictModel):
     python: Annotated[str, Field(pattern=r"^[A-Za-z_][A-Za-z0-9_.]*:[A-Za-z_][A-Za-z0-9_]*$")] | None = None
     cpp: Name | None = None
 
@@ -243,7 +239,7 @@ class PluginReference(_Strict):
 # ===== ComponentType ===================================================
 
 
-class ComponentType(_Strict):
+class ComponentType(StrictModel):
     name: Name
     version: SemVer
     category: Category
@@ -338,7 +334,7 @@ def _unique(values: list[str], what: str) -> None:
 # ===== CatalogPart =====================================================
 
 
-class TorqueSpeedPoint(_Strict):
+class TorqueSpeedPoint(StrictModel):
     speed: SpeedText = Field(description="Shaft speed, for example '300 rpm'")
     torque: TorqueText
 
@@ -350,7 +346,7 @@ class TorqueSpeedPoint(_Strict):
         return value
 
 
-class PartEntry(_Strict):
+class PartEntry(StrictModel):
     """A catalog part as written in the file: values are unit strings or flags, resolved by `CatalogPart.resolve`."""
 
     name: Name
@@ -373,7 +369,7 @@ class PartEntry(_Strict):
         return value
 
 
-class CatalogPart(_Strict):
+class CatalogPart(StrictModel):
     """A part resolved against its component type: every active parameter as an SI float or flag (LIB-033).
 
     Validation needs the type in context; build one with `CatalogPart.resolve(entry, component_type)`.
@@ -485,7 +481,7 @@ def _resolve_value(part: str, parameter: QuantityParameter | FlagParameter, raw:
 # ===== CatalogFile =====================================================
 
 
-class CatalogFile(_Strict):
+class CatalogFile(StrictModel):
     """Root of a file under `mechsim/library/catalog/`: component types and the parts that instantiate them."""
 
     model_config = ConfigDict(extra="forbid", strict=True, title="ComponentCatalogFile")

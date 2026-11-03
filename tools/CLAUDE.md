@@ -25,11 +25,11 @@ Rules (`RULES`):
 
 | Section | File | Line |
 |---|---|---|
-| Data model | `tools/traceability.py` | 39 |
-| File helpers | `tools/traceability.py` | 88 |
-| Spec parsing | `tools/traceability.py` | 128 |
-| Python citations | `tools/traceability.py` | 239 |
-| C++ citations | `tools/traceability.py` | 333 |
-| Checks | `tools/traceability.py` | 468 |
-| Matrix | `tools/traceability.py` | 513 |
-| CLI | `tools/traceability.py` | 587 |
+| Data model | `tools/traceability.py` | 40 |
+| File helpers | `tools/traceability.py` | 89 |
+| Spec parsing | `tools/traceability.py` | 129 |
+| Python citations | `tools/traceability.py` | 240 |
+| C++ citations | `tools/traceability.py` | 334 |
+| Checks | `tools/traceability.py` | 473 |
+| Matrix | `tools/traceability.py` | 518 |
+| CLI | `tools/traceability.py` | 592 |

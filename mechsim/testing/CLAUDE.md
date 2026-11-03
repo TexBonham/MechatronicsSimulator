@@ -31,8 +31,9 @@ Examples: `test_cases/gantry/G3.yaml` (draft design), `test_cases/pendulum/P1_pe
 
 ## Section index
 
-`schema.py`: Quantities 93, Header 184, Initial state 208, Commands and faults 282, End 419, Criteria 451,
-Sweeps 659, Case 705, Cross-check 764, Files 1018. `baseline.py`: Diff 113, Files 165.
+`schema.py`: Quantities of any dimension 92, Header 183, Initial state 207, Commands and faults 281, End condition 418,
+Pass criteria 450, Sweeps and variations 659, Test case 705, Cross-check against the design 764, Files and schema 1018.
+`baseline.py`: Diff 114, Files and schema 166.
 
-`tests/unit/test_test_case_schema.py`: Examples 113, Header 173, Open 323, Initial 384, Commands 519, Faults 592,
-End 755, Criteria 805, Sweeps 1045, Files 1138.
+`tests/unit/test_test_case_schema.py`: Shipped examples 113, Header 175, Open parameters 325, Initial state 386,
+Commands 521, Faults 592, End condition 756, Pass criteria 806, Sweeps, variations, baseline 1066, Files 1159.

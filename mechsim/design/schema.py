@@ -39,6 +39,7 @@ from ruamel.yaml import YAML
 from mechsim.library.registry import Registry, RegistryError, default_registry
 from mechsim.library.schema import QuantityParameter, dimensions_equal
 from mechsim.materials.schema import DATA_DIR, Material, load_material_file
+from mechsim.schema_base import StrictModel, format_errors
 from mechsim.units import parse_quantity
 
 SCHEMA_PATH = Path(__file__).resolve().parents[2] / "schemas" / "design.json"
@@ -93,8 +94,8 @@ class DesignError(ValueError):
     """A design file failed to load; the message names the file, the path within it and the reason."""
 
 
-class _Strict(BaseModel):
-    model_config = ConfigDict(extra="forbid", strict=True)
+_Strict = StrictModel
+_format_errors = format_errors
 
 
 # ===== Open values =====================================================
@@ -1040,32 +1041,6 @@ def blob_hash(path: Path) -> str:
     content = path.read_bytes()
     header = f"blob {len(content)}\0".encode()
     return hashlib.sha1(header + content, usedforsecurity=False).hexdigest()
-
-
-def _location_part(part: str | int) -> str | None:
-    if isinstance(part, int):
-        return str(part)
-    if part[:1].isupper() or "[" in part or "-" in part:
-        return None
-    return part
-
-
-def _format_errors(error: ValidationError) -> list[str]:
-    """One line per error, union branch names dropped from the path; the `${name}` branch's own error is dropped."""
-    messages: list[str] = []
-    for item in error.errors():
-        if any(isinstance(part, str) and part.startswith("is-instance[OpenValue]") for part in item["loc"]):
-            continue
-        parts = [_location_part(part) for part in item["loc"]]
-        location = ".".join(part for part in parts if part is not None)
-        text = str(item["msg"]).removeprefix("Value error, ")
-        for line in text.split("\n"):
-            message = line
-            if location != "":
-                message = f"{location}: {line}"
-            if message not in messages:
-                messages.append(message)
-    return messages
 
 
 def check_files(design: Design, base: Path) -> list[str]:

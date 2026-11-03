@@ -47,14 +47,13 @@ from mechsim.design.schema import (
     RepoPath,
     SemVer,
     Time,
-    _format_errors,
-    _Strict,
     iter_open_values,
     load_design,
     open_name,
     yaml_loader,
 )
 from mechsim.library.schema import dimensions_equal
+from mechsim.schema_base import StrictModel, format_errors
 
 ROOT = Path(__file__).resolve().parents[2]
 SCHEMA_PATH = ROOT / "schemas" / "test_case.json"
@@ -184,12 +183,12 @@ def _raise_if(errors: list[str]) -> None:
 # ===== Header ==========================================================
 
 
-class DesignRef(_Strict):
+class DesignRef(StrictModel):
     name: Name
     version: SemVer
 
 
-class Rates(_Strict):
+class Rates(StrictModel):
     """Overrides of the design's rates for this case; at least one is given."""
 
     physics_step: Time | None = None
@@ -208,7 +207,7 @@ class Rates(_Strict):
 # ===== Initial state ===================================================
 
 
-class JointState(_Strict):
+class JointState(StrictModel):
     """A single-DOF joint's start: a length and a speed (prismatic) or an angle and an angular rate (revolute)."""
 
     joint: Name
@@ -249,7 +248,7 @@ class JointState(_Strict):
         return ANGLE
 
 
-class Payload(_Strict):
+class Payload(StrictModel):
     attached: bool
     body: Name | None = None
     mass: Mass | None = None
@@ -266,7 +265,7 @@ class Payload(_Strict):
         return self
 
 
-class InitialState(_Strict):
+class InitialState(StrictModel):
     joints: list[JointState] = Field(default_factory=list)
     controller: dict[Name, bool | Name] = Field(default_factory=dict, description="controller state assumptions")
     payload: Payload | None = None
@@ -282,7 +281,7 @@ class InitialState(_Strict):
 # ===== Commands and faults =============================================
 
 
-class Command(_Strict):
+class Command(StrictModel):
     """An operator message sent through the operator link at `at`; payload keys are the message's field names."""
 
     at: Time
@@ -296,7 +295,7 @@ class Command(_Strict):
         return self
 
 
-class _Windowed(_Strict):
+class _Windowed(StrictModel):
     """A fault active from `start` for its window, given as `end` or `duration` (exactly one)."""
 
     start: Time
@@ -383,7 +382,7 @@ class EstopPress(_Windowed):
     target: Name
 
 
-class PayloadChange(_Strict):
+class PayloadChange(StrictModel):
     """Instantaneous: at `start` the payload on `target` becomes `mass`; 0 kg detaches it."""
 
     kind: Literal["payload_change"]
@@ -419,7 +418,7 @@ SENSOR_FAULTS = ("sensor_stuck", "sensor_noisy", "sensor_dropped", "sensor_force
 # ===== End condition ===================================================
 
 
-class EndCondition(_Strict):
+class EndCondition(StrictModel):
     """Ends at a time, on an observed operator message, or when the controller enters a state; never later than
     `max_duration`."""
 
@@ -451,7 +450,7 @@ class EndCondition(_Strict):
 # ===== Pass criteria ===================================================
 
 
-class Window(_Strict):
+class Window(StrictModel):
     start: Time | None = None
     end: Time | None = None
 
@@ -485,7 +484,7 @@ def reference_dimension(reference: str) -> str | None:
     return None
 
 
-class _Criterion(_Strict):
+class _Criterion(StrictModel):
     name: Name
 
     def limit_text(self) -> str:
@@ -660,7 +659,7 @@ Criterion = Annotated[
 # ===== Sweeps and variations ===========================================
 
 
-class Sweep(_Strict):
+class Sweep(StrictModel):
     """One run per value of a design parameter: `${name}` for an open parameter, else `<section>.<item>.<field>`."""
 
     parameter: ParameterPath
@@ -674,7 +673,7 @@ class Sweep(_Strict):
         return self
 
 
-class Variation(_Strict):
+class Variation(StrictModel):
     """A seeded spread about the nominal value: standard deviation (normal) or half width (uniform)."""
 
     parameter: ParameterPath
@@ -689,7 +688,7 @@ class Variation(_Strict):
         return self
 
 
-class Variations(_Strict):
+class Variations(StrictModel):
     """Stored only: v1 runs use nominal values (Architecture doc, Seams reserved for the roadmap)."""
 
     count: int = Field(ge=1)
@@ -706,7 +705,7 @@ class Variations(_Strict):
 # ===== Test case =======================================================
 
 
-class Case(_Strict):
+class Case(StrictModel):
     """Root of `test_cases/<suite>/<id>[_<slug>].yaml`."""
 
     model_config = ConfigDict(extra="forbid", strict=True, title="TestCaseFile")
@@ -1027,7 +1026,7 @@ def _parse(path: Path) -> tuple[Case | None, list[str]]:
     try:
         case = Case.model_validate(data)
     except ValidationError as error:
-        return None, [f"{path}: {message}" for message in _format_errors(error)]
+        return None, [f"{path}: {message}" for message in format_errors(error)]
     return case, []
 
 

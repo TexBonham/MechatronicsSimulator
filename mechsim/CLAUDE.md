@@ -15,6 +15,7 @@ One subpackage per module (R-14, ADR 0005). Python 3.12, uv, ruff, mypy strict (
 | `scoring/` | Pass criteria, suite reports, regression diffs | SCO |
 | `facade/` | Facade service and protocol (ADR 0006) | FAC |
 | `viewer/` | Replay and event timeline, served through `facade/` | VIE |
+| `schema_base.py` | `StrictModel` (extra forbid, strict) every data-file model derives from; `format_errors` (one line per validation error) | INV |
 
 Physics adapters: everything under `physics/`. Only the neutral model crosses into an adapter (invariant 5).
 
@@ -42,4 +43,11 @@ Checked by the invariant tier's import-boundary test.
 
 ## Contracts
 
-Empty until phase 1.
+| Subpackage | Contract |
+|---|---|
+| `library/` | `library/CLAUDE.md` |
+| `materials/` | `materials/CLAUDE.md` |
+| `design/` | `design/CLAUDE.md` |
+| `physics/` | `physics/CLAUDE.md` |
+| `testing/` | `testing/CLAUDE.md` |
+| `facade/` | `facade/CLAUDE.md` |

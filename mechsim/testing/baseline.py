@@ -18,7 +18,8 @@ from typing import Annotated, Any, Literal
 
 from pydantic import ConfigDict, Field, ValidationError, model_validator
 
-from mechsim.design.schema import Name, _format_errors, _Strict, yaml_loader
+from mechsim.design.schema import Name, yaml_loader
+from mechsim.schema_base import StrictModel, format_errors
 from mechsim.testing.schema import ROOT, Case, CaseId, DesignRef, Measured
 from mechsim.units import Time
 
@@ -33,7 +34,7 @@ class BaselineError(ValueError):
     """A baseline file failed to load; the message names the file, the path within it and the reason."""
 
 
-class RunIdentity(_Strict):
+class RunIdentity(StrictModel):
     """Which archive produced an entry: its run id and hashes (L8, D3)."""
 
     run_id: Annotated[str, Field(pattern=r"^[A-Za-z0-9][A-Za-z0-9_.\-]*$")]
@@ -42,7 +43,7 @@ class RunIdentity(_Strict):
     case_hash: GitHash
 
 
-class Entry(_Strict):
+class Entry(StrictModel):
     case: CaseId
     criterion: Name
     status: Status
@@ -74,7 +75,7 @@ def entry_key(entry: Entry) -> tuple[str, int, str]:
     return match.group(1), int(match.group(2)), entry.criterion
 
 
-class Baseline(_Strict):
+class Baseline(StrictModel):
     """Root of a suite's `baseline.yaml`."""
 
     model_config = ConfigDict(extra="forbid", strict=True, title="BaselineFile")
@@ -193,7 +194,7 @@ def _load(path: Path) -> tuple[Baseline | None, list[str]]:
     try:
         baseline = Baseline.model_validate(data)
     except ValidationError as error:
-        return None, [f"{path}: {message}" for message in _format_errors(error)]
+        return None, [f"{path}: {message}" for message in format_errors(error)]
     return baseline, []
 
 

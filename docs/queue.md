@@ -4,20 +4,19 @@ State for the coordinating session. A new session reads this, then `docs/rulings
 
 ## Current checkpoint
 
-Phase 1 complete. Waves 1 and 2 landed as four stage commits on `round/02-phase-1`; wave 3 (test case and baseline
-files) is STAGED as the phase 1 closing commit, awaiting the owner gate. Every check green on the staged tree: 2 187
-Python tests, 444 strict-xfail stubs, 558 requirements all covered, 109 core tests, 32 firmware tests, hooks pass on
-every shipped YAML. Nothing dispatched.
+Round 2 closed: phase 1 complete (seven contracts, 558 requirements all covered, 2 198 Python tests, 109 core and 32
+firmware tests), round-close hygiene done (shared `mechsim/schema_base.py`, indexes verified, cost-log rows archived).
+Round 2 PR to main opened from `round/02-phase-1`; the owner merges with a merge commit. Nothing dispatched.
 
 ## Next
 
-1. Owner gate: review the phase 1 closing commit, confirm the overnight rulings below, rule on the owner items below,
-   and accept or change ADR 0015 (facade protocol, Proposed).
-2. Round-close hygiene for round 2 (archive cost-log rows, promote the shared `_Strict`/`_format_errors` helpers to a
-   public module, sweep contract files), then the round 2 PR to main.
-3. Milestone 1 plan for sign-off on the measured cost model: builder (design to neutral model), kernel and signal
-   built-ins, native controller runtime, MuJoCo stepping adapter (ADR 0014), recorder, scoring, CLI, gantry firmware
-   for G1 to G4, engine package 7 (transmissions) first.
+1. Owner merges the round 2 PR. Round 3 branches fresh from main as `round/03-milestone-1`.
+2. Milestone 1 plan for sign-off, costed on the measured sizes: builder (design to neutral model and signal wiring),
+   kernel implementation and the five M1 signal built-ins, native controller runtime shim, MuJoCo stepping adapter
+   (ADR 0014) and MJCF translation, recorder with HDF5 archive, scoring and the CLI, gantry firmware for G1 to G4,
+   engine package 7 (transmissions) first among engine packages, Python binding (package 11).
+3. Discussion items parked: fault parameter forms, controller precondition check, heartbeat wiring and the watchdog
+   type (LIB-019), DES-041 wiring before the builder brief.
 
 ## Rulings made overnight 2026-11-03/04, confirmed by the owner 2026-11-04
 

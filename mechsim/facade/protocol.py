@@ -13,7 +13,9 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, JsonValue, TypeAdapter, field_validator, model_validator
+from pydantic import Field, JsonValue, TypeAdapter, field_validator, model_validator
+
+from mechsim.schema_base import StrictModel
 
 PROTOCOL_VERSION = 1
 FLOAT64_SIZE = 8
@@ -52,11 +54,7 @@ def _require_unique(names: list[str]) -> list[str]:
 # ===== Base models ==========================================================
 
 
-class _Strict(BaseModel):
-    model_config = ConfigDict(extra="forbid", strict=True)
-
-
-class _Envelope(_Strict):
+class _Envelope(StrictModel):
     version: int = Field(
         json_schema_extra={"const": PROTOCOL_VERSION},
         description="Protocol version; the service accepts only its own version.",
@@ -74,33 +72,33 @@ class _Envelope(_Strict):
 # ===== Request payloads =====================================================
 
 
-class ListDesignsPayload(_Strict):
+class ListDesignsPayload(StrictModel):
     pass
 
 
-class ValidateDesignPayload(_Strict):
+class ValidateDesignPayload(StrictModel):
     design: NonEmptyText = Field(description="Design file path relative to the repository root.")
 
 
-class RunCasePayload(_Strict):
+class RunCasePayload(StrictModel):
     design: NonEmptyText
     test_case: NonEmptyText
     seed: int = Field(ge=0)
     mode: NonEmptyText = Field(description="Controller mode name.")
 
 
-class RunSuitePayload(_Strict):
+class RunSuitePayload(StrictModel):
     design: NonEmptyText
     suite: NonEmptyText
     seed: int = Field(ge=0)
     mode: NonEmptyText
 
 
-class ReplayOpenPayload(_Strict):
+class ReplayOpenPayload(StrictModel):
     archive: NonEmptyText = Field(description="Run archive path.")
 
 
-class SubscribeSeriesPayload(_Strict):
+class SubscribeSeriesPayload(StrictModel):
     run_id: RunId
     series: SeriesNames
     t_start: SimTime
@@ -116,17 +114,17 @@ class SubscribeSeriesPayload(_Strict):
         return self
 
 
-class ScrubPayload(_Strict):
+class ScrubPayload(StrictModel):
     run_id: RunId
     t: SimTime
 
 
-class PausePayload(_Strict):
+class PausePayload(StrictModel):
     run_id: RunId
     paused: bool = Field(description="True pauses, false resumes.")
 
 
-class StepPayload(_Strict):
+class StepPayload(StrictModel):
     run_id: RunId
     direction: Literal["forward", "backward"]
 
@@ -134,12 +132,12 @@ class StepPayload(_Strict):
 # ===== Response payloads ====================================================
 
 
-class OkPayload(_Strict):
+class OkPayload(StrictModel):
     request_id: NonEmptyText
     result: dict[str, JsonValue]
 
 
-class ErrorPayload(_Strict):
+class ErrorPayload(StrictModel):
     request_id: NonEmptyText | None = Field(description="Null when the request could not be parsed.")
     code: ErrorCode
     message: NonEmptyText
@@ -149,7 +147,7 @@ class ErrorPayload(_Strict):
 # ===== Event payloads =======================================================
 
 
-class RunProgressPayload(_Strict):
+class RunProgressPayload(StrictModel):
     run_id: RunId
     t: SimTime
     t_end: SimTime | None = Field(default=None, description="Planned end time, null when open-ended.")
@@ -161,7 +159,7 @@ class RunProgressPayload(_Strict):
         return self
 
 
-class RunEndedPayload(_Strict):
+class RunEndedPayload(StrictModel):
     run_id: RunId
     t: SimTime
     reason: RunEndReason
@@ -169,7 +167,7 @@ class RunEndedPayload(_Strict):
     requirement_id: RequirementId | None = None
 
 
-class TickBatchPayload(_Strict):
+class TickBatchPayload(StrictModel):
     run_id: RunId
     sequence: int = Field(ge=0)
     t_start: SimTime
@@ -197,7 +195,7 @@ class TickBatchPayload(_Strict):
         return self
 
 
-class TimelineEventPayload(_Strict):
+class TimelineEventPayload(StrictModel):
     run_id: RunId
     t: SimTime
     category: TimelineCategory
