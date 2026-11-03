@@ -4,7 +4,8 @@ Usage: python3 tools/traceability.py [--write] [--root PATH]
 
 Collects requirement IDs from the ``## Requirements`` tables of ``docs/spec/*.md``, Python citations
 (``pytest.mark.req("ID")``) from every ``.py`` under ``tests/``, and C++ citations (Catch2 ``TEST_CASE``/``SCENARIO``
-tags) from every ``.cpp``/``.hpp`` under ``core/`` and ``firmware/``. Reports violations as ``path:line: message`` and compares the
+tags) from every ``.cpp``/``.hpp`` under ``core/`` and ``firmware/``. Reports violations as
+``path:line: message`` and compares the
 generated matrix with the committed ``docs/spec/traceability.md``.
 
 Exit codes: 0 clean; 1 violations, or (without ``--write``) a stale matrix; 2 usage error. Standard library only.
