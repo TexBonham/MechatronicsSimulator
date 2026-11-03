@@ -4,15 +4,21 @@ State for the coordinating session. A new session reads this, then `docs/rulings
 
 ## Current checkpoint
 
-Round 1 closed (phases 0a, 0c, 0b, calibration spike). Round-close hygiene staged: cost-log rows archived to
-`docs/cost-log-archive.md`, root `CLAUDE.md` under 8 000 characters, section markers and indexes for the two long
-tooling files, agent definitions updated from the spike's lessons. Nothing dispatched.
+Round 1 merged to main (PR #1, merge commit feda82d). Round 2 on branch `round/02-phase-1`. ADR 0014 (MuJoCo bridge
+split) accepted. Phase 1 wave 1 (C1 neutral model, C2 component and material files, C5 core runtime interfaces, C6
+board interface, C7 facade protocol ADR) dispatched in worktrees.
 
 ## Next
 
-1. Phase 1 plan for sign-off: neutral physics model and schema, board interface header, kernel party interface, facade
-   protocol ADR, pydantic models and generated schemas, remaining engine packages sequenced on the measured cost model.
-2. Round 2 branch: per R2, cut a fresh branch off main after the round 1 PR lands (owner decides when to open the PR).
+1. Wave 1 lands: Fable stage review per brief, invariant audit, merge-back, stage commits.
+2. Wave 2: C3 design file and CAD import contract (needs C2). Wave 3: C4 test case and baseline files (needs C3).
+3. Phase 1 closing commit comes back to the owner with ADR 0015 (facade protocol) and every schema.
+4. Milestone 1 plan on the measured cost model; engine package 7 (transmissions) first.
+
+## Commit trailers (owner ruling 2026-11-03)
+
+Owner-reviewed commits carry `Reviewed-by: Tex Bonham <bo1750te0130@gmail.com>`. Model-gated stage commits carry
+`Stage-review: Fable stage reviewer, invariant-auditor`. PR bodies carry no generated-by lines.
 
 ## Rulings made at merge-back, confirmed by the owner 2026-11-03 with the round 1 commit
 

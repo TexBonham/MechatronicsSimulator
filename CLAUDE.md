@@ -20,7 +20,7 @@ Cost log: `docs/cost-log.md`, archive `docs/cost-log-archive.md`; never in a `CL
 | 2 | Nothing design-specific in code; gantry only under `designs/`, `test_cases/`, `firmware/` | Review |
 | 3 | Data files are the source of truth; every YAML validates; SI inside, units explicit in files | Schema hook; CI invariant tier |
 | 4 | Determinism: same design, test case, seed, mode give an identical recording | CI invariant tier: run-twice determinism |
-| 5 | Engines and emulators stay behind `mechsim/physics/` and `core/controller/`; only the neutral model crosses | Import-boundary hook; CI invariant tier |
+| 5 | Engines and emulators stay behind `mechsim/physics/`, `core/physics/` and `core/controller/`; only the neutral model crosses | Import-boundary hook; CI invariant tier |
 | 6 | Fidelity tiers are additive | Review |
 | 7 | Failures are errors: drift, solver failure, emulator fault end the run with a report | Review |
 | 8 | Board interface is the only coupling to firmware | Firmware host build rejects other includes (C2) |
@@ -45,7 +45,7 @@ Cost log: `docs/cost-log.md`, archive `docs/cost-log-archive.md`; never in a `CL
 
 ```
 core/            C++ core runtime, one library, own CMake tree
-  engine/ kernel/ signals/ controller/ bindings/ viewer_debug/
+  engine/ kernel/ signals/ controller/ physics/ (adapters: mujoco/ native/) bindings/ viewer_debug/
 mechsim/         Python package, one subpackage per module
   library/ materials/ design/ builder/ physics/ testing/ record/ integrity/ scoring/ facade/ viewer/
 board_interface/ C header firmware writes against
@@ -134,4 +134,4 @@ Detail: `docs/milestones.md`.
 
 ## Decisions
 
-Decisions log rows 1-45 in the architecture doc; ADRs in `docs/adr/`. A new decision gets both.
+Decisions log rows 1-46 in the architecture doc; ADRs in `docs/adr/`. A new decision gets both.

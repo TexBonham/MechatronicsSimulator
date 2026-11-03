@@ -19,6 +19,7 @@ Decisions log.
 | [0011](0011-firmware-and-native-tick-contract.md) | Firmware language, build, polled native tick, HAL placement | Accepted | C1, C2, C3, C4, C5, C6 |
 | [0012](0012-data-conventions.md) | Units, seeding, signal naming, versioning, archives, baselines, tooling | Accepted | L1-L10, D1, D2, D3, D4, R1, R2 |
 | [0013](0013-own-engine-integrator.md) | Own-engine integrator | Accepted | P2 (own-engine half) |
+| [0014](0014-mujoco-bridge-split.md) | MuJoCo bridge split: Python translation, C++ stepping | Accepted | refines R-11, ADR 0004 |
 
 To add an ADR, copy `0000-template.md` to the next free number with a short slug and fill every section. Add a row to
 the table above and a row to the Decisions log in the architecture doc, marking "Changes doc" Yes where the ADR

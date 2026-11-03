@@ -61,6 +61,7 @@ These rulings were made in the planning session of Nov 1, 2026 and are the basis
 | 43 | Firmware location (R-02) | Firmware lives in this repo under firmware/, split out only if it becomes independently useful. | No |
 | 44 | Second design (R-03) | A pendulum design under designs/pendulum/ from milestone 1 as the rope analytical reference and first generality guard; the two-joint arm remains the milestone 5 proof. | No |
 | 45 | Own-engine integrator | Semi-implicit Euler with implicit springs and contacts, post-step projection, projected Gauss-Seidel with a fixed cap, Newmark reserved as a later tier, four lumped-beam segments by default (docs/adr/0013-own-engine-integrator.md). | No |
+| 46 | MuJoCo bridge location | Neutral-model-to-MJCF translation stays in Python; MuJoCo stepping runs in C++ inside the core behind the PhysicsAdapter interface (docs/adr/0014-mujoco-bridge-split.md). | Yes |
 
 ## System overview
 
@@ -189,6 +190,7 @@ core/                 C++ core runtime: one compiled library, own CMake tree
   kernel/             co-simulation kernel: time, rates, sync points, seeds
   signals/            built-in signal-layer components: sensors, front-ends, rails, safety hardware, operator link, pin bindings
   controller/         controller runtimes: native shim, Renode bridge
+  physics/            C++ PhysicsAdapter implementations: mujoco/ (bridge stepping, ADR 0014), native/ (own engine)
   bindings/           pybind11 binding exposing the core runtime to Python
   viewer_debug/       minimal immediate-mode C++ window for engine development
 mechsim/              Python package; one subpackage per module
@@ -196,7 +198,7 @@ mechsim/              Python package; one subpackage per module
   materials/          materials database, process rules, direction-dependent limits
   design/             design-file schema, loader, validation, CAD import (STEP, URDF)
   builder/            model builder: design file -> engine-neutral physics model, wiring, chip config
-  physics/            adapter package: mujoco/ (bridge), native/ (own engine binding), chrono/ (reserved)
+  physics/            builder-side adapters: mujoco/ (neutral model to MJCF), native/ (pass-through), chrono/ (reserved)
   testing/            test-case schema, runner, fault fan-out, sweeps, regression
   record/             recorder, run archive (HDF5), CSV/JSON/MAT exports
   integrity/          mechanical integrity check plugins, safety factors, load-case export
@@ -227,7 +229,7 @@ Invariants every change must keep:
 2. Nothing design-specific in code. The gantry exists only under designs/, test\_cases/ and firmware/. A requirement that can only be met by special-casing a design is a gap in the library and is flagged, not patched.
 3. Data files are the source of truth. Every YAML file validates against its schema; SI units internally, units explicit in files; the GUI editor, when it exists, writes the same files.
 4. Determinism. The same design, test case, seed and controller mode give an identical recording. Any source of nondeterminism is seeded or removed.
-5. Engines and emulators stay behind adapters. No MuJoCo or Renode type crosses the mechsim/physics/ adapter boundary or the core/controller/ runtime boundary; the engine-neutral physics model (ADR 0003) is the only thing that crosses into an adapter.
+5. Engines and emulators stay behind adapters. No MuJoCo or Renode type crosses the mechsim/physics/ and core/physics/ adapter boundaries or the core/controller/ runtime boundary; the engine-neutral physics model (ADR 0003) is the only thing that crosses into an adapter.
 6. Fidelity tiers are additive. Adding a higher tier to a component never changes the lower tier's results.
 7. Failures are errors. Solver drift, solver failure and emulator faults end the run with a report; they never produce silent numbers.
 8. The board interface is the only coupling to firmware. Firmware application code includes the interface header and nothing else from the simulator or any vendor HAL.
