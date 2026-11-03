@@ -2,9 +2,8 @@
 
 from __future__ import annotations
 
-from typing import Annotated, Any
-
 import re
+from typing import Annotated, Any
 
 import pint
 from pydantic import BeforeValidator
