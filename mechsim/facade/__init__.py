@@ -1,0 +1,1 @@
+"""Facade service and protocol."""

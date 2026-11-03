@@ -1,0 +1,68 @@
+# Spec: Facade service and protocol (FAC)
+
+## Purpose
+
+The facade (`mechsim/facade/`) is the one serializable surface every client uses to drive the simulator: a Python
+service over the core binding, speaking a versioned protocol with a schema in `schemas/` and a client-independent
+conformance suite. Streaming and decimation live here, not in clients; replay reads archives only. The protocol and
+transport themselves are chosen by a phase 1 ADR and are not specified here.
+
+"Architecture doc" below is `docs/Mechatronic Simulator — Architecture and Technology Recommendation.md`.
+
+## Interfaces with
+
+| Module | This spec's requirements | Their requirements |
+|---|---|---|
+| TST | FAC-001, FAC-010, FAC-015 | TST-030 to TST-035 |
+| REC | FAC-006, FAC-007, FAC-008, FAC-011 | REC-019, REC-020, REC-024 |
+| SCO | FAC-012 | SCO-008, SCO-010, SCO-012 |
+| INT | FAC-013 | INT-022, INT-032 |
+| VIE | FAC-005, FAC-011, FAC-016 | VIE-012, VIE-013, VIE-014 |
+| DES | FAC-017 | DES-008, DES-011, DES-015, DES-036 |
+| KER, PHY, SIG, CTL | FAC-009, FAC-014 | KER-015, KER-016, PHY-009, CTL-019, KER-026 |
+
+## Requirements
+
+Requirement: one shall-statement. Source: a document and section, an ADR, or a ruling ID. Milestone: M1 to M5,
+spike, phase 1, or roadmap; "spike" is the calibration spike before phase 1 (R-12): engine packages 1 and 2 plus their
+analytical references. Tier: unit, reference, acceptance or invariant. Tolerance: a value with its unit, "<value>
+(<qualifier>)", "identical", "bitwise identical", "n/a", "not set (owed by <who>)", or "not set (owed by <who>,
+proposed <value>)".
+
+| ID | Requirement | Source | Milestone | Tier | Tolerance |
+|---|---|---|---|---|---|
+| FAC-001 | Every client shall drive the simulator through the one facade and through no other entry point. | ADR 0006, Decision, Facade; Architecture doc, Repository starting point, invariant 9; Ruling R-15 | M1 | unit | n/a |
+| FAC-002 | Every facade request and response shall serialize to and from the protocol schema without loss. | ADR 0006, Decision, Facade; ADR 0007, Decision, Facade | phase 1 | unit | n/a |
+| FAC-003 | Every facade exchange shall carry the protocol version, and the service shall reject a request of an unsupported version with an error naming both versions. | ADR 0007, Decision, Facade; Ruling R-16 | phase 1 | unit | n/a |
+| FAC-004 | The protocol schema shall live in `schemas/`, generated from its pydantic models and checked by the schema staleness test. | ADR 0007, Decision, Facade; ADR 0012 (L4) | phase 1 | unit | n/a |
+| FAC-005 | The facade shall ship a client-independent conformance suite that every client, the browser client and any standalone app alike, must pass. | ADR 0007, Decision, Facade; ADR 0007, Consequences; Ruling R-16 | phase 1 | unit | n/a |
+| FAC-006 | The service shall stream run data to clients from the recorder's streaming interface. | ADR 0006, Decision, Recorder; ADR 0007, Decision, Streaming and decimation | M1 | unit | n/a |
+| FAC-007 | The service shall decide what reaches a client and at what rate, decimating in the service, and decimation shall never change the recording. | ADR 0007, Decision, Streaming and decimation; ADR 0007, Consequences; Ruling R-16 | M1 | unit | n/a |
+| FAC-008 | Replay through the facade shall read run archives only, never live engine state. | ADR 0006, Decision, Replay; Ruling R-15 | M1 | unit | n/a |
+| FAC-009 | The facade service shall be Python in `mechsim/facade/`, calling the core runtime through its pybind11 binding. | ADR 0006, Decision; Architecture doc, Repository starting point, layout (`core/bindings/`, `mechsim/facade/`); Ruling R-14 | M1 | unit | n/a |
+| FAC-010 | The facade shall expose the validate, run, suite and replay operations the CLI commands use. | ADR 0006, Decision, First client; ADR 0012 (L9) | M1 | unit | n/a |
+| FAC-011 | The facade shall expose an archive's recorded series and events, and the value of any body, joint, pin or signal at any recorded time. | ADR 0006, Decision, Replay; Architecture doc, Modules: outputs, Viewer and replay row | M1 | unit | n/a |
+| FAC-012 | The facade shall expose pass/fail reports and regression diffs. | Architecture doc, Modules: outputs, Scoring row; ADR 0007, Consequences | M2 | unit | n/a |
+| FAC-013 | The facade shall expose integrity results and the load-case export. | Architecture doc, Modules: outputs, Structural analysis and Exports rows; ADR 0007, Consequences | M3 | unit | n/a |
+| FAC-014 | The facade shall return every run error (solver failure, drift, emulator fault) to the client as a structured error report. | Architecture doc, Repository starting point, invariant 7 | M1 | unit | n/a |
+| FAC-015 | A run started through the facade by any client shall produce the same archive as the same run started from the CLI. | Architecture doc, Repository starting point, invariant 4; ADR 0007, Consequences | M1 | unit | n/a |
+| FAC-016 | Client code shall hold no domain logic: every value a client shows comes from the facade. | ADR 0007, Decision, Client role; Ruling R-16 | M1 | invariant | n/a |
+| FAC-017 | The facade shall expose reading and writing design and test case files, validating every write against the file's schema. | Architecture doc, Repository starting point, invariant 3; Seams reserved for the roadmap, GUI design and test editors row | M1 | unit | n/a |
+
+## Open parameters
+
+| Parameter | Current value | Owed by |
+|---|---|---|
+| Facade protocol and transport | not set | phase 1 ADR (ADR 0006, ADR 0007 open items) |
+| Version compatibility rule (exact match or semver range) | not set | phase 1 ADR |
+| Default decimation policy and client rate requests | not set | phase 1 ADR |
+| Whether designs and results are shared across a team | not set | owner (Requirements doc, Assumptions and open questions) |
+
+## Out of scope
+
+| Item | Seam it belongs to |
+|---|---|
+| Rendering, scrubbing and overlays | VIE |
+| Archive writing | REC |
+| CLI argument parsing | TST |
+| Engine debug viewer | ENG (`core/viewer_debug/`, ADR 0007) |
