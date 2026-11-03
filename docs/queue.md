@@ -6,12 +6,12 @@ State for the coordinating session. A new session reads this, then `docs/rulings
 
 Round 2 closed: phase 1 complete (seven contracts, 558 requirements all covered, 2 198 Python tests, 109 core and 32
 firmware tests), round-close hygiene done (shared `mechsim/schema_base.py`, indexes verified, cost-log rows archived).
-Round 2 PR to main opened from `round/02-phase-1`; the owner merges with a merge commit. Nothing dispatched.
+Round 2 PR #2 merged to main (merge commit f2bcf2d). Round 3 on branch `round/03-milestone-1`, cut from main.
+Nothing dispatched; milestone 1 plan pending owner sign-off.
 
 ## Next
 
-1. Owner merges the round 2 PR. Round 3 branches fresh from main as `round/03-milestone-1`.
-2. Milestone 1 plan for sign-off, costed on the measured sizes: builder (design to neutral model and signal wiring),
+1. Milestone 1 plan for sign-off, costed on the measured sizes: builder (design to neutral model and signal wiring),
    kernel implementation and the five M1 signal built-ins, native controller runtime shim, MuJoCo stepping adapter
    (ADR 0014) and MJCF translation, recorder with HDF5 archive, scoring and the CLI, gantry firmware for G1 to G4,
    engine package 7 (transmissions) first among engine packages, Python binding (package 11).
