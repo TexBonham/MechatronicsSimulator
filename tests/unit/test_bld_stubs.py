@@ -12,20 +12,6 @@ def test_bld_001() -> None:
     raise NotImplementedError
 
 
-@pytest.mark.req("BLD-002")
-@pytest.mark.xfail(strict=True, reason="stub")
-def test_bld_002() -> None:
-    """Every body in the neutral model shall carry its mass, center of mass and inertia."""
-    raise NotImplementedError
-
-
-@pytest.mark.req("BLD-003")
-@pytest.mark.xfail(strict=True, reason="stub")
-def test_bld_003() -> None:
-    """Every joint in the neutral model shall be one of the six joint types of engine package 2."""
-    raise NotImplementedError
-
-
 @pytest.mark.req("BLD-004")
 @pytest.mark.xfail(strict=True, reason="stub")
 def test_bld_004() -> None:
@@ -65,26 +51,12 @@ def test_bld_008() -> None:
     raise NotImplementedError
 
 
-@pytest.mark.req("BLD-009")
-@pytest.mark.xfail(strict=True, reason="stub")
-def test_bld_009() -> None:
-    """Every entry of the structural member list shall record the member's section, material and support conditions."""
-    raise NotImplementedError
-
-
 @pytest.mark.req("BLD-011")
 @pytest.mark.xfail(strict=True, reason="stub")
 def test_bld_011() -> None:
     """Where a design declares mass properties, the builder shall use the declared values; it shall compute them only
     where none are declared.
     """
-    raise NotImplementedError
-
-
-@pytest.mark.req("BLD-012")
-@pytest.mark.xfail(strict=True, reason="stub")
-def test_bld_012() -> None:
-    """Every collision shape the builder emits shall be a primitive or a convex hull."""
     raise NotImplementedError
 
 
@@ -101,27 +73,6 @@ def test_bld_013() -> None:
 @pytest.mark.xfail(strict=True, reason="stub")
 def test_bld_014() -> None:
     """Every flexible member shall be emitted as a multi-segment lumped beam."""
-    raise NotImplementedError
-
-
-@pytest.mark.req("BLD-018")
-@pytest.mark.xfail(strict=True, reason="stub")
-def test_bld_018() -> None:
-    """The segment count of each lumped beam shall be a data parameter, not a constant in code."""
-    raise NotImplementedError
-
-
-@pytest.mark.req("BLD-020")
-@pytest.mark.xfail(strict=True, reason="stub")
-def test_bld_020() -> None:
-    """A body with no material shall end the build with a report naming the body."""
-    raise NotImplementedError
-
-
-@pytest.mark.req("BLD-021")
-@pytest.mark.xfail(strict=True, reason="stub")
-def test_bld_021() -> None:
-    """An unconstrained body shall end the build with a report naming the body."""
     raise NotImplementedError
 
 
@@ -177,13 +128,6 @@ def test_bld_028() -> None:
 @pytest.mark.xfail(strict=True, reason="stub")
 def test_bld_029() -> None:
     """The milestone 1 pendulum link shall be emitted as a rigid body on a revolute joint with no rope element."""
-    raise NotImplementedError
-
-
-@pytest.mark.req("BLD-030")
-@pytest.mark.xfail(strict=True, reason="stub")
-def test_bld_030() -> None:
-    """The neutral model shall hold only plain SI floats and builder-owned types, and no unit object or engine type."""
     raise NotImplementedError
 
 

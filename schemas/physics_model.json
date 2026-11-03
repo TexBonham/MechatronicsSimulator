@@ -1,0 +1,2026 @@
+{
+  "$defs": {
+    "AngularDof": {
+      "additionalProperties": false,
+      "description": "One rotational degree of freedom: limits (None = unlimited), friction, damping, spring and rest.",
+      "properties": {
+        "damping": {
+          "default": "0.0 N*m*s/rad",
+          "description": "Quantity with an explicit unit of dimension torque*time/angle; SI unit N*m*s/rad",
+          "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s|$)",
+          "title": "Damping",
+          "type": "string"
+        },
+        "friction": {
+          "default": "0.0 N*m",
+          "description": "Quantity with an explicit unit of dimension torque; SI unit N*m",
+          "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s|$)",
+          "title": "Friction",
+          "type": "string"
+        },
+        "lower": {
+          "anyOf": [
+            {
+              "description": "Quantity with an explicit unit of dimension angle; SI unit rad",
+              "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s|$)",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Lower"
+        },
+        "rest": {
+          "default": "0.0 rad",
+          "description": "Quantity with an explicit unit of dimension angle; SI unit rad",
+          "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s|$)",
+          "title": "Rest",
+          "type": "string"
+        },
+        "stiffness": {
+          "default": "0.0 N*m/rad",
+          "description": "Quantity with an explicit unit of dimension torque per angle; SI unit N*m/rad",
+          "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s|$)",
+          "title": "Stiffness",
+          "type": "string"
+        },
+        "upper": {
+          "anyOf": [
+            {
+              "description": "Quantity with an explicit unit of dimension angle; SI unit rad",
+              "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s|$)",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Upper"
+        }
+      },
+      "title": "AngularDof",
+      "type": "object"
+    },
+    "BeltPulley": {
+      "additionalProperties": false,
+      "description": "Revolute shaft to prismatic driven joint through a pulley of the given pitch radius.",
+      "properties": {
+        "backlash": {
+          "default": "0.0 m",
+          "description": "Quantity with an explicit unit of dimension [length]; SI unit m",
+          "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s|$)",
+          "title": "Backlash",
+          "type": "string"
+        },
+        "driven_joint": {
+          "pattern": "^[a-z][a-z0-9_]*$",
+          "title": "Driven Joint",
+          "type": "string"
+        },
+        "efficiency": {
+          "title": "Efficiency",
+          "type": "number"
+        },
+        "name": {
+          "pattern": "^[a-z][a-z0-9_]*$",
+          "title": "Name",
+          "type": "string"
+        },
+        "pulley_radius": {
+          "description": "Quantity with an explicit unit of dimension [length]; SI unit m",
+          "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s|$)",
+          "title": "Pulley Radius",
+          "type": "string"
+        },
+        "shaft_joint": {
+          "pattern": "^[a-z][a-z0-9_]*$",
+          "title": "Shaft Joint",
+          "type": "string"
+        },
+        "slip": {
+          "default": 0.0,
+          "title": "Slip",
+          "type": "number"
+        },
+        "stiffness": {
+          "description": "Quantity with an explicit unit of dimension [mass]/[time]**2; SI unit N/m",
+          "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s|$)",
+          "title": "Stiffness",
+          "type": "string"
+        },
+        "type": {
+          "const": "belt_pulley",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "shaft_joint",
+        "driven_joint",
+        "efficiency",
+        "type",
+        "pulley_radius",
+        "stiffness"
+      ],
+      "title": "BeltPulley",
+      "type": "object"
+    },
+    "Body": {
+      "additionalProperties": false,
+      "description": "Rigid body. `parent` is \"world\" or a body listed earlier; a body without a joint is unconstrained.",
+      "properties": {
+        "catalog_part": {
+          "anyOf": [
+            {
+              "pattern": "^[a-z][a-z0-9_]*$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Catalog Part"
+        },
+        "com": {
+          "maxItems": 3,
+          "minItems": 3,
+          "prefixItems": [
+            {
+              "description": "Quantity with an explicit unit of dimension [length]; SI unit m",
+              "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s|$)",
+              "type": "string"
+            },
+            {
+              "description": "Quantity with an explicit unit of dimension [length]; SI unit m",
+              "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s|$)",
+              "type": "string"
+            },
+            {
+              "description": "Quantity with an explicit unit of dimension [length]; SI unit m",
+              "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s|$)",
+              "type": "string"
+            }
+          ],
+          "title": "Com",
+          "type": "array"
+        },
+        "inertia": {
+          "$ref": "#/$defs/InertiaTensor"
+        },
+        "joint": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Joint"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "mass": {
+          "description": "Quantity with an explicit unit of dimension [mass]; SI unit kg",
+          "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s|$)",
+          "title": "Mass",
+          "type": "string"
+        },
+        "material": {
+          "anyOf": [
+            {
+              "pattern": "^[a-z][a-z0-9_]*$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Material"
+        },
+        "name": {
+          "pattern": "^[a-z][a-z0-9_]*$",
+          "title": "Name",
+          "type": "string"
+        },
+        "parent": {
+          "pattern": "^[a-z][a-z0-9_]*$",
+          "title": "Parent",
+          "type": "string"
+        },
+        "shapes": {
+          "default": [],
+          "items": {
+            "discriminator": {
+              "mapping": {
+                "box": "#/$defs/Box",
+                "capsule": "#/$defs/Capsule",
+                "convex_hull": "#/$defs/ConvexHull",
+                "cylinder": "#/$defs/Cylinder",
+                "plane": "#/$defs/Plane",
+                "sphere": "#/$defs/Sphere"
+              },
+              "propertyName": "shape"
+            },
+            "oneOf": [
+              {
+                "$ref": "#/$defs/Sphere"
+              },
+              {
+                "$ref": "#/$defs/Capsule"
+              },
+              {
+                "$ref": "#/$defs/Box"
+              },
+              {
+                "$ref": "#/$defs/Cylinder"
+              },
+              {
+                "$ref": "#/$defs/ConvexHull"
+              },
+              {
+                "$ref": "#/$defs/Plane"
+              }
+            ]
+          },
+          "title": "Shapes",
+          "type": "array"
+        }
+      },
+      "required": [
+        "name",
+        "mass",
+        "com",
+        "inertia",
+        "parent"
+      ],
+      "title": "Body",
+      "type": "object"
+    },
+    "Box": {
+      "additionalProperties": false,
+      "description": "Full edge lengths along the shape's x, y and z axes.",
+      "properties": {
+        "material": {
+          "pattern": "^[a-z][a-z0-9_]*$",
+          "title": "Material",
+          "type": "string"
+        },
+        "orientation": {
+          "default": [
+            1.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "maxItems": 4,
+          "minItems": 4,
+          "prefixItems": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "number"
+            }
+          ],
+          "title": "Orientation",
+          "type": "array"
+        },
+        "position": {
+          "default": [
+            "0.0 m",
+            "0.0 m",
+            "0.0 m"
+          ],
+          "maxItems": 3,
+          "minItems": 3,
+          "prefixItems": [
+            {
+              "description": "Quantity with an explicit unit of dimension [length]; SI unit m",
+              "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s|$)",
+              "type": "string"
+            },
+            {
+              "description": "Quantity with an explicit unit of dimension [length]; SI unit m",
+              "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s|$)",
+              "type": "string"
+            },
+            {
+              "description": "Quantity with an explicit unit of dimension [length]; SI unit m",
+              "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s|$)",
+              "type": "string"
+            }
+          ],
+          "title": "Position",
+          "type": "array"
+        },
+        "shape": {
+          "const": "box",
+          "title": "Shape",
+          "type": "string"
+        },
+        "size": {
+          "maxItems": 3,
+          "minItems": 3,
+          "prefixItems": [
+            {
+              "description": "Quantity with an explicit unit of dimension [length]; SI unit m",
+              "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s|$)",
+              "type": "string"
+            },
+            {
+              "description": "Quantity with an explicit unit of dimension [length]; SI unit m",
+              "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s|$)",
+              "type": "string"
+            },
+            {
+              "description": "Quantity with an explicit unit of dimension [length]; SI unit m",
+              "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s|$)",
+              "type": "string"
+            }
+          ],
+          "title": "Size",
+          "type": "array"
+        }
+      },
+      "required": [
+        "material",
+        "shape",
+        "size"
+      ],
+      "title": "Box",
+      "type": "object"
+    },
+    "Capsule": {
+      "additionalProperties": false,
+      "description": "Along the shape's z axis; `length` is the cylindrical part between the cap centers.",
+      "properties": {
+        "length": {
+          "description": "Quantity with an explicit unit of dimension [length]; SI unit m",
+          "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s|$)",
+          "title": "Length",
+          "type": "string"
+        },
+        "material": {
+          "pattern": "^[a-z][a-z0-9_]*$",
+          "title": "Material",
+          "type": "string"
+        },
+        "orientation": {
+          "default": [
+            1.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "maxItems": 4,
+          "minItems": 4,
+          "prefixItems": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "number"
+            }
+          ],
+          "title": "Orientation",
+          "type": "array"
+        },
+        "position": {
+          "default": [
+            "0.0 m",
+            "0.0 m",
+            "0.0 m"
+          ],
+          "maxItems": 3,
+          "minItems": 3,
+          "prefixItems": [
+            {
+              "description": "Quantity with an explicit unit of dimension [length]; SI unit m",
+              "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s|$)",
+              "type": "string"
+            },
+            {
+              "description": "Quantity with an explicit unit of dimension [length]; SI unit m",
+              "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s|$)",
+              "type": "string"
+            },
+            {
+              "description": "Quantity with an explicit unit of dimension [length]; SI unit m",
+              "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s|$)",
+              "type": "string"
+            }
+          ],
+          "title": "Position",
+          "type": "array"
+        },
+        "radius": {
+          "description": "Quantity with an explicit unit of dimension [length]; SI unit m",
+          "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s|$)",
+          "title": "Radius",
+          "type": "string"
+        },
+        "shape": {
+          "const": "capsule",
+          "title": "Shape",
+          "type": "string"
+        }
+      },
+      "required": [
+        "material",
+        "shape",
+        "radius",
+        "length"
+      ],
+      "title": "Capsule",
+      "type": "object"
+    },
+    "ContactModel": {
+      "additionalProperties": false,
+      "description": "Contacts element (ADR 0003): default parameters, material-pair overrides, excluded body pairs.",
+      "properties": {
+        "default": {
+          "$ref": "#/$defs/ContactParameters"
+        },
+        "exclusions": {
+          "default": [],
+          "items": {
+            "maxItems": 2,
+            "minItems": 2,
+            "prefixItems": [
+              {
+                "pattern": "^[a-z][a-z0-9_]*$",
+                "type": "string"
+              },
+              {
+                "pattern": "^[a-z][a-z0-9_]*$",
+                "type": "string"
+              }
+            ],
+            "type": "array"
+          },
+          "title": "Exclusions",
+          "type": "array"
+        },
+        "pairs": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/MaterialPair"
+          },
+          "title": "Pairs",
+          "type": "array"
+        }
+      },
+      "required": [
+        "default"
+      ],
+      "title": "ContactModel",
+      "type": "object"
+    },
+    "ContactParameters": {
+      "additionalProperties": false,
+      "description": "Soft contact (ADR 0002): normal stiffness and damping, Coulomb friction coefficient.",
+      "properties": {
+        "damping": {
+          "description": "Quantity with an explicit unit of dimension [mass]/[time]; SI unit N*s/m",
+          "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s|$)",
+          "title": "Damping",
+          "type": "string"
+        },
+        "friction": {
+          "title": "Friction",
+          "type": "number"
+        },
+        "stiffness": {
+          "description": "Quantity with an explicit unit of dimension [mass]/[time]**2; SI unit N/m",
+          "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s|$)",
+          "title": "Stiffness",
+          "type": "string"
+        }
+      },
+      "required": [
+        "stiffness",
+        "damping",
+        "friction"
+      ],
+      "title": "ContactParameters",
+      "type": "object"
+    },
+    "ConvexHull": {
+      "additionalProperties": false,
+      "description": "Convex hull of the vertex list in the shape frame: at least four vertices that span a volume.",
+      "properties": {
+        "material": {
+          "pattern": "^[a-z][a-z0-9_]*$",
+          "title": "Material",
+          "type": "string"
+        },
+        "orientation": {
+          "default": [
+            1.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "maxItems": 4,
+          "minItems": 4,
+          "prefixItems": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "number"
+            }
+          ],
+          "title": "Orientation",
+          "type": "array"
+        },
+        "position": {
+          "default": [
+            "0.0 m",
+            "0.0 m",
+            "0.0 m"
+          ],
+          "maxItems": 3,
+          "minItems": 3,
+          "prefixItems": [
+            {
+              "description": "Quantity with an explicit unit of dimension [length]; SI unit m",
+              "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s|$)",
+              "type": "string"
+            },
+            {
+              "description": "Quantity with an explicit unit of dimension [length]; SI unit m",
+              "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s|$)",
+              "type": "string"
+            },
+            {
+              "description": "Quantity with an explicit unit of dimension [length]; SI unit m",
+              "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s|$)",
+              "type": "string"
+            }
+          ],
+          "title": "Position",
+          "type": "array"
+        },
+        "shape": {
+          "const": "convex_hull",
+          "title": "Shape",
+          "type": "string"
+        },
+        "vertices": {
+          "items": {
+            "maxItems": 3,
+            "minItems": 3,
+            "prefixItems": [
+              {
+                "description": "Quantity with an explicit unit of dimension [length]; SI unit m",
+                "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s|$)",
+                "type": "string"
+              },
+              {
+                "description": "Quantity with an explicit unit of dimension [length]; SI unit m",
+                "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s|$)",
+                "type": "string"
+              },
+              {
+                "description": "Quantity with an explicit unit of dimension [length]; SI unit m",
+                "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s|$)",
+                "type": "string"
+              }
+            ],
+            "type": "array"
+          },
+          "minItems": 4,
+          "title": "Vertices",
+          "type": "array"
+        }
+      },
+      "required": [
+        "material",
+        "shape",
+        "vertices"
+      ],
+      "title": "ConvexHull",
+      "type": "object"
+    },
+    "Cylinder": {
+      "additionalProperties": false,
+      "description": "Along the shape's z axis.",
+      "properties": {
+        "length": {
+          "description": "Quantity with an explicit unit of dimension [length]; SI unit m",
+          "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s|$)",
+          "title": "Length",
+          "type": "string"
+        },
+        "material": {
+          "pattern": "^[a-z][a-z0-9_]*$",
+          "title": "Material",
+          "type": "string"
+        },
+        "orientation": {
+          "default": [
+            1.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "maxItems": 4,
+          "minItems": 4,
+          "prefixItems": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "number"
+            }
+          ],
+          "title": "Orientation",
+          "type": "array"
+        },
+        "position": {
+          "default": [
+            "0.0 m",
+            "0.0 m",
+            "0.0 m"
+          ],
+          "maxItems": 3,
+          "minItems": 3,
+          "prefixItems": [
+            {
+              "description": "Quantity with an explicit unit of dimension [length]; SI unit m",
+              "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s|$)",
+              "type": "string"
+            },
+            {
+              "description": "Quantity with an explicit unit of dimension [length]; SI unit m",
+              "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s|$)",
+              "type": "string"
+            },
+            {
+              "description": "Quantity with an explicit unit of dimension [length]; SI unit m",
+              "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s|$)",
+              "type": "string"
+            }
+          ],
+          "title": "Position",
+          "type": "array"
+        },
+        "radius": {
+          "description": "Quantity with an explicit unit of dimension [length]; SI unit m",
+          "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s|$)",
+          "title": "Radius",
+          "type": "string"
+        },
+        "shape": {
+          "const": "cylinder",
+          "title": "Shape",
+          "type": "string"
+        }
+      },
+      "required": [
+        "material",
+        "shape",
+        "radius",
+        "length"
+      ],
+      "title": "Cylinder",
+      "type": "object"
+    },
+    "DesignRef": {
+      "additionalProperties": false,
+      "description": "The design this model was built from (D3): semver plus the design file's git blob hash.",
+      "properties": {
+        "blob": {
+          "pattern": "^([0-9a-f]{40}|[0-9a-f]{64})$",
+          "title": "Blob",
+          "type": "string"
+        },
+        "name": {
+          "pattern": "^[a-z][a-z0-9_]*$",
+          "title": "Name",
+          "type": "string"
+        },
+        "version": {
+          "pattern": "^(0|[1-9]\\d*)\\.(0|[1-9]\\d*)\\.(0|[1-9]\\d*)(-[0-9A-Za-z.\\-]+)?$",
+          "title": "Version",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "version",
+        "blob"
+      ],
+      "title": "DesignRef",
+      "type": "object"
+    },
+    "GearPair": {
+      "additionalProperties": false,
+      "description": "Revolute shaft to revolute driven joint; `ratio` is shaft angle over driven angle, its sign the direction.",
+      "properties": {
+        "backlash": {
+          "default": "0.0 rad",
+          "description": "Quantity with an explicit unit of dimension angle; SI unit rad",
+          "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s|$)",
+          "title": "Backlash",
+          "type": "string"
+        },
+        "driven_joint": {
+          "pattern": "^[a-z][a-z0-9_]*$",
+          "title": "Driven Joint",
+          "type": "string"
+        },
+        "efficiency": {
+          "title": "Efficiency",
+          "type": "number"
+        },
+        "name": {
+          "pattern": "^[a-z][a-z0-9_]*$",
+          "title": "Name",
+          "type": "string"
+        },
+        "ratio": {
+          "title": "Ratio",
+          "type": "number"
+        },
+        "shaft_joint": {
+          "pattern": "^[a-z][a-z0-9_]*$",
+          "title": "Shaft Joint",
+          "type": "string"
+        },
+        "slip": {
+          "default": 0.0,
+          "title": "Slip",
+          "type": "number"
+        },
+        "stiffness": {
+          "description": "Quantity with an explicit unit of dimension torque per angle; SI unit N*m/rad",
+          "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s|$)",
+          "title": "Stiffness",
+          "type": "string"
+        },
+        "type": {
+          "const": "gear_pair",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "shaft_joint",
+        "driven_joint",
+        "efficiency",
+        "type",
+        "ratio",
+        "stiffness"
+      ],
+      "title": "GearPair",
+      "type": "object"
+    },
+    "HingeConstraint": {
+      "additionalProperties": false,
+      "description": "Point coincidence plus alignment of axis_a in body_a with axis_b in body_b.",
+      "properties": {
+        "anchor_a": {
+          "maxItems": 3,
+          "minItems": 3,
+          "prefixItems": [
+            {
+              "description": "Quantity with an explicit unit of dimension [length]; SI unit m",
+              "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s|$)",
+              "type": "string"
+            },
+            {
+              "description": "Quantity with an explicit unit of dimension [length]; SI unit m",
+              "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s|$)",
+              "type": "string"
+            },
+            {
+              "description": "Quantity with an explicit unit of dimension [length]; SI unit m",
+              "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s|$)",
+              "type": "string"
+            }
+          ],
+          "title": "Anchor A",
+          "type": "array"
+        },
+        "anchor_b": {
+          "maxItems": 3,
+          "minItems": 3,
+          "prefixItems": [
+            {
+              "description": "Quantity with an explicit unit of dimension [length]; SI unit m",
+              "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s|$)",
+              "type": "string"
+            },
+            {
+              "description": "Quantity with an explicit unit of dimension [length]; SI unit m",
+              "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s|$)",
+              "type": "string"
+            },
+            {
+              "description": "Quantity with an explicit unit of dimension [length]; SI unit m",
+              "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s|$)",
+              "type": "string"
+            }
+          ],
+          "title": "Anchor B",
+          "type": "array"
+        },
+        "axis_a": {
+          "maxItems": 3,
+          "minItems": 3,
+          "prefixItems": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "number"
+            }
+          ],
+          "title": "Axis A",
+          "type": "array"
+        },
+        "axis_b": {
+          "maxItems": 3,
+          "minItems": 3,
+          "prefixItems": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "number"
+            }
+          ],
+          "title": "Axis B",
+          "type": "array"
+        },
+        "body_a": {
+          "pattern": "^[a-z][a-z0-9_]*$",
+          "title": "Body A",
+          "type": "string"
+        },
+        "body_b": {
+          "pattern": "^[a-z][a-z0-9_]*$",
+          "title": "Body B",
+          "type": "string"
+        },
+        "name": {
+          "pattern": "^[a-z][a-z0-9_]*$",
+          "title": "Name",
+          "type": "string"
+        },
+        "type": {
+          "const": "hinge",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "name",
+        "body_a",
+        "body_b",
+        "anchor_a",
+        "anchor_b",
+        "axis_a",
+        "axis_b"
+      ],
+      "title": "HingeConstraint",
+      "type": "object"
+    },
+    "InertiaTensor": {
+      "additionalProperties": false,
+      "description": "Symmetric inertia tensor about the center of mass in body axes; must be positive semi-definite.",
+      "properties": {
+        "ixx": {
+          "description": "Quantity with an explicit unit of dimension inertia; SI unit kg*m**2",
+          "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s|$)",
+          "title": "Ixx",
+          "type": "string"
+        },
+        "ixy": {
+          "default": "0.0 kg*m**2",
+          "description": "Quantity with an explicit unit of dimension inertia; SI unit kg*m**2",
+          "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s|$)",
+          "title": "Ixy",
+          "type": "string"
+        },
+        "ixz": {
+          "default": "0.0 kg*m**2",
+          "description": "Quantity with an explicit unit of dimension inertia; SI unit kg*m**2",
+          "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s|$)",
+          "title": "Ixz",
+          "type": "string"
+        },
+        "iyy": {
+          "description": "Quantity with an explicit unit of dimension inertia; SI unit kg*m**2",
+          "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s|$)",
+          "title": "Iyy",
+          "type": "string"
+        },
+        "iyz": {
+          "default": "0.0 kg*m**2",
+          "description": "Quantity with an explicit unit of dimension inertia; SI unit kg*m**2",
+          "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s|$)",
+          "title": "Iyz",
+          "type": "string"
+        },
+        "izz": {
+          "description": "Quantity with an explicit unit of dimension inertia; SI unit kg*m**2",
+          "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s|$)",
+          "title": "Izz",
+          "type": "string"
+        }
+      },
+      "required": [
+        "ixx",
+        "iyy",
+        "izz"
+      ],
+      "title": "InertiaTensor",
+      "type": "object"
+    },
+    "Joint": {
+      "additionalProperties": false,
+      "description": "Joint to the parent: placement in the parent frame, axis in the joint frame, per-DOF parameters.\n\n`linear` and `angular` are empty (no limits, friction or springs) or list every DOF of the type in order:\nplanar [x, y] + [theta]; free [x, y, z] + [rx, ry, rz]; spherical [rx, ry, rz].",
+      "properties": {
+        "angular": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/AngularDof"
+          },
+          "title": "Angular",
+          "type": "array"
+        },
+        "axis": {
+          "default": [
+            0.0,
+            0.0,
+            1.0
+          ],
+          "maxItems": 3,
+          "minItems": 3,
+          "prefixItems": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "number"
+            }
+          ],
+          "title": "Axis",
+          "type": "array"
+        },
+        "linear": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/LinearDof"
+          },
+          "title": "Linear",
+          "type": "array"
+        },
+        "name": {
+          "pattern": "^[a-z][a-z0-9_]*$",
+          "title": "Name",
+          "type": "string"
+        },
+        "orientation": {
+          "default": [
+            1.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "maxItems": 4,
+          "minItems": 4,
+          "prefixItems": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "number"
+            }
+          ],
+          "title": "Orientation",
+          "type": "array"
+        },
+        "position": {
+          "maxItems": 3,
+          "minItems": 3,
+          "prefixItems": [
+            {
+              "description": "Quantity with an explicit unit of dimension [length]; SI unit m",
+              "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s|$)",
+              "type": "string"
+            },
+            {
+              "description": "Quantity with an explicit unit of dimension [length]; SI unit m",
+              "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s|$)",
+              "type": "string"
+            },
+            {
+              "description": "Quantity with an explicit unit of dimension [length]; SI unit m",
+              "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s|$)",
+              "type": "string"
+            }
+          ],
+          "title": "Position",
+          "type": "array"
+        },
+        "type": {
+          "enum": [
+            "revolute",
+            "prismatic",
+            "fixed",
+            "planar",
+            "spherical",
+            "free"
+          ],
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "type",
+        "position"
+      ],
+      "title": "Joint",
+      "type": "object"
+    },
+    "JsonValue": {},
+    "LeadScrew": {
+      "additionalProperties": false,
+      "description": "Revolute shaft to prismatic driven joint; `lead` is travel per shaft revolution.",
+      "properties": {
+        "backlash": {
+          "default": "0.0 m",
+          "description": "Quantity with an explicit unit of dimension [length]; SI unit m",
+          "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s|$)",
+          "title": "Backlash",
+          "type": "string"
+        },
+        "driven_joint": {
+          "pattern": "^[a-z][a-z0-9_]*$",
+          "title": "Driven Joint",
+          "type": "string"
+        },
+        "efficiency": {
+          "title": "Efficiency",
+          "type": "number"
+        },
+        "lead": {
+          "description": "Quantity with an explicit unit of dimension [length]; SI unit m",
+          "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s|$)",
+          "title": "Lead",
+          "type": "string"
+        },
+        "name": {
+          "pattern": "^[a-z][a-z0-9_]*$",
+          "title": "Name",
+          "type": "string"
+        },
+        "self_locking": {
+          "default": false,
+          "title": "Self Locking",
+          "type": "boolean"
+        },
+        "shaft_joint": {
+          "pattern": "^[a-z][a-z0-9_]*$",
+          "title": "Shaft Joint",
+          "type": "string"
+        },
+        "slip": {
+          "default": 0.0,
+          "title": "Slip",
+          "type": "number"
+        },
+        "stiffness": {
+          "description": "Quantity with an explicit unit of dimension [mass]/[time]**2; SI unit N/m",
+          "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s|$)",
+          "title": "Stiffness",
+          "type": "string"
+        },
+        "type": {
+          "const": "lead_screw",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "shaft_joint",
+        "driven_joint",
+        "efficiency",
+        "type",
+        "lead",
+        "stiffness"
+      ],
+      "title": "LeadScrew",
+      "type": "object"
+    },
+    "LinearDof": {
+      "additionalProperties": false,
+      "description": "One translational degree of freedom: limits (None = unlimited), friction, damping, spring and rest.",
+      "properties": {
+        "damping": {
+          "default": "0.0 N*s/m",
+          "description": "Quantity with an explicit unit of dimension [mass]/[time]; SI unit N*s/m",
+          "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s|$)",
+          "title": "Damping",
+          "type": "string"
+        },
+        "friction": {
+          "default": "0.0 N",
+          "description": "Quantity with an explicit unit of dimension force; SI unit N",
+          "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s|$)",
+          "title": "Friction",
+          "type": "string"
+        },
+        "lower": {
+          "anyOf": [
+            {
+              "description": "Quantity with an explicit unit of dimension [length]; SI unit m",
+              "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s|$)",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Lower"
+        },
+        "rest": {
+          "default": "0.0 m",
+          "description": "Quantity with an explicit unit of dimension [length]; SI unit m",
+          "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s|$)",
+          "title": "Rest",
+          "type": "string"
+        },
+        "stiffness": {
+          "default": "0.0 N/m",
+          "description": "Quantity with an explicit unit of dimension [mass]/[time]**2; SI unit N/m",
+          "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s|$)",
+          "title": "Stiffness",
+          "type": "string"
+        },
+        "upper": {
+          "anyOf": [
+            {
+              "description": "Quantity with an explicit unit of dimension [length]; SI unit m",
+              "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s|$)",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Upper"
+        }
+      },
+      "title": "LinearDof",
+      "type": "object"
+    },
+    "LumpedMember": {
+      "additionalProperties": false,
+      "description": "Multi-segment lumped beam (R-13) rooted on `parent` at the given placement, along the root frame's x axis.\n\n`segments` defaults to 4, or 8 for a pinned root with a roller end (ENG-040).",
+      "properties": {
+        "end": {
+          "enum": [
+            "free",
+            "roller"
+          ],
+          "title": "End",
+          "type": "string"
+        },
+        "name": {
+          "pattern": "^[a-z][a-z0-9_]*$",
+          "title": "Name",
+          "type": "string"
+        },
+        "node_damping": {
+          "default": "0.0 N*m*s/rad",
+          "description": "Quantity with an explicit unit of dimension torque*time/angle; SI unit N*m*s/rad",
+          "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s|$)",
+          "title": "Node Damping",
+          "type": "string"
+        },
+        "orientation": {
+          "default": [
+            1.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "maxItems": 4,
+          "minItems": 4,
+          "prefixItems": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "number"
+            }
+          ],
+          "title": "Orientation",
+          "type": "array"
+        },
+        "parent": {
+          "pattern": "^[a-z][a-z0-9_]*$",
+          "title": "Parent",
+          "type": "string"
+        },
+        "position": {
+          "maxItems": 3,
+          "minItems": 3,
+          "prefixItems": [
+            {
+              "description": "Quantity with an explicit unit of dimension [length]; SI unit m",
+              "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s|$)",
+              "type": "string"
+            },
+            {
+              "description": "Quantity with an explicit unit of dimension [length]; SI unit m",
+              "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s|$)",
+              "type": "string"
+            },
+            {
+              "description": "Quantity with an explicit unit of dimension [length]; SI unit m",
+              "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s|$)",
+              "type": "string"
+            }
+          ],
+          "title": "Position",
+          "type": "array"
+        },
+        "roller_mass_fraction": {
+          "default": 0.001,
+          "title": "Roller Mass Fraction",
+          "type": "number"
+        },
+        "root": {
+          "enum": [
+            "clamped",
+            "pinned"
+          ],
+          "title": "Root",
+          "type": "string"
+        },
+        "section": {
+          "$ref": "#/$defs/Section"
+        },
+        "segments": {
+          "default": 4,
+          "minimum": 1,
+          "title": "Segments",
+          "type": "integer"
+        },
+        "structural_member": {
+          "anyOf": [
+            {
+              "pattern": "^[a-z][a-z0-9_]*$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Structural Member"
+        }
+      },
+      "required": [
+        "name",
+        "parent",
+        "position",
+        "section",
+        "root",
+        "end"
+      ],
+      "title": "LumpedMember",
+      "type": "object"
+    },
+    "MaterialPair": {
+      "additionalProperties": false,
+      "description": "Contact parameters overriding the default for one unordered pair of materials.",
+      "properties": {
+        "damping": {
+          "description": "Quantity with an explicit unit of dimension [mass]/[time]; SI unit N*s/m",
+          "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s|$)",
+          "title": "Damping",
+          "type": "string"
+        },
+        "friction": {
+          "title": "Friction",
+          "type": "number"
+        },
+        "materials": {
+          "maxItems": 2,
+          "minItems": 2,
+          "prefixItems": [
+            {
+              "pattern": "^[a-z][a-z0-9_]*$",
+              "type": "string"
+            },
+            {
+              "pattern": "^[a-z][a-z0-9_]*$",
+              "type": "string"
+            }
+          ],
+          "title": "Materials",
+          "type": "array"
+        },
+        "stiffness": {
+          "description": "Quantity with an explicit unit of dimension [mass]/[time]**2; SI unit N/m",
+          "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s|$)",
+          "title": "Stiffness",
+          "type": "string"
+        }
+      },
+      "required": [
+        "stiffness",
+        "damping",
+        "friction",
+        "materials"
+      ],
+      "title": "MaterialPair",
+      "type": "object"
+    },
+    "Plane": {
+      "additionalProperties": false,
+      "description": "Half-space below the shape's x-y plane (normal +z); allowed only on the world, as the floor.",
+      "properties": {
+        "material": {
+          "pattern": "^[a-z][a-z0-9_]*$",
+          "title": "Material",
+          "type": "string"
+        },
+        "orientation": {
+          "default": [
+            1.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "maxItems": 4,
+          "minItems": 4,
+          "prefixItems": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "number"
+            }
+          ],
+          "title": "Orientation",
+          "type": "array"
+        },
+        "position": {
+          "default": [
+            "0.0 m",
+            "0.0 m",
+            "0.0 m"
+          ],
+          "maxItems": 3,
+          "minItems": 3,
+          "prefixItems": [
+            {
+              "description": "Quantity with an explicit unit of dimension [length]; SI unit m",
+              "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s|$)",
+              "type": "string"
+            },
+            {
+              "description": "Quantity with an explicit unit of dimension [length]; SI unit m",
+              "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s|$)",
+              "type": "string"
+            },
+            {
+              "description": "Quantity with an explicit unit of dimension [length]; SI unit m",
+              "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s|$)",
+              "type": "string"
+            }
+          ],
+          "title": "Position",
+          "type": "array"
+        },
+        "shape": {
+          "const": "plane",
+          "title": "Shape",
+          "type": "string"
+        }
+      },
+      "required": [
+        "material",
+        "shape"
+      ],
+      "title": "Plane",
+      "type": "object"
+    },
+    "PointConstraint": {
+      "additionalProperties": false,
+      "description": "Coincidence of a point fixed in body_a with a point fixed in body_b (anchors in each body frame).",
+      "properties": {
+        "anchor_a": {
+          "maxItems": 3,
+          "minItems": 3,
+          "prefixItems": [
+            {
+              "description": "Quantity with an explicit unit of dimension [length]; SI unit m",
+              "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s|$)",
+              "type": "string"
+            },
+            {
+              "description": "Quantity with an explicit unit of dimension [length]; SI unit m",
+              "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s|$)",
+              "type": "string"
+            },
+            {
+              "description": "Quantity with an explicit unit of dimension [length]; SI unit m",
+              "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s|$)",
+              "type": "string"
+            }
+          ],
+          "title": "Anchor A",
+          "type": "array"
+        },
+        "anchor_b": {
+          "maxItems": 3,
+          "minItems": 3,
+          "prefixItems": [
+            {
+              "description": "Quantity with an explicit unit of dimension [length]; SI unit m",
+              "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s|$)",
+              "type": "string"
+            },
+            {
+              "description": "Quantity with an explicit unit of dimension [length]; SI unit m",
+              "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s|$)",
+              "type": "string"
+            },
+            {
+              "description": "Quantity with an explicit unit of dimension [length]; SI unit m",
+              "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s|$)",
+              "type": "string"
+            }
+          ],
+          "title": "Anchor B",
+          "type": "array"
+        },
+        "body_a": {
+          "pattern": "^[a-z][a-z0-9_]*$",
+          "title": "Body A",
+          "type": "string"
+        },
+        "body_b": {
+          "pattern": "^[a-z][a-z0-9_]*$",
+          "title": "Body B",
+          "type": "string"
+        },
+        "name": {
+          "pattern": "^[a-z][a-z0-9_]*$",
+          "title": "Name",
+          "type": "string"
+        },
+        "type": {
+          "const": "point",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "name",
+        "body_a",
+        "body_b",
+        "anchor_a",
+        "anchor_b"
+      ],
+      "title": "PointConstraint",
+      "type": "object"
+    },
+    "RunConfig": {
+      "additionalProperties": false,
+      "description": "Engine-neutral run configuration the kernel needs; defaults per ADR 0013 and the engine contract.\n\nThe engine currently takes one constraint velocity tolerance; the native adapter maps both fields onto it.",
+      "properties": {
+        "drift_threshold_angular": {
+          "default": "1e-06 rad",
+          "description": "Quantity with an explicit unit of dimension angle; SI unit rad",
+          "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s|$)",
+          "title": "Drift Threshold Angular",
+          "type": "string"
+        },
+        "drift_threshold_linear": {
+          "default": "1e-06 m",
+          "description": "Quantity with an explicit unit of dimension [length]; SI unit m",
+          "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s|$)",
+          "title": "Drift Threshold Linear",
+          "type": "string"
+        },
+        "iteration_cap": {
+          "default": 50,
+          "minimum": 1,
+          "title": "Iteration Cap",
+          "type": "integer"
+        },
+        "projection_iterations": {
+          "default": 3,
+          "minimum": 0,
+          "title": "Projection Iterations",
+          "type": "integer"
+        },
+        "step": {
+          "default": "0.001 s",
+          "description": "Quantity with an explicit unit of dimension [time]; SI unit s",
+          "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s|$)",
+          "title": "Step",
+          "type": "string"
+        },
+        "symmetry_tolerance": {
+          "default": 1e-12,
+          "title": "Symmetry Tolerance",
+          "type": "number"
+        },
+        "unit_quaternion_tolerance": {
+          "default": 1e-12,
+          "title": "Unit Quaternion Tolerance",
+          "type": "number"
+        },
+        "velocity_tolerance_angular": {
+          "default": "1e-09 rad/s",
+          "description": "Quantity with an explicit unit of dimension angle/[time]; SI unit rad/s",
+          "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s|$)",
+          "title": "Velocity Tolerance Angular",
+          "type": "string"
+        },
+        "velocity_tolerance_linear": {
+          "default": "1e-09 m/s",
+          "description": "Quantity with an explicit unit of dimension velocity; SI unit m/s",
+          "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s|$)",
+          "title": "Velocity Tolerance Linear",
+          "type": "string"
+        }
+      },
+      "title": "RunConfig",
+      "type": "object"
+    },
+    "Section": {
+      "additionalProperties": false,
+      "description": "Member section and material constants: E, I, rho, A, L.",
+      "properties": {
+        "area": {
+          "description": "Quantity with an explicit unit of dimension [length]**2; SI unit m**2",
+          "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s|$)",
+          "title": "Area",
+          "type": "string"
+        },
+        "density": {
+          "description": "Quantity with an explicit unit of dimension density; SI unit kg/m**3",
+          "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s|$)",
+          "title": "Density",
+          "type": "string"
+        },
+        "elastic_modulus": {
+          "description": "Quantity with an explicit unit of dimension pressure; SI unit Pa",
+          "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s|$)",
+          "title": "Elastic Modulus",
+          "type": "string"
+        },
+        "length": {
+          "description": "Quantity with an explicit unit of dimension [length]; SI unit m",
+          "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s|$)",
+          "title": "Length",
+          "type": "string"
+        },
+        "second_moment_of_area": {
+          "description": "Quantity with an explicit unit of dimension [length]**4; SI unit m**4",
+          "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s|$)",
+          "title": "Second Moment Of Area",
+          "type": "string"
+        }
+      },
+      "required": [
+        "elastic_modulus",
+        "second_moment_of_area",
+        "density",
+        "area",
+        "length"
+      ],
+      "title": "Section",
+      "type": "object"
+    },
+    "SignalInterface": {
+      "additionalProperties": false,
+      "description": "Names the signal layer reads from physics: shaft load torques (ENG-048) and body poses for sensors.",
+      "properties": {
+        "load_torque_joints": {
+          "default": [],
+          "items": {
+            "pattern": "^[a-z][a-z0-9_]*$",
+            "type": "string"
+          },
+          "title": "Load Torque Joints",
+          "type": "array"
+        },
+        "pose_bodies": {
+          "default": [],
+          "items": {
+            "pattern": "^[a-z][a-z0-9_]*$",
+            "type": "string"
+          },
+          "title": "Pose Bodies",
+          "type": "array"
+        }
+      },
+      "title": "SignalInterface",
+      "type": "object"
+    },
+    "Sphere": {
+      "additionalProperties": false,
+      "properties": {
+        "material": {
+          "pattern": "^[a-z][a-z0-9_]*$",
+          "title": "Material",
+          "type": "string"
+        },
+        "orientation": {
+          "default": [
+            1.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "maxItems": 4,
+          "minItems": 4,
+          "prefixItems": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "number"
+            }
+          ],
+          "title": "Orientation",
+          "type": "array"
+        },
+        "position": {
+          "default": [
+            "0.0 m",
+            "0.0 m",
+            "0.0 m"
+          ],
+          "maxItems": 3,
+          "minItems": 3,
+          "prefixItems": [
+            {
+              "description": "Quantity with an explicit unit of dimension [length]; SI unit m",
+              "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s|$)",
+              "type": "string"
+            },
+            {
+              "description": "Quantity with an explicit unit of dimension [length]; SI unit m",
+              "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s|$)",
+              "type": "string"
+            },
+            {
+              "description": "Quantity with an explicit unit of dimension [length]; SI unit m",
+              "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s|$)",
+              "type": "string"
+            }
+          ],
+          "title": "Position",
+          "type": "array"
+        },
+        "radius": {
+          "description": "Quantity with an explicit unit of dimension [length]; SI unit m",
+          "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s|$)",
+          "title": "Radius",
+          "type": "string"
+        },
+        "shape": {
+          "const": "sphere",
+          "title": "Shape",
+          "type": "string"
+        }
+      },
+      "required": [
+        "material",
+        "shape",
+        "radius"
+      ],
+      "title": "Sphere",
+      "type": "object"
+    },
+    "StructuralMember": {
+      "additionalProperties": false,
+      "description": "Entry of the structural member list for integrity (BLD-008, BLD-009); fasteners are opaque data.",
+      "properties": {
+        "fasteners": {
+          "items": {
+            "additionalProperties": {
+              "$ref": "#/$defs/JsonValue"
+            },
+            "minProperties": 1,
+            "type": "object"
+          },
+          "title": "Fasteners",
+          "type": "array"
+        },
+        "material": {
+          "pattern": "^[a-z][a-z0-9_]*$",
+          "title": "Material",
+          "type": "string"
+        },
+        "name": {
+          "pattern": "^[a-z][a-z0-9_]*$",
+          "title": "Name",
+          "type": "string"
+        },
+        "section": {
+          "$ref": "#/$defs/Section"
+        },
+        "supports": {
+          "items": {
+            "$ref": "#/$defs/Support"
+          },
+          "minItems": 1,
+          "title": "Supports",
+          "type": "array"
+        }
+      },
+      "required": [
+        "name",
+        "section",
+        "material",
+        "supports",
+        "fasteners"
+      ],
+      "title": "StructuralMember",
+      "type": "object"
+    },
+    "Support": {
+      "additionalProperties": false,
+      "description": "Support condition at a distance `at` along the member from its root.",
+      "properties": {
+        "at": {
+          "description": "Quantity with an explicit unit of dimension [length]; SI unit m",
+          "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s|$)",
+          "title": "At",
+          "type": "string"
+        },
+        "condition": {
+          "enum": [
+            "clamped",
+            "pinned",
+            "roller"
+          ],
+          "title": "Condition",
+          "type": "string"
+        }
+      },
+      "required": [
+        "at",
+        "condition"
+      ],
+      "title": "Support",
+      "type": "object"
+    }
+  },
+  "$id": "https://mechsim.local/schemas/physics_model.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "The engine-neutral physics model (ADR 0003). Element names share one namespace; \"world\" is reserved.",
+  "properties": {
+    "bodies": {
+      "items": {
+        "$ref": "#/$defs/Body"
+      },
+      "minItems": 1,
+      "title": "Bodies",
+      "type": "array"
+    },
+    "constraints": {
+      "default": [],
+      "items": {
+        "discriminator": {
+          "mapping": {
+            "hinge": "#/$defs/HingeConstraint",
+            "point": "#/$defs/PointConstraint"
+          },
+          "propertyName": "type"
+        },
+        "oneOf": [
+          {
+            "$ref": "#/$defs/PointConstraint"
+          },
+          {
+            "$ref": "#/$defs/HingeConstraint"
+          }
+        ]
+      },
+      "title": "Constraints",
+      "type": "array"
+    },
+    "contacts": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/ContactModel"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "design": {
+      "$ref": "#/$defs/DesignRef"
+    },
+    "gravity": {
+      "maxItems": 3,
+      "minItems": 3,
+      "prefixItems": [
+        {
+          "description": "Quantity with an explicit unit of dimension acceleration; SI unit m/s**2",
+          "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s|$)",
+          "type": "string"
+        },
+        {
+          "description": "Quantity with an explicit unit of dimension acceleration; SI unit m/s**2",
+          "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s|$)",
+          "type": "string"
+        },
+        {
+          "description": "Quantity with an explicit unit of dimension acceleration; SI unit m/s**2",
+          "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s|$)",
+          "type": "string"
+        }
+      ],
+      "title": "Gravity",
+      "type": "array"
+    },
+    "lumped_members": {
+      "default": [],
+      "items": {
+        "$ref": "#/$defs/LumpedMember"
+      },
+      "title": "Lumped Members",
+      "type": "array"
+    },
+    "run": {
+      "$ref": "#/$defs/RunConfig"
+    },
+    "schema_version": {
+      "const": 1,
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "signals": {
+      "$ref": "#/$defs/SignalInterface"
+    },
+    "structural_members": {
+      "default": [],
+      "items": {
+        "$ref": "#/$defs/StructuralMember"
+      },
+      "title": "Structural Members",
+      "type": "array"
+    },
+    "transmissions": {
+      "default": [],
+      "items": {
+        "discriminator": {
+          "mapping": {
+            "belt_pulley": "#/$defs/BeltPulley",
+            "gear_pair": "#/$defs/GearPair",
+            "lead_screw": "#/$defs/LeadScrew"
+          },
+          "propertyName": "type"
+        },
+        "oneOf": [
+          {
+            "$ref": "#/$defs/BeltPulley"
+          },
+          {
+            "$ref": "#/$defs/LeadScrew"
+          },
+          {
+            "$ref": "#/$defs/GearPair"
+          }
+        ]
+      },
+      "title": "Transmissions",
+      "type": "array"
+    },
+    "world_shapes": {
+      "default": [],
+      "items": {
+        "discriminator": {
+          "mapping": {
+            "box": "#/$defs/Box",
+            "capsule": "#/$defs/Capsule",
+            "convex_hull": "#/$defs/ConvexHull",
+            "cylinder": "#/$defs/Cylinder",
+            "plane": "#/$defs/Plane",
+            "sphere": "#/$defs/Sphere"
+          },
+          "propertyName": "shape"
+        },
+        "oneOf": [
+          {
+            "$ref": "#/$defs/Sphere"
+          },
+          {
+            "$ref": "#/$defs/Capsule"
+          },
+          {
+            "$ref": "#/$defs/Box"
+          },
+          {
+            "$ref": "#/$defs/Cylinder"
+          },
+          {
+            "$ref": "#/$defs/ConvexHull"
+          },
+          {
+            "$ref": "#/$defs/Plane"
+          }
+        ]
+      },
+      "title": "World Shapes",
+      "type": "array"
+    }
+  },
+  "required": [
+    "schema_version",
+    "design",
+    "gravity",
+    "bodies"
+  ],
+  "title": "PhysicsModel",
+  "type": "object"
+}

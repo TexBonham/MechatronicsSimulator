@@ -16,3 +16,4 @@ type live in the root `CLAUDE.md` dispatch table once measured.
 | 2026-11-03 | Phase 1 batch A stage review (C1, C2, C7) | general-purpose (fable) | 184K | 37 calls, 7 min; 0 blockers beyond matrix regen, 9 should-fix, nits |
 | 2026-11-03 | Phase 1 C2 fix round: CatalogPart.resolve contract, single dimension error, $id | schema-author (opus), resumed | ~17K | 9 calls, 2.3 min |
 | 2026-11-03 | Phase 1 C7 fix round: ADR open items, NonEmptyText | schema-author (opus), resumed | ~3K | 3 calls, 0.5 min |
+| 2026-11-03 | Phase 1 C1 fix round: joint tiers, unit tolerances, node damping, ContactModel, names | schema-author (opus), resumed | ~29K | 18 calls, 4 min |

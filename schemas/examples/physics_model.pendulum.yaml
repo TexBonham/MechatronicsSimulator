@@ -1,0 +1,50 @@
+# Milestone 1 pendulum (BLD-029): one rigid link on a revolute joint, no rope element.
+# Geometry and mass match the engine references ENG-036 and ENG-037 (core/engine/tests/test_reference_pendulum.cpp):
+# uniform rod L = 0.5 m, m = 1 kg along body x, rod radius 0.01 m, pivot at the world origin, joint frame turned
+# -90 deg about z so the rod hangs along -y, gravity 9.81 m/s^2 along -y. The link's mass is lumped at its center of
+# mass (0.25 m from the pivot) with the rod's inertia about it: ixx = m r^2 / 2, iyy = izz = m L^2 / 12.
+# Viscous joint damping d = 2 zeta I omega with zeta = 0.05, I = m L^2 / 3, omega = sqrt(m g (L/2) / I) (ENG-037).
+# The design blob hash is illustrative; the builder stamps the design file's git blob hash (D3).
+schema_version: 1
+design:
+  name: pendulum
+  version: 0.1.0
+  blob: "0000000000000000000000000000000000000000"
+gravity: [0 m/s**2, -9.81 m/s**2, 0 m/s**2]
+run:
+  step: 1 ms
+  iteration_cap: 50
+  projection_iterations: 3
+  drift_threshold_linear: 1e-6 m
+  drift_threshold_angular: 1e-6 rad
+  symmetry_tolerance: 1.0e-12
+  unit_quaternion_tolerance: 1.0e-12
+  velocity_tolerance_linear: 1e-9 m/s
+  velocity_tolerance_angular: 1e-9 rad/s
+bodies:
+  - name: link
+    mass: 1 kg
+    com: [0.25 m, 0 m, 0 m]
+    inertia:
+      ixx: 5e-5 kg*m**2
+      iyy: 0.020833333333333332 kg*m**2
+      izz: 0.020833333333333332 kg*m**2
+    material: aluminium_6063_t5_extrusion
+    parent: world
+    joint:
+      name: pivot
+      type: revolute
+      position: [0 m, 0 m, 0 m]
+      orientation: [0.7071067811865476, 0.0, 0.0, -0.7071067811865476]
+      axis: [0.0, 0.0, 1.0]
+      angular:
+        - damping: 0.04520785330006282 N*m*s/rad
+    shapes:
+      - shape: cylinder
+        position: [0.25 m, 0 m, 0 m]
+        orientation: [0.7071067811865476, 0.0, 0.7071067811865476, 0.0]
+        radius: 0.01 m
+        length: 0.5 m
+        material: aluminium_6063_t5_extrusion
+signals:
+  pose_bodies: [link]
