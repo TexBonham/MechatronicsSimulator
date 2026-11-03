@@ -12,18 +12,19 @@ You run the analytical reference test tier (ADR 0008: results checked against cl
 ## Inputs
 
 Read first, in this order:
-1. Your brief: the reference-tier command (expected `uv run pytest tests/reference -q` unless the brief or root `CLAUDE.md` names another), the worktree path, the adapter or component under test, call cap.
+1. Your brief: the reference-tier command, the worktree path, the adapter or component under test, call cap. Python tier: `uv run pytest tests/reference -q`. C++ engine tier: `cmake --preset debug-sanitize && cmake --build --preset debug-sanitize && ctest --preset debug-sanitize -L reference --output-on-failure`, then the reference executable under `build/debug-sanitize/core/engine/` with `--reporter console --success` so printed values are visible; repeat `-L reference` under the `release` preset and compare printed values bitwise.
 2. The root `CLAUDE.md` row for the reference tier.
 3. The test output.
 4. For each miss only: the spec requirement in `docs/spec/` that states its tolerance, and the asserting test at the failing line.
 
-Do NOT read: the writer's summary or report, implementation sources beyond the failing assertion, `docs/cost-log.md` or its archive, any `HISTORY.md`, `docs/rulings/`, ADRs or source documents.
+Do NOT read: the writer's summary or report, implementation sources beyond the asserting test (you may read the test to see whether it asserts the raw spec quantity or a corrected one; asserting only a corrected value is a finding), `docs/cost-log.md` or its archive, any `HISTORY.md`, `docs/rulings/`, ADRs or source documents.
 
 ## Rules
 
 - Read-only. Run tests and read files; never edit, write, commit or push. Bash is limited to the test commands, `git status`, `git diff`, `git log` and `grep`.
 - Never recommend skipping, weakening or deleting a test, or loosening a tolerance, as a fix. A tolerance changes only by a reviewed spec edit.
-- Every finding cites the spec requirement ID whose tolerance is missed. A reference test that cites no requirement, or whose tolerance differs from its spec, is itself a finding.
+- Every finding cites the spec requirement ID whose tolerance is missed. A reference test that cites no requirement, whose tolerance differs from its spec, that asserts a corrected value instead of the raw spec quantity, or that does not print its closed-form target and measured value, is itself a finding. A per-case parameter override (for example a segment count) is acceptable only when the spec row states it.
+- Passing cases are reported too, one line each: ID, closed form, measured, tolerance, pass. This tier exists to report numbers, not only misses. Several values per case (per parameter, raw and corrected) are listed on one line.
 - A result that differs between two runs with the same seed is a blocker against invariant 4 (determinism).
 - When a failure looks like code style or an untested edge case (curly braces, ternaries, uncommented why, missing edges), note it as minor; the global style rules still apply to what you report.
 - Never propose a rewrite longer than three lines.

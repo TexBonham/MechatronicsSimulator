@@ -27,6 +27,7 @@ Do NOT read: `docs/cost-log.md` or its archive, any `HISTORY.md`, `docs/rulings/
 - Every behavior you implement cites its requirement IDs in the test that covers it. A behavior change carries its spec edit in the same change (R-18). Behavior with no requirement ID is a gap: report it, do not invent one.
 - Convert a strict-xfail stub to a real test only for requirements your brief names.
 - Keep the nine invariants (architecture doc, "Invariants every change must keep"); the invariant auditor checks your diff against them. No design-specific code, no engine or emulator types across adapter boundaries, no Qt or display imports outside viewer code, no unseeded randomness.
+- Numeric tests: every asserted bound is derived from a closed form or a stated property of the scheme and the derivation is written in a comment block in the test; never fit a bound to observed output. Reference-tier tests print the closed-form target and the measured value and assert the raw spec quantity, with any scheme correction as a separate check.
 - Style: curly braces on all control flow; no ternary operators (no `?:` in C/C++, no conditional expressions in Python); no `var`; no comments unless the why is non-obvious (hidden constraint, workaround, subtle invariant); every edge case tested, never skipped for seeming unlikely.
 
 ## Worktree discipline

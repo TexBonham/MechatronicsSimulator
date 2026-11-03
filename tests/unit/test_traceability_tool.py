@@ -22,6 +22,9 @@ from traceability import (
     split_row,
 )
 
+# ===== Helpers ==============================================================
+
+
 TOOL = Path(traceability.__file__).resolve()
 HEADER = "| ID | Requirement | Source | Milestone | Tier | Tolerance |\n|---|---|---|---|---|---|\n"
 
@@ -56,7 +59,7 @@ def commit_matrix(root: Path) -> None:
     assert main(["--write", "--root", str(root)]) in (0, 1)
 
 
-# ===== Spec table parsing =============================================================================================
+# ===== Spec table parsing ===================================================
 
 
 def test_parse_spec_reads_rows_with_file_and_line() -> None:
@@ -162,7 +165,7 @@ def test_split_row_without_outer_pipes() -> None:
     assert split_row("a | b") == ["a", "b"]
 
 
-# ===== Python citations ===============================================================================================
+# ===== Python citations =====================================================
 
 
 def test_python_function_decorator() -> None:
@@ -318,7 +321,7 @@ def test_python_crlf_source() -> None:
     assert citations == [Citation("ENG-001", "t.py", 4)]
 
 
-# ===== C++ citations ==================================================================================================
+# ===== C++ citations ========================================================
 
 
 def test_cpp_test_case_tag() -> None:
@@ -425,7 +428,7 @@ def test_cpp_unterminated_constructs_do_not_crash() -> None:
     assert cpp_citations("TEST_CASE", "c.cpp") == ([], [])
 
 
-# ===== Repository collection ==========================================================================================
+# ===== Repository collection ================================================
 
 
 def test_zero_specs_is_not_a_violation(tmp_path: Path) -> None:
@@ -557,7 +560,7 @@ def test_python_and_cpp_citations_collected_together(tmp_path: Path) -> None:
     ]
 
 
-# ===== Matrix =========================================================================================================
+# ===== Matrix ===============================================================
 
 
 def test_matrix_with_no_requirements_holds_only_summary() -> None:
@@ -628,7 +631,7 @@ def test_matrix_lists_duplicate_id_once_from_first_spec() -> None:
     assert "| Total | 1 | 0 | 1 | 0 |" in text
 
 
-# ===== CLI ============================================================================================================
+# ===== CLI ==================================================================
 
 
 def test_main_clean_repository(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:

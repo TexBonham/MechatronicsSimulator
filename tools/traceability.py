@@ -36,6 +36,9 @@ WITHDRAWN_PREFIX = "Withdrawn:"
 REGENERATE_COMMAND = "python3 tools/traceability.py --write"
 
 
+# ===== Data model ===========================================================
+
+
 @dataclass(frozen=True, order=True)
 class Violation:
     path: str
@@ -82,7 +85,7 @@ class Collection:
     violations: list[Violation] = field(default_factory=list)
 
 
-# ===== File helpers ===================================================================================================
+# ===== File helpers =========================================================
 
 
 def normalize_newlines(text: str) -> str:
@@ -122,7 +125,7 @@ def read_text(path: Path, location: str, violations: list[Violation]) -> str | N
         return None
 
 
-# ===== Spec parsing ===================================================================================================
+# ===== Spec parsing =========================================================
 
 
 def split_row(line: str) -> list[str]:
@@ -233,7 +236,7 @@ def collect_requirements(root: Path) -> tuple[list[Requirement], list[Violation]
     return requirements, violations
 
 
-# ===== Python citations ===============================================================================================
+# ===== Python citations =====================================================
 
 
 def is_req_marker(node: ast.expr) -> bool:
@@ -327,7 +330,7 @@ def collect_python_citations(root: Path) -> tuple[list[Citation], list[Violation
     return citations, violations
 
 
-# ===== C++ citations ==================================================================================================
+# ===== C++ citations ========================================================
 
 
 @dataclass(frozen=True)
@@ -462,7 +465,7 @@ def collect_cpp_citations(root: Path) -> tuple[list[Citation], list[Violation]]:
     return citations, violations
 
 
-# ===== Checks =========================================================================================================
+# ===== Checks ===============================================================
 
 
 def collect(root: Path) -> Collection:
@@ -507,7 +510,7 @@ def cross_check(requirements: Sequence[Requirement], citations: Sequence[Citatio
     return violations
 
 
-# ===== Matrix =========================================================================================================
+# ===== Matrix ===============================================================
 
 
 def escape_cell(text: str) -> str:
@@ -581,7 +584,7 @@ def matrix_diff(committed: str | None, generated: str) -> str:
     return "".join(difflib.unified_diff(before, after, fromfile=f"{name} (committed)", tofile=f"{name} (generated)"))
 
 
-# ===== CLI ============================================================================================================
+# ===== CLI ==================================================================
 
 
 def default_root() -> Path:

@@ -4,18 +4,15 @@ State for the coordinating session. A new session reads this, then `docs/rulings
 
 ## Current checkpoint
 
-Calibration spike complete: packages 1, 2a and 2b staged in the main checkout as the closing commit, pending owner gate
-review. Engine has 62 Catch2 tests, 7 in the reference tier (`ctest --preset debug-sanitize -L reference`). Cost model
-written into the root `CLAUDE.md`. Nothing dispatched.
+Round 1 closed (phases 0a, 0c, 0b, calibration spike). Round-close hygiene staged: cost-log rows archived to
+`docs/cost-log-archive.md`, root `CLAUDE.md` under 8 000 characters, section markers and indexes for the two long
+tooling files, agent definitions updated from the spike's lessons. Nothing dispatched.
 
 ## Next
 
-1. Owner gate review of the spike's closing commit; one ruling: keep N = 4 as the general lumped-beam default with
-   pinned-pinned members at N = 8 (as now in the spec), or raise the default to 8.
-2. Phase 1 plan for sign-off: contracts and schemas (neutral physics model, board interface header, kernel party
-   interface, facade protocol ADR), plus the remaining engine packages planned on the measured cost model.
-3. Docs pass: fold the reference-validator's definition feedback (C++ tier command, numbers for passing cases) and the
-   stage reviewers' nits into the agent files; round-close hygiene (archive cost-log rows, sweep CLAUDE.md files).
+1. Phase 1 plan for sign-off: neutral physics model and schema, board interface header, kernel party interface, facade
+   protocol ADR, pydantic models and generated schemas, remaining engine packages sequenced on the measured cost model.
+2. Round 2 branch: per R2, cut a fresh branch off main after the round 1 PR lands (owner decides when to open the PR).
 
 ## Rulings made at merge-back, confirmed by the owner 2026-11-03 with the round 1 commit
 
