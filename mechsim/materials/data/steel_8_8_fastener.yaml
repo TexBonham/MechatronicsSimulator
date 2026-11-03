@@ -1,0 +1,55 @@
+# Conservative placeholder values with wide spreads; no coupon or datasheet source is assigned yet. Override from
+# tests rather than editing this file (MAT-016).
+name: steel_8_8_fastener
+family: steel
+grade: property class 8.8
+description: Medium carbon quenched and tempered steel for property class 8.8 bolts.
+source: placeholder, typical handbook ranges, no source assigned
+placeholder: true
+wide_spread_default: false
+density:
+  min: "7800 kg/m**3"
+  typ: "7850 kg/m**3"
+  max: "7900 kg/m**3"
+youngs_modulus:
+  min: "195 GPa"
+  typ: "205 GPa"
+  max: "212 GPa"
+poissons_ratio:
+  min: "0.27"
+  typ: "0.29"
+  max: "0.3"
+yield_strength:
+  min: "640 MPa"
+  typ: "660 MPa"
+  max: "800 MPa"
+ultimate_strength:
+  min: "800 MPa"
+  typ: "830 MPa"
+  max: "1000 MPa"
+shear_strength:
+  min: "480 MPa"
+  typ: "500 MPa"
+  max: "600 MPa"
+sn_curve:
+  - {cycles: 1e4, stress_amplitude: "300 MPa"}
+  - {cycles: 1e5, stress_amplitude: "150 MPa"}
+  - {cycles: 2e6, stress_amplitude: "50 MPa"}
+thermal_conductivity:
+  min: "38 W/(m*K)"
+  typ: "45 W/(m*K)"
+  max: "55 W/(m*K)"
+specific_heat:
+  min: "440 J/(kg*K)"
+  typ: "470 J/(kg*K)"
+  max: "500 J/(kg*K)"
+thermal_expansion:
+  min: "1.05e-05 1/K"
+  typ: "1.17e-05 1/K"
+  max: "1.3e-05 1/K"
+max_service_temperature:
+  min: "473 K"
+  typ: "523 K"
+  max: "573 K"
+process:
+  kind: machined

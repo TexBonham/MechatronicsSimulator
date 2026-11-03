@@ -1,0 +1,83 @@
+# E-stop safety relay. Numeric part values are placeholders.
+types:
+  - name: estop_relay
+    version: 1.0.0
+    category: safety
+    description: Safety relay that opens its output contacts when the E-stop loop opens.
+    parameters:
+      - name: mass
+        dimension: "[mass]"
+        minimum: "0 kg"
+      - name: cutoff_delay
+        dimension: "[time]"
+        minimum: "0 s"
+      - name: coil_voltage
+        dimension: "[mass] * [length] ** 2 / [time] ** 3 / [current]"
+        minimum: "0 V"
+      - name: contact_voltage
+        dimension: "[mass] * [length] ** 2 / [time] ** 3 / [current]"
+        minimum: "0 V"
+      - name: contact_current
+        dimension: "[current]"
+        minimum: "0 A"
+      - name: manual_reset
+        kind: flag
+        default: true
+    tiers:
+      - name: behavioral
+        parameters: [mass, cutoff_delay, coil_voltage, contact_voltage, contact_current, manual_reset]
+    mechanical:
+      mass:
+        source: parameter
+        parameter: mass
+      mounts:
+        - name: din_rail
+          kind: clamp
+          offset: ["0 mm", "0 mm", "0 mm"]
+    electrical:
+      pins:
+        - name: estop_loop
+          direction: input
+          signal_kind: digital
+          voltage_rating: coil_voltage
+        - name: reset
+          direction: input
+          signal_kind: digital
+          voltage_rating: coil_voltage
+        - name: contact_in
+          direction: power_in
+          signal_kind: power
+          voltage_rating: contact_voltage
+          current_rating: contact_current
+        - name: contact_out
+          direction: power_out
+          signal_kind: power
+          voltage_rating: contact_voltage
+          current_rating: contact_current
+        - name: status
+          direction: output
+          signal_kind: digital
+    ratings:
+      absolute_maximums:
+        - name: contact_voltage
+          parameter: contact_voltage
+        - name: contact_current
+          parameter: contact_current
+    thermal:
+      held_constant: true
+      temperature: "298.15 K"
+    plugin:
+      cpp: estop_relay
+parts:
+  - name: estop_relay_24v_generic
+    type: estop_relay
+    tier: behavioral
+    source: placeholder values, no datasheet assigned
+    values:
+      mass: "0.2 kg"
+      cutoff_delay: "20 ms"
+      coil_voltage: "24 V"
+      contact_voltage: "250 V"
+      contact_current: "6 A"
+      manual_reset: true
+    placeholders: [mass, cutoff_delay, contact_voltage, contact_current]

@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "message_id": "s-0043",
+  "kind": "timeline_event",
+  "payload": {
+    "run_id": "run-0001",
+    "t": 3.217,
+    "category": "command",
+    "label": "move to target"
+  }
+}

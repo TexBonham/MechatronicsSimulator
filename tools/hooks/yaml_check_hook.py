@@ -10,7 +10,13 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-KINDS = (("designs/", "design"), ("test_cases/", "test_case"), ("mechsim/library/", "component"), ("chips/", "chip"))
+KINDS = (
+    ("designs/", "design"),
+    ("test_cases/", "test_case"),
+    ("mechsim/library/", "component"),
+    ("mechsim/materials/", "material"),
+    ("chips/", "chip"),
+)
 
 
 def edited_path(raw_stdin: str) -> Path | None:

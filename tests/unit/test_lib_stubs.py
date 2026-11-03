@@ -3,47 +3,6 @@
 import pytest
 
 
-@pytest.mark.req("LIB-001")
-@pytest.mark.xfail(strict=True, reason="stub")
-def test_lib_001() -> None:
-    """Every component type shall declare a mechanical facet holding its mass, mounts and shaft axis as parameters."""
-    raise NotImplementedError
-
-
-@pytest.mark.req("LIB-002")
-@pytest.mark.xfail(strict=True, reason="stub")
-def test_lib_002() -> None:
-    """Every component type shall declare an electrical facet listing its pins and the signals it emits or consumes."""
-    raise NotImplementedError
-
-
-@pytest.mark.req("LIB-003")
-@pytest.mark.xfail(strict=True, reason="stub")
-def test_lib_003() -> None:
-    """Every component type shall declare a ratings facet holding its absolute maximums, safe operating area and, where
-    applicable, holding torque.
-    """
-    raise NotImplementedError
-
-
-@pytest.mark.req("LIB-004")
-@pytest.mark.xfail(strict=True, reason="stub")
-def test_lib_004() -> None:
-    """Every component type shall carry a thermal facet slot whose value is held constant in v1, so that no v1
-    computation changes it during a run.
-    """
-    raise NotImplementedError
-
-
-@pytest.mark.req("LIB-005")
-@pytest.mark.xfail(strict=True, reason="stub")
-def test_lib_005() -> None:
-    """Every component type shall name its fidelity tiers, and a component instance shall select one of the tiers its
-    type names.
-    """
-    raise NotImplementedError
-
-
 @pytest.mark.req("LIB-007")
 @pytest.mark.xfail(strict=True, reason="stub")
 def test_lib_007() -> None:
@@ -67,51 +26,6 @@ def test_lib_008() -> None:
 def test_lib_009() -> None:
     """A user-added component type written in Python shall run through the per-tick slow path without being compiled
     into the core runtime.
-    """
-    raise NotImplementedError
-
-
-@pytest.mark.req("LIB-011")
-@pytest.mark.xfail(strict=True, reason="stub")
-def test_lib_011() -> None:
-    """Every component type shall define its parameters as a pydantic v2 model from which its JSON Schema entry is
-    generated.
-    """
-    raise NotImplementedError
-
-
-@pytest.mark.req("LIB-012")
-@pytest.mark.xfail(strict=True, reason="stub")
-def test_lib_012() -> None:
-    """The library shall parse every quantity in a catalog or instance file from a unit string with pint at load and
-    hold it as a plain SI float afterward.
-    """
-    raise NotImplementedError
-
-
-@pytest.mark.req("LIB-013")
-@pytest.mark.xfail(strict=True, reason="stub")
-def test_lib_013() -> None:
-    """A unit string whose dimension does not match its parameter shall be rejected at load with an error naming the
-    file, the parameter and the expected dimension.
-    """
-    raise NotImplementedError
-
-
-@pytest.mark.req("LIB-014")
-@pytest.mark.xfail(strict=True, reason="stub")
-def test_lib_014() -> None:
-    """A missing required parameter shall be rejected at load with an error naming the file, the component type and the
-    parameter.
-    """
-    raise NotImplementedError
-
-
-@pytest.mark.req("LIB-015")
-@pytest.mark.xfail(strict=True, reason="stub")
-def test_lib_015() -> None:
-    """An impossible parameter value, such as a negative mass or a step angle outside its type's declared range, shall
-    be rejected at load with an error naming the file, the parameter, the value and the violated bound.
     """
     raise NotImplementedError
 
@@ -167,28 +81,6 @@ def test_lib_023() -> None:
     raise NotImplementedError
 
 
-@pytest.mark.req("LIB-024")
-@pytest.mark.xfail(strict=True, reason="stub")
-def test_lib_024() -> None:
-    """Transmission types shall carry ratio, efficiency, stiffness, backlash, self-locking and slip parameters,
-    with slip zero by default."""
-    raise NotImplementedError
-
-
-@pytest.mark.req("LIB-025")
-@pytest.mark.xfail(strict=True, reason="stub")
-def test_lib_025() -> None:
-    """Sensor types shall carry resolution, noise, delay, sample rate and failure-mode parameters."""
-    raise NotImplementedError
-
-
-@pytest.mark.req("LIB-026")
-@pytest.mark.xfail(strict=True, reason="stub")
-def test_lib_026() -> None:
-    """Drivers and sensor front-ends shall be component types separate from the motors and sensors they serve."""
-    raise NotImplementedError
-
-
 @pytest.mark.req("LIB-027")
 @pytest.mark.xfail(strict=True, reason="stub")
 def test_lib_027() -> None:
@@ -229,11 +121,4 @@ def test_lib_031() -> None:
     """The library shall model rigid payloads with mass and attach point, and end effectors with capacity and attach
     and release events.
     """
-    raise NotImplementedError
-
-
-@pytest.mark.req("LIB-033")
-@pytest.mark.xfail(strict=True, reason="stub")
-def test_lib_033() -> None:
-    """No pint quantity or unit string shall be reachable from a loaded component type's parameter values."""
     raise NotImplementedError

@@ -134,4 +134,4 @@ Detail: `docs/milestones.md`.
 
 ## Decisions
 
-Decisions log rows 1-46 in the architecture doc; ADRs in `docs/adr/`. A new decision gets both.
+Decisions log rows 1-47 in the architecture doc; ADRs in `docs/adr/`. A new decision gets both.

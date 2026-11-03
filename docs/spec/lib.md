@@ -66,7 +66,7 @@ proposed <value>)".
 |---|---|---|
 | Stepper pull-out torque tolerance against the published curve (LIB-022); proposed 10% of the curve value per speed point | not set | owner |
 | Flexible beam deflection and first-mode tolerance (LIB-032) | not set | owner |
-| Fidelity tier names per component type | not set | library briefs, per type |
+| Fidelity tier names per component type | set per type in `mechsim/library/catalog/*.yaml` (phase 1 C2); new types name their own | library briefs, per type |
 | Rope parameters and model detail | not set | milestone 3 ADR (ruling P4) |
 | Datasheet curve source for each shipped stepper part | not set | owner |
 

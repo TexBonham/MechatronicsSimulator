@@ -1,0 +1,605 @@
+{
+  "$defs": {
+    "ExpansionSpread": {
+      "additionalProperties": false,
+      "properties": {
+        "max": {
+          "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s+\\S.*)?$",
+          "title": "Max",
+          "type": "string"
+        },
+        "min": {
+          "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s+\\S.*)?$",
+          "title": "Min",
+          "type": "string"
+        },
+        "temperature_dependence": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/TemperaturePoint"
+              },
+              "minItems": 2,
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Temperature Dependence"
+        },
+        "typ": {
+          "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s+\\S.*)?$",
+          "title": "Typ",
+          "type": "string"
+        }
+      },
+      "required": [
+        "min",
+        "typ",
+        "max"
+      ],
+      "title": "ExpansionSpread",
+      "type": "object"
+    },
+    "MachinedProcess": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "machined",
+          "title": "Kind",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind"
+      ],
+      "title": "MachinedProcess",
+      "type": "object"
+    },
+    "MoldedProcess": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "molded",
+          "title": "Kind",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind"
+      ],
+      "title": "MoldedProcess",
+      "type": "object"
+    },
+    "PoissonSpread": {
+      "additionalProperties": false,
+      "properties": {
+        "max": {
+          "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s+\\S.*)?$",
+          "title": "Max",
+          "type": "string"
+        },
+        "min": {
+          "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s+\\S.*)?$",
+          "title": "Min",
+          "type": "string"
+        },
+        "temperature_dependence": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/TemperaturePoint"
+              },
+              "minItems": 2,
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Temperature Dependence"
+        },
+        "typ": {
+          "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s+\\S.*)?$",
+          "title": "Typ",
+          "type": "string"
+        }
+      },
+      "required": [
+        "min",
+        "typ",
+        "max"
+      ],
+      "title": "PoissonSpread",
+      "type": "object"
+    },
+    "PositiveConductivity": {
+      "additionalProperties": false,
+      "properties": {
+        "max": {
+          "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s+\\S.*)?$",
+          "title": "Max",
+          "type": "string"
+        },
+        "min": {
+          "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s+\\S.*)?$",
+          "title": "Min",
+          "type": "string"
+        },
+        "temperature_dependence": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/TemperaturePoint"
+              },
+              "minItems": 2,
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Temperature Dependence"
+        },
+        "typ": {
+          "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s+\\S.*)?$",
+          "title": "Typ",
+          "type": "string"
+        }
+      },
+      "required": [
+        "min",
+        "typ",
+        "max"
+      ],
+      "title": "PositiveConductivity",
+      "type": "object"
+    },
+    "PositiveDensity": {
+      "additionalProperties": false,
+      "properties": {
+        "max": {
+          "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s+\\S.*)?$",
+          "title": "Max",
+          "type": "string"
+        },
+        "min": {
+          "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s+\\S.*)?$",
+          "title": "Min",
+          "type": "string"
+        },
+        "temperature_dependence": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/TemperaturePoint"
+              },
+              "minItems": 2,
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Temperature Dependence"
+        },
+        "typ": {
+          "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s+\\S.*)?$",
+          "title": "Typ",
+          "type": "string"
+        }
+      },
+      "required": [
+        "min",
+        "typ",
+        "max"
+      ],
+      "title": "PositiveDensity",
+      "type": "object"
+    },
+    "PositivePressure": {
+      "additionalProperties": false,
+      "properties": {
+        "max": {
+          "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s+\\S.*)?$",
+          "title": "Max",
+          "type": "string"
+        },
+        "min": {
+          "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s+\\S.*)?$",
+          "title": "Min",
+          "type": "string"
+        },
+        "temperature_dependence": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/TemperaturePoint"
+              },
+              "minItems": 2,
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Temperature Dependence"
+        },
+        "typ": {
+          "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s+\\S.*)?$",
+          "title": "Typ",
+          "type": "string"
+        }
+      },
+      "required": [
+        "min",
+        "typ",
+        "max"
+      ],
+      "title": "PositivePressure",
+      "type": "object"
+    },
+    "PositiveSpecificHeat": {
+      "additionalProperties": false,
+      "properties": {
+        "max": {
+          "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s+\\S.*)?$",
+          "title": "Max",
+          "type": "string"
+        },
+        "min": {
+          "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s+\\S.*)?$",
+          "title": "Min",
+          "type": "string"
+        },
+        "temperature_dependence": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/TemperaturePoint"
+              },
+              "minItems": 2,
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Temperature Dependence"
+        },
+        "typ": {
+          "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s+\\S.*)?$",
+          "title": "Typ",
+          "type": "string"
+        }
+      },
+      "required": [
+        "min",
+        "typ",
+        "max"
+      ],
+      "title": "PositiveSpecificHeat",
+      "type": "object"
+    },
+    "PositiveTemperature": {
+      "additionalProperties": false,
+      "properties": {
+        "max": {
+          "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s+\\S.*)?$",
+          "title": "Max",
+          "type": "string"
+        },
+        "min": {
+          "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s+\\S.*)?$",
+          "title": "Min",
+          "type": "string"
+        },
+        "temperature_dependence": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/TemperaturePoint"
+              },
+              "minItems": 2,
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Temperature Dependence"
+        },
+        "typ": {
+          "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s+\\S.*)?$",
+          "title": "Typ",
+          "type": "string"
+        }
+      },
+      "required": [
+        "min",
+        "typ",
+        "max"
+      ],
+      "title": "PositiveTemperature",
+      "type": "object"
+    },
+    "PrintedProcess": {
+      "additionalProperties": false,
+      "properties": {
+        "build_direction": {
+          "items": {
+            "type": "number"
+          },
+          "maxItems": 3,
+          "minItems": 3,
+          "title": "Build Direction",
+          "type": "array"
+        },
+        "infill": {
+          "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s+\\S.*)?$",
+          "title": "Infill",
+          "type": "string"
+        },
+        "infill_pattern": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Infill Pattern"
+        },
+        "kind": {
+          "const": "printed",
+          "title": "Kind",
+          "type": "string"
+        },
+        "layer_height": {
+          "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s+\\S.*)?$",
+          "title": "Layer Height",
+          "type": "string"
+        },
+        "strength_factors": {
+          "$ref": "#/$defs/StrengthFactors"
+        },
+        "walls": {
+          "minimum": 1,
+          "title": "Walls",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "kind",
+        "build_direction",
+        "layer_height",
+        "walls",
+        "infill",
+        "strength_factors"
+      ],
+      "title": "PrintedProcess",
+      "type": "object"
+    },
+    "SNPoint": {
+      "additionalProperties": false,
+      "properties": {
+        "cycles": {
+          "minimum": 1.0,
+          "title": "Cycles",
+          "type": "number"
+        },
+        "stress_amplitude": {
+          "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s+\\S.*)?$",
+          "title": "Stress Amplitude",
+          "type": "string"
+        }
+      },
+      "required": [
+        "cycles",
+        "stress_amplitude"
+      ],
+      "title": "SNPoint",
+      "type": "object"
+    },
+    "StrengthFactors": {
+      "additionalProperties": false,
+      "description": "Strength multipliers by loading direction relative to the build direction.",
+      "properties": {
+        "in_layer": {
+          "exclusiveMinimum": 0.0,
+          "maximum": 1.0,
+          "title": "In Layer",
+          "type": "number"
+        },
+        "interlayer": {
+          "exclusiveMinimum": 0.0,
+          "maximum": 1.0,
+          "title": "Interlayer",
+          "type": "number"
+        }
+      },
+      "required": [
+        "in_layer",
+        "interlayer"
+      ],
+      "title": "StrengthFactors",
+      "type": "object"
+    },
+    "TemperaturePoint": {
+      "additionalProperties": false,
+      "properties": {
+        "factor": {
+          "exclusiveMinimum": 0.0,
+          "title": "Factor",
+          "type": "number"
+        },
+        "temperature": {
+          "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s+\\S.*)?$",
+          "title": "Temperature",
+          "type": "string"
+        }
+      },
+      "required": [
+        "temperature",
+        "factor"
+      ],
+      "title": "TemperaturePoint",
+      "type": "object"
+    }
+  },
+  "$id": "material.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "Root of a file under `mechsim/materials/data/`.",
+  "properties": {
+    "density": {
+      "$ref": "#/$defs/PositiveDensity"
+    },
+    "description": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Description"
+    },
+    "family": {
+      "enum": [
+        "aluminium",
+        "steel",
+        "polymer",
+        "other"
+      ],
+      "title": "Family",
+      "type": "string"
+    },
+    "grade": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Grade"
+    },
+    "max_service_temperature": {
+      "$ref": "#/$defs/PositiveTemperature"
+    },
+    "name": {
+      "pattern": "^[a-z][a-z0-9_]*$",
+      "title": "Name",
+      "type": "string"
+    },
+    "placeholder": {
+      "title": "Placeholder",
+      "type": "boolean"
+    },
+    "poissons_ratio": {
+      "$ref": "#/$defs/PoissonSpread"
+    },
+    "process": {
+      "anyOf": [
+        {
+          "discriminator": {
+            "mapping": {
+              "machined": "#/$defs/MachinedProcess",
+              "molded": "#/$defs/MoldedProcess",
+              "printed": "#/$defs/PrintedProcess"
+            },
+            "propertyName": "kind"
+          },
+          "oneOf": [
+            {
+              "$ref": "#/$defs/PrintedProcess"
+            },
+            {
+              "$ref": "#/$defs/MachinedProcess"
+            },
+            {
+              "$ref": "#/$defs/MoldedProcess"
+            }
+          ]
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Process"
+    },
+    "shear_strength": {
+      "$ref": "#/$defs/PositivePressure"
+    },
+    "sn_curve": {
+      "items": {
+        "$ref": "#/$defs/SNPoint"
+      },
+      "minItems": 2,
+      "title": "Sn Curve",
+      "type": "array"
+    },
+    "source": {
+      "title": "Source",
+      "type": "string"
+    },
+    "specific_heat": {
+      "$ref": "#/$defs/PositiveSpecificHeat"
+    },
+    "thermal_conductivity": {
+      "$ref": "#/$defs/PositiveConductivity"
+    },
+    "thermal_expansion": {
+      "$ref": "#/$defs/ExpansionSpread"
+    },
+    "ultimate_strength": {
+      "$ref": "#/$defs/PositivePressure"
+    },
+    "wide_spread_default": {
+      "title": "Wide Spread Default",
+      "type": "boolean"
+    },
+    "yield_strength": {
+      "$ref": "#/$defs/PositivePressure"
+    },
+    "youngs_modulus": {
+      "$ref": "#/$defs/PositivePressure"
+    }
+  },
+  "required": [
+    "name",
+    "family",
+    "source",
+    "placeholder",
+    "wide_spread_default",
+    "density",
+    "youngs_modulus",
+    "poissons_ratio",
+    "yield_strength",
+    "ultimate_strength",
+    "shear_strength",
+    "sn_curve",
+    "thermal_conductivity",
+    "specific_heat",
+    "thermal_expansion",
+    "max_service_temperature"
+  ],
+  "title": "MaterialFile",
+  "type": "object"
+}

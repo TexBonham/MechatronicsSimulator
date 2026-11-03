@@ -1,0 +1,83 @@
+# Lead screw transmission. Numeric part values are placeholders.
+types:
+  - name: lead_screw
+    version: 1.0.0
+    category: transmission
+    description: Rotary to linear transmission; ratio is the lead per turn.
+    parameters:
+      - name: mass
+        dimension: "[mass]"
+        minimum: "0 kg"
+      - name: ratio
+        dimension: "[length]"
+        minimum: "0.1 mm/turn"
+        maximum: "100 mm/turn"
+      - name: efficiency
+        dimension: dimensionless
+        minimum: "0.01"
+        maximum: "1"
+      - name: stiffness
+        dimension: "[mass] / [time] ** 2"
+        minimum: "0 N/m"
+      - name: backlash
+        dimension: "[length]"
+        default: "0 mm"
+        minimum: "0 mm"
+      - name: self_locking
+        kind: flag
+        default: false
+      - name: slip
+        dimension: dimensionless
+        default: "0"
+        minimum: "0"
+        maximum: "1"
+      - name: length
+        dimension: "[length]"
+        minimum: "0 mm"
+      - name: max_axial_load
+        dimension: "[mass] * [length] / [time] ** 2"
+        minimum: "0 N"
+    tiers:
+      - name: rigid
+        parameters: [mass, ratio, efficiency, self_locking, slip, length, max_axial_load]
+      - name: compliant
+        parameters: [stiffness, backlash]
+    mechanical:
+      mass:
+        source: parameter
+        parameter: mass
+      mounts:
+        - name: drive_end
+          kind: shaft
+          offset: ["0 mm", "0 mm", "0 mm"]
+        - name: nut
+          kind: clamp
+          offset: ["0 mm", "0 mm", "0 mm"]
+      shaft_axis: [0.0, 0.0, 1.0]
+    electrical:
+      pins: []
+    ratings:
+      absolute_maximums:
+        - name: axial_load
+          parameter: max_axial_load
+    thermal:
+      held_constant: true
+      temperature: "298.15 K"
+    plugin:
+      cpp: lead_screw
+parts:
+  - name: tr8x8_generic
+    type: lead_screw
+    tier: rigid
+    description: Trapezoidal 8 mm diameter, 8 mm lead.
+    source: placeholder values, no datasheet assigned
+    values:
+      mass: "0.4 kg"
+      ratio: "8 mm/turn"
+      efficiency: "0.5"
+      stiffness: "20 N/um"
+      backlash: "0.1 mm"
+      self_locking: false
+      length: "500 mm"
+      max_axial_load: "300 N"
+    placeholders: [mass, efficiency, stiffness, backlash, max_axial_load]

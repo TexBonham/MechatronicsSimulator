@@ -1,0 +1,67 @@
+# Conservative placeholder values with wide spreads; no coupon or datasheet source is assigned yet. Override from
+# tests rather than editing this file (MAT-016).
+name: pla_printed
+family: polymer
+grade: PLA, FDM printed
+description: Printed PLA; strengths are for the stated process and scale with the direction factors.
+source: placeholder, wide conservative spread, no coupon tests yet
+placeholder: true
+wide_spread_default: true
+density:
+  min: "1150 kg/m**3"
+  typ: "1240 kg/m**3"
+  max: "1260 kg/m**3"
+youngs_modulus:
+  min: "1.5 GPa"
+  typ: "2.8 GPa"
+  max: "3.6 GPa"
+poissons_ratio:
+  min: "0.3"
+  typ: "0.33"
+  max: "0.36"
+yield_strength:
+  min: "20 MPa"
+  typ: "40 MPa"
+  max: "60 MPa"
+  temperature_dependence:
+    - {temperature: "253 K", factor: 1.1}
+    - {temperature: "296 K", factor: 1.0}
+    - {temperature: "323 K", factor: 0.6}
+ultimate_strength:
+  min: "25 MPa"
+  typ: "45 MPa"
+  max: "65 MPa"
+shear_strength:
+  min: "10 MPa"
+  typ: "25 MPa"
+  max: "40 MPa"
+sn_curve:
+  - {cycles: 1e3, stress_amplitude: "25 MPa"}
+  - {cycles: 1e5, stress_amplitude: "15 MPa"}
+  - {cycles: 1e6, stress_amplitude: "10 MPa"}
+thermal_conductivity:
+  min: "0.1 W/(m*K)"
+  typ: "0.13 W/(m*K)"
+  max: "0.16 W/(m*K)"
+specific_heat:
+  min: "1200 J/(kg*K)"
+  typ: "1500 J/(kg*K)"
+  max: "1800 J/(kg*K)"
+thermal_expansion:
+  min: "6e-05 1/K"
+  typ: "7e-05 1/K"
+  max: "9e-05 1/K"
+max_service_temperature:
+  min: "313 K"
+  typ: "323 K"
+  max: "328 K"
+process:
+  kind: printed
+  build_direction: [0.0, 0.0, 1.0]
+  layer_height: "0.2 mm"
+  walls: 2
+  infill: "20 percent"
+  infill_pattern: grid
+  strength_factors:
+    in_layer: 0.7
+    interlayer: 0.3

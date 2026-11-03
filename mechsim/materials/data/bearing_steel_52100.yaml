@@ -1,0 +1,55 @@
+# Conservative placeholder values with wide spreads; no coupon or datasheet source is assigned yet. Override from
+# tests rather than editing this file (MAT-016).
+name: bearing_steel_52100
+family: steel
+grade: 52100 (100Cr6), through hardened
+description: Through-hardened high-carbon chromium bearing steel.
+source: placeholder, typical handbook ranges, no source assigned
+placeholder: true
+wide_spread_default: false
+density:
+  min: "7780 kg/m**3"
+  typ: "7810 kg/m**3"
+  max: "7840 kg/m**3"
+youngs_modulus:
+  min: "195 GPa"
+  typ: "205 GPa"
+  max: "215 GPa"
+poissons_ratio:
+  min: "0.27"
+  typ: "0.29"
+  max: "0.3"
+yield_strength:
+  min: "1400 MPa"
+  typ: "1700 MPa"
+  max: "2000 MPa"
+ultimate_strength:
+  min: "1800 MPa"
+  typ: "2100 MPa"
+  max: "2400 MPa"
+shear_strength:
+  min: "1000 MPa"
+  typ: "1200 MPa"
+  max: "1400 MPa"
+sn_curve:
+  - {cycles: 1e3, stress_amplitude: "1500 MPa"}
+  - {cycles: 1e5, stress_amplitude: "1100 MPa"}
+  - {cycles: 1e7, stress_amplitude: "750 MPa"}
+thermal_conductivity:
+  min: "36 W/(m*K)"
+  typ: "43 W/(m*K)"
+  max: "47 W/(m*K)"
+specific_heat:
+  min: "450 J/(kg*K)"
+  typ: "470 J/(kg*K)"
+  max: "490 J/(kg*K)"
+thermal_expansion:
+  min: "1.1e-05 1/K"
+  typ: "1.2e-05 1/K"
+  max: "1.3e-05 1/K"
+max_service_temperature:
+  min: "393 K"
+  typ: "423 K"
+  max: "453 K"
+process:
+  kind: machined

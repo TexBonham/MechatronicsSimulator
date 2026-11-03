@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "message_id": "s-0042",
+  "kind": "error",
+  "payload": {
+    "request_id": "c-0008",
+    "code": "unsupported_version",
+    "message": "unsupported protocol version 2; this service speaks version 1",
+    "requirement_id": "FAC-003"
+  }
+}

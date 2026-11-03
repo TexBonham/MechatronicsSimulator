@@ -1,0 +1,54 @@
+# Conservative placeholder values with wide spreads; no coupon or datasheet source is assigned yet. Override from
+# tests rather than editing this file (MAT-016).
+name: aluminium_6063_t5_extrusion
+family: aluminium
+grade: 6063-T5
+description: Aluminium alloy extrusion grade typical of structural profiles.
+source: placeholder, typical handbook ranges, no source assigned
+placeholder: true
+wide_spread_default: false
+density:
+  min: "2660 kg/m**3"
+  typ: "2690 kg/m**3"
+  max: "2720 kg/m**3"
+youngs_modulus:
+  min: "66 GPa"
+  typ: "69 GPa"
+  max: "71 GPa"
+poissons_ratio:
+  min: "0.31"
+  typ: "0.33"
+  max: "0.34"
+yield_strength:
+  min: "110 MPa"
+  typ: "145 MPa"
+  max: "175 MPa"
+ultimate_strength:
+  min: "150 MPa"
+  typ: "185 MPa"
+  max: "215 MPa"
+shear_strength:
+  min: "85 MPa"
+  typ: "110 MPa"
+  max: "130 MPa"
+sn_curve:
+  - {cycles: 1e3, stress_amplitude: "140 MPa"}
+  - {cycles: 1e5, stress_amplitude: "100 MPa"}
+  - {cycles: 1e7, stress_amplitude: "70 MPa"}
+  - {cycles: 5e8, stress_amplitude: "55 MPa"}
+thermal_conductivity:
+  min: "180 W/(m*K)"
+  typ: "200 W/(m*K)"
+  max: "215 W/(m*K)"
+specific_heat:
+  min: "860 J/(kg*K)"
+  typ: "900 J/(kg*K)"
+  max: "940 J/(kg*K)"
+thermal_expansion:
+  min: "2.2e-05 1/K"
+  typ: "2.34e-05 1/K"
+  max: "2.45e-05 1/K"
+max_service_temperature:
+  min: "373 K"
+  typ: "423 K"
+  max: "448 K"
