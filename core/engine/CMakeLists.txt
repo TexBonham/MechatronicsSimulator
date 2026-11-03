@@ -14,6 +14,7 @@ include(${CMAKE_CURRENT_SOURCE_DIR}/../cmake/Eigen.cmake)
 
 add_library(mechsim_engine
     src/engine_error.cpp
+    src/lumped_beam.cpp
     src/multibody_provider.cpp
     src/semi_implicit_euler.cpp
 )
@@ -24,10 +25,20 @@ target_link_libraries(mechsim_engine PUBLIC Eigen3::Eigen PRIVATE mechsim_warnin
 add_executable(mechsim_engine_tests
     tests/test_constraints.cpp
     tests/test_errors.cpp
+    tests/test_joint_springs.cpp
     tests/test_joints.cpp
+    tests/test_lumped_beam.cpp
     tests/test_multibody_errors.cpp
     tests/test_integrator.cpp
     tests/test_step_config.cpp
 )
 target_link_libraries(mechsim_engine_tests PRIVATE mechsim_engine mechsim_warnings Catch2::Catch2WithMain)
 catch_discover_tests(mechsim_engine_tests)
+
+# Analytical reference tier (T1): `ctest --preset debug-sanitize -L reference` runs exactly these.
+add_executable(mechsim_engine_reference
+    tests/test_reference_beam.cpp
+    tests/test_reference_pendulum.cpp
+)
+target_link_libraries(mechsim_engine_reference PRIVATE mechsim_engine mechsim_warnings Catch2::Catch2WithMain)
+catch_discover_tests(mechsim_engine_reference PROPERTIES LABELS reference)

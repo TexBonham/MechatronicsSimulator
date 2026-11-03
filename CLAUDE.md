@@ -14,8 +14,6 @@ Cost log: `docs/cost-log.md` (archive `docs/cost-log-archive.md`), never in any 
 
 ## Invariants
 
-Full text: architecture doc, "Repository starting point".
-
 | # | Invariant | Enforced by |
 |---|---|---|
 | 1 | Controller never sees true state; all physics-controller traffic crosses the signal layer via the pin-binding table | Review |
@@ -27,8 +25,6 @@ Full text: architecture doc, "Repository starting point".
 | 7 | Failures are errors: drift, solver failure, emulator fault end the run with a report | Review |
 | 8 | Board interface is the only coupling to firmware | Firmware host build rejects other includes (C2) |
 | 9 | Core is headless: no Qt/display outside viewer code; one serializable facade; CLI first client | Import-boundary hook; CI invariant tier: import boundaries |
-
-Hooks per `docs/queue.md` phase 0c; CI gates per ADR 0008.
 
 ## Key constants
 
@@ -105,15 +101,23 @@ C11, fixed-width types. Application code includes nothing outside `board_interfa
 
 ## Agents and dispatch
 
-| Agent | Model | Purpose | Reference run |
+Measured on the calibration spike (2026-11-03). Supersedes the global dispatch defaults (override rule). Judge a run
+against its row.
+
+| Agent | Model | Purpose | Reference run (tokens / calls) |
 |---|---|---|---|
-| module-writer | Opus | Writes module code | not yet measured |
+| module-writer | Opus | Engine or module package against spec IDs | 110K-220K / 21-50; fix round on resume ~15K / 7-14 |
 | schema-author | Opus | Pydantic models, schemas | not yet measured |
-| invariant-auditor | Sonnet; Opus at gates | Audits invariants beside stage review | not yet measured |
-| reference-validator | Sonnet | Analytical reference tier | not yet measured |
+| invariant-auditor | Sonnet; Opus at gates | Audits invariants beside stage review | 25K-36K / 5-7 |
+| reference-validator | Sonnet | Reference tier, reports numbers | 30K / 8 |
 | firmware-builder | Sonnet; Opus for first shim | Firmware, native shim | not yet measured |
 | docs-indexer | Haiku | Docs and `CLAUDE.md` upkeep | not yet measured |
-| (docs-writer, general-purpose) | Opus | ADR set, 2026-11-02 | 102K tokens, 17 calls |
+| Fable stage review (general-purpose) | Fable | Review from spec and diff | 108K-182K / 12-24; re-review on resume ~11K |
+| docs writer (general-purpose) | Opus | ADRs, specs, scaffolding | 93K-143K / 17-29 |
+
+Per engine package all in: ~290K small, ~430K large, exactly one fix round each. Review found one blocker (p1, a wrong
+formula in the brief) and no algorithm defects in p2a or p2b. Briefs carry the derivation and physics-derived bounds;
+tests derived from the implementation do not catch the implementation.
 
 Model-gated stage commits per W-02; owner reviews gates, ADRs, contracts and one stage commit in five.
 
@@ -123,12 +127,11 @@ Detail: `docs/milestones.md`.
 
 | Phase | Content |
 |---|---|
-| 0a | Rulings and ADRs: done |
-| 0c | Scaffolding, agents, hooks, CI |
-| 0b | Spec and stubs; calibration spike alongside |
+| 0a, 0c, 0b | Rulings and ADRs; scaffolding, agents, hooks, CI; specs and stubs: done |
+| Spike | Engine packages 1, 2a, 2b: done |
 | 1 | Contracts, schemas, facade protocol |
 | M1-M5 | Requirements doc milestone plan |
 
 ## Decisions
 
-Decisions log rows 1-44 in the architecture doc; ADRs in `docs/adr/`; a new decision gets an ADR and a Decisions log row.
+Decisions log rows 1-45 in the architecture doc; ADRs in `docs/adr/`. A new decision gets both.

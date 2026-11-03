@@ -31,3 +31,9 @@ type live in the root `CLAUDE.md` dispatch table once measured.
 | 2026-11-03 | Spike p2a stage review | general-purpose (fable) | 165K | 24 calls, 10.5 min; 0 algorithm defects, 3 should-fix (spec rows, tags, CI time), 2 nits |
 | 2026-11-03 | Spike p2a invariant audit | invariant-auditor (sonnet) | 35K | 7 calls, 0.5 min; 1 major spec gap, 3 minor |
 | 2026-11-03 | Spike p2a fix round: spec rows, ENG-050 widened, tags, 2 000-step four-bar, -O1 sanitize preset | module-writer (opus), resumed | ~15K | 14 calls, 25 min; delta of cumulative 235K |
+| 2026-11-03 | Spike p2b: joint springs, lumped beam, six analytical references, 7 ENG IDs, 61 tests total | module-writer (opus), worktree | 188K | 45 calls, 26 min |
+| 2026-11-03 | Spike p2b invariant audit | invariant-auditor (sonnet) | 35K | 7 calls, 0.4 min; 1 major spec row, 1 minor |
+| 2026-11-03 | Spike p2b reference-validator first run | reference-validator (sonnet) | 30K | 8 calls, 1.8 min; 6/6 pass, ENG-040 N=4 caveat, 5 definition items |
+| 2026-11-03 | Spike p2b stage review | general-purpose (fable) | 140K | 19 calls, 7.4 min; 0 algorithm defects, 2 medium (raw assertion, spec row), 3 low, style |
+| 2026-11-03 | Spike p2b fix round: raw assertions, spec rows, roller field, style | module-writer (opus), resumed | ~15K | 7 calls, 5 min; delta of cumulative 203K |
+| 2026-11-03 | Spike merge-backs, verification x3, cost model in root CLAUDE.md | inline | ~40K | three cherry-pick merges, full builds |

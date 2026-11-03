@@ -45,15 +45,6 @@ def test_eng_020() -> None:
     raise NotImplementedError
 
 
-@pytest.mark.req("ENG-022")
-@pytest.mark.xfail(strict=True, reason="stub")
-def test_eng_022() -> None:
-    """The engine shall simulate a flexible member as a multi-segment lumped beam built from the member's section and
-    material.
-    """
-    raise NotImplementedError
-
-
 @pytest.mark.req("ENG-029")
 @pytest.mark.xfail(strict=True, reason="stub")
 def test_eng_029() -> None:

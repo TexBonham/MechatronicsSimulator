@@ -51,7 +51,7 @@ proposed <value>)".
 | ENG-019 | The engine's collision detection shall agree with the reference collision library on contact existence, normal and penetration depth over a shared case set. | ADR 0002, Decision (differential oracle) | M2 | reference | not set (owed by owner, proposed 1e-9 m depth, 1e-6 rad normal) |
 | ENG-020 | The engine shall model contact as soft contact integrated implicitly, with contact friction. | ADR 0002, Decision; R-06; Requirements doc, Physics and structural analysis requirements (Dynamics) | M2 | unit | n/a |
 | ENG-021 | The engine shall bring a body dropped onto a plane to rest with steady penetration within tolerance, and shall stop a body driven into a fixed hard stop. | Architecture doc, Decisions log row 28; ADR 0002, Consequences | M2 | reference | not set (owed by owner) |
-| ENG-022 | The engine shall simulate a flexible member as a multi-segment lumped beam built from the member's section and material. | R-13; ADR 0001, Decision (lumped domain models); ADR 0010, Decision (milestone 3) | spike | unit | n/a |
+| ENG-022 | The engine shall simulate a flexible member as a multi-segment lumped beam built from the member's section and material. Spike tier: planar bending about one axis, one spring E*I/l per segment at its midpoint; two-axis bending plus torsion is the next tier (ADR 0001, invariant 6). | R-13; ADR 0001, Decision (lumped domain models); ADR 0010, Decision (milestone 3) | spike | unit | n/a |
 | ENG-023 | Given the same model, inputs and step on the same machine and build, the engine shall produce bitwise identical state after every step. | Architecture doc, Repository starting point (invariant 4); Requirements doc, Physics and structural analysis requirements (Dynamics) | spike | unit | bitwise identical |
 | ENG-024 | The engine shall measure constraint drift every step and end the run with a drift error, carrying the time and the offending constraint, when drift exceeds the drift threshold. | Requirements doc, Physics and structural analysis requirements (Dynamics, solver health); Architecture doc, Repository starting point (invariant 7) | spike | unit | not set (owed by owner, proposed 1e-6 m and 1e-6 rad) |
 | ENG-025 | The engine shall end the run with a solver-failure error, carrying the time and cause, when a state value becomes non-finite or the solver fails to converge within its iteration limit. | Requirements doc, Physics and structural analysis requirements (Dynamics, solver health); Architecture doc, Repository starting point (invariant 7) | spike | unit | n/a |
@@ -65,12 +65,12 @@ proposed <value>)".
 | ENG-033 | The engine shall accept a mid-run disable of a constraint. | ADR 0010, Decision (tier 2, fastener break) and Consequences | M3 | unit | n/a |
 | ENG-034 | The engine shall accept a mid-run release of a load from its attachment. | ADR 0010, Decision (tier 2, rope snap) and Consequences | M3 | unit | n/a |
 | ENG-035 | The engine shall accept a mid-run change of a payload's mass or attachment at a scheduled time. | Architecture doc, Data flows (fault fan-out, payload change mid-run) | M2 | unit | n/a |
-| ENG-036 | A rigid-link pendulum's small-amplitude period shall match the compound pendulum closed form 2*pi*sqrt(I/(m*g*d)). | Architecture doc, Technology recommendation ("Validation"); R-12 | spike | reference | not set (owed by owner, proposed 0.1 % of period) |
-| ENG-037 | A pendulum with viscous joint damping shall decay with the logarithmic decrement of the linear damped oscillator closed form. | Architecture doc, Technology recommendation ("Validation", swing decay); R-12 | spike | reference | not set (owed by owner, proposed 1 % of decrement) |
-| ENG-038 | A lumped cantilever under a static tip load shall deflect by P*L^3/(3*E*I) at the tip. | Architecture doc, Technology recommendation ("Validation"); R-12; R-13 | spike | reference | not set (owed by owner, proposed 2 % of deflection) |
-| ENG-039 | A lumped cantilever's first natural frequency shall match (1.875^2/(2*pi))*sqrt(E*I/(rho*A*L^4)). | Architecture doc, Technology recommendation ("Validation"); Requirements doc, Physics and structural analysis requirements (Dynamics, flexible members); R-12 | spike | reference | not set (owed by owner, proposed 3 % of frequency) |
-| ENG-040 | A lumped simply supported beam under a static midspan load shall deflect by P*L^3/(48*E*I) at midspan. | Architecture doc, Technology recommendation ("Validation"); R-12; R-13 | spike | reference | not set (owed by owner, proposed 2 % of deflection) |
-| ENG-041 | A lumped simply supported beam's first natural frequency shall match (pi/(2*L^2))*sqrt(E*I/(rho*A)). | Architecture doc, Technology recommendation ("Validation"); R-12 | spike | reference | not set (owed by owner, proposed 3 % of frequency) |
+| ENG-036 | A rigid-link pendulum's small-amplitude period shall match the compound pendulum closed form 2*pi*sqrt(I/(m*g*d)). | Architecture doc, Technology recommendation ("Validation"); R-12 | spike | reference | 0.1 % of period |
+| ENG-037 | A pendulum with viscous joint damping shall decay with the logarithmic decrement of the linear damped oscillator closed form. | Architecture doc, Technology recommendation ("Validation", swing decay); R-12 | spike | reference | 1 % of decrement |
+| ENG-038 | A lumped cantilever under a static tip load shall deflect by P*L^3/(3*E*I) at the tip. | Architecture doc, Technology recommendation ("Validation"); R-12; R-13 | spike | reference | 2 % of deflection |
+| ENG-039 | A lumped cantilever's first natural frequency shall match (1.875^2/(2*pi))*sqrt(E*I/(rho*A*L^4)). | Architecture doc, Technology recommendation ("Validation"); Requirements doc, Physics and structural analysis requirements (Dynamics, flexible members); R-12 | spike | reference | 3 % of frequency |
+| ENG-040 | A lumped simply supported beam under a static midspan load shall deflect by P*L^3/(48*E*I) at midspan. | Architecture doc, Technology recommendation ("Validation"); R-12; R-13 | spike | reference | 2 % of deflection (at N = 8) |
+| ENG-041 | A lumped simply supported beam's first natural frequency shall match (pi/(2*L^2))*sqrt(E*I/(rho*A)). | Architecture doc, Technology recommendation ("Validation"); R-12 | spike | reference | 3 % of frequency |
 | ENG-042 | A lumped pinned-pinned column under axial load shall lose stability at the Euler load pi^2*E*I/L^2. | R-20 (buckling); R-13; ADR 0010, Decision (buckling margin) | M3 | reference | not set (owed by owner, proposed 5 % of critical load) |
 | ENG-043 | The engine shall simulate a belt and pulley transmission element of the neutral model with its ratio, efficiency, stiffness, backlash and slip parameters. | Requirements doc, Component library requirements (Transmissions row); ADR 0003, P3; ADR 0001, R-13 | M1 | unit | n/a |
 | ENG-044 | The engine shall simulate a lead screw transmission element with its lead, efficiency, stiffness, backlash and slip parameters, and a self-locking lead screw shall hold its joint against back-driving load with no motor torque. | Requirements doc, Component library requirements (Transmissions row); ADR 0003, P3; ADR 0001, R-13; Decisions log row 15 | M1 | unit | n/a |
@@ -80,6 +80,7 @@ proposed <value>)".
 | ENG-048 | Each transmission element shall map the motor shaft torque the signal layer applies into joint force for the step, and the engine shall publish the load torque on each motor shaft after every step for the stepper model. | Architecture doc, Data flows (within one physics tick, step 5); ADR 0003, P3; ADR 0001, R-13 | M1 | unit | n/a |
 | ENG-049 | The engine shall reject an invalid model before stepping: a mass matrix that is not symmetric positive definite, or mismatched dimensions between H, forces, Jacobians and state, with an error naming the cause. | Architecture doc, Repository starting point (invariant 7) | spike | unit | n/a |
 | ENG-050 | The engine shall reject a step or solver configuration value outside its stated range (non-positive or non-finite step length, zero iteration cap, non-positive tolerances) with an error naming the cause. | Architecture doc, Repository starting point (invariant 7) | spike | unit | n/a |
+| ENG-051 | Joints shall carry per-DOF stiffness, damping and rest position, treated implicitly by the integrator. Spike tier: stiffness and rest position on revolute, prismatic and planar joints; spherical and free joint springs (log-map) are the next tier. | ADR 0013, Decision; R-13 | spike | unit | n/a |
 
 ## Open parameters
 
@@ -96,12 +97,13 @@ proposed <value>)".
 | Unit-quaternion and axis tolerance (ENG-049) | 1e-12 on squared norm (change by reviewed spec edit, T4) | owner |
 | Mass matrix symmetry tolerance (ENG-049) | 1e-12 relative (change by reviewed spec edit, T4) | owner |
 | Real-time factor floor and benchmark model (ENG-029) | not set, proposed at least 1 | owner |
-| Pendulum period tolerance (ENG-036) | not set, proposed 0.1 % | owner |
-| Pendulum decay tolerance (ENG-037) | not set, proposed 1 % | owner |
-| Beam deflection tolerances (ENG-038, ENG-040) | not set, proposed 2 % | owner |
-| Beam first-mode tolerances (ENG-039, ENG-041) | not set, proposed 3 % | owner |
+| Pendulum period tolerance (ENG-036) | 0.1 % of period (ADR 0013; change by reviewed spec edit, T4) | owner |
+| Pendulum decay tolerance (ENG-037) | 1 % of decrement (ADR 0013; change by reviewed spec edit, T4) | owner |
+| Beam deflection tolerances (ENG-038, ENG-040) | 2 % of deflection (ADR 0013; change by reviewed spec edit, T4) | owner |
+| Beam first-mode tolerances (ENG-039, ENG-041) | 3 % of frequency (ADR 0013; change by reviewed spec edit, T4) | owner |
 | Euler buckling tolerance (ENG-042) | not set, proposed 5 % | owner |
-| Lumped beam segment count for the references | 4 by default, per member override (ADR 0013) | owner |
+| Lumped beam segment count for the references | 4 by default, per member override (ADR 0013); pinned-pinned members and the ENG-040 reference run at N = 8, since the midpoint-spring chain's midspan error is -1/N^2 (-6.25 % at 4, -1.56 % at 8) | owner |
+| Beam roller mass fraction (ENG-022, ENG-040, ENG-041) | 1e-3 of member mass (change by reviewed spec edit, T4) | owner |
 | Milestone of each tier 2 model change (ENG-031 to ENG-034) | not set; tier 2 spans milestones 3 and 4 | owner, milestone 3 plan (ADR 0010, Open items) |
 
 ## Out of scope

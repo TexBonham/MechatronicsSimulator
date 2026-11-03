@@ -18,11 +18,18 @@ namespace mechsim::engine {
 enum class JointType : std::uint8_t { Revolute, Prismatic, Fixed, Planar, Spherical, Free };
 
 // The joint frame is placed in the parent body frame; at zero joint coordinates the child body frame equals it.
+// Joint springs and dampers (ENG-051), per velocity DOF, each empty (none) or sized to the joint's velocity count:
+//   f = -stiffness (q - rest) - damping v; K and D of DynamicsTerms carry them, so the integrator treats them
+//   implicitly (ADR 0013). Stiffness and rest need q and v aligned (Revolute, Prismatic, Planar); Spherical and
+//   Free joints take damping only.
 struct Joint {
     JointType type = JointType::Revolute;
     Eigen::Vector3d position = Eigen::Vector3d::Zero();                // joint frame origin in parent frame, m
     Eigen::Quaterniond orientation = Eigen::Quaterniond::Identity();  // joint frame relative to parent, unit
     Eigen::Vector3d axis = Eigen::Vector3d::UnitZ();                   // unit, joint frame; plane normal for Planar
+    Eigen::VectorXd stiffness;  // finite, >= 0; N/m or N m/rad
+    Eigen::VectorXd damping;    // finite, >= 0; N s/m or N m s/rad
+    Eigen::VectorXd rest;       // finite; rest coordinates, m or rad; empty is zero
 };
 
 struct Body {

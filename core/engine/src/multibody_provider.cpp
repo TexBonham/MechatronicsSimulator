@@ -150,6 +150,22 @@ void validate_config(const MultibodyConfig& config) {
     }
 }
 
+void validate_joint_vector(const Eigen::VectorXd& values, Eigen::Index dofs, bool non_negative,
+                           const std::string& what) {
+    if (values.size() == 0) {
+        return;
+    }
+    if (values.size() != dofs) {
+        throw InvalidModelError(0.0, what + " must be empty or have one entry per joint velocity");
+    }
+    if (!values.allFinite()) {
+        throw InvalidModelError(0.0, what + " is not finite");
+    }
+    if (non_negative && values.minCoeff() < 0.0) {
+        throw InvalidModelError(0.0, what + " must not be negative");
+    }
+}
+
 void validate_body(const Body& body, Eigen::Index i, double tolerance) {
     const std::string label = body_label(i);
     if (body.parent < -1 || body.parent >= i) {
@@ -177,6 +193,14 @@ void validate_body(const Body& body, Eigen::Index i, double tolerance) {
     const bool uses_axis = type == JointType::Revolute || type == JointType::Prismatic || type == JointType::Planar;
     if (uses_axis && !is_unit(body.joint.axis, tolerance)) {
         throw InvalidModelError(0.0, label + "joint axis is not a unit vector");
+    }
+    const Eigen::Index dofs = joint_velocities(type);
+    validate_joint_vector(body.joint.stiffness, dofs, true, label + "joint stiffness");
+    validate_joint_vector(body.joint.damping, dofs, true, label + "joint damping");
+    validate_joint_vector(body.joint.rest, dofs, false, label + "joint rest position");
+    if (!uses_axis && (body.joint.stiffness.size() > 0 || body.joint.rest.size() > 0)) {
+        throw InvalidModelError(0.0, label + "joint stiffness and rest position need a Revolute, Prismatic or "
+                                             "Planar joint");
     }
 }
 
@@ -233,6 +257,22 @@ MultibodyProvider::MultibodyProvider(MultibodyModel model, MultibodyConfig confi
         placement.translation = body.joint.position;
         placement_.push_back(placement);
         inertia_.push_back(spatial::inertia(body.mass, body.com, body.inertia));
+    }
+    stiffness_ = Eigen::VectorXd::Zero(nv_);
+    damping_ = Eigen::VectorXd::Zero(nv_);
+    rest_ = Eigen::VectorXd::Zero(nv_);
+    for (Eigen::Index i = 0; i < n; ++i) {
+        const Joint& joint = at(model_.bodies, i).joint;
+        const Eigen::Index ov = at(v_offset_, i);
+        if (joint.stiffness.size() > 0) {
+            stiffness_.segment(ov, joint.stiffness.size()) = joint.stiffness;
+        }
+        if (joint.damping.size() > 0) {
+            damping_.segment(ov, joint.damping.size()) = joint.damping;
+        }
+        if (joint.rest.size() > 0) {
+            rest_.segment(ov, joint.rest.size()) = joint.rest;
+        }
     }
     for (Eigen::Index i = 0; i < count(model_.constraints.size()); ++i) {
         validate_constraint(at(model_.constraints, i), i, n, config_.unit_tolerance);
@@ -431,9 +471,25 @@ void MultibodyProvider::evaluate(double /*t*/, const Eigen::VectorXd& q, const E
     terms.bias = inverse_dynamics(kin, zero, base, none, true, forces);
     const Eigen::VectorXd external = inverse_dynamics(kin, zero, Vector6d::Zero(), applied_body_wrenches(kin), false,
                                                       forces);
-    terms.force = tau_ - external;
-    terms.stiffness = Eigen::MatrixXd::Zero(nv_, nv_);
-    terms.damping = Eigen::MatrixXd::Zero(nv_, nv_);
+    terms.force = tau_ - external + joint_spring_forces(q, v);
+    terms.stiffness = stiffness_.asDiagonal();
+    terms.damping = damping_.asDiagonal();
+}
+
+// Joint springs and dampers (ENG-051): -K (q - rest) - D v; stiffness is zero wherever q and v are not aligned.
+Eigen::VectorXd MultibodyProvider::joint_spring_forces(const Eigen::VectorXd& q, const Eigen::VectorXd& v) const {
+    Eigen::VectorXd out = -damping_.cwiseProduct(v);
+    for (Eigen::Index i = 0; i < count(model_.bodies.size()); ++i) {
+        const Eigen::Index dofs = at(model_.bodies, i).joint.stiffness.size();
+        if (dofs == 0) {
+            continue;
+        }
+        const Eigen::Index oq = at(q_offset_, i);
+        const Eigen::Index ov = at(v_offset_, i);
+        out.segment(ov, dofs) -=
+            stiffness_.segment(ov, dofs).cwiseProduct(q.segment(oq, dofs) - rest_.segment(ov, dofs));
+    }
+    return out;
 }
 
 Eigen::VectorXd MultibodyProvider::integrate_positions(const Eigen::VectorXd& q, const Eigen::VectorXd& v,

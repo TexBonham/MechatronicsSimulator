@@ -55,8 +55,8 @@ struct ConstraintError {
     double rotational = 0.0;     // angle between the hinge axes, rad; 0 for Point
 };
 
-// Reduced-coordinate rigid multibody (ADR 0013): H by CRBA, c by RNEA, loops by velocity-level block
-// Gauss-Seidel plus Gauss-Newton position projection. Step it through step() so inputs clear and outputs refresh.
+// Reduced-coordinate rigid multibody (ADR 0013): H by CRBA, c by RNEA, joint springs in K and D (ENG-051), loops by
+// velocity-level block Gauss-Seidel plus Gauss-Newton position projection. Step it through step() so inputs clear and outputs refresh.
 class MultibodyProvider final : public DynamicsProvider {
 public:
     explicit MultibodyProvider(MultibodyModel model, MultibodyConfig config = {});
@@ -97,6 +97,7 @@ private:
                                      const std::vector<spatial::Vector6d>& external, bool velocity_terms,
                                      std::vector<spatial::Vector6d>& body_forces) const;
     [[nodiscard]] std::vector<spatial::Vector6d> applied_body_wrenches(const Kinematics& kin) const;
+    [[nodiscard]] Eigen::VectorXd joint_spring_forces(const Eigen::VectorXd& q, const Eigen::VectorXd& v) const;
     [[nodiscard]] spatial::Matrix6Xd world_jacobian(const Kinematics& kin, Eigen::Index body) const;
     [[nodiscard]] ConstraintRows constraint_rows(const Kinematics& kin, Eigen::Index constraint) const;
     [[nodiscard]] std::vector<ConstraintRows> all_rows(const Kinematics& kin) const;
@@ -108,6 +109,9 @@ private:
     std::vector<Eigen::Index> v_offset_;
     std::vector<spatial::Transform> placement_;
     std::vector<spatial::Matrix6d> inertia_;
+    Eigen::VectorXd stiffness_;  // joint springs per velocity DOF (ENG-051)
+    Eigen::VectorXd damping_;
+    Eigen::VectorXd rest_;
     Eigen::Index nq_ = 0;
     Eigen::Index nv_ = 0;
     Eigen::VectorXd tau_;
