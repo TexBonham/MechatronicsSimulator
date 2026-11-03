@@ -12,13 +12,6 @@ def test_lib_006() -> None:
     raise NotImplementedError
 
 
-@pytest.mark.req("LIB-010")
-@pytest.mark.xfail(strict=True, reason="stub")
-def test_lib_010() -> None:
-    """Every shipped catalog file shall be YAML and shall validate against the JSON Schema for its component type."""
-    raise NotImplementedError
-
-
 @pytest.mark.req("LIB-021")
 @pytest.mark.xfail(strict=True, reason="stub")
 def test_lib_021() -> None:

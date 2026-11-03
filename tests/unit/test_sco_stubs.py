@@ -61,20 +61,6 @@ def test_sco_008() -> None:
     raise NotImplementedError
 
 
-@pytest.mark.req("SCO-009")
-@pytest.mark.xfail(strict=True, reason="stub")
-def test_sco_009() -> None:
-    """Scoring shall diff a suite's results against its regression baseline."""
-    raise NotImplementedError
-
-
-@pytest.mark.req("SCO-010")
-@pytest.mark.xfail(strict=True, reason="stub")
-def test_sco_010() -> None:
-    """The regression diff shall highlight every criterion and case that newly passes or newly fails."""
-    raise NotImplementedError
-
-
 @pytest.mark.req("SCO-011")
 @pytest.mark.xfail(strict=True, reason="stub")
 def test_sco_011() -> None:

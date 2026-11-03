@@ -1,0 +1,29 @@
+# Pendulum rigid-link period (ACC-033), damped small-angle period. Released from 0.05 rad at rest.
+# Undamped closed form T0 = 2 pi sqrt(I / (m g d)) with I = m L^2 / 3 = 1/12 kg m^2 about the pivot, m = 1 kg,
+# g = 9.81 m/s^2, d = L / 2 = 0.25 m: T0 = 1.1582031 s. The design's damping is d = 2 zeta I omega with zeta = 0.05,
+# which lengthens the period by 1 / sqrt(1 - zeta^2) - 1 = 0.1252 percent: T_d = T0 / sqrt(1 - zeta^2) = 1.1596536 s.
+# The finite-amplitude term theta0^2 / 16 = 0.0156 percent at 0.05 rad is left inside the 0.1 percent tolerance
+# (ENG-036). End: 20 damped periods are 23.193 s; one more period (24.353 s) covers the release transient before the
+# first zero crossing, rounded up to 24.4 s.
+id: P1
+title: Rigid pendulum small-amplitude period
+design:
+  name: pendulum
+  version: 0.1.0
+seed: 0
+initial_state:
+  joints:
+    - joint: pivot
+      position: 0.05 rad
+      velocity: 0 rad/s
+end:
+  at: 24.4 s
+  max_duration: 30 s
+criteria:
+  - name: period
+    check: value
+    quantity: joint:pivot.position
+    statistic: period
+    comparison: within
+    target: 1.1596536 s
+    relative_limit: 0.1 percent

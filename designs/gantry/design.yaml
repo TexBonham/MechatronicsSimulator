@@ -1,0 +1,605 @@
+# Gantry reference design (DES-025), draft. Values the requirements doc gives are set: 1 cm position accuracy, 1 kHz
+# control tick (C4), rated load plus 15 percent design-load rule. Everything else is a ${name} open parameter owed by
+# the gantry team. Kinematic chain: frame on the world; rail_x fixed on the frame; rail_y travels along x on rail_x;
+# the trolley travels along y on rail_y; the lift carriage travels along z on the trolley (lead screw); the hook hangs
+# from the lift carriage. Each axis motor drives a shaft body on a revolute joint. MCU pin names are placeholders in
+# STM32 style until the chip is selected.
+name: gantry
+version: 0.1.0
+source_hash: unset
+status: draft
+description: Overhead X-Y gantry with a lead-screw hook lift; the first reference design.
+open_parameters:
+  - name: workspace_x
+    dimension: "[length]"
+    owed_by: gantry team
+    note: X travel of the rectangular workspace; requirements doc says not set.
+  - name: workspace_y
+    dimension: "[length]"
+    owed_by: gantry team
+    note: Y travel of the rectangular workspace; requirements doc says not set.
+  - name: lift_travel
+    dimension: "[length]"
+    owed_by: gantry team
+    note: Vertical travel of the hook lift.
+  - name: rated_load
+    dimension: "[mass]"
+    owed_by: gantry team
+    note: Requirements doc says a few pounds; the walkthrough used 3 kg; exact value not set.
+  - name: cad_model
+    dimension: choice
+    owed_by: gantry team
+    note: Body geometry, mass properties, joint placements and motor shaft axes come from the Fusion 360 model (row 23).
+  - name: body_materials
+    dimension: choice
+    owed_by: gantry team
+    note: Material and process of the frame, trolley, lift carriage, hook and motor shafts.
+  - name: rail_section_area
+    dimension: "[length] ** 2"
+    owed_by: gantry team
+    note: Rail extrusion section area (row 17 planning default, rails flexible with extrusion sections).
+  - name: rail_section_second_moment
+    dimension: "[length] ** 4"
+    owed_by: gantry team
+    note: Rail extrusion section second moment of area.
+  - name: rail_calibration
+    dimension: choice
+    owed_by: gantry team
+    note: Known deflection and first natural frequency each rail is calibrated to, from hand calculation or FEA.
+  - name: encoder_placement
+    dimension: choice
+    owed_by: gantry team
+    note: Motor shaft or axis side (row 14); both supported.
+  - name: load_cell_type
+    dimension: choice
+    owed_by: gantry team
+    note: Weight sensor slot; the shipped catalog has no load cell type yet, so no instance is declared.
+  - name: deflection_target_mode
+    dimension: choice
+    owed_by: gantry team
+    note: Whether the 1 cm deflection target is static or dynamic (row 17; planning default static, dynamic reported).
+  - name: minimum_safety_factor
+    dimension: dimensionless
+    owed_by: gantry team
+    note: Minimum structural safety factor (ADR 0009); whether it lives in the design or the test case is also open.
+  - name: swing_limit_angle
+    dimension: dimensionless
+    owed_by: gantry team
+    note: Limit for load swing angle.
+  - name: swing_settle_time
+    dimension: "[time]"
+    owed_by: gantry team
+    note: Limit for load swing settle time.
+  - name: new_target_policy
+    dimension: choice
+    owed_by: gantry team
+    note: New target during a move, cancel and replace or queue.
+  - name: lift_while_moving_policy
+    dimension: choice
+    owed_by: gantry team
+    note: Whether lifting is allowed while moving.
+  - name: power_loss_hold
+    dimension: choice
+    owed_by: gantry team
+    note: How the gantry holds its load when power is cut, brake or self-locking lead screw.
+  - name: stm32_part
+    dimension: choice
+    owed_by: gantry team
+    note: STM32 chip, not selected; names the chip definition under chips/.
+  - name: logic_supply
+    dimension: choice
+    owed_by: gantry team
+    note: Supply of the controller's logic rail.
+  - name: heartbeat_wiring
+    dimension: choice
+    owed_by: gantry team
+    note: >-
+      The controller heartbeat is a pin signal into the E-stop relay or a watchdog, routed through the pin-binding
+      table (SIG-018, SIG-021, FW-025). It is not represented yet: the catalog has no watchdog type and estop_relay
+      declares no heartbeat input pin (LIB-019, milestone 2).
+  - name: ambient_temperature
+    dimension: "[temperature]"
+    owed_by: gantry team
+    note: Ambient temperature of the operating environment.
+  - name: axis_friction
+    dimension: "[mass] * [length] / [time] ** 2"
+    owed_by: gantry team
+    note: Friction force of each linear axis.
+  - name: axis_damping
+    dimension: "[mass] / [time]"
+    owed_by: gantry team
+    note: Viscous damping of each linear axis.
+  - name: axis_backlash
+    dimension: "[length]"
+    owed_by: gantry team
+    note: Backlash of each linear axis.
+  - name: shaft_friction
+    dimension: "[mass] * [length] ** 2 / [time] ** 2"
+    owed_by: gantry team
+    note: Friction torque of each motor shaft bearing.
+  - name: shaft_damping
+    dimension: "[mass] * [length] ** 2 / [time]"
+    owed_by: gantry team
+    note: Viscous damping of each motor shaft bearing.
+  - name: shaft_backlash
+    dimension: dimensionless
+    owed_by: gantry team
+    note: Angular backlash of each motor shaft.
+  - name: hook_friction
+    dimension: "[mass] * [length] ** 2 / [time] ** 2"
+    owed_by: gantry team
+    note: Friction torque of the hook suspension.
+  - name: hook_damping
+    dimension: "[mass] * [length] ** 2 / [time]"
+    owed_by: gantry team
+    note: Viscous damping of the hook suspension.
+  - name: hook_backlash
+    dimension: dimensionless
+    owed_by: gantry team
+    note: Angular backlash of the hook suspension.
+environment:
+  gravity: [0 m/s**2, 0 m/s**2, -9.81 m/s**2]
+  ambient_temperature: ${ambient_temperature}
+bodies:
+  - name: frame
+    material: ${body_materials}
+    process: ${body_materials}
+    geometry: ${cad_model}
+    mass_properties: ${cad_model}
+  - name: rail_x
+    material: aluminium_6063_t5_extrusion
+    process:
+      kind: extrusion
+    geometry: ${cad_model}
+    mass_properties: ${cad_model}
+    flexible:
+      section:
+        area: ${rail_section_area}
+        second_moment: ${rail_section_second_moment}
+        length: ${workspace_x}
+      calibration: ${rail_calibration}
+      # Row 17 planning default for the rail end conditions (root, end); owed by the gantry team with the sections.
+      supports: [clamped, clamped]
+  - name: rail_y
+    material: aluminium_6063_t5_extrusion
+    process:
+      kind: extrusion
+    geometry: ${cad_model}
+    mass_properties: ${cad_model}
+    flexible:
+      section:
+        area: ${rail_section_area}
+        second_moment: ${rail_section_second_moment}
+        length: ${workspace_y}
+      calibration: ${rail_calibration}
+      # Row 17 planning default for the rail end conditions (root, end); owed by the gantry team with the sections.
+      supports: [pinned, roller]
+  - name: trolley
+    material: ${body_materials}
+    process: ${body_materials}
+    geometry: ${cad_model}
+    mass_properties: ${cad_model}
+  - name: lift_carriage
+    material: ${body_materials}
+    process: ${body_materials}
+    geometry: ${cad_model}
+    mass_properties: ${cad_model}
+  - name: hook
+    material: ${body_materials}
+    process: ${body_materials}
+    geometry: ${cad_model}
+    mass_properties: ${cad_model}
+  - name: x_motor_shaft
+    material: ${body_materials}
+    process: ${body_materials}
+    geometry: ${cad_model}
+    mass_properties: ${cad_model}
+  - name: y_motor_shaft
+    material: ${body_materials}
+    process: ${body_materials}
+    geometry: ${cad_model}
+    mass_properties: ${cad_model}
+  - name: lift_motor_shaft
+    material: ${body_materials}
+    process: ${body_materials}
+    geometry: ${cad_model}
+    mass_properties: ${cad_model}
+joints:
+  - name: frame_mount
+    type: fixed
+    parent: world
+    child: frame
+    placement: ${cad_model}
+  - name: rail_x_mount
+    type: fixed
+    parent: frame
+    child: rail_x
+    placement: ${cad_model}
+  - name: x_axis
+    type: prismatic
+    parent: rail_x
+    child: rail_y
+    placement: ${cad_model}
+    axis: [1.0, 0.0, 0.0]
+    linear:
+      - limits:
+          lower: 0 m
+          upper: ${workspace_x}
+        friction: ${axis_friction}
+        damping: ${axis_damping}
+        backlash: ${axis_backlash}
+  - name: y_axis
+    type: prismatic
+    parent: rail_y
+    child: trolley
+    placement: ${cad_model}
+    axis: [0.0, 1.0, 0.0]
+    linear:
+      - limits:
+          lower: 0 m
+          upper: ${workspace_y}
+        friction: ${axis_friction}
+        damping: ${axis_damping}
+        backlash: ${axis_backlash}
+  - name: lift_axis
+    type: prismatic
+    parent: trolley
+    child: lift_carriage
+    placement: ${cad_model}
+    axis: [0.0, 0.0, 1.0]
+    linear:
+      - limits:
+          lower: 0 m
+          upper: ${lift_travel}
+        friction: ${axis_friction}
+        damping: ${axis_damping}
+        backlash: ${axis_backlash}
+  - name: hook_swing
+    type: spherical
+    parent: lift_carriage
+    child: hook
+    placement: ${cad_model}
+    angular:
+      - friction: ${hook_friction}
+        damping: ${hook_damping}
+        backlash: ${hook_backlash}
+      - friction: ${hook_friction}
+        damping: ${hook_damping}
+        backlash: ${hook_backlash}
+      - friction: ${hook_friction}
+        damping: ${hook_damping}
+        backlash: ${hook_backlash}
+  - name: x_motor_spin
+    type: revolute
+    parent: frame
+    child: x_motor_shaft
+    placement: ${cad_model}
+    axis: ${cad_model}
+    angular:
+      - friction: ${shaft_friction}
+        damping: ${shaft_damping}
+        backlash: ${shaft_backlash}
+  - name: y_motor_spin
+    type: revolute
+    parent: rail_y
+    child: y_motor_shaft
+    placement: ${cad_model}
+    axis: ${cad_model}
+    angular:
+      - friction: ${shaft_friction}
+        damping: ${shaft_damping}
+        backlash: ${shaft_backlash}
+  - name: lift_motor_spin
+    type: revolute
+    parent: trolley
+    child: lift_motor_shaft
+    placement: ${cad_model}
+    axis: ${cad_model}
+    angular:
+      - friction: ${shaft_friction}
+        damping: ${shaft_damping}
+        backlash: ${shaft_backlash}
+components:
+  - name: x_motor
+    type: stepper_behavioral
+    part: nema17_class_generic
+    mechanical:
+      - mount: face
+        body: frame
+      - mount: shaft
+        joint: x_motor_spin
+  - name: x_driver
+    type: step_dir_driver
+    part: step_dir_driver_generic
+    signals:
+      - name: x_driver.step
+        pin: step
+        direction: consumes
+      - name: x_driver.dir
+        pin: dir
+        direction: consumes
+      - name: x_driver.enable
+        pin: enable
+        direction: consumes
+  - name: x_belt
+    type: belt_pulley
+    part: gt2_20t_6mm_generic
+    mechanical:
+      - mount: pulley_bore
+        joint: x_motor_spin
+      - mount: belt_clamp
+        body: rail_y
+  - name: y_motor
+    type: stepper_behavioral
+    part: nema17_class_generic
+    mechanical:
+      - mount: face
+        body: rail_y
+      - mount: shaft
+        joint: y_motor_spin
+  - name: y_driver
+    type: step_dir_driver
+    part: step_dir_driver_generic
+    signals:
+      - name: y_driver.step
+        pin: step
+        direction: consumes
+      - name: y_driver.dir
+        pin: dir
+        direction: consumes
+      - name: y_driver.enable
+        pin: enable
+        direction: consumes
+  - name: y_belt
+    type: belt_pulley
+    part: gt2_20t_6mm_generic
+    mechanical:
+      - mount: pulley_bore
+        joint: y_motor_spin
+      - mount: belt_clamp
+        body: trolley
+  - name: lift_motor
+    type: stepper_behavioral
+    part: nema17_class_generic
+    mechanical:
+      - mount: face
+        body: trolley
+      - mount: shaft
+        joint: lift_motor_spin
+  - name: lift_driver
+    type: step_dir_driver
+    part: step_dir_driver_generic
+    signals:
+      - name: lift_driver.step
+        pin: step
+        direction: consumes
+      - name: lift_driver.dir
+        pin: dir
+        direction: consumes
+      - name: lift_driver.enable
+        pin: enable
+        direction: consumes
+  - name: lift_screw
+    type: lead_screw
+    part: tr8x8_generic
+    mechanical:
+      - mount: drive_end
+        joint: lift_motor_spin
+      - mount: nut
+        body: lift_carriage
+  - name: x_min_switch
+    type: limit_switch
+    part: microswitch_generic
+    mechanical:
+      - mount: body
+        body: rail_x
+    signals:
+      - name: x_min_switch.out
+        pin: out
+        direction: emits
+  - name: x_max_switch
+    type: limit_switch
+    part: microswitch_generic
+    mechanical:
+      - mount: body
+        body: rail_x
+    signals:
+      - name: x_max_switch.out
+        pin: out
+        direction: emits
+  - name: y_min_switch
+    type: limit_switch
+    part: microswitch_generic
+    mechanical:
+      - mount: body
+        body: rail_y
+    signals:
+      - name: y_min_switch.out
+        pin: out
+        direction: emits
+  - name: y_max_switch
+    type: limit_switch
+    part: microswitch_generic
+    mechanical:
+      - mount: body
+        body: rail_y
+    signals:
+      - name: y_max_switch.out
+        pin: out
+        direction: emits
+  - name: lift_min_switch
+    type: limit_switch
+    part: microswitch_generic
+    mechanical:
+      - mount: body
+        body: trolley
+    signals:
+      - name: lift_min_switch.out
+        pin: out
+        direction: emits
+  - name: lift_max_switch
+    type: limit_switch
+    part: microswitch_generic
+    mechanical:
+      - mount: body
+        body: trolley
+    signals:
+      - name: lift_max_switch.out
+        pin: out
+        direction: emits
+  - name: x_encoder
+    type: incremental_encoder
+    part: encoder_600ppr_generic
+    mechanical:
+      - mount: flange
+        body: ${encoder_placement}
+    signals:
+      - name: x_encoder.channel_a
+        pin: channel_a
+        direction: emits
+      - name: x_encoder.channel_b
+        pin: channel_b
+        direction: emits
+  - name: y_encoder
+    type: incremental_encoder
+    part: encoder_600ppr_generic
+    mechanical:
+      - mount: flange
+        body: ${encoder_placement}
+    signals:
+      - name: y_encoder.channel_a
+        pin: channel_a
+        direction: emits
+      - name: y_encoder.channel_b
+        pin: channel_b
+        direction: emits
+  - name: lift_encoder
+    type: incremental_encoder
+    part: encoder_600ppr_generic
+    mechanical:
+      - mount: flange
+        body: ${encoder_placement}
+    signals:
+      - name: lift_encoder.channel_a
+        pin: channel_a
+        direction: emits
+      - name: lift_encoder.channel_b
+        pin: channel_b
+        direction: emits
+  - name: motor_supply
+    type: power_supply
+    part: psu_24v_10a_generic
+  - name: estop
+    type: estop_relay
+    part: estop_relay_24v_generic
+pin_bindings:
+  - signal: x_driver.step
+    pin: PA0
+    mode: gpio_output
+  - signal: x_driver.dir
+    pin: PA1
+    mode: gpio_output
+  - signal: x_driver.enable
+    pin: PA2
+    mode: gpio_output
+  - signal: y_driver.step
+    pin: PA3
+    mode: gpio_output
+  - signal: y_driver.dir
+    pin: PA4
+    mode: gpio_output
+  - signal: y_driver.enable
+    pin: PA5
+    mode: gpio_output
+  - signal: lift_driver.step
+    pin: PA6
+    mode: gpio_output
+  - signal: lift_driver.dir
+    pin: PA7
+    mode: gpio_output
+  - signal: lift_driver.enable
+    pin: PA8
+    mode: gpio_output
+  - signal: x_min_switch.out
+    pin: PB0
+    mode: gpio_input
+  - signal: x_max_switch.out
+    pin: PB1
+    mode: gpio_input
+  - signal: y_min_switch.out
+    pin: PB2
+    mode: gpio_input
+  - signal: y_max_switch.out
+    pin: PB3
+    mode: gpio_input
+  - signal: lift_min_switch.out
+    pin: PB4
+    mode: gpio_input
+  - signal: lift_max_switch.out
+    pin: PB5
+    mode: gpio_input
+  - signal: x_encoder.channel_a
+    pin: PC0
+    mode: timer_encoder
+  - signal: x_encoder.channel_b
+    pin: PC1
+    mode: timer_encoder
+  - signal: y_encoder.channel_a
+    pin: PC2
+    mode: timer_encoder
+  - signal: y_encoder.channel_b
+    pin: PC3
+    mode: timer_encoder
+  - signal: lift_encoder.channel_a
+    pin: PC4
+    mode: timer_encoder
+  - signal: lift_encoder.channel_b
+    pin: PC5
+    mode: timer_encoder
+power:
+  rails:
+    - name: motor_power
+      supply: motor_supply
+      gated_by: [estop]
+    - name: logic
+      supply: ${logic_supply}
+  controller_rail: logic
+firmware:
+  path: firmware
+  chip: ${stm32_part}
+  tick_rate: 1 kHz
+operator_messages:
+  - name: target
+    label: target (x, y)
+    source: operator
+    destination: controller
+    fields:
+      - name: x
+        dimension: "[length]"
+      - name: y
+        dimension: "[length]"
+  - name: home
+    label: home
+    source: operator
+    destination: controller
+  - name: current_position
+    label: current position
+    source: controller
+    destination: operator
+    fields:
+      - name: x
+        dimension: "[length]"
+      - name: y
+        dimension: "[length]"
+  - name: ready_fault
+    label: ready / fault
+    source: controller
+    destination: operator
+structural:
+  design_load:
+    rated_load: ${rated_load}
+    allowance: 15 percent
+    note: Rated load plus 15 percent for hoist and trolley weight (Gorbel work station crane rule).
+  accuracy_target: 1 cm
+  deflection_target: ${deflection_target_mode}
+  minimum_safety_factor: ${minimum_safety_factor}

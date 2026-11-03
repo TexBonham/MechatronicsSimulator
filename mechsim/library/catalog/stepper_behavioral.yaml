@@ -1,0 +1,101 @@
+# Behavioral stepper motor type and a NEMA 17 class part. Every numeric part value is a placeholder: the requirements
+# doc gives no datasheet values, and the datasheet curve source is owed by the owner (docs/spec/lib.md).
+types:
+  - name: stepper_behavioral
+    version: 1.0.0
+    category: actuator
+    description: Hybrid stepper, behavioral model; torque limited by a torque-speed table.
+    parameters:
+      - name: mass
+        dimension: "[mass]"
+        minimum: "0 kg"
+      - name: step_angle
+        dimension: dimensionless
+        minimum: "0.1 deg"
+        maximum: "15 deg"
+      - name: holding_torque
+        dimension: "[mass] * [length] ** 2 / [time] ** 2"
+        minimum: "0 N*m"
+      - name: rotor_inertia
+        dimension: "[mass] * [length] ** 2"
+        minimum: "0 kg*m**2"
+      - name: rated_current
+        dimension: "[current]"
+        minimum: "0 A"
+      - name: max_voltage
+        dimension: "[mass] * [length] ** 2 / [time] ** 3 / [current]"
+        minimum: "0 V"
+      - name: phase_resistance
+        dimension: "[mass] * [length] ** 2 / [time] ** 3 / [current] ** 2"
+        minimum: "0 ohm"
+      - name: phase_inductance
+        dimension: "[mass] * [length] ** 2 / [time] ** 2 / [current] ** 2"
+        minimum: "0 H"
+      - name: detent_torque
+        dimension: "[mass] * [length] ** 2 / [time] ** 2"
+        default: "0 N*m"
+        minimum: "0 N*m"
+    tiers:
+      - name: behavioral
+        parameters: [mass, step_angle, holding_torque, rotor_inertia, rated_current, max_voltage]
+      - name: electrical
+        parameters: [phase_resistance, phase_inductance, detent_torque]
+    mechanical:
+      mass:
+        source: parameter
+        parameter: mass
+      mounts:
+        - name: face
+          kind: face
+          offset: ["0 mm", "0 mm", "0 mm"]
+        - name: shaft
+          kind: shaft
+          offset: ["0 mm", "0 mm", "24 mm"]
+      shaft_axis: [0.0, 0.0, 1.0]
+    electrical:
+      pins:
+        - name: coil_a
+          direction: input
+          signal_kind: coil
+          voltage_rating: max_voltage
+          current_rating: rated_current
+        - name: coil_b
+          direction: input
+          signal_kind: coil
+          voltage_rating: max_voltage
+          current_rating: rated_current
+    ratings:
+      absolute_maximums:
+        - name: phase_current
+          parameter: rated_current
+        - name: supply_voltage
+          parameter: max_voltage
+      holding_torque: holding_torque
+      torque_speed_curve: required
+    thermal:
+      held_constant: true
+      temperature: "298.15 K"
+    plugin:
+      cpp: stepper_behavioral
+parts:
+  - name: nema17_class_generic
+    type: stepper_behavioral
+    tier: behavioral
+    description: NEMA 17 frame class stepper, 1.8 degree.
+    source: placeholder values, no datasheet assigned
+    values:
+      mass: "0.28 kg"
+      step_angle: "1.8 deg"
+      holding_torque: "0.40 N*m"
+      rotor_inertia: "54 g*cm**2"
+      rated_current: "1.5 A"
+      max_voltage: "24 V"
+      phase_resistance: "1.5 ohm"
+      phase_inductance: "2.8 mH"
+    placeholders: [mass, holding_torque, rotor_inertia, rated_current, max_voltage, phase_resistance, phase_inductance]
+    torque_speed_curve:
+      - {speed: "0 rpm", torque: "0.40 N*m"}
+      - {speed: "300 rpm", torque: "0.36 N*m"}
+      - {speed: "600 rpm", torque: "0.30 N*m"}
+      - {speed: "1200 rpm", torque: "0.18 N*m"}
+      - {speed: "1800 rpm", torque: "0.10 N*m"}

@@ -3,81 +3,10 @@
 import pytest
 
 
-@pytest.mark.req("TST-001")
-@pytest.mark.xfail(strict=True, reason="stub")
-def test_tst_001() -> None:
-    """A test case file shall name the design version it runs against, as the design's semver string."""
-    raise NotImplementedError
-
-
-@pytest.mark.req("TST-002")
-@pytest.mark.xfail(strict=True, reason="stub")
-def test_tst_002() -> None:
-    """A test case file shall define the initial state the run starts from."""
-    raise NotImplementedError
-
-
-@pytest.mark.req("TST-003")
-@pytest.mark.xfail(strict=True, reason="stub")
-def test_tst_003() -> None:
-    """A test case file shall define a timeline of operator commands, each with its scheduled simulated
-    time.
-    """
-    raise NotImplementedError
-
-
-@pytest.mark.req("TST-004")
-@pytest.mark.xfail(strict=True, reason="stub")
-def test_tst_004() -> None:
-    """A test case file shall define a timeline of injected faults, each with its fault type, target, start
-    time and window.
-    """
-    raise NotImplementedError
-
-
-@pytest.mark.req("TST-005")
-@pytest.mark.xfail(strict=True, reason="stub")
-def test_tst_005() -> None:
-    """A test case file shall define its pass criteria, each naming a measured value and a limit."""
-    raise NotImplementedError
-
-
-@pytest.mark.req("TST-006")
-@pytest.mark.xfail(strict=True, reason="stub")
-def test_tst_006() -> None:
-    """A test case file shall carry one integer random seed."""
-    raise NotImplementedError
-
-
-@pytest.mark.req("TST-007")
-@pytest.mark.xfail(strict=True, reason="stub")
-def test_tst_007() -> None:
-    """A test case or suite file shall be able to define parameter sweeps and seeded variations."""
-    raise NotImplementedError
-
-
 @pytest.mark.req("TST-008")
 @pytest.mark.xfail(strict=True, reason="stub")
 def test_tst_008() -> None:
     """A suite file shall name the regression baseline it is compared against."""
-    raise NotImplementedError
-
-
-@pytest.mark.req("TST-009")
-@pytest.mark.xfail(strict=True, reason="stub")
-def test_tst_009() -> None:
-    """The test runner shall validate every test case file against its schema in `schemas/` before a run
-    starts and reject an invalid file with an error naming the failing field.
-    """
-    raise NotImplementedError
-
-
-@pytest.mark.req("TST-010")
-@pytest.mark.xfail(strict=True, reason="stub")
-def test_tst_010() -> None:
-    """The test runner shall parse quantities in test case files from unit strings into SI values at load,
-    and never use unit objects inside the run.
-    """
     raise NotImplementedError
 
 

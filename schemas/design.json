@@ -1,0 +1,1953 @@
+{
+  "$defs": {
+    "AngularDof": {
+      "additionalProperties": false,
+      "properties": {
+        "backlash": {
+          "anyOf": [
+            {
+              "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s+\\S.*)?$",
+              "type": "string"
+            },
+            {
+              "pattern": "^\\$\\{[a-z][a-z0-9_]*\\}$",
+              "type": "string"
+            }
+          ],
+          "title": "Backlash"
+        },
+        "damping": {
+          "anyOf": [
+            {
+              "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s+\\S.*)?$",
+              "type": "string"
+            },
+            {
+              "pattern": "^\\$\\{[a-z][a-z0-9_]*\\}$",
+              "type": "string"
+            }
+          ],
+          "title": "Damping"
+        },
+        "friction": {
+          "anyOf": [
+            {
+              "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s+\\S.*)?$",
+              "type": "string"
+            },
+            {
+              "pattern": "^\\$\\{[a-z][a-z0-9_]*\\}$",
+              "type": "string"
+            }
+          ],
+          "title": "Friction"
+        },
+        "limits": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/AngularLimits"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "required": [
+        "friction",
+        "damping",
+        "backlash"
+      ],
+      "title": "AngularDof",
+      "type": "object"
+    },
+    "AngularLimits": {
+      "additionalProperties": false,
+      "properties": {
+        "lower": {
+          "anyOf": [
+            {
+              "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s+\\S.*)?$",
+              "type": "string"
+            },
+            {
+              "pattern": "^\\$\\{[a-z][a-z0-9_]*\\}$",
+              "type": "string"
+            }
+          ],
+          "title": "Lower"
+        },
+        "upper": {
+          "anyOf": [
+            {
+              "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s+\\S.*)?$",
+              "type": "string"
+            },
+            {
+              "pattern": "^\\$\\{[a-z][a-z0-9_]*\\}$",
+              "type": "string"
+            }
+          ],
+          "title": "Upper"
+        }
+      },
+      "required": [
+        "lower",
+        "upper"
+      ],
+      "title": "AngularLimits",
+      "type": "object"
+    },
+    "Body": {
+      "additionalProperties": false,
+      "properties": {
+        "catalog_part": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CatalogPartReference"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "fasteners": {
+          "items": {
+            "$ref": "#/$defs/Fastener"
+          },
+          "title": "Fasteners",
+          "type": "array"
+        },
+        "flexible": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/FlexibleMember"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "geometry": {
+          "anyOf": [
+            {
+              "discriminator": {
+                "mapping": {
+                  "primitives": "#/$defs/PrimitiveGeometry",
+                  "step": "#/$defs/StepGeometry"
+                },
+                "propertyName": "kind"
+              },
+              "oneOf": [
+                {
+                  "$ref": "#/$defs/PrimitiveGeometry"
+                },
+                {
+                  "$ref": "#/$defs/StepGeometry"
+                }
+              ]
+            },
+            {
+              "pattern": "^\\$\\{[a-z][a-z0-9_]*\\}$",
+              "type": "string"
+            }
+          ],
+          "title": "Geometry"
+        },
+        "mass_properties": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/MassProperties"
+            },
+            {
+              "pattern": "^\\$\\{[a-z][a-z0-9_]*\\}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Mass Properties"
+        },
+        "material": {
+          "anyOf": [
+            {
+              "pattern": "^[a-z][a-z0-9_]*$",
+              "type": "string"
+            },
+            {
+              "pattern": "^\\$\\{[a-z][a-z0-9_]*\\}$",
+              "type": "string"
+            }
+          ],
+          "title": "Material"
+        },
+        "name": {
+          "pattern": "^[a-z][a-z0-9_]*$",
+          "title": "Name",
+          "type": "string"
+        },
+        "process": {
+          "anyOf": [
+            {
+              "discriminator": {
+                "mapping": {
+                  "extrusion": "#/$defs/ExtrusionProcess",
+                  "machined": "#/$defs/MachinedProcess",
+                  "molded": "#/$defs/MoldedProcess",
+                  "printed": "#/$defs/PrintedProcess"
+                },
+                "propertyName": "kind"
+              },
+              "oneOf": [
+                {
+                  "$ref": "#/$defs/PrintedProcess"
+                },
+                {
+                  "$ref": "#/$defs/MachinedProcess"
+                },
+                {
+                  "$ref": "#/$defs/MoldedProcess"
+                },
+                {
+                  "$ref": "#/$defs/ExtrusionProcess"
+                }
+              ]
+            },
+            {
+              "pattern": "^\\$\\{[a-z][a-z0-9_]*\\}$",
+              "type": "string"
+            }
+          ],
+          "title": "Process"
+        }
+      },
+      "required": [
+        "name",
+        "material",
+        "process",
+        "geometry"
+      ],
+      "title": "Body",
+      "type": "object"
+    },
+    "Box": {
+      "additionalProperties": false,
+      "properties": {
+        "orientation": {
+          "description": "w, x, y, z",
+          "items": {
+            "type": "number"
+          },
+          "maxItems": 4,
+          "minItems": 4,
+          "title": "Orientation",
+          "type": "array"
+        },
+        "position": {
+          "items": {
+            "anyOf": [
+              {
+                "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s+\\S.*)?$",
+                "type": "string"
+              },
+              {
+                "pattern": "^\\$\\{[a-z][a-z0-9_]*\\}$",
+                "type": "string"
+              }
+            ]
+          },
+          "maxItems": 3,
+          "minItems": 3,
+          "title": "Position",
+          "type": "array"
+        },
+        "shape": {
+          "const": "box",
+          "title": "Shape",
+          "type": "string"
+        },
+        "size": {
+          "items": {
+            "anyOf": [
+              {
+                "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s+\\S.*)?$",
+                "type": "string"
+              },
+              {
+                "pattern": "^\\$\\{[a-z][a-z0-9_]*\\}$",
+                "type": "string"
+              }
+            ]
+          },
+          "maxItems": 3,
+          "minItems": 3,
+          "title": "Size",
+          "type": "array"
+        }
+      },
+      "required": [
+        "position",
+        "shape",
+        "size"
+      ],
+      "title": "Box",
+      "type": "object"
+    },
+    "Calibration": {
+      "additionalProperties": false,
+      "description": "The known deflection under `load` and first natural frequency the lumped member is calibrated to.",
+      "properties": {
+        "deflection": {
+          "anyOf": [
+            {
+              "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s+\\S.*)?$",
+              "type": "string"
+            },
+            {
+              "pattern": "^\\$\\{[a-z][a-z0-9_]*\\}$",
+              "type": "string"
+            }
+          ],
+          "title": "Deflection"
+        },
+        "design_version": {
+          "anyOf": [
+            {
+              "pattern": "^\\d+\\.\\d+\\.\\d+$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Design Version"
+        },
+        "first_natural_frequency": {
+          "anyOf": [
+            {
+              "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s+\\S.*)?$",
+              "type": "string"
+            },
+            {
+              "pattern": "^\\$\\{[a-z][a-z0-9_]*\\}$",
+              "type": "string"
+            }
+          ],
+          "title": "First Natural Frequency"
+        },
+        "load": {
+          "anyOf": [
+            {
+              "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s+\\S.*)?$",
+              "type": "string"
+            },
+            {
+              "pattern": "^\\$\\{[a-z][a-z0-9_]*\\}$",
+              "type": "string"
+            }
+          ],
+          "title": "Load"
+        },
+        "source": {
+          "enum": [
+            "hand",
+            "fea"
+          ],
+          "title": "Source",
+          "type": "string"
+        }
+      },
+      "required": [
+        "source",
+        "load",
+        "deflection",
+        "first_natural_frequency"
+      ],
+      "title": "Calibration",
+      "type": "object"
+    },
+    "Capsule": {
+      "additionalProperties": false,
+      "properties": {
+        "length": {
+          "anyOf": [
+            {
+              "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s+\\S.*)?$",
+              "type": "string"
+            },
+            {
+              "pattern": "^\\$\\{[a-z][a-z0-9_]*\\}$",
+              "type": "string"
+            }
+          ],
+          "title": "Length"
+        },
+        "orientation": {
+          "description": "w, x, y, z",
+          "items": {
+            "type": "number"
+          },
+          "maxItems": 4,
+          "minItems": 4,
+          "title": "Orientation",
+          "type": "array"
+        },
+        "position": {
+          "items": {
+            "anyOf": [
+              {
+                "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s+\\S.*)?$",
+                "type": "string"
+              },
+              {
+                "pattern": "^\\$\\{[a-z][a-z0-9_]*\\}$",
+                "type": "string"
+              }
+            ]
+          },
+          "maxItems": 3,
+          "minItems": 3,
+          "title": "Position",
+          "type": "array"
+        },
+        "radius": {
+          "anyOf": [
+            {
+              "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s+\\S.*)?$",
+              "type": "string"
+            },
+            {
+              "pattern": "^\\$\\{[a-z][a-z0-9_]*\\}$",
+              "type": "string"
+            }
+          ],
+          "title": "Radius"
+        },
+        "shape": {
+          "const": "capsule",
+          "title": "Shape",
+          "type": "string"
+        }
+      },
+      "required": [
+        "position",
+        "shape",
+        "radius",
+        "length"
+      ],
+      "title": "Capsule",
+      "type": "object"
+    },
+    "CatalogPartReference": {
+      "additionalProperties": false,
+      "properties": {
+        "part": {
+          "pattern": "^[a-z][a-z0-9_]*$",
+          "title": "Part",
+          "type": "string"
+        },
+        "type": {
+          "pattern": "^[a-z][a-z0-9_]*$",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "part"
+      ],
+      "title": "CatalogPartReference",
+      "type": "object"
+    },
+    "ComponentInstance": {
+      "additionalProperties": false,
+      "properties": {
+        "mechanical": {
+          "items": {
+            "$ref": "#/$defs/MechanicalBinding"
+          },
+          "title": "Mechanical",
+          "type": "array"
+        },
+        "name": {
+          "pattern": "^[a-z][a-z0-9_]*$",
+          "title": "Name",
+          "type": "string"
+        },
+        "overrides": {
+          "patternProperties": {
+            "^[a-z][a-z0-9_]*$": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "boolean"
+                }
+              ]
+            }
+          },
+          "title": "Overrides",
+          "type": "object"
+        },
+        "part": {
+          "pattern": "^[a-z][a-z0-9_]*$",
+          "title": "Part",
+          "type": "string"
+        },
+        "signals": {
+          "items": {
+            "$ref": "#/$defs/SignalDeclaration"
+          },
+          "title": "Signals",
+          "type": "array"
+        },
+        "type": {
+          "pattern": "^[a-z][a-z0-9_]*$",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "type",
+        "part"
+      ],
+      "title": "ComponentInstance",
+      "type": "object"
+    },
+    "Cylinder": {
+      "additionalProperties": false,
+      "properties": {
+        "length": {
+          "anyOf": [
+            {
+              "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s+\\S.*)?$",
+              "type": "string"
+            },
+            {
+              "pattern": "^\\$\\{[a-z][a-z0-9_]*\\}$",
+              "type": "string"
+            }
+          ],
+          "title": "Length"
+        },
+        "orientation": {
+          "description": "w, x, y, z",
+          "items": {
+            "type": "number"
+          },
+          "maxItems": 4,
+          "minItems": 4,
+          "title": "Orientation",
+          "type": "array"
+        },
+        "position": {
+          "items": {
+            "anyOf": [
+              {
+                "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s+\\S.*)?$",
+                "type": "string"
+              },
+              {
+                "pattern": "^\\$\\{[a-z][a-z0-9_]*\\}$",
+                "type": "string"
+              }
+            ]
+          },
+          "maxItems": 3,
+          "minItems": 3,
+          "title": "Position",
+          "type": "array"
+        },
+        "radius": {
+          "anyOf": [
+            {
+              "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s+\\S.*)?$",
+              "type": "string"
+            },
+            {
+              "pattern": "^\\$\\{[a-z][a-z0-9_]*\\}$",
+              "type": "string"
+            }
+          ],
+          "title": "Radius"
+        },
+        "shape": {
+          "const": "cylinder",
+          "title": "Shape",
+          "type": "string"
+        }
+      },
+      "required": [
+        "position",
+        "shape",
+        "radius",
+        "length"
+      ],
+      "title": "Cylinder",
+      "type": "object"
+    },
+    "DesignLoadRule": {
+      "additionalProperties": false,
+      "description": "Design load = rated_load * (1 + allowance).",
+      "properties": {
+        "allowance": {
+          "anyOf": [
+            {
+              "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s+\\S.*)?$",
+              "type": "string"
+            },
+            {
+              "pattern": "^\\$\\{[a-z][a-z0-9_]*\\}$",
+              "type": "string"
+            }
+          ],
+          "title": "Allowance"
+        },
+        "note": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Note"
+        },
+        "rated_load": {
+          "anyOf": [
+            {
+              "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s+\\S.*)?$",
+              "type": "string"
+            },
+            {
+              "pattern": "^\\$\\{[a-z][a-z0-9_]*\\}$",
+              "type": "string"
+            }
+          ],
+          "title": "Rated Load"
+        }
+      },
+      "required": [
+        "rated_load",
+        "allowance"
+      ],
+      "title": "DesignLoadRule",
+      "type": "object"
+    },
+    "Environment": {
+      "additionalProperties": false,
+      "properties": {
+        "ambient_temperature": {
+          "anyOf": [
+            {
+              "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s+\\S.*)?$",
+              "type": "string"
+            },
+            {
+              "pattern": "^\\$\\{[a-z][a-z0-9_]*\\}$",
+              "type": "string"
+            }
+          ],
+          "title": "Ambient Temperature"
+        },
+        "gravity": {
+          "items": {
+            "anyOf": [
+              {
+                "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s+\\S.*)?$",
+                "type": "string"
+              },
+              {
+                "pattern": "^\\$\\{[a-z][a-z0-9_]*\\}$",
+                "type": "string"
+              }
+            ]
+          },
+          "maxItems": 3,
+          "minItems": 3,
+          "title": "Gravity",
+          "type": "array"
+        }
+      },
+      "required": [
+        "gravity",
+        "ambient_temperature"
+      ],
+      "title": "Environment",
+      "type": "object"
+    },
+    "ExtrusionProcess": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "extrusion",
+          "title": "Kind",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind"
+      ],
+      "title": "ExtrusionProcess",
+      "type": "object"
+    },
+    "Fastener": {
+      "additionalProperties": false,
+      "properties": {
+        "count": {
+          "minimum": 1,
+          "title": "Count",
+          "type": "integer"
+        },
+        "grade": {
+          "anyOf": [
+            {
+              "pattern": "^[a-z][a-z0-9_]*$",
+              "type": "string"
+            },
+            {
+              "pattern": "^\\$\\{[a-z][a-z0-9_]*\\}$",
+              "type": "string"
+            }
+          ],
+          "title": "Grade"
+        },
+        "kind": {
+          "pattern": "^[a-z][a-z0-9_]*$",
+          "title": "Kind",
+          "type": "string"
+        },
+        "preload": {
+          "anyOf": [
+            {
+              "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s+\\S.*)?$",
+              "type": "string"
+            },
+            {
+              "pattern": "^\\$\\{[a-z][a-z0-9_]*\\}$",
+              "type": "string"
+            }
+          ],
+          "title": "Preload"
+        }
+      },
+      "required": [
+        "kind",
+        "count",
+        "grade",
+        "preload"
+      ],
+      "title": "Fastener",
+      "type": "object"
+    },
+    "Firmware": {
+      "additionalProperties": false,
+      "properties": {
+        "chip": {
+          "anyOf": [
+            {
+              "pattern": "^[a-z][a-z0-9_]*$",
+              "type": "string"
+            },
+            {
+              "pattern": "^\\$\\{[a-z][a-z0-9_]*\\}$",
+              "type": "string"
+            }
+          ],
+          "title": "Chip"
+        },
+        "path": {
+          "pattern": "^[A-Za-z0-9_.\\-]+(/[A-Za-z0-9_.\\-]+)*$",
+          "title": "Path",
+          "type": "string"
+        },
+        "tick_rate": {
+          "anyOf": [
+            {
+              "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s+\\S.*)?$",
+              "type": "string"
+            },
+            {
+              "pattern": "^\\$\\{[a-z][a-z0-9_]*\\}$",
+              "type": "string"
+            }
+          ],
+          "title": "Tick Rate"
+        }
+      },
+      "required": [
+        "path",
+        "chip",
+        "tick_rate"
+      ],
+      "title": "Firmware",
+      "type": "object"
+    },
+    "FlexibleMember": {
+      "additionalProperties": false,
+      "properties": {
+        "calibration": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Calibration"
+            },
+            {
+              "pattern": "^\\$\\{[a-z][a-z0-9_]*\\}$",
+              "type": "string"
+            }
+          ],
+          "title": "Calibration"
+        },
+        "section": {
+          "$ref": "#/$defs/Section"
+        },
+        "segments": {
+          "default": 4,
+          "minimum": 1,
+          "title": "Segments",
+          "type": "integer"
+        },
+        "supports": {
+          "description": "root, end",
+          "items": {
+            "enum": [
+              "clamped",
+              "pinned",
+              "roller",
+              "free"
+            ],
+            "type": "string"
+          },
+          "maxItems": 2,
+          "minItems": 2,
+          "title": "Supports",
+          "type": "array"
+        }
+      },
+      "required": [
+        "section",
+        "calibration",
+        "supports"
+      ],
+      "title": "FlexibleMember",
+      "type": "object"
+    },
+    "InertiaTensor": {
+      "additionalProperties": false,
+      "description": "About the center of mass, in the body frame.",
+      "properties": {
+        "ixx": {
+          "anyOf": [
+            {
+              "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s+\\S.*)?$",
+              "type": "string"
+            },
+            {
+              "pattern": "^\\$\\{[a-z][a-z0-9_]*\\}$",
+              "type": "string"
+            }
+          ],
+          "title": "Ixx"
+        },
+        "ixy": {
+          "anyOf": [
+            {
+              "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s+\\S.*)?$",
+              "type": "string"
+            },
+            {
+              "pattern": "^\\$\\{[a-z][a-z0-9_]*\\}$",
+              "type": "string"
+            }
+          ],
+          "default": 0.0,
+          "title": "Ixy"
+        },
+        "ixz": {
+          "anyOf": [
+            {
+              "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s+\\S.*)?$",
+              "type": "string"
+            },
+            {
+              "pattern": "^\\$\\{[a-z][a-z0-9_]*\\}$",
+              "type": "string"
+            }
+          ],
+          "default": 0.0,
+          "title": "Ixz"
+        },
+        "iyy": {
+          "anyOf": [
+            {
+              "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s+\\S.*)?$",
+              "type": "string"
+            },
+            {
+              "pattern": "^\\$\\{[a-z][a-z0-9_]*\\}$",
+              "type": "string"
+            }
+          ],
+          "title": "Iyy"
+        },
+        "iyz": {
+          "anyOf": [
+            {
+              "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s+\\S.*)?$",
+              "type": "string"
+            },
+            {
+              "pattern": "^\\$\\{[a-z][a-z0-9_]*\\}$",
+              "type": "string"
+            }
+          ],
+          "default": 0.0,
+          "title": "Iyz"
+        },
+        "izz": {
+          "anyOf": [
+            {
+              "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s+\\S.*)?$",
+              "type": "string"
+            },
+            {
+              "pattern": "^\\$\\{[a-z][a-z0-9_]*\\}$",
+              "type": "string"
+            }
+          ],
+          "title": "Izz"
+        }
+      },
+      "required": [
+        "ixx",
+        "iyy",
+        "izz"
+      ],
+      "title": "InertiaTensor",
+      "type": "object"
+    },
+    "Joint": {
+      "additionalProperties": false,
+      "properties": {
+        "angular": {
+          "items": {
+            "$ref": "#/$defs/AngularDof"
+          },
+          "title": "Angular",
+          "type": "array"
+        },
+        "axis": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "number"
+              },
+              "maxItems": 3,
+              "minItems": 3,
+              "type": "array"
+            },
+            {
+              "pattern": "^\\$\\{[a-z][a-z0-9_]*\\}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Axis"
+        },
+        "child": {
+          "pattern": "^[a-z][a-z0-9_]*$",
+          "title": "Child",
+          "type": "string"
+        },
+        "linear": {
+          "items": {
+            "$ref": "#/$defs/LinearDof"
+          },
+          "title": "Linear",
+          "type": "array"
+        },
+        "name": {
+          "pattern": "^[a-z][a-z0-9_]*$",
+          "title": "Name",
+          "type": "string"
+        },
+        "parent": {
+          "pattern": "^[a-z][a-z0-9_]*$",
+          "title": "Parent",
+          "type": "string"
+        },
+        "placement": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Placement"
+            },
+            {
+              "pattern": "^\\$\\{[a-z][a-z0-9_]*\\}$",
+              "type": "string"
+            }
+          ],
+          "title": "Placement"
+        },
+        "type": {
+          "enum": [
+            "revolute",
+            "prismatic",
+            "fixed",
+            "planar",
+            "spherical",
+            "free"
+          ],
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "type",
+        "parent",
+        "child",
+        "placement"
+      ],
+      "title": "Joint",
+      "type": "object"
+    },
+    "LinearDof": {
+      "additionalProperties": false,
+      "properties": {
+        "backlash": {
+          "anyOf": [
+            {
+              "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s+\\S.*)?$",
+              "type": "string"
+            },
+            {
+              "pattern": "^\\$\\{[a-z][a-z0-9_]*\\}$",
+              "type": "string"
+            }
+          ],
+          "title": "Backlash"
+        },
+        "damping": {
+          "anyOf": [
+            {
+              "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s+\\S.*)?$",
+              "type": "string"
+            },
+            {
+              "pattern": "^\\$\\{[a-z][a-z0-9_]*\\}$",
+              "type": "string"
+            }
+          ],
+          "title": "Damping"
+        },
+        "friction": {
+          "anyOf": [
+            {
+              "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s+\\S.*)?$",
+              "type": "string"
+            },
+            {
+              "pattern": "^\\$\\{[a-z][a-z0-9_]*\\}$",
+              "type": "string"
+            }
+          ],
+          "title": "Friction"
+        },
+        "limits": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/LinearLimits"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "required": [
+        "friction",
+        "damping",
+        "backlash"
+      ],
+      "title": "LinearDof",
+      "type": "object"
+    },
+    "LinearLimits": {
+      "additionalProperties": false,
+      "properties": {
+        "lower": {
+          "anyOf": [
+            {
+              "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s+\\S.*)?$",
+              "type": "string"
+            },
+            {
+              "pattern": "^\\$\\{[a-z][a-z0-9_]*\\}$",
+              "type": "string"
+            }
+          ],
+          "title": "Lower"
+        },
+        "upper": {
+          "anyOf": [
+            {
+              "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s+\\S.*)?$",
+              "type": "string"
+            },
+            {
+              "pattern": "^\\$\\{[a-z][a-z0-9_]*\\}$",
+              "type": "string"
+            }
+          ],
+          "title": "Upper"
+        }
+      },
+      "required": [
+        "lower",
+        "upper"
+      ],
+      "title": "LinearLimits",
+      "type": "object"
+    },
+    "MachinedProcess": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "machined",
+          "title": "Kind",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind"
+      ],
+      "title": "MachinedProcess",
+      "type": "object"
+    },
+    "MassProperties": {
+      "additionalProperties": false,
+      "properties": {
+        "com": {
+          "items": {
+            "anyOf": [
+              {
+                "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s+\\S.*)?$",
+                "type": "string"
+              },
+              {
+                "pattern": "^\\$\\{[a-z][a-z0-9_]*\\}$",
+                "type": "string"
+              }
+            ]
+          },
+          "maxItems": 3,
+          "minItems": 3,
+          "title": "Com",
+          "type": "array"
+        },
+        "inertia": {
+          "$ref": "#/$defs/InertiaTensor"
+        },
+        "mass": {
+          "anyOf": [
+            {
+              "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s+\\S.*)?$",
+              "type": "string"
+            },
+            {
+              "pattern": "^\\$\\{[a-z][a-z0-9_]*\\}$",
+              "type": "string"
+            }
+          ],
+          "title": "Mass"
+        }
+      },
+      "required": [
+        "mass",
+        "com",
+        "inertia"
+      ],
+      "title": "MassProperties",
+      "type": "object"
+    },
+    "MechanicalBinding": {
+      "additionalProperties": false,
+      "description": "A mount of the instance's type bound to a body (housing, face) or a joint (shaft).",
+      "properties": {
+        "body": {
+          "anyOf": [
+            {
+              "pattern": "^[a-z][a-z0-9_]*$",
+              "type": "string"
+            },
+            {
+              "pattern": "^\\$\\{[a-z][a-z0-9_]*\\}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Body"
+        },
+        "joint": {
+          "anyOf": [
+            {
+              "pattern": "^[a-z][a-z0-9_]*$",
+              "type": "string"
+            },
+            {
+              "pattern": "^\\$\\{[a-z][a-z0-9_]*\\}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Joint"
+        },
+        "mount": {
+          "pattern": "^[a-z][a-z0-9_]*$",
+          "title": "Mount",
+          "type": "string"
+        }
+      },
+      "required": [
+        "mount"
+      ],
+      "title": "MechanicalBinding",
+      "type": "object"
+    },
+    "MessageField": {
+      "additionalProperties": false,
+      "properties": {
+        "dimension": {
+          "minLength": 1,
+          "title": "Dimension",
+          "type": "string"
+        },
+        "name": {
+          "pattern": "^[a-z][a-z0-9_]*$",
+          "title": "Name",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "dimension"
+      ],
+      "title": "MessageField",
+      "type": "object"
+    },
+    "MoldedProcess": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "molded",
+          "title": "Kind",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind"
+      ],
+      "title": "MoldedProcess",
+      "type": "object"
+    },
+    "OpenParameter": {
+      "additionalProperties": false,
+      "properties": {
+        "dimension": {
+          "description": "pint dimensionality string, or \"choice\" for a non-quantity",
+          "minLength": 1,
+          "title": "Dimension",
+          "type": "string"
+        },
+        "name": {
+          "pattern": "^[a-z][a-z0-9_]*$",
+          "title": "Name",
+          "type": "string"
+        },
+        "note": {
+          "minLength": 1,
+          "title": "Note",
+          "type": "string"
+        },
+        "owed_by": {
+          "minLength": 1,
+          "title": "Owed By",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "dimension",
+        "owed_by",
+        "note"
+      ],
+      "title": "OpenParameter",
+      "type": "object"
+    },
+    "OperatorMessage": {
+      "additionalProperties": false,
+      "properties": {
+        "destination": {
+          "pattern": "^[a-z][a-z0-9_]*$",
+          "title": "Destination",
+          "type": "string"
+        },
+        "fields": {
+          "items": {
+            "$ref": "#/$defs/MessageField"
+          },
+          "title": "Fields",
+          "type": "array"
+        },
+        "label": {
+          "minLength": 1,
+          "title": "Label",
+          "type": "string"
+        },
+        "name": {
+          "pattern": "^[a-z][a-z0-9_]*$",
+          "title": "Name",
+          "type": "string"
+        },
+        "source": {
+          "pattern": "^[a-z][a-z0-9_]*$",
+          "title": "Source",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "label",
+        "source",
+        "destination"
+      ],
+      "title": "OperatorMessage",
+      "type": "object"
+    },
+    "PinBinding": {
+      "additionalProperties": false,
+      "properties": {
+        "mode": {
+          "enum": [
+            "gpio_input",
+            "gpio_output",
+            "timer_pwm",
+            "timer_encoder",
+            "adc",
+            "dac",
+            "uart",
+            "spi",
+            "i2c"
+          ],
+          "title": "Mode",
+          "type": "string"
+        },
+        "pin": {
+          "pattern": "^[A-Z][A-Z0-9_]*$",
+          "title": "Pin",
+          "type": "string"
+        },
+        "signal": {
+          "pattern": "^[a-z][a-z0-9_]*\\.[a-z][a-z0-9_]*$",
+          "title": "Signal",
+          "type": "string"
+        }
+      },
+      "required": [
+        "signal",
+        "pin",
+        "mode"
+      ],
+      "title": "PinBinding",
+      "type": "object"
+    },
+    "Placement": {
+      "additionalProperties": false,
+      "description": "The joint frame in the parent body's frame.",
+      "properties": {
+        "orientation": {
+          "description": "w, x, y, z",
+          "items": {
+            "type": "number"
+          },
+          "maxItems": 4,
+          "minItems": 4,
+          "title": "Orientation",
+          "type": "array"
+        },
+        "position": {
+          "items": {
+            "anyOf": [
+              {
+                "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s+\\S.*)?$",
+                "type": "string"
+              },
+              {
+                "pattern": "^\\$\\{[a-z][a-z0-9_]*\\}$",
+                "type": "string"
+              }
+            ]
+          },
+          "maxItems": 3,
+          "minItems": 3,
+          "title": "Position",
+          "type": "array"
+        }
+      },
+      "required": [
+        "position"
+      ],
+      "title": "Placement",
+      "type": "object"
+    },
+    "Power": {
+      "additionalProperties": false,
+      "properties": {
+        "controller_rail": {
+          "pattern": "^[a-z][a-z0-9_]*$",
+          "title": "Controller Rail",
+          "type": "string"
+        },
+        "rails": {
+          "items": {
+            "$ref": "#/$defs/Rail"
+          },
+          "minItems": 1,
+          "title": "Rails",
+          "type": "array"
+        }
+      },
+      "required": [
+        "rails",
+        "controller_rail"
+      ],
+      "title": "Power",
+      "type": "object"
+    },
+    "PrimitiveGeometry": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "primitives",
+          "title": "Kind",
+          "type": "string"
+        },
+        "shapes": {
+          "items": {
+            "discriminator": {
+              "mapping": {
+                "box": "#/$defs/Box",
+                "capsule": "#/$defs/Capsule",
+                "cylinder": "#/$defs/Cylinder",
+                "sphere": "#/$defs/Sphere"
+              },
+              "propertyName": "shape"
+            },
+            "oneOf": [
+              {
+                "$ref": "#/$defs/Sphere"
+              },
+              {
+                "$ref": "#/$defs/Box"
+              },
+              {
+                "$ref": "#/$defs/Cylinder"
+              },
+              {
+                "$ref": "#/$defs/Capsule"
+              }
+            ]
+          },
+          "minItems": 1,
+          "title": "Shapes",
+          "type": "array"
+        }
+      },
+      "required": [
+        "kind",
+        "shapes"
+      ],
+      "title": "PrimitiveGeometry",
+      "type": "object"
+    },
+    "PrintedProcess": {
+      "additionalProperties": false,
+      "properties": {
+        "build_direction": {
+          "items": {
+            "type": "number"
+          },
+          "maxItems": 3,
+          "minItems": 3,
+          "title": "Build Direction",
+          "type": "array"
+        },
+        "infill": {
+          "anyOf": [
+            {
+              "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s+\\S.*)?$",
+              "type": "string"
+            },
+            {
+              "pattern": "^\\$\\{[a-z][a-z0-9_]*\\}$",
+              "type": "string"
+            }
+          ],
+          "title": "Infill"
+        },
+        "kind": {
+          "const": "printed",
+          "title": "Kind",
+          "type": "string"
+        },
+        "walls": {
+          "minimum": 1,
+          "title": "Walls",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "kind",
+        "build_direction",
+        "walls",
+        "infill"
+      ],
+      "title": "PrintedProcess",
+      "type": "object"
+    },
+    "Rail": {
+      "additionalProperties": false,
+      "properties": {
+        "gated_by": {
+          "items": {
+            "anyOf": [
+              {
+                "pattern": "^[a-z][a-z0-9_]*$",
+                "type": "string"
+              },
+              {
+                "pattern": "^\\$\\{[a-z][a-z0-9_]*\\}$",
+                "type": "string"
+              }
+            ]
+          },
+          "title": "Gated By",
+          "type": "array"
+        },
+        "name": {
+          "pattern": "^[a-z][a-z0-9_]*$",
+          "title": "Name",
+          "type": "string"
+        },
+        "supply": {
+          "anyOf": [
+            {
+              "pattern": "^[a-z][a-z0-9_]*$",
+              "type": "string"
+            },
+            {
+              "pattern": "^\\$\\{[a-z][a-z0-9_]*\\}$",
+              "type": "string"
+            }
+          ],
+          "title": "Supply"
+        }
+      },
+      "required": [
+        "name",
+        "supply"
+      ],
+      "title": "Rail",
+      "type": "object"
+    },
+    "Section": {
+      "additionalProperties": false,
+      "description": "Cross-section and span; E and rho come from the body's material.",
+      "properties": {
+        "area": {
+          "anyOf": [
+            {
+              "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s+\\S.*)?$",
+              "type": "string"
+            },
+            {
+              "pattern": "^\\$\\{[a-z][a-z0-9_]*\\}$",
+              "type": "string"
+            }
+          ],
+          "title": "Area"
+        },
+        "length": {
+          "anyOf": [
+            {
+              "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s+\\S.*)?$",
+              "type": "string"
+            },
+            {
+              "pattern": "^\\$\\{[a-z][a-z0-9_]*\\}$",
+              "type": "string"
+            }
+          ],
+          "title": "Length"
+        },
+        "second_moment": {
+          "anyOf": [
+            {
+              "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s+\\S.*)?$",
+              "type": "string"
+            },
+            {
+              "pattern": "^\\$\\{[a-z][a-z0-9_]*\\}$",
+              "type": "string"
+            }
+          ],
+          "title": "Second Moment"
+        }
+      },
+      "required": [
+        "area",
+        "second_moment",
+        "length"
+      ],
+      "title": "Section",
+      "type": "object"
+    },
+    "SignalDeclaration": {
+      "additionalProperties": false,
+      "properties": {
+        "direction": {
+          "enum": [
+            "emits",
+            "consumes"
+          ],
+          "title": "Direction",
+          "type": "string"
+        },
+        "name": {
+          "pattern": "^[a-z][a-z0-9_]*\\.[a-z][a-z0-9_]*$",
+          "title": "Name",
+          "type": "string"
+        },
+        "pin": {
+          "pattern": "^[a-z][a-z0-9_]*$",
+          "title": "Pin",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "pin",
+        "direction"
+      ],
+      "title": "SignalDeclaration",
+      "type": "object"
+    },
+    "Sphere": {
+      "additionalProperties": false,
+      "properties": {
+        "orientation": {
+          "description": "w, x, y, z",
+          "items": {
+            "type": "number"
+          },
+          "maxItems": 4,
+          "minItems": 4,
+          "title": "Orientation",
+          "type": "array"
+        },
+        "position": {
+          "items": {
+            "anyOf": [
+              {
+                "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s+\\S.*)?$",
+                "type": "string"
+              },
+              {
+                "pattern": "^\\$\\{[a-z][a-z0-9_]*\\}$",
+                "type": "string"
+              }
+            ]
+          },
+          "maxItems": 3,
+          "minItems": 3,
+          "title": "Position",
+          "type": "array"
+        },
+        "radius": {
+          "anyOf": [
+            {
+              "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s+\\S.*)?$",
+              "type": "string"
+            },
+            {
+              "pattern": "^\\$\\{[a-z][a-z0-9_]*\\}$",
+              "type": "string"
+            }
+          ],
+          "title": "Radius"
+        },
+        "shape": {
+          "const": "sphere",
+          "title": "Shape",
+          "type": "string"
+        }
+      },
+      "required": [
+        "position",
+        "shape",
+        "radius"
+      ],
+      "title": "Sphere",
+      "type": "object"
+    },
+    "StepGeometry": {
+      "additionalProperties": false,
+      "description": "A STEP file, resolved relative to the design file; the body's declared mass properties are checked against it.",
+      "properties": {
+        "file": {
+          "pattern": "^[A-Za-z0-9_.\\-]+(/[A-Za-z0-9_.\\-]+)*$",
+          "title": "File",
+          "type": "string"
+        },
+        "kind": {
+          "const": "step",
+          "title": "Kind",
+          "type": "string"
+        },
+        "mass_check_tolerance": {
+          "anyOf": [
+            {
+              "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s+\\S.*)?$",
+              "type": "string"
+            },
+            {
+              "pattern": "^\\$\\{[a-z][a-z0-9_]*\\}$",
+              "type": "string"
+            }
+          ],
+          "title": "Mass Check Tolerance"
+        }
+      },
+      "required": [
+        "kind",
+        "file",
+        "mass_check_tolerance"
+      ],
+      "title": "StepGeometry",
+      "type": "object"
+    },
+    "Structural": {
+      "additionalProperties": false,
+      "properties": {
+        "accuracy_target": {
+          "anyOf": [
+            {
+              "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s+\\S.*)?$",
+              "type": "string"
+            },
+            {
+              "pattern": "^\\$\\{[a-z][a-z0-9_]*\\}$",
+              "type": "string"
+            }
+          ],
+          "title": "Accuracy Target"
+        },
+        "deflection_target": {
+          "anyOf": [
+            {
+              "enum": [
+                "static",
+                "dynamic"
+              ],
+              "type": "string"
+            },
+            {
+              "pattern": "^\\$\\{[a-z][a-z0-9_]*\\}$",
+              "type": "string"
+            }
+          ],
+          "title": "Deflection Target"
+        },
+        "design_load": {
+          "$ref": "#/$defs/DesignLoadRule"
+        },
+        "minimum_safety_factor": {
+          "anyOf": [
+            {
+              "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s+\\S.*)?$",
+              "type": "string"
+            },
+            {
+              "pattern": "^\\$\\{[a-z][a-z0-9_]*\\}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Minimum Safety Factor"
+        }
+      },
+      "required": [
+        "design_load",
+        "accuracy_target",
+        "deflection_target"
+      ],
+      "title": "Structural",
+      "type": "object"
+    }
+  },
+  "$id": "design.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "Root of `designs/<name>/design.yaml`.",
+  "properties": {
+    "bodies": {
+      "items": {
+        "$ref": "#/$defs/Body"
+      },
+      "minItems": 1,
+      "title": "Bodies",
+      "type": "array"
+    },
+    "components": {
+      "items": {
+        "$ref": "#/$defs/ComponentInstance"
+      },
+      "title": "Components",
+      "type": "array"
+    },
+    "description": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Description"
+    },
+    "environment": {
+      "$ref": "#/$defs/Environment"
+    },
+    "firmware": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/Firmware"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "joints": {
+      "items": {
+        "$ref": "#/$defs/Joint"
+      },
+      "minItems": 1,
+      "title": "Joints",
+      "type": "array"
+    },
+    "name": {
+      "pattern": "^[a-z][a-z0-9_]*$",
+      "title": "Name",
+      "type": "string"
+    },
+    "open_parameters": {
+      "items": {
+        "$ref": "#/$defs/OpenParameter"
+      },
+      "title": "Open Parameters",
+      "type": "array"
+    },
+    "operator_messages": {
+      "items": {
+        "$ref": "#/$defs/OperatorMessage"
+      },
+      "title": "Operator Messages",
+      "type": "array"
+    },
+    "pin_bindings": {
+      "items": {
+        "$ref": "#/$defs/PinBinding"
+      },
+      "title": "Pin Bindings",
+      "type": "array"
+    },
+    "power": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/Power"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "source_hash": {
+      "pattern": "^([0-9a-f]{40}|unset)$",
+      "title": "Source Hash",
+      "type": "string"
+    },
+    "status": {
+      "enum": [
+        "draft",
+        "release"
+      ],
+      "title": "Status",
+      "type": "string"
+    },
+    "structural": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/Structural"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "version": {
+      "pattern": "^\\d+\\.\\d+\\.\\d+$",
+      "title": "Version",
+      "type": "string"
+    }
+  },
+  "required": [
+    "name",
+    "version",
+    "source_hash",
+    "status",
+    "environment",
+    "bodies",
+    "joints"
+  ],
+  "title": "DesignFile",
+  "type": "object"
+}

@@ -1,0 +1,16 @@
+{
+  "version": 1,
+  "message_id": "s-0044",
+  "kind": "tick_batch",
+  "payload": {
+    "run_id": "run-0001",
+    "sequence": 0,
+    "t_start": 0.0,
+    "t_end": 0.099,
+    "series": ["joint1.angle", "motor1.current"],
+    "dtype": "float64",
+    "byte_order": "little",
+    "sample_count": 100,
+    "byte_length": 2400
+  }
+}

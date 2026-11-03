@@ -1,0 +1,96 @@
+# Step/dir stepper driver, a type separate from the motor it drives (LIB-026). Numeric part values are placeholders.
+types:
+  - name: step_dir_driver
+    version: 1.0.0
+    category: driver
+    description: Chopper stepper driver taking step, direction and enable inputs.
+    parameters:
+      - name: mass
+        dimension: "[mass]"
+        minimum: "0 kg"
+      - name: microsteps
+        dimension: dimensionless
+        minimum: "1"
+        maximum: "256"
+      - name: max_output_current
+        dimension: "[current]"
+        minimum: "0 A"
+      - name: max_supply_voltage
+        dimension: "[mass] * [length] ** 2 / [time] ** 3 / [current]"
+        minimum: "0 V"
+      - name: logic_voltage
+        dimension: "[mass] * [length] ** 2 / [time] ** 3 / [current]"
+        minimum: "0 V"
+      - name: min_step_pulse
+        dimension: "[time]"
+        minimum: "0 s"
+      - name: step_delay
+        dimension: "[time]"
+        default: "0 s"
+        minimum: "0 s"
+    tiers:
+      - name: behavioral
+        parameters: [mass, microsteps, max_output_current, max_supply_voltage, logic_voltage, min_step_pulse]
+      - name: timing
+        parameters: [step_delay]
+    mechanical:
+      mass:
+        source: parameter
+        parameter: mass
+      mounts:
+        - name: board
+          kind: pad
+          offset: ["0 mm", "0 mm", "0 mm"]
+    electrical:
+      pins:
+        - name: step
+          direction: input
+          signal_kind: step
+          voltage_rating: logic_voltage
+        - name: dir
+          direction: input
+          signal_kind: direction
+          voltage_rating: logic_voltage
+        - name: enable
+          direction: input
+          signal_kind: enable
+          voltage_rating: logic_voltage
+        - name: vmot
+          direction: power_in
+          signal_kind: power
+          voltage_rating: max_supply_voltage
+        - name: coil_a
+          direction: output
+          signal_kind: coil
+          current_rating: max_output_current
+        - name: coil_b
+          direction: output
+          signal_kind: coil
+          current_rating: max_output_current
+        - name: gnd
+          direction: ground
+          signal_kind: ground
+    ratings:
+      absolute_maximums:
+        - name: supply_voltage
+          parameter: max_supply_voltage
+        - name: output_current
+          parameter: max_output_current
+    thermal:
+      held_constant: true
+      temperature: "298.15 K"
+    plugin:
+      cpp: step_dir_driver
+parts:
+  - name: step_dir_driver_generic
+    type: step_dir_driver
+    tier: behavioral
+    source: placeholder values, no datasheet assigned
+    values:
+      mass: "10 g"
+      microsteps: "16"
+      max_output_current: "2 A"
+      max_supply_voltage: "35 V"
+      logic_voltage: "3.3 V"
+      min_step_pulse: "1 us"
+    placeholders: [mass, max_output_current, max_supply_voltage, min_step_pulse]

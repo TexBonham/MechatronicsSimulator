@@ -148,15 +148,6 @@ def test_sig_022() -> None:
     raise NotImplementedError
 
 
-@pytest.mark.req("SIG-023")
-@pytest.mark.xfail(strict=True, reason="stub")
-def test_sig_023() -> None:
-    """The pin-binding table shall map each dotted signal name (instance.signal), unique per design, to one MCU pin
-    and peripheral mode.
-    """
-    raise NotImplementedError
-
-
 @pytest.mark.req("SIG-025")
 @pytest.mark.xfail(strict=True, reason="stub")
 def test_sig_025() -> None:

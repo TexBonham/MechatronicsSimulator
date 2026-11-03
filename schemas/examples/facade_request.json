@@ -1,0 +1,12 @@
+{
+  "version": 1,
+  "message_id": "c-0007",
+  "kind": "subscribe_series",
+  "payload": {
+    "run_id": "run-0001",
+    "series": ["joint1.angle", "motor1.current"],
+    "t_start": 0.0,
+    "t_end": 12.5,
+    "points": 500
+  }
+}

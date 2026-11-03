@@ -5,7 +5,7 @@
 The facade (`mechsim/facade/`) is the one serializable surface every client uses to drive the simulator: a Python
 service over the core binding, speaking a versioned protocol with a schema in `schemas/` and a client-independent
 conformance suite. Streaming and decimation live here, not in clients; replay reads archives only. The protocol and
-transport themselves are chosen by a phase 1 ADR and are not specified here.
+transport are proposed in ADR 0015; FAC-018 to FAC-020 carry its message rules.
 
 "Architecture doc" below is `docs/Mechatronic Simulator — Architecture and Technology Recommendation.md`.
 
@@ -17,7 +17,7 @@ transport themselves are chosen by a phase 1 ADR and are not specified here.
 | REC | FAC-006, FAC-007, FAC-008, FAC-011 | REC-019, REC-020, REC-024 |
 | SCO | FAC-012 | SCO-008, SCO-010, SCO-012 |
 | INT | FAC-013 | INT-022, INT-032 |
-| VIE | FAC-005, FAC-011, FAC-016 | VIE-012, VIE-013, VIE-014 |
+| VIE | FAC-005, FAC-011, FAC-016, FAC-018, FAC-019 | VIE-012, VIE-013, VIE-014 |
 | DES | FAC-017 | DES-008, DES-011, DES-015, DES-036 |
 | KER, PHY, SIG, CTL | FAC-009, FAC-014 | KER-015, KER-016, PHY-009, CTL-019, KER-026 |
 
@@ -48,14 +48,17 @@ proposed <value>)".
 | FAC-015 | A run started through the facade by any client shall produce the same archive as the same run started from the CLI. | Architecture doc, Repository starting point, invariant 4; ADR 0007, Consequences | M1 | unit | n/a |
 | FAC-016 | Client code shall hold no domain logic: every value a client shows comes from the facade. | ADR 0007, Decision, Client role; Ruling R-16 | M1 | invariant | n/a |
 | FAC-017 | The facade shall expose reading and writing design and test case files, validating every write against the file's schema. | Architecture doc, Repository starting point, invariant 3; Seams reserved for the roadmap, GUI design and test editors row | M1 | unit | n/a |
+| FAC-018 | A series subscription shall name one or more distinct series, a simulated-time window whose start is before its end, and a point count of at least one per series, and the service shall decimate to that count. | ADR 0015 (proposed), Decision, Decimation request; ADR 0007, Decision, Streaming and decimation | phase 1 | unit | n/a |
+| FAC-019 | Time series shall cross the protocol as a header message naming the run, the series, the dtype float64, little-endian byte order and the sample count, followed by one binary frame of (1 + series count) x sample count x 8 bytes, time column first; a header whose byte length disagrees shall be rejected. | ADR 0015 (proposed), Decision, Binary frames | phase 1 | unit | n/a |
+| FAC-020 | Every error response shall carry an error code and a message, and the ID of the violated requirement where one applies. | ADR 0015 (proposed), Decision, Messages; Architecture doc, Repository starting point, invariant 7 | phase 1 | unit | n/a |
 
 ## Open parameters
 
 | Parameter | Current value | Owed by |
 |---|---|---|
-| Facade protocol and transport | not set | phase 1 ADR (ADR 0006, ADR 0007 open items) |
-| Version compatibility rule (exact match or semver range) | not set | phase 1 ADR |
-| Default decimation policy and client rate requests | not set | phase 1 ADR |
+| Facade protocol and transport | proposed in ADR 0015: JSON over WebSocket, binary float64 frames for series; transport library not set | owner (ADR 0015 acceptance) |
+| Version compatibility rule (exact match or semver range) | proposed in ADR 0015: exact match on an integer version, currently 1 | owner (ADR 0015 acceptance) |
+| Default decimation policy and client rate requests | client request proposed in ADR 0015 (FAC-018); decimation algorithm not set | owner (ADR 0015 acceptance); FAC module plan |
 | Whether designs and results are shared across a team | not set | owner (Requirements doc, Assumptions and open questions) |
 
 ## Out of scope

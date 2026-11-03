@@ -6,5 +6,5 @@ type live in the root `CLAUDE.md` dispatch table once measured.
 
 | Date | Task | Mode | Tokens (est.) | Notes |
 |------|------|------|:-------------:|-------|
-| 2026-11-03 | Round close: markers and indexes for two long tooling files, tools/ and tests/ CLAUDE.md | docs-indexer (haiku) | 57K | 15 calls, 1.7 min; first docs-indexer reference size |
-| 2026-11-03 | Round close inline: cost-log archive, root CLAUDE.md trim, two agent definitions | inline | ~10K | |
+| 2026-11-04 | Round 2 close: public schema_base module, six imports, 11 tests | module-writer (opus), worktree | 85K | 16 calls, 3.4 min |
+| 2026-11-04 | Round 2 close docs pass: indexes corrected, library index added, mechsim contract table | docs-indexer (haiku) | 71K | 23 calls, 1.5 min |

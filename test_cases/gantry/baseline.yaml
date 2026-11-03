@@ -1,0 +1,37 @@
+design:
+  name: gantry
+  version: 0.1.0
+suite: gantry
+entries:
+  - case: G3
+    criterion: final_x
+    status: not_run
+    limit: final within 1 cm of 40 cm
+  - case: G3
+    criterion: final_y
+    status: not_run
+    limit: final within 1 cm of 25 cm
+  - case: G3
+    criterion: lift_travel_lower
+    status: not_run
+    limit: minimum at_least 0 m
+  - case: G3
+    criterion: lift_travel_upper
+    status: not_run
+    limit: maximum at_most ${lift_travel}
+  - case: G3
+    criterion: x_travel_lower
+    status: not_run
+    limit: minimum at_least 0 m
+  - case: G3
+    criterion: x_travel_upper
+    status: not_run
+    limit: maximum at_most ${workspace_x}
+  - case: G3
+    criterion: y_travel_lower
+    status: not_run
+    limit: minimum at_least 0 m
+  - case: G3
+    criterion: y_travel_upper
+    status: not_run
+    limit: maximum at_most ${workspace_y}

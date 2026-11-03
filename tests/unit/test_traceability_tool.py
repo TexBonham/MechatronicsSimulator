@@ -533,10 +533,18 @@ def test_syntax_error_file_under_tests(tmp_path: Path) -> None:
     assert [(violation.path, violation.line) for violation in violations] == [("tests/unit/test_broken.py", 3)]
 
 
-def test_only_tests_and_core_are_scanned(tmp_path: Path) -> None:
+def test_firmware_cpp_tests_are_scanned(tmp_path: Path) -> None:
+    write(tmp_path, "docs/spec/fw.md", spec(row("FW-001")))
+    write(tmp_path, "firmware/tests/test_fw.cpp", 'TEST_CASE("fw", "[FW-001]") {}\n')
+    citations, violations = traceability.collect_cpp_citations(tmp_path)
+    assert [c.req_id for c in citations] == ["FW-001"]
+    assert violations == []
+
+
+def test_only_tests_core_and_firmware_are_scanned(tmp_path: Path) -> None:
     write(tmp_path, "tools/test_x.py", cited_test("ENG-001"))
     write(tmp_path, "mechsim/x.py", cited_test("ENG-001"))
-    write(tmp_path, "firmware/x.cpp", 'TEST_CASE("x", "[ENG-001]") {}\n')
+    write(tmp_path, "mechsim/x.cpp", 'TEST_CASE("x", "[ENG-001]") {}\n')
     write(tmp_path, "core/x.h", 'TEST_CASE("x", "[ENG-001]") {}\n')
     write(tmp_path, "core/x.cc", 'TEST_CASE("x", "[ENG-001]") {}\n')
     write(tmp_path, "tests/data.txt", cited_test("ENG-001"))

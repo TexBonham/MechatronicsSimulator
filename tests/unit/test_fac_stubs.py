@@ -10,31 +10,6 @@ def test_fac_001() -> None:
     raise NotImplementedError
 
 
-@pytest.mark.req("FAC-002")
-@pytest.mark.xfail(strict=True, reason="stub")
-def test_fac_002() -> None:
-    """Every facade request and response shall serialize to and from the protocol schema without loss."""
-    raise NotImplementedError
-
-
-@pytest.mark.req("FAC-003")
-@pytest.mark.xfail(strict=True, reason="stub")
-def test_fac_003() -> None:
-    """Every facade exchange shall carry the protocol version, and the service shall reject a request of an
-    unsupported version with an error naming both versions.
-    """
-    raise NotImplementedError
-
-
-@pytest.mark.req("FAC-004")
-@pytest.mark.xfail(strict=True, reason="stub")
-def test_fac_004() -> None:
-    """The protocol schema shall live in `schemas/`, generated from its pydantic models and checked by the
-    schema staleness test.
-    """
-    raise NotImplementedError
-
-
 @pytest.mark.req("FAC-005")
 @pytest.mark.xfail(strict=True, reason="stub")
 def test_fac_005() -> None:

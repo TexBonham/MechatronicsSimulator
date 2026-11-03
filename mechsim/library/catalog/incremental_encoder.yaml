@@ -1,0 +1,83 @@
+# Incremental quadrature encoder. Numeric part values are placeholders.
+types:
+  - name: incremental_encoder
+    version: 1.0.0
+    category: sensor
+    description: Rotary incremental encoder with A/B quadrature outputs.
+    parameters:
+      - name: mass
+        dimension: "[mass]"
+        minimum: "0 kg"
+      - name: resolution
+        dimension: dimensionless
+        minimum: "0.001 deg"
+        maximum: "90 deg"
+      - name: noise
+        dimension: dimensionless
+        default: "0 deg"
+        minimum: "0 deg"
+      - name: delay
+        dimension: "[time]"
+        default: "0 s"
+        minimum: "0 s"
+      - name: sample_rate
+        dimension: "1 / [time]"
+        minimum: "1 Hz"
+      - name: supply_voltage
+        dimension: "[mass] * [length] ** 2 / [time] ** 3 / [current]"
+        minimum: "0 V"
+      - name: max_speed
+        dimension: "1 / [time]"
+        minimum: "0 rpm"
+    tiers:
+      - name: ideal
+        parameters: [mass, resolution, noise, delay, sample_rate, supply_voltage, max_speed]
+    mechanical:
+      mass:
+        source: parameter
+        parameter: mass
+      mounts:
+        - name: flange
+          kind: face
+          offset: ["0 mm", "0 mm", "0 mm"]
+      shaft_axis: [0.0, 0.0, 1.0]
+    electrical:
+      pins:
+        - name: channel_a
+          direction: output
+          signal_kind: quadrature
+        - name: channel_b
+          direction: output
+          signal_kind: quadrature
+        - name: vcc
+          direction: power_in
+          signal_kind: power
+          voltage_rating: supply_voltage
+        - name: gnd
+          direction: ground
+          signal_kind: ground
+    ratings:
+      absolute_maximums:
+        - name: supply_voltage
+          parameter: supply_voltage
+        - name: shaft_speed
+          parameter: max_speed
+    thermal:
+      held_constant: true
+      temperature: "298.15 K"
+    failure_modes: [stuck, noisy, dropped]
+    plugin:
+      cpp: incremental_encoder
+parts:
+  - name: encoder_600ppr_generic
+    type: incremental_encoder
+    tier: ideal
+    description: 600 pulses per revolution, 2400 counts per revolution in quadrature.
+    source: placeholder values, no datasheet assigned
+    values:
+      mass: "0.1 kg"
+      resolution: "0.15 deg"
+      sample_rate: "10 kHz"
+      supply_voltage: "5 V"
+      max_speed: "5000 rpm"
+    placeholders: [mass, sample_rate, supply_voltage, max_speed]

@@ -1,0 +1,737 @@
+{
+  "$defs": {
+    "AbsoluteMaximum": {
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "pattern": "^[a-z][a-z0-9_]*$",
+          "title": "Name",
+          "type": "string"
+        },
+        "parameter": {
+          "pattern": "^[a-z][a-z0-9_]*$",
+          "title": "Parameter",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "parameter"
+      ],
+      "title": "AbsoluteMaximum",
+      "type": "object"
+    },
+    "ComponentType": {
+      "additionalProperties": false,
+      "properties": {
+        "category": {
+          "enum": [
+            "actuator",
+            "driver",
+            "sensor",
+            "transmission",
+            "power",
+            "safety",
+            "body",
+            "joint"
+          ],
+          "title": "Category",
+          "type": "string"
+        },
+        "description": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Description"
+        },
+        "electrical": {
+          "$ref": "#/$defs/ElectricalFacet"
+        },
+        "failure_modes": {
+          "items": {
+            "enum": [
+              "stuck",
+              "noisy",
+              "dropped",
+              "forced_level"
+            ],
+            "type": "string"
+          },
+          "title": "Failure Modes",
+          "type": "array"
+        },
+        "mechanical": {
+          "$ref": "#/$defs/MechanicalFacet"
+        },
+        "name": {
+          "pattern": "^[a-z][a-z0-9_]*$",
+          "title": "Name",
+          "type": "string"
+        },
+        "parameters": {
+          "items": {
+            "oneOf": [
+              {
+                "$ref": "#/$defs/QuantityParameter"
+              },
+              {
+                "$ref": "#/$defs/FlagParameter"
+              }
+            ]
+          },
+          "minItems": 1,
+          "title": "Parameters",
+          "type": "array"
+        },
+        "plugin": {
+          "$ref": "#/$defs/PluginReference"
+        },
+        "ratings": {
+          "$ref": "#/$defs/RatingsFacet"
+        },
+        "thermal": {
+          "$ref": "#/$defs/ThermalFacet"
+        },
+        "tiers": {
+          "items": {
+            "$ref": "#/$defs/Tier"
+          },
+          "minItems": 1,
+          "title": "Tiers",
+          "type": "array"
+        },
+        "version": {
+          "pattern": "^\\d+\\.\\d+\\.\\d+$",
+          "title": "Version",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "version",
+        "category",
+        "parameters",
+        "tiers",
+        "mechanical",
+        "electrical",
+        "ratings",
+        "thermal",
+        "plugin"
+      ],
+      "title": "ComponentType",
+      "type": "object"
+    },
+    "ElectricalFacet": {
+      "additionalProperties": false,
+      "properties": {
+        "pins": {
+          "items": {
+            "$ref": "#/$defs/Pin"
+          },
+          "title": "Pins",
+          "type": "array"
+        }
+      },
+      "required": [
+        "pins"
+      ],
+      "title": "ElectricalFacet",
+      "type": "object"
+    },
+    "FlagParameter": {
+      "additionalProperties": false,
+      "properties": {
+        "default": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Default"
+        },
+        "description": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Description"
+        },
+        "kind": {
+          "const": "flag",
+          "title": "Kind",
+          "type": "string"
+        },
+        "name": {
+          "pattern": "^[a-z][a-z0-9_]*$",
+          "title": "Name",
+          "type": "string"
+        },
+        "sweepable": {
+          "default": true,
+          "title": "Sweepable",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "kind",
+        "name"
+      ],
+      "title": "FlagParameter",
+      "type": "object"
+    },
+    "MassFromGeometry": {
+      "additionalProperties": false,
+      "properties": {
+        "source": {
+          "const": "geometry",
+          "title": "Source",
+          "type": "string"
+        }
+      },
+      "required": [
+        "source"
+      ],
+      "title": "MassFromGeometry",
+      "type": "object"
+    },
+    "MassFromParameter": {
+      "additionalProperties": false,
+      "properties": {
+        "parameter": {
+          "pattern": "^[a-z][a-z0-9_]*$",
+          "title": "Parameter",
+          "type": "string"
+        },
+        "source": {
+          "const": "parameter",
+          "title": "Source",
+          "type": "string"
+        }
+      },
+      "required": [
+        "source",
+        "parameter"
+      ],
+      "title": "MassFromParameter",
+      "type": "object"
+    },
+    "MechanicalFacet": {
+      "additionalProperties": false,
+      "properties": {
+        "mass": {
+          "discriminator": {
+            "mapping": {
+              "geometry": "#/$defs/MassFromGeometry",
+              "parameter": "#/$defs/MassFromParameter"
+            },
+            "propertyName": "source"
+          },
+          "oneOf": [
+            {
+              "$ref": "#/$defs/MassFromParameter"
+            },
+            {
+              "$ref": "#/$defs/MassFromGeometry"
+            }
+          ],
+          "title": "Mass"
+        },
+        "mounts": {
+          "items": {
+            "$ref": "#/$defs/Mount"
+          },
+          "title": "Mounts",
+          "type": "array"
+        },
+        "shaft_axis": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "number"
+              },
+              "maxItems": 3,
+              "minItems": 3,
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Shaft Axis"
+        }
+      },
+      "required": [
+        "mass",
+        "mounts"
+      ],
+      "title": "MechanicalFacet",
+      "type": "object"
+    },
+    "Mount": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "enum": [
+            "face",
+            "bolt_pattern",
+            "shaft",
+            "pad",
+            "clamp"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "name": {
+          "pattern": "^[a-z][a-z0-9_]*$",
+          "title": "Name",
+          "type": "string"
+        },
+        "offset": {
+          "items": {
+            "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s+\\S.*)?$",
+            "type": "string"
+          },
+          "maxItems": 3,
+          "minItems": 3,
+          "title": "Offset",
+          "type": "array"
+        }
+      },
+      "required": [
+        "name",
+        "kind",
+        "offset"
+      ],
+      "title": "Mount",
+      "type": "object"
+    },
+    "PartEntry": {
+      "additionalProperties": false,
+      "description": "A catalog part as written in the file: values are unit strings or flags, resolved by `CatalogPart.resolve`.",
+      "properties": {
+        "description": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Description"
+        },
+        "name": {
+          "pattern": "^[a-z][a-z0-9_]*$",
+          "title": "Name",
+          "type": "string"
+        },
+        "placeholders": {
+          "items": {
+            "pattern": "^[a-z][a-z0-9_]*$",
+            "type": "string"
+          },
+          "title": "Placeholders",
+          "type": "array"
+        },
+        "source": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Source"
+        },
+        "tier": {
+          "pattern": "^[a-z][a-z0-9_]*$",
+          "title": "Tier",
+          "type": "string"
+        },
+        "torque_speed_curve": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/TorqueSpeedPoint"
+              },
+              "minItems": 2,
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Torque Speed Curve"
+        },
+        "type": {
+          "pattern": "^[a-z][a-z0-9_]*$",
+          "title": "Type",
+          "type": "string"
+        },
+        "values": {
+          "additionalProperties": {
+            "anyOf": [
+              {
+                "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s+\\S.*)?$",
+                "type": "string"
+              },
+              {
+                "type": "boolean"
+              }
+            ]
+          },
+          "title": "Values",
+          "type": "object"
+        }
+      },
+      "required": [
+        "name",
+        "type",
+        "tier",
+        "values"
+      ],
+      "title": "PartEntry",
+      "type": "object"
+    },
+    "Pin": {
+      "additionalProperties": false,
+      "properties": {
+        "current_rating": {
+          "anyOf": [
+            {
+              "pattern": "^[a-z][a-z0-9_]*$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Current Rating"
+        },
+        "direction": {
+          "enum": [
+            "input",
+            "output",
+            "bidirectional",
+            "power_in",
+            "power_out",
+            "ground"
+          ],
+          "title": "Direction",
+          "type": "string"
+        },
+        "name": {
+          "pattern": "^[a-z][a-z0-9_]*$",
+          "title": "Name",
+          "type": "string"
+        },
+        "signal_kind": {
+          "enum": [
+            "digital",
+            "analog",
+            "pwm",
+            "step",
+            "direction",
+            "enable",
+            "quadrature",
+            "power",
+            "ground",
+            "coil"
+          ],
+          "title": "Signal Kind",
+          "type": "string"
+        },
+        "voltage_rating": {
+          "anyOf": [
+            {
+              "pattern": "^[a-z][a-z0-9_]*$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Voltage Rating"
+        }
+      },
+      "required": [
+        "name",
+        "direction",
+        "signal_kind"
+      ],
+      "title": "Pin",
+      "type": "object"
+    },
+    "PluginReference": {
+      "additionalProperties": false,
+      "properties": {
+        "cpp": {
+          "anyOf": [
+            {
+              "pattern": "^[a-z][a-z0-9_]*$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Cpp"
+        },
+        "python": {
+          "anyOf": [
+            {
+              "pattern": "^[A-Za-z_][A-Za-z0-9_.]*:[A-Za-z_][A-Za-z0-9_]*$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Python"
+        }
+      },
+      "title": "PluginReference",
+      "type": "object"
+    },
+    "QuantityParameter": {
+      "additionalProperties": false,
+      "properties": {
+        "default": {
+          "anyOf": [
+            {
+              "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s+\\S.*)?$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Default"
+        },
+        "description": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Description"
+        },
+        "dimension": {
+          "minLength": 1,
+          "title": "Dimension",
+          "type": "string"
+        },
+        "kind": {
+          "const": "quantity",
+          "default": "quantity",
+          "title": "Kind",
+          "type": "string"
+        },
+        "maximum": {
+          "anyOf": [
+            {
+              "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s+\\S.*)?$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Maximum"
+        },
+        "minimum": {
+          "anyOf": [
+            {
+              "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s+\\S.*)?$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Minimum"
+        },
+        "name": {
+          "pattern": "^[a-z][a-z0-9_]*$",
+          "title": "Name",
+          "type": "string"
+        },
+        "sweepable": {
+          "default": true,
+          "title": "Sweepable",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "name",
+        "dimension"
+      ],
+      "title": "QuantityParameter",
+      "type": "object"
+    },
+    "RatingsFacet": {
+      "additionalProperties": false,
+      "properties": {
+        "absolute_maximums": {
+          "items": {
+            "$ref": "#/$defs/AbsoluteMaximum"
+          },
+          "title": "Absolute Maximums",
+          "type": "array"
+        },
+        "holding_torque": {
+          "anyOf": [
+            {
+              "pattern": "^[a-z][a-z0-9_]*$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Holding Torque"
+        },
+        "torque_speed_curve": {
+          "default": "none",
+          "enum": [
+            "required",
+            "none"
+          ],
+          "title": "Torque Speed Curve",
+          "type": "string"
+        }
+      },
+      "required": [
+        "absolute_maximums"
+      ],
+      "title": "RatingsFacet",
+      "type": "object"
+    },
+    "ThermalFacet": {
+      "additionalProperties": false,
+      "properties": {
+        "held_constant": {
+          "const": true,
+          "title": "Held Constant",
+          "type": "boolean"
+        },
+        "temperature": {
+          "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s+\\S.*)?$",
+          "title": "Temperature",
+          "type": "string"
+        }
+      },
+      "required": [
+        "held_constant",
+        "temperature"
+      ],
+      "title": "ThermalFacet",
+      "type": "object"
+    },
+    "Tier": {
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "pattern": "^[a-z][a-z0-9_]*$",
+          "title": "Name",
+          "type": "string"
+        },
+        "parameters": {
+          "items": {
+            "pattern": "^[a-z][a-z0-9_]*$",
+            "type": "string"
+          },
+          "title": "Parameters",
+          "type": "array"
+        }
+      },
+      "required": [
+        "name",
+        "parameters"
+      ],
+      "title": "Tier",
+      "type": "object"
+    },
+    "TorqueSpeedPoint": {
+      "additionalProperties": false,
+      "properties": {
+        "speed": {
+          "description": "Shaft speed, for example '300 rpm'",
+          "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s+\\S.*)?$",
+          "title": "Speed",
+          "type": "string"
+        },
+        "torque": {
+          "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s+\\S.*)?$",
+          "title": "Torque",
+          "type": "string"
+        }
+      },
+      "required": [
+        "speed",
+        "torque"
+      ],
+      "title": "TorqueSpeedPoint",
+      "type": "object"
+    }
+  },
+  "$id": "component.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "Root of a file under `mechsim/library/catalog/`: component types and the parts that instantiate them.",
+  "properties": {
+    "parts": {
+      "items": {
+        "$ref": "#/$defs/PartEntry"
+      },
+      "title": "Parts",
+      "type": "array"
+    },
+    "types": {
+      "items": {
+        "$ref": "#/$defs/ComponentType"
+      },
+      "minItems": 1,
+      "title": "Types",
+      "type": "array"
+    }
+  },
+  "required": [
+    "types",
+    "parts"
+  ],
+  "title": "ComponentCatalogFile",
+  "type": "object"
+}

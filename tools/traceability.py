@@ -4,7 +4,8 @@ Usage: python3 tools/traceability.py [--write] [--root PATH]
 
 Collects requirement IDs from the ``## Requirements`` tables of ``docs/spec/*.md``, Python citations
 (``pytest.mark.req("ID")``) from every ``.py`` under ``tests/``, and C++ citations (Catch2 ``TEST_CASE``/``SCENARIO``
-tags) from every ``.cpp``/``.hpp`` under ``core/``. Reports violations as ``path:line: message`` and compares the
+tags) from every ``.cpp``/``.hpp`` under ``core/`` and ``firmware/``. Reports violations as
+``path:line: message`` and compares the
 generated matrix with the committed ``docs/spec/traceability.md``.
 
 Exit codes: 0 clean; 1 violations, or (without ``--write``) a stale matrix; 2 usage error. Standard library only.
@@ -451,17 +452,21 @@ def cpp_citations(text: str, location: str) -> tuple[list[Citation], list[Violat
     return sorted(citations), sorted(violations)
 
 
+CPP_SCAN_ROOTS = ("core", "firmware")
+
+
 def collect_cpp_citations(root: Path) -> tuple[list[Citation], list[Violation]]:
     citations: list[Citation] = []
     violations: list[Violation] = []
-    for path in iter_files(root / "core", CPP_SUFFIXES):
-        location = relative_location(path, root)
-        text = read_text(path, location, violations)
-        if text is None:
-            continue
-        found, problems = cpp_citations(text, location)
-        citations.extend(found)
-        violations.extend(problems)
+    for scan_root in CPP_SCAN_ROOTS:
+        for path in iter_files(root / scan_root, CPP_SUFFIXES):
+            location = relative_location(path, root)
+            text = read_text(path, location, violations)
+            if text is None:
+                continue
+            found, problems = cpp_citations(text, location)
+            citations.extend(found)
+            violations.extend(problems)
     return citations, violations
 
 

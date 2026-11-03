@@ -1,0 +1,78 @@
+# Timing belt and pulley transmission. Numeric part values are placeholders.
+types:
+  - name: belt_pulley
+    version: 1.0.0
+    category: transmission
+    description: Toothed belt over a drive pulley; ratio is the belt travel per pulley turn.
+    parameters:
+      - name: mass
+        dimension: "[mass]"
+        minimum: "0 kg"
+      - name: ratio
+        dimension: "[length]"
+        minimum: "1 mm/turn"
+        maximum: "1000 mm/turn"
+      - name: efficiency
+        dimension: dimensionless
+        minimum: "0.01"
+        maximum: "1"
+      - name: stiffness
+        dimension: "[mass] / [time] ** 2"
+        minimum: "0 N/m"
+      - name: backlash
+        dimension: "[length]"
+        default: "0 mm"
+        minimum: "0 mm"
+      - name: self_locking
+        kind: flag
+        default: false
+      - name: slip
+        dimension: dimensionless
+        default: "0"
+        minimum: "0"
+        maximum: "1"
+      - name: max_tension
+        dimension: "[mass] * [length] / [time] ** 2"
+        minimum: "0 N"
+    tiers:
+      - name: rigid
+        parameters: [mass, ratio, efficiency, self_locking, slip, max_tension]
+      - name: compliant
+        parameters: [stiffness, backlash]
+    mechanical:
+      mass:
+        source: parameter
+        parameter: mass
+      mounts:
+        - name: pulley_bore
+          kind: shaft
+          offset: ["0 mm", "0 mm", "0 mm"]
+        - name: belt_clamp
+          kind: clamp
+          offset: ["0 mm", "0 mm", "0 mm"]
+      shaft_axis: [0.0, 0.0, 1.0]
+    electrical:
+      pins: []
+    ratings:
+      absolute_maximums:
+        - name: belt_tension
+          parameter: max_tension
+    thermal:
+      held_constant: true
+      temperature: "298.15 K"
+    plugin:
+      cpp: belt_pulley
+parts:
+  - name: gt2_20t_6mm_generic
+    type: belt_pulley
+    tier: rigid
+    description: GT2 belt, 6 mm wide, 20-tooth pulley.
+    source: placeholder values, no datasheet assigned
+    values:
+      mass: "0.05 kg"
+      ratio: "40 mm/turn"
+      efficiency: "0.95"
+      stiffness: "100 kN/m"
+      self_locking: false
+      max_tension: "200 N"
+    placeholders: [mass, efficiency, stiffness, max_tension]

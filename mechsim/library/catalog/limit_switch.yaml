@@ -1,0 +1,85 @@
+# Mechanical limit switch. Numeric part values are placeholders.
+types:
+  - name: limit_switch
+    version: 1.0.0
+    category: sensor
+    description: Normally open mechanical microswitch with a digital output.
+    parameters:
+      - name: mass
+        dimension: "[mass]"
+        minimum: "0 kg"
+      - name: resolution
+        dimension: "[length]"
+        minimum: "0 mm"
+      - name: noise
+        dimension: "[length]"
+        default: "0 mm"
+        minimum: "0 mm"
+      - name: delay
+        dimension: "[time]"
+        default: "0 s"
+        minimum: "0 s"
+      - name: sample_rate
+        dimension: "1 / [time]"
+        minimum: "1 Hz"
+      - name: debounce_time
+        dimension: "[time]"
+        default: "0 s"
+        minimum: "0 s"
+      - name: normally_open
+        kind: flag
+        default: true
+      - name: max_voltage
+        dimension: "[mass] * [length] ** 2 / [time] ** 3 / [current]"
+        minimum: "0 V"
+      - name: max_current
+        dimension: "[current]"
+        minimum: "0 A"
+    tiers:
+      - name: ideal
+        parameters: [mass, resolution, noise, delay, sample_rate, normally_open, max_voltage, max_current]
+      - name: bounce
+        parameters: [debounce_time]
+    mechanical:
+      mass:
+        source: parameter
+        parameter: mass
+      mounts:
+        - name: body
+          kind: bolt_pattern
+          offset: ["0 mm", "0 mm", "0 mm"]
+    electrical:
+      pins:
+        - name: out
+          direction: output
+          signal_kind: digital
+          voltage_rating: max_voltage
+          current_rating: max_current
+        - name: common
+          direction: ground
+          signal_kind: ground
+    ratings:
+      absolute_maximums:
+        - name: contact_voltage
+          parameter: max_voltage
+        - name: contact_current
+          parameter: max_current
+    thermal:
+      held_constant: true
+      temperature: "298.15 K"
+    failure_modes: [stuck, noisy, dropped, forced_level]
+    plugin:
+      cpp: limit_switch
+parts:
+  - name: microswitch_generic
+    type: limit_switch
+    tier: ideal
+    source: placeholder values, no datasheet assigned
+    values:
+      mass: "2 g"
+      resolution: "0.1 mm"
+      sample_rate: "1 kHz"
+      normally_open: true
+      max_voltage: "30 V"
+      max_current: "0.1 A"
+    placeholders: [mass, resolution, sample_rate, max_voltage, max_current]

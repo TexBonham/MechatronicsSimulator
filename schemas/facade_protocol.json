@@ -1,0 +1,1065 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://mechsim.local/schemas/facade_protocol.json",
+  "title": "FacadeMessage",
+  "description": "Facade protocol message, version 1 (ADR 0015). Generated; do not edit.",
+  "$defs": {
+    "ErrorPayload": {
+      "additionalProperties": false,
+      "properties": {
+        "request_id": {
+          "anyOf": [
+            {
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Null when the request could not be parsed.",
+          "title": "Request Id"
+        },
+        "code": {
+          "enum": [
+            "unsupported_version",
+            "invalid_message",
+            "unknown_kind",
+            "validation_failed",
+            "not_found",
+            "busy",
+            "run_error",
+            "internal"
+          ],
+          "title": "Code",
+          "type": "string"
+        },
+        "message": {
+          "minLength": 1,
+          "title": "Message",
+          "type": "string"
+        },
+        "requirement_id": {
+          "anyOf": [
+            {
+              "pattern": "^[A-Z]{2,5}-\\d{3}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "ID of the violated requirement.",
+          "title": "Requirement Id"
+        }
+      },
+      "required": [
+        "request_id",
+        "code",
+        "message"
+      ],
+      "title": "ErrorPayload",
+      "type": "object"
+    },
+    "ErrorResponse": {
+      "additionalProperties": false,
+      "properties": {
+        "version": {
+          "const": 1,
+          "description": "Protocol version; the service accepts only its own version.",
+          "title": "Version",
+          "type": "integer"
+        },
+        "message_id": {
+          "minLength": 1,
+          "title": "Message Id",
+          "type": "string"
+        },
+        "kind": {
+          "const": "error",
+          "title": "Kind",
+          "type": "string"
+        },
+        "payload": {
+          "$ref": "#/$defs/ErrorPayload"
+        }
+      },
+      "required": [
+        "version",
+        "message_id",
+        "kind",
+        "payload"
+      ],
+      "title": "ErrorResponse",
+      "type": "object"
+    },
+    "JsonValue": {},
+    "ListDesignsPayload": {
+      "additionalProperties": false,
+      "properties": {},
+      "title": "ListDesignsPayload",
+      "type": "object"
+    },
+    "ListDesignsRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "version": {
+          "const": 1,
+          "description": "Protocol version; the service accepts only its own version.",
+          "title": "Version",
+          "type": "integer"
+        },
+        "message_id": {
+          "minLength": 1,
+          "title": "Message Id",
+          "type": "string"
+        },
+        "kind": {
+          "const": "list_designs",
+          "title": "Kind",
+          "type": "string"
+        },
+        "payload": {
+          "$ref": "#/$defs/ListDesignsPayload"
+        }
+      },
+      "required": [
+        "version",
+        "message_id",
+        "kind",
+        "payload"
+      ],
+      "title": "ListDesignsRequest",
+      "type": "object"
+    },
+    "OkPayload": {
+      "additionalProperties": false,
+      "properties": {
+        "request_id": {
+          "minLength": 1,
+          "title": "Request Id",
+          "type": "string"
+        },
+        "result": {
+          "additionalProperties": {
+            "$ref": "#/$defs/JsonValue"
+          },
+          "title": "Result",
+          "type": "object"
+        }
+      },
+      "required": [
+        "request_id",
+        "result"
+      ],
+      "title": "OkPayload",
+      "type": "object"
+    },
+    "OkResponse": {
+      "additionalProperties": false,
+      "properties": {
+        "version": {
+          "const": 1,
+          "description": "Protocol version; the service accepts only its own version.",
+          "title": "Version",
+          "type": "integer"
+        },
+        "message_id": {
+          "minLength": 1,
+          "title": "Message Id",
+          "type": "string"
+        },
+        "kind": {
+          "const": "ok",
+          "title": "Kind",
+          "type": "string"
+        },
+        "payload": {
+          "$ref": "#/$defs/OkPayload"
+        }
+      },
+      "required": [
+        "version",
+        "message_id",
+        "kind",
+        "payload"
+      ],
+      "title": "OkResponse",
+      "type": "object"
+    },
+    "PausePayload": {
+      "additionalProperties": false,
+      "properties": {
+        "run_id": {
+          "description": "Run identifier assigned by the service.",
+          "minLength": 1,
+          "title": "Run Id",
+          "type": "string"
+        },
+        "paused": {
+          "description": "True pauses, false resumes.",
+          "title": "Paused",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "run_id",
+        "paused"
+      ],
+      "title": "PausePayload",
+      "type": "object"
+    },
+    "PauseRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "version": {
+          "const": 1,
+          "description": "Protocol version; the service accepts only its own version.",
+          "title": "Version",
+          "type": "integer"
+        },
+        "message_id": {
+          "minLength": 1,
+          "title": "Message Id",
+          "type": "string"
+        },
+        "kind": {
+          "const": "pause",
+          "title": "Kind",
+          "type": "string"
+        },
+        "payload": {
+          "$ref": "#/$defs/PausePayload"
+        }
+      },
+      "required": [
+        "version",
+        "message_id",
+        "kind",
+        "payload"
+      ],
+      "title": "PauseRequest",
+      "type": "object"
+    },
+    "ReplayOpenPayload": {
+      "additionalProperties": false,
+      "properties": {
+        "archive": {
+          "description": "Run archive path.",
+          "minLength": 1,
+          "title": "Archive",
+          "type": "string"
+        }
+      },
+      "required": [
+        "archive"
+      ],
+      "title": "ReplayOpenPayload",
+      "type": "object"
+    },
+    "ReplayOpenRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "version": {
+          "const": 1,
+          "description": "Protocol version; the service accepts only its own version.",
+          "title": "Version",
+          "type": "integer"
+        },
+        "message_id": {
+          "minLength": 1,
+          "title": "Message Id",
+          "type": "string"
+        },
+        "kind": {
+          "const": "replay_open",
+          "title": "Kind",
+          "type": "string"
+        },
+        "payload": {
+          "$ref": "#/$defs/ReplayOpenPayload"
+        }
+      },
+      "required": [
+        "version",
+        "message_id",
+        "kind",
+        "payload"
+      ],
+      "title": "ReplayOpenRequest",
+      "type": "object"
+    },
+    "RunCasePayload": {
+      "additionalProperties": false,
+      "properties": {
+        "design": {
+          "minLength": 1,
+          "title": "Design",
+          "type": "string"
+        },
+        "test_case": {
+          "minLength": 1,
+          "title": "Test Case",
+          "type": "string"
+        },
+        "seed": {
+          "minimum": 0,
+          "title": "Seed",
+          "type": "integer"
+        },
+        "mode": {
+          "description": "Controller mode name.",
+          "minLength": 1,
+          "title": "Mode",
+          "type": "string"
+        }
+      },
+      "required": [
+        "design",
+        "test_case",
+        "seed",
+        "mode"
+      ],
+      "title": "RunCasePayload",
+      "type": "object"
+    },
+    "RunCaseRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "version": {
+          "const": 1,
+          "description": "Protocol version; the service accepts only its own version.",
+          "title": "Version",
+          "type": "integer"
+        },
+        "message_id": {
+          "minLength": 1,
+          "title": "Message Id",
+          "type": "string"
+        },
+        "kind": {
+          "const": "run_case",
+          "title": "Kind",
+          "type": "string"
+        },
+        "payload": {
+          "$ref": "#/$defs/RunCasePayload"
+        }
+      },
+      "required": [
+        "version",
+        "message_id",
+        "kind",
+        "payload"
+      ],
+      "title": "RunCaseRequest",
+      "type": "object"
+    },
+    "RunEndedEvent": {
+      "additionalProperties": false,
+      "properties": {
+        "version": {
+          "const": 1,
+          "description": "Protocol version; the service accepts only its own version.",
+          "title": "Version",
+          "type": "integer"
+        },
+        "message_id": {
+          "minLength": 1,
+          "title": "Message Id",
+          "type": "string"
+        },
+        "kind": {
+          "const": "run_ended",
+          "title": "Kind",
+          "type": "string"
+        },
+        "payload": {
+          "$ref": "#/$defs/RunEndedPayload"
+        }
+      },
+      "required": [
+        "version",
+        "message_id",
+        "kind",
+        "payload"
+      ],
+      "title": "RunEndedEvent",
+      "type": "object"
+    },
+    "RunEndedPayload": {
+      "additionalProperties": false,
+      "properties": {
+        "run_id": {
+          "description": "Run identifier assigned by the service.",
+          "minLength": 1,
+          "title": "Run Id",
+          "type": "string"
+        },
+        "t": {
+          "description": "Simulated time in seconds.",
+          "minimum": 0.0,
+          "title": "T",
+          "type": "number"
+        },
+        "reason": {
+          "enum": [
+            "end_condition",
+            "solver_failure",
+            "drift",
+            "emulator_fault",
+            "cancelled"
+          ],
+          "title": "Reason",
+          "type": "string"
+        },
+        "message": {
+          "minLength": 1,
+          "title": "Message",
+          "type": "string"
+        },
+        "requirement_id": {
+          "anyOf": [
+            {
+              "pattern": "^[A-Z]{2,5}-\\d{3}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Requirement Id"
+        }
+      },
+      "required": [
+        "run_id",
+        "t",
+        "reason",
+        "message"
+      ],
+      "title": "RunEndedPayload",
+      "type": "object"
+    },
+    "RunProgressEvent": {
+      "additionalProperties": false,
+      "properties": {
+        "version": {
+          "const": 1,
+          "description": "Protocol version; the service accepts only its own version.",
+          "title": "Version",
+          "type": "integer"
+        },
+        "message_id": {
+          "minLength": 1,
+          "title": "Message Id",
+          "type": "string"
+        },
+        "kind": {
+          "const": "run_progress",
+          "title": "Kind",
+          "type": "string"
+        },
+        "payload": {
+          "$ref": "#/$defs/RunProgressPayload"
+        }
+      },
+      "required": [
+        "version",
+        "message_id",
+        "kind",
+        "payload"
+      ],
+      "title": "RunProgressEvent",
+      "type": "object"
+    },
+    "RunProgressPayload": {
+      "additionalProperties": false,
+      "properties": {
+        "run_id": {
+          "description": "Run identifier assigned by the service.",
+          "minLength": 1,
+          "title": "Run Id",
+          "type": "string"
+        },
+        "t": {
+          "description": "Simulated time in seconds.",
+          "minimum": 0.0,
+          "title": "T",
+          "type": "number"
+        },
+        "t_end": {
+          "anyOf": [
+            {
+              "description": "Simulated time in seconds.",
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Planned end time, null when open-ended.",
+          "title": "T End"
+        }
+      },
+      "required": [
+        "run_id",
+        "t"
+      ],
+      "title": "RunProgressPayload",
+      "type": "object"
+    },
+    "RunSuitePayload": {
+      "additionalProperties": false,
+      "properties": {
+        "design": {
+          "minLength": 1,
+          "title": "Design",
+          "type": "string"
+        },
+        "suite": {
+          "minLength": 1,
+          "title": "Suite",
+          "type": "string"
+        },
+        "seed": {
+          "minimum": 0,
+          "title": "Seed",
+          "type": "integer"
+        },
+        "mode": {
+          "minLength": 1,
+          "title": "Mode",
+          "type": "string"
+        }
+      },
+      "required": [
+        "design",
+        "suite",
+        "seed",
+        "mode"
+      ],
+      "title": "RunSuitePayload",
+      "type": "object"
+    },
+    "RunSuiteRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "version": {
+          "const": 1,
+          "description": "Protocol version; the service accepts only its own version.",
+          "title": "Version",
+          "type": "integer"
+        },
+        "message_id": {
+          "minLength": 1,
+          "title": "Message Id",
+          "type": "string"
+        },
+        "kind": {
+          "const": "run_suite",
+          "title": "Kind",
+          "type": "string"
+        },
+        "payload": {
+          "$ref": "#/$defs/RunSuitePayload"
+        }
+      },
+      "required": [
+        "version",
+        "message_id",
+        "kind",
+        "payload"
+      ],
+      "title": "RunSuiteRequest",
+      "type": "object"
+    },
+    "ScrubPayload": {
+      "additionalProperties": false,
+      "properties": {
+        "run_id": {
+          "description": "Run identifier assigned by the service.",
+          "minLength": 1,
+          "title": "Run Id",
+          "type": "string"
+        },
+        "t": {
+          "description": "Simulated time in seconds.",
+          "minimum": 0.0,
+          "title": "T",
+          "type": "number"
+        }
+      },
+      "required": [
+        "run_id",
+        "t"
+      ],
+      "title": "ScrubPayload",
+      "type": "object"
+    },
+    "ScrubRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "version": {
+          "const": 1,
+          "description": "Protocol version; the service accepts only its own version.",
+          "title": "Version",
+          "type": "integer"
+        },
+        "message_id": {
+          "minLength": 1,
+          "title": "Message Id",
+          "type": "string"
+        },
+        "kind": {
+          "const": "scrub",
+          "title": "Kind",
+          "type": "string"
+        },
+        "payload": {
+          "$ref": "#/$defs/ScrubPayload"
+        }
+      },
+      "required": [
+        "version",
+        "message_id",
+        "kind",
+        "payload"
+      ],
+      "title": "ScrubRequest",
+      "type": "object"
+    },
+    "StepPayload": {
+      "additionalProperties": false,
+      "properties": {
+        "run_id": {
+          "description": "Run identifier assigned by the service.",
+          "minLength": 1,
+          "title": "Run Id",
+          "type": "string"
+        },
+        "direction": {
+          "enum": [
+            "forward",
+            "backward"
+          ],
+          "title": "Direction",
+          "type": "string"
+        }
+      },
+      "required": [
+        "run_id",
+        "direction"
+      ],
+      "title": "StepPayload",
+      "type": "object"
+    },
+    "StepRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "version": {
+          "const": 1,
+          "description": "Protocol version; the service accepts only its own version.",
+          "title": "Version",
+          "type": "integer"
+        },
+        "message_id": {
+          "minLength": 1,
+          "title": "Message Id",
+          "type": "string"
+        },
+        "kind": {
+          "const": "step",
+          "title": "Kind",
+          "type": "string"
+        },
+        "payload": {
+          "$ref": "#/$defs/StepPayload"
+        }
+      },
+      "required": [
+        "version",
+        "message_id",
+        "kind",
+        "payload"
+      ],
+      "title": "StepRequest",
+      "type": "object"
+    },
+    "SubscribeSeriesPayload": {
+      "additionalProperties": false,
+      "properties": {
+        "run_id": {
+          "description": "Run identifier assigned by the service.",
+          "minLength": 1,
+          "title": "Run Id",
+          "type": "string"
+        },
+        "series": {
+          "description": "Dotted series names, unique.",
+          "items": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Series",
+          "type": "array"
+        },
+        "t_start": {
+          "description": "Simulated time in seconds.",
+          "minimum": 0.0,
+          "title": "T Start",
+          "type": "number"
+        },
+        "t_end": {
+          "description": "Simulated time in seconds.",
+          "minimum": 0.0,
+          "title": "T End",
+          "type": "number"
+        },
+        "points": {
+          "description": "Points per series the service decimates to over the window.",
+          "minimum": 1,
+          "title": "Points",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "run_id",
+        "series",
+        "t_start",
+        "t_end",
+        "points"
+      ],
+      "title": "SubscribeSeriesPayload",
+      "type": "object"
+    },
+    "SubscribeSeriesRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "version": {
+          "const": 1,
+          "description": "Protocol version; the service accepts only its own version.",
+          "title": "Version",
+          "type": "integer"
+        },
+        "message_id": {
+          "minLength": 1,
+          "title": "Message Id",
+          "type": "string"
+        },
+        "kind": {
+          "const": "subscribe_series",
+          "title": "Kind",
+          "type": "string"
+        },
+        "payload": {
+          "$ref": "#/$defs/SubscribeSeriesPayload"
+        }
+      },
+      "required": [
+        "version",
+        "message_id",
+        "kind",
+        "payload"
+      ],
+      "title": "SubscribeSeriesRequest",
+      "type": "object"
+    },
+    "TickBatchEvent": {
+      "additionalProperties": false,
+      "properties": {
+        "version": {
+          "const": 1,
+          "description": "Protocol version; the service accepts only its own version.",
+          "title": "Version",
+          "type": "integer"
+        },
+        "message_id": {
+          "minLength": 1,
+          "title": "Message Id",
+          "type": "string"
+        },
+        "kind": {
+          "const": "tick_batch",
+          "title": "Kind",
+          "type": "string"
+        },
+        "payload": {
+          "$ref": "#/$defs/TickBatchPayload"
+        }
+      },
+      "required": [
+        "version",
+        "message_id",
+        "kind",
+        "payload"
+      ],
+      "title": "TickBatchEvent",
+      "type": "object"
+    },
+    "TickBatchPayload": {
+      "additionalProperties": false,
+      "properties": {
+        "run_id": {
+          "description": "Run identifier assigned by the service.",
+          "minLength": 1,
+          "title": "Run Id",
+          "type": "string"
+        },
+        "sequence": {
+          "minimum": 0,
+          "title": "Sequence",
+          "type": "integer"
+        },
+        "t_start": {
+          "description": "Simulated time in seconds.",
+          "minimum": 0.0,
+          "title": "T Start",
+          "type": "number"
+        },
+        "t_end": {
+          "description": "Simulated time in seconds.",
+          "minimum": 0.0,
+          "title": "T End",
+          "type": "number"
+        },
+        "series": {
+          "description": "Dotted series names, unique.",
+          "items": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Series",
+          "type": "array"
+        },
+        "dtype": {
+          "const": "float64",
+          "title": "Dtype",
+          "type": "string"
+        },
+        "byte_order": {
+          "const": "little",
+          "title": "Byte Order",
+          "type": "string"
+        },
+        "sample_count": {
+          "minimum": 1,
+          "title": "Sample Count",
+          "type": "integer"
+        },
+        "byte_length": {
+          "description": "Binary frame length: (1 + len(series)) * sample_count * 8; the time column comes first.",
+          "minimum": 16,
+          "title": "Byte Length",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "run_id",
+        "sequence",
+        "t_start",
+        "t_end",
+        "series",
+        "dtype",
+        "byte_order",
+        "sample_count",
+        "byte_length"
+      ],
+      "title": "TickBatchPayload",
+      "type": "object"
+    },
+    "TimelineEventMessage": {
+      "additionalProperties": false,
+      "properties": {
+        "version": {
+          "const": 1,
+          "description": "Protocol version; the service accepts only its own version.",
+          "title": "Version",
+          "type": "integer"
+        },
+        "message_id": {
+          "minLength": 1,
+          "title": "Message Id",
+          "type": "string"
+        },
+        "kind": {
+          "const": "timeline_event",
+          "title": "Kind",
+          "type": "string"
+        },
+        "payload": {
+          "$ref": "#/$defs/TimelineEventPayload"
+        }
+      },
+      "required": [
+        "version",
+        "message_id",
+        "kind",
+        "payload"
+      ],
+      "title": "TimelineEventMessage",
+      "type": "object"
+    },
+    "TimelineEventPayload": {
+      "additionalProperties": false,
+      "properties": {
+        "run_id": {
+          "description": "Run identifier assigned by the service.",
+          "minLength": 1,
+          "title": "Run Id",
+          "type": "string"
+        },
+        "t": {
+          "description": "Simulated time in seconds.",
+          "minimum": 0.0,
+          "title": "T",
+          "type": "number"
+        },
+        "category": {
+          "enum": [
+            "command",
+            "fault",
+            "safety_event",
+            "criterion_failure"
+          ],
+          "title": "Category",
+          "type": "string"
+        },
+        "label": {
+          "description": "Message label, verbatim.",
+          "minLength": 1,
+          "title": "Label",
+          "type": "string"
+        }
+      },
+      "required": [
+        "run_id",
+        "t",
+        "category",
+        "label"
+      ],
+      "title": "TimelineEventPayload",
+      "type": "object"
+    },
+    "ValidateDesignPayload": {
+      "additionalProperties": false,
+      "properties": {
+        "design": {
+          "description": "Design file path relative to the repository root.",
+          "minLength": 1,
+          "title": "Design",
+          "type": "string"
+        }
+      },
+      "required": [
+        "design"
+      ],
+      "title": "ValidateDesignPayload",
+      "type": "object"
+    },
+    "ValidateDesignRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "version": {
+          "const": 1,
+          "description": "Protocol version; the service accepts only its own version.",
+          "title": "Version",
+          "type": "integer"
+        },
+        "message_id": {
+          "minLength": 1,
+          "title": "Message Id",
+          "type": "string"
+        },
+        "kind": {
+          "const": "validate_design",
+          "title": "Kind",
+          "type": "string"
+        },
+        "payload": {
+          "$ref": "#/$defs/ValidateDesignPayload"
+        }
+      },
+      "required": [
+        "version",
+        "message_id",
+        "kind",
+        "payload"
+      ],
+      "title": "ValidateDesignRequest",
+      "type": "object"
+    }
+  },
+  "discriminator": {
+    "mapping": {
+      "error": "#/$defs/ErrorResponse",
+      "list_designs": "#/$defs/ListDesignsRequest",
+      "ok": "#/$defs/OkResponse",
+      "pause": "#/$defs/PauseRequest",
+      "replay_open": "#/$defs/ReplayOpenRequest",
+      "run_case": "#/$defs/RunCaseRequest",
+      "run_ended": "#/$defs/RunEndedEvent",
+      "run_progress": "#/$defs/RunProgressEvent",
+      "run_suite": "#/$defs/RunSuiteRequest",
+      "scrub": "#/$defs/ScrubRequest",
+      "step": "#/$defs/StepRequest",
+      "subscribe_series": "#/$defs/SubscribeSeriesRequest",
+      "tick_batch": "#/$defs/TickBatchEvent",
+      "timeline_event": "#/$defs/TimelineEventMessage",
+      "validate_design": "#/$defs/ValidateDesignRequest"
+    },
+    "propertyName": "kind"
+  },
+  "oneOf": [
+    {
+      "$ref": "#/$defs/ListDesignsRequest"
+    },
+    {
+      "$ref": "#/$defs/ValidateDesignRequest"
+    },
+    {
+      "$ref": "#/$defs/RunCaseRequest"
+    },
+    {
+      "$ref": "#/$defs/RunSuiteRequest"
+    },
+    {
+      "$ref": "#/$defs/ReplayOpenRequest"
+    },
+    {
+      "$ref": "#/$defs/SubscribeSeriesRequest"
+    },
+    {
+      "$ref": "#/$defs/ScrubRequest"
+    },
+    {
+      "$ref": "#/$defs/PauseRequest"
+    },
+    {
+      "$ref": "#/$defs/StepRequest"
+    },
+    {
+      "$ref": "#/$defs/OkResponse"
+    },
+    {
+      "$ref": "#/$defs/ErrorResponse"
+    },
+    {
+      "$ref": "#/$defs/RunProgressEvent"
+    },
+    {
+      "$ref": "#/$defs/RunEndedEvent"
+    },
+    {
+      "$ref": "#/$defs/TickBatchEvent"
+    },
+    {
+      "$ref": "#/$defs/TimelineEventMessage"
+    }
+  ]
+}

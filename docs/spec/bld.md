@@ -69,10 +69,12 @@ proposed <value>)".
 |---|---|---|
 | Mass property tolerance on primitive solids (BLD-010); proposed 1e-9 relative | not set | owner |
 | Lumped beam deflection and first-mode tolerances (BLD-015 to BLD-017, BLD-019); proposed 2 percent | not set | owner |
-| Default segment count per lumped beam (BLD-018) | 4 (ADR 0013), overridable per member | owner |
+| Default segment count per lumped beam (BLD-018) | 4 (ADR 0013); 8 for a pinned root with a roller end (ENG-040); overridable per member in the neutral model | owner |
 | Overlap test geometry and allowed contact clearance (BLD-022) | not set | owner |
-| Neutral model schema | not set | phase 1 contracts and schemas (ADR 0003) |
+| Neutral model schema | `mechsim/physics/neutral.py`, generated `schemas/physics_model.json` (phase 1 brief C1) | phase 1 contracts and schemas (ADR 0003) |
 | Rope lumped-chain detail (BLD-032) | not set | milestone 3 ADR (ruling P4) |
+| Default soft-contact parameters (normal stiffness, normal damping, friction coefficient) in the neutral model's contacts element; ADR 0002 fixes soft contact but no values, so the model requires them per design | not set | owner |
+| Contact material-pair overrides and body-pair exclusions in the neutral model (structure added in phase 1 brief C1; not sourced to ADR 0002 or a BLD/PHY row) | not set | owner |
 
 ## Out of scope
 

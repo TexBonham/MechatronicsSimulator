@@ -1,0 +1,66 @@
+# DC power supply. Numeric part values are placeholders.
+types:
+  - name: power_supply
+    version: 1.0.0
+    category: power
+    description: Regulated DC supply with a current limit.
+    parameters:
+      - name: mass
+        dimension: "[mass]"
+        minimum: "0 kg"
+      - name: output_voltage
+        dimension: "[mass] * [length] ** 2 / [time] ** 3 / [current]"
+        minimum: "0 V"
+      - name: max_current
+        dimension: "[current]"
+        minimum: "0 A"
+      - name: output_resistance
+        dimension: "[mass] * [length] ** 2 / [time] ** 3 / [current] ** 2"
+        default: "0 ohm"
+        minimum: "0 ohm"
+      - name: cutoff_delay
+        dimension: "[time]"
+        default: "0 s"
+        minimum: "0 s"
+    tiers:
+      - name: ideal
+        parameters: [mass, output_voltage, max_current, cutoff_delay]
+      - name: resistive
+        parameters: [output_resistance]
+    mechanical:
+      mass:
+        source: parameter
+        parameter: mass
+      mounts:
+        - name: chassis
+          kind: bolt_pattern
+          offset: ["0 mm", "0 mm", "0 mm"]
+    electrical:
+      pins:
+        - name: v_out
+          direction: power_out
+          signal_kind: power
+          voltage_rating: output_voltage
+          current_rating: max_current
+        - name: gnd
+          direction: ground
+          signal_kind: ground
+    ratings:
+      absolute_maximums:
+        - name: output_current
+          parameter: max_current
+    thermal:
+      held_constant: true
+      temperature: "298.15 K"
+    plugin:
+      cpp: power_supply
+parts:
+  - name: psu_24v_10a_generic
+    type: power_supply
+    tier: ideal
+    source: placeholder values, no datasheet assigned
+    values:
+      mass: "0.6 kg"
+      output_voltage: "24 V"
+      max_current: "10 A"
+    placeholders: [mass, max_current]

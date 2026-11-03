@@ -1,0 +1,63 @@
+# Conservative placeholder values with wide spreads; no coupon or datasheet source is assigned yet. Override from
+# tests rather than editing this file (MAT-016).
+name: abs_printed
+family: polymer
+grade: ABS, FDM printed
+description: Printed ABS; strengths are for the stated process and scale with the direction factors.
+source: placeholder, wide conservative spread, no coupon tests yet
+placeholder: true
+wide_spread_default: true
+density:
+  min: "1000 kg/m**3"
+  typ: "1040 kg/m**3"
+  max: "1080 kg/m**3"
+youngs_modulus:
+  min: "1.4 GPa"
+  typ: "2.0 GPa"
+  max: "2.6 GPa"
+poissons_ratio:
+  min: "0.33"
+  typ: "0.35"
+  max: "0.4"
+yield_strength:
+  min: "20 MPa"
+  typ: "32 MPa"
+  max: "45 MPa"
+ultimate_strength:
+  min: "25 MPa"
+  typ: "38 MPa"
+  max: "48 MPa"
+shear_strength:
+  min: "10 MPa"
+  typ: "22 MPa"
+  max: "35 MPa"
+sn_curve:
+  - {cycles: 1e3, stress_amplitude: "25 MPa"}
+  - {cycles: 1e5, stress_amplitude: "15 MPa"}
+  - {cycles: 1e6, stress_amplitude: "10 MPa"}
+thermal_conductivity:
+  min: "0.14 W/(m*K)"
+  typ: "0.17 W/(m*K)"
+  max: "0.20 W/(m*K)"
+specific_heat:
+  min: "1250 J/(kg*K)"
+  typ: "1400 J/(kg*K)"
+  max: "1700 J/(kg*K)"
+thermal_expansion:
+  min: "5.5e-05 1/K"
+  typ: "6.8e-05 1/K"
+  max: "8.5e-05 1/K"
+max_service_temperature:
+  min: "343 K"
+  typ: "353 K"
+  max: "363 K"
+process:
+  kind: printed
+  build_direction: [0.0, 0.0, 1.0]
+  layer_height: "0.2 mm"
+  walls: 2
+  infill: "20 percent"
+  infill_pattern: grid
+  strength_factors:
+    in_layer: 0.7
+    interlayer: 0.3
