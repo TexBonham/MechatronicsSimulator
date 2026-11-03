@@ -20,6 +20,18 @@ board interface, C7 facade protocol ADR) dispatched in worktrees.
 Owner-reviewed commits carry `Reviewed-by: Tex Bonham <bo1750te0130@gmail.com>`. Model-gated stage commits carry
 `Stage-review: Fable stage reviewer, invariant-auditor`. PR bodies carry no generated-by lines.
 
+## Rulings made overnight 2026-11-03/04 while the owner was away, for confirmation
+
+- Kernel time: integer ticks of a per-run base period (1 / lcm of all party and physics rates), rates as rational
+  hertz, instead of int64 nanoseconds with whole-nanosecond periods (which rejected 3 kHz, 60 Hz and sub-hertz rates).
+  Reviewer's recommendation; cheaper now than after milestone 1 builds on it.
+- Firmware-declared tick rate (`mechsim_app_tick_hz`) kept as a consistency check: the runtime errors at load when it
+  differs from the design's control rate; the host build injects the design's value so 1 kHz lives only in data (C4).
+- Board interface sizes are fixed contract constants shared by the C header and the C++ PinInputs/PinOutputs: 32
+  digital in, 8 counters (per-tick deltas), 16 ADC, 64-byte UART each way, 8 axes, 32 digital out, 16-entry event log
+  with state and fault codes (CTL-018 channel). The rail voltage is not a firmware input.
+- PhysicsAdapter.load takes a prepared model (neutral JSON plus an engine artifact such as MJCF) per ADR 0014.
+
 ## Rulings made at merge-back, confirmed by the owner 2026-11-03 with the round 1 commit
 
 - Steppers and drivers are signal-layer models (SIG-032 to SIG-036); transmissions, ropes and lumped beams are

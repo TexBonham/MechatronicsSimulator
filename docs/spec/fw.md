@@ -39,7 +39,7 @@ proposed <value>)".
 | FW-007 | The firmware build shall provide a host preset and an arm-none-eabi preset that build the same application sources. | C2; ADR 0011, C2; Requirements doc, Controller requirements (portability) | M1 | unit | n/a |
 | FW-008 | The host and arm-none-eabi presets shall use identical warning flags, with warnings as errors. | C2; ADR 0011, C2 | M1 | unit | n/a |
 | FW-009 | The board interface header shall be owned by the simulator and live in `board_interface/`. | Architecture doc, Technology recommendation ("Native mode"); Architecture doc, Repository starting point (layout) | M1 | unit | n/a |
-| FW-010 | The board interface shall declare the firmware's init and tick entry points and the plain C input and output structs they exchange. | C3; ADR 0011, C3 | M1 | unit | n/a |
+| FW-010 | The board interface shall declare the firmware's init and tick entry points, a tick-rate query the simulator reads once, and the plain C input and output structs they exchange. | C3; ADR 0011, C3 | M1 | unit | n/a |
 | FW-011 | Firmware application code shall be correct under polled semantics in native mode, with no dependence on interrupt timing. | ADR 0011, Consequences; C3 | M1 | unit | n/a |
 | FW-012 | Vendor HAL code shall appear only under `firmware/board/<chip>/`. | C5; ADR 0011, C5 | M1 | invariant | n/a |
 | FW-013 | Reference design (gantry): the firmware shall start "not homed", refuse every target until homing finishes against the limit switches, and report "not homed" with no actuator motion. | Requirements doc, Controller requirements (gantry reference controller); Requirements doc, Test cases (G1) | M1 | acceptance | n/a |
@@ -74,6 +74,8 @@ proposed <value>)".
 | Slow-down zones near targets and limits (FW-023) | not set | gantry team |
 | Heartbeat period and timeout (FW-025) | not set | gantry team |
 | Encoder placement | not set | gantry team |
+| Firmware-declared tick rate (FW-010) | Checked against the design's control rate at load; a mismatch is an error | set (C6 ruling) |
+| Board interface sizes (FW-010) | Fixed contract constants: 32 digital in, 8 counters, 16 ADC, 64-byte UART, 8 axes, 32 digital out, 16 events | set (C6 ruling) |
 | STM32 part and arm-none-eabi target flags | not set | gantry team, after the peripheral smoke test |
 
 ## Out of scope

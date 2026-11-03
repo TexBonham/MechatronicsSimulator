@@ -6,45 +6,45 @@ Real firmware, the controller itself (Decisions log rows 3, 4; R-02). Rules per 
 
 | # | Rule |
 |---|---|
-| C1 | C11 for application code. C++ only inside a module behind a C interface |
-| C1 | Board interface is a C header in `board_interface/` (repo root) |
-| - | Fixed-width integer types (architecture doc Risks: host vs Cortex-M) |
-| 8 | Application code includes nothing outside `board_interface/`: no simulator header, no vendor HAL (invariant 8) |
+| C1 | C11 for application code; C++ only inside a module behind a C interface |
+| C1 | Board interface is the C header `board_interface/mechsim_board.h` |
+| - | Fixed-width integer types |
+| 8 | Application code includes nothing outside `board_interface/` and the freestanding headers |
 | C5 | Vendor HAL only under `firmware/board/<chip>/` |
+| C3 | Native tick is polled: init once, tick at a fixed rate, one input and one output struct, no interrupts |
 | - | Curly braces on all control flow; no ternary operators |
-
-## Board interface relationship
-
-The simulator defines the board interface; nothing in the firmware depends on a HAL (Decisions log row 8). Native mode: firmware built for the host behind the board-interface shim in `core/controller/`, which calls init and tick directly, no cffi. Emulated mode: the compiled .elf runs on Renode (milestone 4).
-
-## Build (C2)
-
-| Preset | Target | Notes |
-|---|---|---|
-| host | Host build for native mode | Fails on any include outside the board interface |
-| arm-none-eabi | Cortex-M target | Same warning flags as host |
-
-Warnings as errors in both. Preset names in `CMakePresets.json` follow 0c scaffolding.
-
-## Native tick contract (C3)
-
-| Aspect | Contract |
-|---|---|
-| Entry points | `init` and `tick`, called at a fixed rate |
-| Data | Inputs and outputs cross as one plain C struct |
-| Semantics | Polled: accumulated counts, latched levels, no interrupts |
-| Interrupts | Emulated mode only; interrupt-timing behavior verified there |
-| Rate | 1 kHz gantry default, equal to the physics step; held in design data (C4) |
 
 ## Where code lives
 
 | Path | Holds |
 |---|---|
-| `firmware/<controller>/` | A controller source tree; the gantry controller is the first (folder name not set) |
-| `firmware/board/<chip>/` | Vendor HAL for a chip; STM32 part not set (owed by gantry team) |
-
-Tests tag requirement IDs with prefix FW.
+| `app/main_tick.c` | Reference stub: NOT_HOMED (1) to READY (2) after `MECHSIM_APP_READY_TICKS` (10); heartbeat toggles; UART echo; zero steps; one tick event per tick plus one per echoed byte, fault 1 on log overflow |
+| `app/gantry/` | Gantry controller, milestone 1, beside the reference stub, built as its own app library (one set of entry points per library) |
+| `board/<chip>/` | Vendor HAL; STM32 part not set (gantry team) |
+| `tests/` | Catch2 via `core/cmake/Catch2.cmake`; `test_fw_reference`, `test_fw_variant` (READY after 1, 250 Hz); include-check fixtures |
 
 ## Contracts
 
-Empty until phase 1.
+Header v2.0, fixed sizes (fw.md Open parameters); field units and semantics are in the header comments.
+
+| Struct | Fields |
+|---|---|
+| `mechsim_board_inputs` | `digital_in[32]` u8, `counter_delta[8]` i32 (counts this tick), `adc_sample[16]` u16, `uart_rx[64]` u8 + `uart_rx_count` u16 |
+| `mechsim_board_outputs` | `step_count[8]` u32, `direction[8]` u8, `enable[8]` u8, `digital_out[32]` u8, `uart_tx[64]` u8 + `uart_tx_count` u16, `heartbeat`, `state_code`, `fault_code` u8, `event_log[16]` (`mechsim_board_event`: `code` u8, `arg` u16) + `event_count` u8 |
+
+| Entry point | Contract |
+|---|---|
+| `void mechsim_app_init(void)` | Once after each reset |
+| `void mechsim_app_tick(const mechsim_board_inputs*, mechsim_board_outputs*)` | Once per tick; firmware writes every output field |
+| `uint32_t mechsim_app_tick_hz(void)` | Returns `MECHSIM_APP_TICK_HZ` (header default 1000; cache var `MECHSIM_APP_TICK_HZ` sets it from the design); simulator errors on mismatch |
+
+| Preset (run from `firmware/`) | Notes |
+|---|---|
+| `host` | Host C compiler, tests on, `build/host` |
+| `arm-none-eabi` | `cmake/arm-none-eabi.cmake`; `-mcpu=cortex-m4 -mthumb` placeholder, chip not set |
+
+Both: `-std=c11`, no extensions, `MECHSIM_FW_WARNINGS` from `cmake/FirmwareWarnings.cmake` (FW-008).
+
+Include rule (FW-005, FW-006): `cmake/include_check.cmake`, at configure and as target `firmware_include_check`. Allowed:
+`mechsim_board.h` resolving to `board_interface/` (a same-named file under `app/` fails), the C11 freestanding headers,
+or a quoted header inside `app/` without `..`. Loose `.c`/`.h` directly in `board/` fail (C5).

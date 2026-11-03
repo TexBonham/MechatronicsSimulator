@@ -70,7 +70,7 @@ proposed <value>)".
 | HDF5 archive layout (groups, datasets, attribute names) | not set | phase 1 schemas |
 | Which git hashes are recorded (repository, firmware tree, design file) | not set | phase 1 schemas |
 | Archive comparison rule for run-twice determinism (bitwise file or recorded content) | recorded content | phase 1 contracts |
-| Streaming interface shape and back-pressure | not set | phase 1 ADR (facade protocol) |
+| Streaming interface shape and back-pressure | C++ seam: `RecorderSink::subscribe`, callback per row, synchronous, in subscription order (brief C5); facade-side shape and back-pressure not set | phase 1 ADR (facade protocol) |
 | MAT file version | not set | phase 1 contracts |
 
 ## Out of scope

@@ -63,12 +63,12 @@ proposed <value>)".
 
 | Parameter | Current value | Owed by |
 |---|---|---|
-| Rate ratio rule (KER-007): integer multiples of the physics step only, or arbitrary | not set | owner |
+| Rate ratio rule (KER-007): integer multiples of the physics step only, or arbitrary | arbitrary positive rational rates; base rate = lcm of the physics rate and every party rate, computed at run start and recorded in `RunReport` and `RunConfig`; int64 overflow and an end time off the base tick are config errors before t = 0; owner confirmation pending | owner (brief C5 fix) |
 | Scheduling rule for commands and faults (KER-023): first sync point at or after the scheduled time, or nearest | not set | owner |
-| Representation of simulated time (integer base ticks or floating seconds) | not set | owner |
+| Representation of simulated time (integer base ticks or floating seconds) | integer ticks (`SimTime`, `Duration`, int64) of a per-run base period 1 / base rate; seconds only through `to_seconds()`; owner confirmation pending | owner (brief C5 fix) |
 | Party order source in the model data (KER-013) | not set | owner, phase 1 contracts |
-| Party interface signature (KER-018) | not set | phase 1 contracts (ADR 0005, Open items) |
-| Recorder sink interface (KER-022) | not set | phase 1 contracts, with REC |
+| Party interface signature (KER-018) | `mechsim::kernel::Party`: `name`, `nominal_rate`, `step(t, dt)`, `on_fault`; `core/kernel/CLAUDE.md` | phase 1 contracts (brief C5) |
+| Recorder sink interface (KER-022) | `mechsim::kernel::RecorderSink`: `write_row(TickRecord)`, `subscribe`, `unsubscribe`; `core/kernel/CLAUDE.md` | phase 1 contracts (brief C5) |
 
 ## Out of scope
 

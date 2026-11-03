@@ -140,15 +140,6 @@ def test_ker_017() -> None:
     raise NotImplementedError
 
 
-@pytest.mark.req("KER-018")
-@pytest.mark.xfail(strict=True, reason="stub")
-def test_ker_018() -> None:
-    """Physics, the signal layer, the controller runtime and the tier 1 integrity check shall each register with the
-    kernel through one party interface (rate, step, published and consumed coupling variables).
-    """
-    raise NotImplementedError
-
-
 @pytest.mark.req("KER-019")
 @pytest.mark.xfail(strict=True, reason="stub")
 def test_ker_019() -> None:

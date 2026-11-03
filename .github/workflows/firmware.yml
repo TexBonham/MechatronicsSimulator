@@ -1,0 +1,30 @@
+name: firmware
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  firmware:
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: firmware
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build gcc g++ gcc-arm-none-eabi libnewlib-arm-none-eabi
+      - name: Configure host
+        run: cmake --preset host
+      - name: Build host
+        run: cmake --build --preset host
+      - name: Include check
+        run: cmake --build --preset host --target firmware_include_check
+      - name: Test host
+        run: ctest --preset host
+      - name: Configure arm-none-eabi
+        run: cmake --preset arm-none-eabi
+      - name: Build arm-none-eabi
+        run: cmake --build --preset arm-none-eabi

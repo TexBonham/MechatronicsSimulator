@@ -17,3 +17,10 @@ type live in the root `CLAUDE.md` dispatch table once measured.
 | 2026-11-03 | Phase 1 C2 fix round: CatalogPart.resolve contract, single dimension error, $id | schema-author (opus), resumed | ~17K | 9 calls, 2.3 min |
 | 2026-11-03 | Phase 1 C7 fix round: ADR open items, NonEmptyText | schema-author (opus), resumed | ~3K | 3 calls, 0.5 min |
 | 2026-11-03 | Phase 1 C1 fix round: joint tiers, unit tolerances, node damping, ContactModel, names | schema-author (opus), resumed | ~29K | 18 calls, 4 min |
+| 2026-11-03 | Phase 1 C5: core runtime interfaces, null implementations, 101 tests, three contract files | module-writer (opus), worktree | 178K | 51 calls, 27 min |
+| 2026-11-03 | Phase 1 batch A invariant audit (landed commits) | invariant-auditor (sonnet) | 30K | 9 calls, 0.7 min; clean, 2 minor notes |
+| 2026-11-03 | Phase 1 batch B stage review (C5, C6) | general-purpose (fable) | 167K | 22 calls, 5.3 min; 0 blockers, 7 should-fix, 2 design recommendations |
+| 2026-11-03 | Phase 1 C6 fix round: header v2 layout, event log, include check hardening, spec rows | firmware-builder (opus), resumed | ~29K | 13 calls, 5 min |
+| 2026-11-03 | Phase 1 C3: design file contract, CAD import interface, catalog registry, gantry and pendulum designs, 27 DES stubs converted | schema-author (opus), worktree | 205K | 37 calls, 16 min |
+| 2026-11-03 | Phase 1 C5 fix round: rational tick time base, PreparedModel load, adapter surface, pin contract, 109 tests | module-writer (opus), resumed | ~47K | 24 calls, 19 min |
+| 2026-11-03 | Phase 1 inline: batch merges, FW stub removal, verification | inline | ~20K | |

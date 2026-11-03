@@ -3,20 +3,6 @@
 import pytest
 
 
-@pytest.mark.req("PHY-001")
-@pytest.mark.xfail(strict=True, reason="stub")
-def test_phy_001() -> None:
-    """Every adapter shall implement one interface whose load operation takes an engine-neutral physics model."""
-    raise NotImplementedError
-
-
-@pytest.mark.req("PHY-002")
-@pytest.mark.xfail(strict=True, reason="stub")
-def test_phy_002() -> None:
-    """The adapter interface shall advance the loaded model by one physics step per call."""
-    raise NotImplementedError
-
-
 @pytest.mark.req("PHY-003")
 @pytest.mark.xfail(strict=True, reason="stub")
 def test_phy_003() -> None:
@@ -31,13 +17,6 @@ def test_phy_004() -> None:
     raise NotImplementedError
 
 
-@pytest.mark.req("PHY-005")
-@pytest.mark.xfail(strict=True, reason="stub")
-def test_phy_005() -> None:
-    """The adapter interface shall accept actuator torques and forces from the signal layer before every step."""
-    raise NotImplementedError
-
-
 @pytest.mark.req("PHY-006")
 @pytest.mark.xfail(strict=True, reason="stub")
 def test_phy_006() -> None:
@@ -49,15 +28,6 @@ def test_phy_006() -> None:
 @pytest.mark.xfail(strict=True, reason="stub")
 def test_phy_007() -> None:
     """Every adapter that carries milestone 3 or later shall publish live member end-loads every tick."""
-    raise NotImplementedError
-
-
-@pytest.mark.req("PHY-008")
-@pytest.mark.xfail(strict=True, reason="stub")
-def test_phy_008() -> None:
-    """The adapter interface shall accept model changes mid-run: spring offsets, stiffness changes, constraint removal
-    and load release.
-    """
     raise NotImplementedError
 
 

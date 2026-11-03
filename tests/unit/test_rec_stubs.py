@@ -141,15 +141,6 @@ def test_rec_018() -> None:
     raise NotImplementedError
 
 
-@pytest.mark.req("REC-019")
-@pytest.mark.xfail(strict=True, reason="stub")
-def test_rec_019() -> None:
-    """The recorder shall expose a streaming interface through which a consumer receives recorded ticks
-    during a run.
-    """
-    raise NotImplementedError
-
-
 @pytest.mark.req("REC-020")
 @pytest.mark.xfail(strict=True, reason="stub")
 def test_rec_020() -> None:
