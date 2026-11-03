@@ -1,0 +1,37 @@
+name: cpp
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  cpp:
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        compiler:
+          - cxx: g++
+            packages: g++
+          - cxx: clang++
+            packages: clang libclang-rt-18-dev
+    env:
+      CXX: ${{ matrix.compiler.cxx }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build clang-tidy ${{ matrix.compiler.packages }}
+      - name: Configure debug-sanitize
+        run: cmake --preset debug-sanitize
+      - name: Build debug-sanitize
+        run: cmake --build --preset debug-sanitize
+      - name: Test debug-sanitize
+        run: ctest --preset debug-sanitize
+      - name: Configure release
+        run: cmake --preset release
+      - name: Build release
+        run: cmake --build --preset release
+      - name: Test release
+        run: ctest --preset release

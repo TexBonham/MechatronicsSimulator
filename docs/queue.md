@@ -4,20 +4,22 @@ State for the coordinating session. A new session reads this, then `docs/rulings
 
 ## Current checkpoint
 
-Phase 0a complete pending owner gate review of the ADR set (commit candidate below). Nothing dispatched.
+Phase 0a and 0c committed and pushed; first CI run on the 0c push not yet observed. Nothing dispatched.
 
 ## Next
 
-1. Owner gate review: ADRs 0001-0012 and the architecture doc edits.
-2. Phase 0c plan for sign-off: scaffolding (`core/` CMake tree, `mechsim/` packages, `pyproject.toml`, CI with sanitizers), the six agent definitions, hooks (import boundary, schema validation), slash commands, root and per-directory `CLAUDE.md`.
-3. Phase 0b plan for sign-off: spec template, one spec per module, test stubs, traceability test; calibration spike brief (engine packages 1 and 2, pendulum and loaded-beam references) alongside.
-4. Phase 1: contracts and schemas, facade protocol ADR, own-engine integrator ADR.
+1. Confirm the first CI run (python and cpp workflows) is green on the 0c commit.
+2. Phase 0b plan for sign-off: spec template, one spec per module, test stubs, traceability test; calibration spike brief (engine packages 1 and 2, pendulum and loaded-beam references) alongside.
+3. Phase 1: contracts and schemas, facade protocol ADR, own-engine integrator ADR.
 
 ## In flight
 
 None.
 
 ## Parked
+
+- C++ strict expected-failure convention for Catch2 stubs (ADR 0008 open item; `[!shouldfail]` is the candidate): rule in the phase 0b plan.
+- Stage-review nits carried to the next docs-indexer pass: hooks and `tests/` outside mypy scope; engine package working names in `docs/milestones.md` unruled; `INV-nnn` numbering assumed equal to invariant numbers until the spec exists.
 
 - Chrono adapter status (ADR 0004 open item): decide with the phase 1 contracts.
 - C++ test markers for requirement citations (ADR 0008 open item): phase 0c.
