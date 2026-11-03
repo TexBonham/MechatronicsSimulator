@@ -4,19 +4,26 @@ State for the coordinating session. A new session reads this, then `docs/rulings
 
 ## Current checkpoint
 
-Round 2 closed: phase 1 complete (seven contracts, 558 requirements all covered, 2 198 Python tests, 109 core and 32
-firmware tests), round-close hygiene done (shared `mechsim/schema_base.py`, indexes verified, cost-log rows archived).
-Round 2 PR #2 merged to main (merge commit f2bcf2d). Round 3 on branch `round/03-milestone-1`, cut from main.
-Nothing dispatched; milestone 1 plan pending owner sign-off.
+Milestone 1 in flight on `round/03-milestone-1`. Wave 0 (M1-S: wiring, contact environment, watchdog type, chip
+definitions as data) dispatched to schema-author in worktree `../MechatronicsSimulator-m1-s`. Owner returns at the
+milestone 1 gate; wave 0 contract changes are reviewed by Fable and the auditor and folded into that gate.
+
+## Milestone 1 rulings (owner, 2026-11-04)
+
+Fault parameter forms (noise absolute SD, stall available-torque fraction, slip fraction); controller precondition
+checked before t = 0, mismatch is an error; watchdog type and E-stop heartbeat input added now; DES-041 wiring is
+connectivity only, physical wires a later component type; ASCII line operator codec for M1; MuJoCo pinned at the latest
+3.9 patch via CMake; pybind11 through scikit-build-core; engine package 7 in parallel, not gating M1; chip definitions
+as data with an STM32-family placeholder, real parts drop in by file. MVP: milestone 2 for the gantry team, milestone
+3 plus CLI and replay for the standalone product.
 
 ## Next
 
-1. Milestone 1 plan for sign-off, costed on the measured sizes: builder (design to neutral model and signal wiring),
-   kernel implementation and the five M1 signal built-ins, native controller runtime shim, MuJoCo stepping adapter
-   (ADR 0014) and MJCF translation, recorder with HDF5 archive, scoring and the CLI, gantry firmware for G1 to G4,
-   engine package 7 (transmissions) first among engine packages, Python binding (package 11).
-3. Discussion items parked: fault parameter forms, controller precondition check, heartbeat wiring and the watchdog
-   type (LIB-019), DES-041 wiring before the builder brief.
+1. Wave 0 lands: Fable review, audit, stage commit.
+2. Wave 1, nine concurrent briefs: M1-A builder, M1-B kernel, M1-C MuJoCo bridge, M1-D signal built-ins, M1-E native
+   runtime, M1-F recorder, M1-G bindings, M1-H gantry firmware, M1-I runner, scoring and CLI; M1-J engine package 7
+   non-blocking.
+3. Wave 2: M1-X integration, G1 to G4 and P1 end to end, run-twice determinism, reference-validator; owner gate.
 
 ## Rulings made overnight 2026-11-03/04, confirmed by the owner 2026-11-04
 
