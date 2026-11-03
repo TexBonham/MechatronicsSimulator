@@ -56,7 +56,7 @@ proposed <value>)".
 | ENG-024 | The engine shall measure constraint drift every step and end the run with a drift error, carrying the time and the offending constraint, when drift exceeds the drift threshold. | Requirements doc, Physics and structural analysis requirements (Dynamics, solver health); Architecture doc, Repository starting point (invariant 7) | spike | unit | not set (owed by owner, proposed 1e-6 m and 1e-6 rad) |
 | ENG-025 | The engine shall end the run with a solver-failure error, carrying the time and cause, when a state value becomes non-finite or the solver fails to converge within its iteration limit. | Requirements doc, Physics and structural analysis requirements (Dynamics, solver health); Architecture doc, Repository starting point (invariant 7) | spike | unit | n/a |
 | ENG-026 | The engine shall publish a solver health record every step: maximum constraint drift and solver convergence status. | Architecture doc, Modules: core (Co-simulation kernel row) | spike | unit | n/a |
-| ENG-027 | The engine shall publish body poses and velocities, joint forces and contact forces after every step. | Architecture doc, Modules: core (Physics engine row, interface out); Architecture doc, Data flows (per-tick order, step 1) | spike | unit | n/a |
+| ENG-027 | The engine shall publish body poses and velocities, joint forces and contact forces (empty until contact lands under ENG-020). | Architecture doc, Modules: core (Physics engine row, interface out); Architecture doc, Data flows (per-tick order, step 1) | spike | unit | n/a |
 | ENG-028 | The engine shall accept actuator torques and forces before each step and apply them for that step only. | Architecture doc, Modules: core (Physics engine row, interface in); Architecture doc, Data flows (per-tick order, step 5) | spike | unit | n/a |
 | ENG-029 | The engine shall run faster than real time for batch runs. | Requirements doc, Physics and structural analysis requirements (Dynamics, solver health) | M1 | unit | not set (owed by owner, proposed real-time factor of at least 1 on the CI machine) |
 | ENG-030 | The engine shall publish the end-loads (three forces and three moments at each end) of every lumped member every step. | ADR 0010, Decision (interface requirement); R-21 | M3 | unit | n/a |
@@ -79,7 +79,7 @@ proposed <value>)".
 | ENG-047 | The engine shall simulate a rope as a lumped chain with unilateral tension, slack and length change. | Requirements doc, Component library requirements (Transmissions row); ADR 0003, P3 and P4; ADR 0001, R-13; Decisions log row 15 | M3 | unit | n/a |
 | ENG-048 | Each transmission element shall map the motor shaft torque the signal layer applies into joint force for the step, and the engine shall publish the load torque on each motor shaft after every step for the stepper model. | Architecture doc, Data flows (within one physics tick, step 5); ADR 0003, P3; ADR 0001, R-13 | M1 | unit | n/a |
 | ENG-049 | The engine shall reject an invalid model before stepping: a mass matrix that is not symmetric positive definite, or mismatched dimensions between H, forces, Jacobians and state, with an error naming the cause. | Architecture doc, Repository starting point (invariant 7) | spike | unit | n/a |
-| ENG-050 | The engine shall reject a step configuration whose step length is not finite and positive, with an error naming the cause. | Architecture doc, Repository starting point (invariant 7) | spike | unit | n/a |
+| ENG-050 | The engine shall reject a step or solver configuration value outside its stated range (non-positive or non-finite step length, zero iteration cap, non-positive tolerances) with an error naming the cause. | Architecture doc, Repository starting point (invariant 7) | spike | unit | n/a |
 
 ## Open parameters
 
@@ -90,7 +90,11 @@ proposed <value>)".
 | Collision differential tolerance (ENG-019) | not set, proposed 1e-9 m depth, 1e-6 rad normal | owner |
 | Contact rest penetration tolerance (ENG-021) | not set | owner |
 | Constraint drift threshold (ENG-024) | 1e-6 m and 1e-6 rad (ADR 0013; change by reviewed spec edit, T4) | owner |
-| Solver iteration limit (ENG-025) | 50 (run-configuration default, ADR 0013); enforced when the constraint solver lands in package 2a | owner |
+| Solver iteration limit (ENG-025) | 50 by default from the run configuration (ADR 0013); enforced by the constraint solver (package 2a) | owner |
+| Constraint velocity tolerance (ENG-025) | 1e-9 m/s and rad/s, the residual a solver pass must reach to count as converged (change by reviewed spec edit, T4) | owner |
+| Position projection iterations (ENG-024) | 3 Gauss-Newton iterations (ADR 0013, post-step projection; change by reviewed spec edit, T4) | owner |
+| Unit-quaternion and axis tolerance (ENG-049) | 1e-12 on squared norm (change by reviewed spec edit, T4) | owner |
+| Mass matrix symmetry tolerance (ENG-049) | 1e-12 relative (change by reviewed spec edit, T4) | owner |
 | Real-time factor floor and benchmark model (ENG-029) | not set, proposed at least 1 | owner |
 | Pendulum period tolerance (ENG-036) | not set, proposed 0.1 % | owner |
 | Pendulum decay tolerance (ENG-037) | not set, proposed 1 % | owner |

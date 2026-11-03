@@ -27,8 +27,21 @@ public:
     [[nodiscard]] virtual Eigen::VectorXd integrate_positions(const Eigen::VectorXd& q, const Eigen::VectorXd& v,
                                                               double h) const = 0;
 
+    // Velocity-level constraint solve after v += dv and before the position update (ADR 0013). system is the
+    // integrator's H + h D + h^2 K at q; v is adjusted in place. Returns solver iterations; a provider whose solver
+    // does not converge throws SolverNonConvergenceError with time t (the step start).
+    virtual int solve_constraints(double /*t*/, double /*h*/, const Eigen::VectorXd& /*q*/,
+                                  const Eigen::MatrixXd& /*system*/, Eigen::VectorXd& /*v*/) const {
+        return 0;
+    }
+
     // Post-step projection onto the constraint manifold (ADR 0013); returns max drift corrected, m or rad.
     virtual double project(Eigen::VectorXd& /*q*/, Eigen::VectorXd& /*v*/) const { return 0.0; }
+
+    // The projection the integrator calls; t is the step start for errors. Defaults to project(q, v).
+    virtual double project_positions(double /*t*/, Eigen::VectorXd& q, Eigen::VectorXd& v) const {
+        return project(q, v);
+    }
 
 protected:
     DynamicsProvider() = default;

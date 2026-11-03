@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstddef>
 #include <stdexcept>
 #include <string>
 
@@ -25,6 +26,17 @@ public:
 class SolverNonConvergenceError : public EngineError {
 public:
     using EngineError::EngineError;
+};
+
+// Constraint drift past the threshold (ENG-024); carries the offending constraint's index.
+class DriftError : public EngineError {
+public:
+    DriftError(double time, std::string cause, std::ptrdiff_t constraint);
+
+    [[nodiscard]] std::ptrdiff_t constraint_index() const noexcept;
+
+private:
+    std::ptrdiff_t constraint_;
 };
 
 class InvalidModelError : public EngineError {

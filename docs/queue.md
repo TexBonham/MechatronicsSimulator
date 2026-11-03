@@ -4,15 +4,15 @@ State for the coordinating session. A new session reads this, then `docs/rulings
 
 ## Current checkpoint
 
-Spike package 1 (math core and integrator) landed as a stage commit after one fix round (the brief's step formula
-lacked the -h^2 K v term; reviewer caught it). Package 2a (rigid multibody) dispatched to module-writer in worktree
-`../MechatronicsSimulator-spike-p2a` on branch `wip/spike-p2a`.
+Spike packages 1 and 2a landed as stage commits, each after one fix round (p1: the brief's step formula lacked the
+-h^2 K v term; p2a: spec rows, tags, CI time; no algorithm defects). Package 2b (lumped beam and the six analytical
+references) dispatched to module-writer in worktree `../MechatronicsSimulator-spike-p2b` on branch `wip/spike-p2b`.
 
 ## Next
 
-1. Package 2a lands: Fable stage review, invariant audit, reference-validator, merge-back, stage commit. Carries the
-   reviewer's symmetry-check item: relative tolerance, finiteness of H first, LLT from the lower self-adjoint view.
-2. Package 2b (lumped beam and references: ENG-022, 036 to
+1. Package 2b lands: Fable stage review, invariant audit, reference-validator on the reference tier, merge-back; its
+   commit closes the spike and comes back to the owner.
+2. (was) Package 2b (lumped beam and references: ENG-022, 036 to
    041), each the same way; 2b's commit comes back to the owner as the spike's closing commit.
 3. Record per-package tokens, calls, fix rounds and defects in `docs/cost-log.md`; write the cost-model section into
    the root `CLAUDE.md` at spike close.

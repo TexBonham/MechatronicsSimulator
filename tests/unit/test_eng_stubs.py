@@ -3,65 +3,6 @@
 import pytest
 
 
-@pytest.mark.req("ENG-005")
-@pytest.mark.xfail(strict=True, reason="stub")
-def test_eng_005() -> None:
-    """The engine shall simulate rigid bodies with mass, center of mass and inertia tensor under a gravity vector
-    supplied by the model.
-    """
-    raise NotImplementedError
-
-
-@pytest.mark.req("ENG-006")
-@pytest.mark.xfail(strict=True, reason="stub")
-def test_eng_006() -> None:
-    """The engine shall provide a revolute joint."""
-    raise NotImplementedError
-
-
-@pytest.mark.req("ENG-007")
-@pytest.mark.xfail(strict=True, reason="stub")
-def test_eng_007() -> None:
-    """The engine shall provide a prismatic joint."""
-    raise NotImplementedError
-
-
-@pytest.mark.req("ENG-008")
-@pytest.mark.xfail(strict=True, reason="stub")
-def test_eng_008() -> None:
-    """The engine shall provide a fixed joint."""
-    raise NotImplementedError
-
-
-@pytest.mark.req("ENG-009")
-@pytest.mark.xfail(strict=True, reason="stub")
-def test_eng_009() -> None:
-    """The engine shall provide a planar joint."""
-    raise NotImplementedError
-
-
-@pytest.mark.req("ENG-010")
-@pytest.mark.xfail(strict=True, reason="stub")
-def test_eng_010() -> None:
-    """The engine shall provide a spherical joint."""
-    raise NotImplementedError
-
-
-@pytest.mark.req("ENG-011")
-@pytest.mark.xfail(strict=True, reason="stub")
-def test_eng_011() -> None:
-    """The engine shall provide a free joint (six degrees of freedom) so an unattached body such as a payload
-    resting on the floor is a tree root with no constraint to the world."""
-    raise NotImplementedError
-
-
-@pytest.mark.req("ENG-012")
-@pytest.mark.xfail(strict=True, reason="stub")
-def test_eng_012() -> None:
-    """The engine shall close kinematic loops through bilateral constraints between bodies."""
-    raise NotImplementedError
-
-
 @pytest.mark.req("ENG-013")
 @pytest.mark.xfail(strict=True, reason="stub")
 def test_eng_013() -> None:
@@ -110,29 +51,6 @@ def test_eng_022() -> None:
     """The engine shall simulate a flexible member as a multi-segment lumped beam built from the member's section and
     material.
     """
-    raise NotImplementedError
-
-
-@pytest.mark.req("ENG-024")
-@pytest.mark.xfail(strict=True, reason="stub")
-def test_eng_024() -> None:
-    """The engine shall measure constraint drift every step and end the run with a drift error, carrying the time and
-    the offending constraint, when drift exceeds the drift threshold.
-    """
-    raise NotImplementedError
-
-
-@pytest.mark.req("ENG-027")
-@pytest.mark.xfail(strict=True, reason="stub")
-def test_eng_027() -> None:
-    """The engine shall publish body poses and velocities, joint forces and contact forces after every step."""
-    raise NotImplementedError
-
-
-@pytest.mark.req("ENG-028")
-@pytest.mark.xfail(strict=True, reason="stub")
-def test_eng_028() -> None:
-    """The engine shall accept actuator torques and forces before each step and apply them for that step only."""
     raise NotImplementedError
 
 

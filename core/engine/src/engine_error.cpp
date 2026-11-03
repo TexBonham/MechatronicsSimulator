@@ -24,4 +24,9 @@ double EngineError::time() const noexcept { return time_; }
 
 const std::string& EngineError::cause() const noexcept { return cause_; }
 
+DriftError::DriftError(double time, std::string cause, std::ptrdiff_t constraint)
+    : EngineError(time, std::move(cause)), constraint_(constraint) {}
+
+std::ptrdiff_t DriftError::constraint_index() const noexcept { return constraint_; }
+
 }  // namespace mechsim::engine

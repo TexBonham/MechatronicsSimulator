@@ -14,6 +14,7 @@ include(${CMAKE_CURRENT_SOURCE_DIR}/../cmake/Eigen.cmake)
 
 add_library(mechsim_engine
     src/engine_error.cpp
+    src/multibody_provider.cpp
     src/semi_implicit_euler.cpp
 )
 add_library(mechsim::engine ALIAS mechsim_engine)
@@ -21,7 +22,10 @@ target_include_directories(mechsim_engine PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/inc
 target_link_libraries(mechsim_engine PUBLIC Eigen3::Eigen PRIVATE mechsim_warnings)
 
 add_executable(mechsim_engine_tests
+    tests/test_constraints.cpp
     tests/test_errors.cpp
+    tests/test_joints.cpp
+    tests/test_multibody_errors.cpp
     tests/test_integrator.cpp
     tests/test_step_config.cpp
 )
