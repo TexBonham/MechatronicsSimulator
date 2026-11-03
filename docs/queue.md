@@ -4,16 +4,19 @@ State for the coordinating session. A new session reads this, then `docs/rulings
 
 ## Current checkpoint
 
-Phase 0b round 1 (18 specs, 548 requirements, strict-xfail stubs, traceability tool, ADR 0013 proposed) staged and
-reviewed; awaiting owner gate review and commit. Nothing dispatched.
+Spike package 1 (math core and integrator) landed as a stage commit after one fix round (the brief's step formula
+lacked the -h^2 K v term; reviewer caught it). Package 2a (rigid multibody) dispatched to module-writer in worktree
+`../MechatronicsSimulator-spike-p2a` on branch `wip/spike-p2a`.
 
 ## Next
 
-1. Owner gate review of round 1: the specs (read `eng.md`, `phy.md`, `int.md` most carefully), the three boundary
-   rulings below, and ADR 0013 (own-engine integrator), which must be Accepted or changed before the spike.
-2. Round 2, the calibration spike: engine packages 1 and 2 against the ENG spec's "spike" rows, converting their stubs,
-   through module-writer, logging tokens, calls and defects per package. Brief to be posted for sign-off after the gate.
-3. Phase 1: contracts and schemas, facade protocol ADR.
+1. Package 2a lands: Fable stage review, invariant audit, reference-validator, merge-back, stage commit. Carries the
+   reviewer's symmetry-check item: relative tolerance, finiteness of H first, LLT from the lower self-adjoint view.
+2. Package 2b (lumped beam and references: ENG-022, 036 to
+   041), each the same way; 2b's commit comes back to the owner as the spike's closing commit.
+3. Record per-package tokens, calls, fix rounds and defects in `docs/cost-log.md`; write the cost-model section into
+   the root `CLAUDE.md` at spike close.
+4. Phase 1: contracts and schemas, facade protocol ADR.
 
 ## Rulings made at merge-back, confirmed by the owner 2026-11-03 with the round 1 commit
 

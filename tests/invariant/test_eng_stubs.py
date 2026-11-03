@@ -10,12 +10,3 @@ def test_eng_018() -> None:
     suite.
     """
     raise NotImplementedError
-
-
-@pytest.mark.req("ENG-023")
-@pytest.mark.xfail(strict=True, reason="stub")
-def test_eng_023() -> None:
-    """Given the same model, inputs and step on the same machine and build, the engine shall produce bitwise
-    identical state after every step.
-    """
-    raise NotImplementedError

@@ -3,38 +3,6 @@
 import pytest
 
 
-@pytest.mark.req("ENG-001")
-@pytest.mark.xfail(strict=True, reason="stub")
-def test_eng_001() -> None:
-    """The engine shall do its linear algebra through Eigen and shall carry no other linear algebra dependency."""
-    raise NotImplementedError
-
-
-@pytest.mark.req("ENG-002")
-@pytest.mark.xfail(strict=True, reason="stub")
-def test_eng_002() -> None:
-    """The engine shall advance the model by a fixed step whose length is supplied by the run configuration, with 1
-    ms as the default and no step length held as a code constant.
-    """
-    raise NotImplementedError
-
-
-@pytest.mark.req("ENG-003")
-@pytest.mark.xfail(strict=True, reason="stub")
-def test_eng_003() -> None:
-    """The engine shall integrate the equations of motion with the scheme ruled by the own-engine integrator ADR (ADR
-    0013, proposed), behind an integrator interface internal to the engine.
-    """
-    raise NotImplementedError
-
-
-@pytest.mark.req("ENG-004")
-@pytest.mark.xfail(strict=True, reason="stub")
-def test_eng_004() -> None:
-    """The engine shall hold every state, parameter and output quantity in SI units."""
-    raise NotImplementedError
-
-
 @pytest.mark.req("ENG-005")
 @pytest.mark.xfail(strict=True, reason="stub")
 def test_eng_005() -> None:
@@ -150,24 +118,6 @@ def test_eng_022() -> None:
 def test_eng_024() -> None:
     """The engine shall measure constraint drift every step and end the run with a drift error, carrying the time and
     the offending constraint, when drift exceeds the drift threshold.
-    """
-    raise NotImplementedError
-
-
-@pytest.mark.req("ENG-025")
-@pytest.mark.xfail(strict=True, reason="stub")
-def test_eng_025() -> None:
-    """The engine shall end the run with a solver-failure error, carrying the time and cause, when a state value
-    becomes non-finite or the solver fails to converge within its iteration limit.
-    """
-    raise NotImplementedError
-
-
-@pytest.mark.req("ENG-026")
-@pytest.mark.xfail(strict=True, reason="stub")
-def test_eng_026() -> None:
-    """The engine shall publish a solver health record every step: maximum constraint drift and solver convergence
-    status.
     """
     raise NotImplementedError
 

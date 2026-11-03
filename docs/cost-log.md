@@ -22,3 +22,8 @@ type live in the root `CLAUDE.md` dispatch table once measured.
 | 2026-11-03 | 0b cross-spec stage review | general-purpose (fable) | 182K | 22 calls, 6.5 min; 0 blockers, 12 should-fix |
 | 2026-11-03 | 0b invariant audit | invariant-auditor (sonnet) | 25K | 5 calls, 0.4 min; caught stale matrix |
 | 2026-11-03 | 0b fix pass: 15 review items, 12 new IDs | general-purpose (opus) | 137K | 27 calls, 5 min |
+| 2026-11-03 | Spike p1: math core and integrator, 7 ENG IDs, 17 Catch2 tests | module-writer (opus), worktree | 110K | 21 calls, 11 min; first measured engine package |
+| 2026-11-03 | Spike p1 stage review | general-purpose (fable) | 108K | 12 calls, 5 min; 1 blocker (RHS term missing, brief's formula), 2 should-fix, 3 nits |
+| 2026-11-03 | Spike p1 invariant audit | invariant-auditor (sonnet) | 36K | 7 calls, 0.6 min; 4 minor |
+| 2026-11-03 | Spike p1 fix round: RHS term, physics-derived tests, ENG-049/050, auditor items | module-writer (opus), resumed | ~15K | 7 calls, 2.5 min; delta of the cumulative 124K reported on resume |
+| 2026-11-03 | Spike p1 re-review (ENG-003 focus) | general-purpose (fable), resumed | ~11K | 5 calls, 1.3 min; ready, 1 item to 2a |
