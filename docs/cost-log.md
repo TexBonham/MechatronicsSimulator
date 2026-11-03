@@ -7,4 +7,4 @@ type live in the root `CLAUDE.md` dispatch table once measured.
 | Date | Task | Mode | Tokens (est.) | Notes |
 |------|------|------|:-------------:|-------|
 | 2026-11-04 | Round 2 close: public schema_base module, six imports, 11 tests | module-writer (opus), worktree | 85K | 16 calls, 3.4 min |
-| 2026-11-04 | Round 2 close docs pass: indexes corrected, library index added, mechsim contract table | docs-indexer (haiku) | see next row | |
+| 2026-11-04 | Round 2 close docs pass: indexes corrected, library index added, mechsim contract table | docs-indexer (haiku) | 71K | 23 calls, 1.5 min |
