@@ -8,3 +8,4 @@ type live in the root `CLAUDE.md` dispatch table once measured.
 |------|------|------|:-------------:|-------|
 | 2026-11-03 | Round close: markers and indexes for two long tooling files, tools/ and tests/ CLAUDE.md | docs-indexer (haiku) | 57K | 15 calls, 1.7 min; first docs-indexer reference size |
 | 2026-11-03 | Round close inline: cost-log archive, root CLAUDE.md trim, two agent definitions | inline | ~10K | |
+| 2026-11-03 | Phase 1 C7: ADR 0015 facade protocol, message models, conformance stubs | schema-author (opus), worktree | 123K | 26 calls, 6 min; first schema-author reference size |
