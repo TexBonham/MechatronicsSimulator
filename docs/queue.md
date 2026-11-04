@@ -91,6 +91,13 @@ as data with an STM32-family placeholder, real parts drop in by file. MVP: miles
   publishes its commanded angle as the drive rest with the linearized detent stiffness and reads the drive torque back
   for pull-out and stall. Alternative on the table for the gate: a 0.25 ms physics step (holds, 4x slower, and exposed
   a UART byte-loss defect at unequal rates that is owed regardless).
+- No-motion criterion (ACC-001, ACC-007): no step pulse commanded on any axis for the whole run and no axis leaving
+  the power-on hold band, placeholder 1 mm (hold sag plus ringing; the gantry team owes the number). Hold ringing of
+  a few milliradians is physical, not motion. Stepper damping placeholder 2e-3 N m s/rad (damping ratio near 0.1 at
+  the lift).
+- Signal layer accumulates controller-facing per-tick buffers (UART bytes, counter deltas) across its own steps and
+  clears them at controller-tick boundaries (the root cause of the UART loss at 4 kHz physics with a 1 kHz tick).
+- Owed after the gate: recorded joint positions and drive torques series; stepper sinusoidal detent (M2).
 - Owner question for the gate (C re-review): where the transmission loss sits. The bridge reflects the rotor
   lossless, `(m + J/c^2) a = eta tau / c`; if the loss is in the nut or belt the exact rigid relation is
   `(m + eta J/c^2) a` driving and `(m + J/(eta c^2)) a` back-driven (5 percent of acceleration on the review
