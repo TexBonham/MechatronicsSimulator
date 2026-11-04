@@ -49,3 +49,5 @@ type live in the root `CLAUDE.md` dispatch table once measured.
 | 2026-11-04 | M1-X4: stepper hold law, state-code names (DES-045), status message fields, G1 to G4 re-run | module-writer (opus), resumed | ~70K | 50 calls, 23 min; explicit hold spring unstable at 1 ms on the lift (omega dt 2.3) |
 | 2026-11-04 | M1-X5: joint drives in PhysicsInputs (KER-027, PHY-034), implicit hold in the MuJoCo adapter, stepper publishes its drive; G2, G3 green, G1, G4 on ringing | module-writer (opus), worktree | 321K | 126 calls, 52 min; UART loss root cause found |
 | 2026-11-04 | M1-X6: no-motion criterion (SCO-026), UART and counter accumulation at unequal rates (SIG-038), baselines; G1 to G4 and P1 green, run twice identical | module-writer (opus), resumed | ~45K | ~40 calls, 20 min |
+| 2026-11-04 | Invariant audit: wave 2 (ae4f7c7..1826496) | invariant-auditor (sonnet) | 26K | 8 calls, 2 min; all pass, stale matrix only |
+| 2026-11-04 | Reference validation: milestone 1 (C++ 8, Python 9, MuJoCo 26, P1) | reference-validator (sonnet) | 42K | 12 calls, 3 min; 0 failed; two T4 rows to set (BLD-010, SIG-011) |
