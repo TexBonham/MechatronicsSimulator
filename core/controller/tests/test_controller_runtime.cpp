@@ -142,3 +142,35 @@ TEST_CASE("Brownout takes the supply voltage and rejects non-physical values", "
     CHECK_THROWS_AS(runtime->brownout(std::numeric_limits<double>::quiet_NaN()), std::invalid_argument);
     CHECK(runtime->supply_voltage() == 0.0);
 }
+
+TEST_CASE("A frozen controller holds its levels and empties its per-tick buffers", "[CTL-011]") {
+    PinOutputs last;
+    last.step_count.fill(9);
+    last.direction.fill(1);
+    last.enable.fill(1);
+    last.digital_out.fill(1);
+    last.uart_tx.fill(0x55);
+    last.uart_tx_count = 64;
+    last.state_code = 3;
+    last.fault_code = 4;
+    last.event_log.fill({7, 8});
+    last.event_count = 16;
+    const PinOutputs held = controller::held_levels(last);
+    CHECK(held.direction == last.direction);
+    CHECK(held.enable == last.enable);
+    CHECK(held.digital_out == last.digital_out);
+    CHECK(held.state_code == 3U);
+    CHECK(held.fault_code == 4U);
+    CHECK(held.step_count == decltype(held.step_count){});
+    CHECK(held.uart_tx == decltype(held.uart_tx){});
+    CHECK(held.uart_tx_count == 0U);
+    CHECK(held.event_count == 0U);
+    CHECK(held.event_log.at(0).code == 0U);
+
+    auto runtime = ready_runtime();
+    runtime->freeze(true);
+    PinOutputs outputs = last;
+    runtime->tick(PinInputs{}, outputs);
+    CHECK(outputs.digital_out == controller::held_levels(PinOutputs{}).digital_out);
+    CHECK(outputs.uart_tx_count == 0U);
+}

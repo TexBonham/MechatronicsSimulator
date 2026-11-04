@@ -59,6 +59,18 @@ as data with an STM32-family placeholder, real parts drop in by file. MVP: miles
   trip output drives it; power supply output named `v_out` to match the pin.
 - Milestone 3 note: MuJoCo implicitfast treats member-node stiffness explicitly, stable only for omega h < 2 per
   segment, so the bridge cannot be the oracle for fine-segment beams; retirement baselines stay inside that envelope.
+- Engine binding surface (from the G review, invariant 5): engine types live in the submodule `_core_ext.engine`,
+  importable only from `mechsim/physics/native/` and `tests/`; the import-boundary check enforces it. Neutral types
+  stay flat in `mechsim._core`.
+- Own-engine load torque (J): `shaft_load_torque = -g F` is the torque the transmission applies to the shaft,
+  evaluated at the end state; the bridge publishes `tau_applied - J alpha` (the torque the shaft must supply). The
+  integration brief aligns both to PHY-033 (the shaft-must-supply sign) so the stepper reads one convention.
+- ENG-045 and ENG-046 (gear pair, slip parameter) pulled forward from milestone 2: delivered in package 7.
+- Self-locking screw lowering under drive is unresisted in this tier (no nut-friction model); recorded in eng.md.
+- Owner question for the gate (C re-review): where the transmission loss sits. The bridge reflects the rotor
+  lossless, `(m + J/c^2) a = eta tau / c`; if the loss is in the nut or belt the exact rigid relation is
+  `(m + eta J/c^2) a` driving and `(m + J/(eta c^2)) a` back-driven (5 percent of acceleration on the review
+  fixture). Both adapters must use the same reading; the lossless one stands until ruled.
 
 ## Rulings made overnight 2026-11-03/04, confirmed by the owner 2026-11-04
 

@@ -36,3 +36,5 @@ type live in the root `CLAUDE.md` dispatch table once measured.
 | 2026-11-04 | Lost to container restart: G/J review and C fix round, both just dispatched | general-purpose (fable), module-writer | ~5K | re-dispatched with the same briefs |
 | 2026-11-04 | M1 review: bindings and transmissions (G, J) | general-purpose (fable) | 198K | 21 calls, 7 min; both accept with fixes, 1 high (G engine names flat in `_core`) |
 | 2026-11-04 | M1-C fix round: reflection mapping, efficiency by power direction, load torque (PHY-033), pair filter, kWorldBody | module-writer (opus), resumed | ~58K | 21 calls, 7 min |
+| 2026-11-04 | M1-E re-review after fix round | general-purpose (fable), resumed | ~32K | 8 calls, 2 min; accept |
+| 2026-11-04 | M1-C re-review after fix round | general-purpose (fable), resumed | ~35K | 8 calls, 2 min; accept, 2 medium to integration and gate |

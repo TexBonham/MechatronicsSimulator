@@ -129,3 +129,8 @@ uint32_t mechsim_app_tick_hz(void)
 {
     return (uint32_t)MECHSIM_APP_TICK_HZ;
 }
+
+uint32_t mechsim_app_board_interface_version(void)
+{
+    return (uint32_t)MECHSIM_BOARD_INTERFACE_VERSION;
+}

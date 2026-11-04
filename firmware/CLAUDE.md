@@ -27,7 +27,7 @@ Real firmware, the controller itself (Decisions log rows 3, 4; R-02). Rules per 
 
 ## Contracts
 
-Header v2.1, fixed sizes (fw.md Open parameters); field units and semantics are in the header comments.
+Header v2.2, fixed sizes (fw.md Open parameters); field units and semantics are in the header comments.
 
 | Struct | Fields |
 |---|---|
@@ -39,10 +39,11 @@ Header v2.1, fixed sizes (fw.md Open parameters); field units and semantics are 
 | `void mechsim_app_init(void)` | Once after each reset |
 | `void mechsim_app_tick(const mechsim_board_inputs*, mechsim_board_outputs*)` | Once per tick; firmware writes every output field |
 | `uint32_t mechsim_app_tick_hz(void)` | Returns `MECHSIM_APP_TICK_HZ` (header default 1000; cache var `MECHSIM_APP_TICK_HZ` sets it from the design); simulator errors on mismatch |
+| `uint32_t mechsim_app_board_interface_version(void)` | Returns `MECHSIM_BOARD_INTERFACE_VERSION` as compiled; simulator errors on mismatch at load |
 
 | Preset (run from `firmware/`) | Notes |
 |---|---|
-| `host` | Host C compiler, tests on, `build/host` |
+| `host` | Host C compiler, tests on, `build/host`; each app also gets a SHARED `<app>_native` target (native runtime loads it) |
 | `arm-none-eabi` | `cmake/arm-none-eabi.cmake`; `-mcpu=cortex-m4 -mthumb` placeholder, chip not set |
 
 Gantry controller: state machine NOT_HOMED, HOMING, READY, MOVING, FAULT; homes X and Y to the min switches; per-axis

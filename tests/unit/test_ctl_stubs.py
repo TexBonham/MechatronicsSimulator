@@ -10,56 +10,6 @@ def test_ctl_001() -> None:
     raise NotImplementedError
 
 
-@pytest.mark.req("CTL-002")
-@pytest.mark.xfail(strict=True, reason="stub")
-def test_ctl_002() -> None:
-    """The native runtime shall call the firmware's init entry point once after each reset and its tick entry point
-    at the configured fixed control rate.
-    """
-    raise NotImplementedError
-
-
-@pytest.mark.req("CTL-003")
-@pytest.mark.xfail(strict=True, reason="stub")
-def test_ctl_003() -> None:
-    """The native runtime shall pass inputs to the tick entry point and read outputs from it as a plain C struct."""
-    raise NotImplementedError
-
-
-@pytest.mark.req("CTL-004")
-@pytest.mark.xfail(strict=True, reason="stub")
-def test_ctl_004() -> None:
-    """The native runtime shall present inputs with polled semantics: counters as counts accumulated over the tick,
-    levels as latched values, and no interrupts.
-    """
-    raise NotImplementedError
-
-
-@pytest.mark.req("CTL-005")
-@pytest.mark.xfail(strict=True, reason="stub")
-def test_ctl_005() -> None:
-    """The native shim shall call the firmware entry points directly from the core runtime, with no cffi or other
-    foreign-function layer.
-    """
-    raise NotImplementedError
-
-
-@pytest.mark.req("CTL-006")
-@pytest.mark.xfail(strict=True, reason="stub")
-def test_ctl_006() -> None:
-    """The native shim shall read the pin-binding table and present each bound signal as the board interface's value
-    for its pin.
-    """
-    raise NotImplementedError
-
-
-@pytest.mark.req("CTL-007")
-@pytest.mark.xfail(strict=True, reason="stub")
-def test_ctl_007() -> None:
-    """The native runtime shall build the firmware source for the host before the run starts."""
-    raise NotImplementedError
-
-
 @pytest.mark.req("CTL-008")
 @pytest.mark.xfail(strict=True, reason="stub")
 def test_ctl_008() -> None:

@@ -11,7 +11,7 @@
 #include <stdint.h>
 
 #define MECHSIM_BOARD_INTERFACE_VERSION_MAJOR 2u
-#define MECHSIM_BOARD_INTERFACE_VERSION_MINOR 1u
+#define MECHSIM_BOARD_INTERFACE_VERSION_MINOR 2u
 #define MECHSIM_BOARD_INTERFACE_VERSION \
     ((MECHSIM_BOARD_INTERFACE_VERSION_MAJOR * 65536u) + MECHSIM_BOARD_INTERFACE_VERSION_MINOR)
 
@@ -88,6 +88,10 @@ void mechsim_app_tick(const mechsim_board_inputs *inputs, mechsim_board_outputs 
 
 /* MECHSIM_APP_TICK_HZ as built, in hertz; the simulator reads it once at load and checks it against the design. */
 uint32_t mechsim_app_tick_hz(void);
+
+/* MECHSIM_BOARD_INTERFACE_VERSION of the header the application was compiled against; the simulator reads it once at
+ * load and rejects a library built against another version. */
+uint32_t mechsim_app_board_interface_version(void);
 
 #ifdef __cplusplus
 }

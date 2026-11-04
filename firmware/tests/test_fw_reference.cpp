@@ -71,8 +71,10 @@ TEST_CASE("board header declares plain C structs of fixed-width fields", "[FW-00
     static_assert(
         std::is_same_v<decltype(&mechsim_app_tick), void (*)(const mechsim_board_inputs*, mechsim_board_outputs*)>);
     static_assert(std::is_same_v<decltype(&mechsim_app_tick_hz), std::uint32_t (*)()>);
+    static_assert(std::is_same_v<decltype(&mechsim_app_board_interface_version), std::uint32_t (*)()>);
 
-    REQUIRE(MECHSIM_BOARD_INTERFACE_VERSION == 2U * 65536U + 1U);
+    REQUIRE(MECHSIM_BOARD_INTERFACE_VERSION == 2U * 65536U + 2U);
+    REQUIRE(mechsim_app_board_interface_version() == MECHSIM_BOARD_INTERFACE_VERSION);
     REQUIRE(MECHSIM_DIGITAL_IN_COUNT == 32U);
     REQUIRE(MECHSIM_COUNTER_COUNT == 8U);
     REQUIRE(MECHSIM_ADC_COUNT == 16U);

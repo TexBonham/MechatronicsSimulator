@@ -7,6 +7,16 @@
 
 namespace mechsim::controller {
 
+PinOutputs held_levels(const PinOutputs& last) noexcept {
+    PinOutputs held;
+    held.direction = last.direction;
+    held.enable = last.enable;
+    held.digital_out = last.digital_out;
+    held.state_code = last.state_code;
+    held.fault_code = last.fault_code;
+    return held;
+}
+
 NullControllerRuntime::NullControllerRuntime(kernel::Rate control_rate) : control_rate_(control_rate) {}
 
 void NullControllerRuntime::load(const FirmwareImage& firmware) {
@@ -38,10 +48,12 @@ void NullControllerRuntime::tick(const PinInputs& inputs, PinOutputs& outputs) {
         throw ControllerError("UART overflow: " + std::to_string(inputs.uart_rx_count) + " bytes in one tick, limit " +
                               std::to_string(uart_buffer_bytes));
     }
-    outputs = PinOutputs{};
+    // The null runtime publishes all-zero outputs, so the last published levels are zero too.
     if (frozen_) {
+        outputs = held_levels(PinOutputs{});
         return;
     }
+    outputs = PinOutputs{};
     ++ticks_;
 }
 

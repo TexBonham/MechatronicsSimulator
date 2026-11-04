@@ -1,37 +1,38 @@
 # core/controller: contract
 
-Namespace `mechsim::controller`. Target `mechsim_controller`; tests `mechsim_controller_tests`.
-Includes only `signals/power_rail.hpp` and `kernel/time.hpp`; never a kernel physics header (CTL-014, invariant 1).
+Namespace `mechsim::controller`. Target `mechsim_controller` (links `${CMAKE_DL_LIBS}`); tests `mechsim_controller_tests`,
+`mechsim_controller_native_tests`. Public headers include only `signals/power_rail.hpp`, `signals/pin_binding.hpp` and
+`kernel/time.hpp`, never a kernel physics header (CTL-014, invariant 1); `mechsim_board.h` only privately in `src/`.
 
-## Header `include/mechsim/controller/controller_runtime.hpp`
+## Headers (`include/mechsim/controller/`)
 
-| Item | Fields / signature |
+| Header | Items |
 |---|---|
-| `PinInputs` | `digital_in[32]` u8; `counter_delta[8]` i32 (accumulated in the tick); `adc_sample[16]` u16; `uart_rx[64]` u8 + `uart_rx_count` u16. No rail field |
-| `PinOutputs` | `step_count[8]` u32; `direction[8]`, `enable[8]` u8; `digital_out[32]` u8; `uart_tx[64]` u8 + `uart_tx_count` u16; `heartbeat`, `state_code`, `fault_code` u8; `event_log[16]` of `EventLogEntry{u8 code, u16 arg}` + `event_count` u8 (CTL-018) |
-| Constants | `digital_in_channels` 32, `counter_channels` 8, `adc_channels` 16, `uart_buffer_bytes` 64, `stepper_channels` 8, `digital_out_channels` 32, `event_log_entries` 16; fixed, not overridable |
-| `FirmwareImage` | `path`, `tick_hz` (firmware's `mechsim_app_tick_hz`) |
-| `ControllerRuntime` | `load(const FirmwareImage&)`, `reset(const signals::PowerRail&)`, `tick(const PinInputs&, PinOutputs&)`, `freeze(bool)`, `brownout(double voltage)` |
-| Errors | `ControllerConfigError` (load), `ControllerError` (run) |
-| `NullControllerRuntime(Rate control_rate)` | zeroes outputs per tick; `ticks_run()`, `resets()`, `frozen()`, `supply_voltage()`, `firmware_path()` |
+| `controller_runtime.hpp` | `PinInputs`, `PinOutputs` (no heartbeat; header v2.2), `EventLogEntry`, size constants, `FirmwareImage{path, tick_hz}`, `ControllerRuntime` (`load`, `reset`, `tick`, `freeze`, `brownout`), `ControllerConfigError` (load), `ControllerError` (run), `NullControllerRuntime(Rate)` |
+| `channel_map.hpp` | `PinSlot` (no direction/enable); `slot_capacity()`; `slot_accepts()`; `ChannelAssignment{signal, slot, channel}`; `ChannelMap`: `add()`, `find()`, `entries()`, `check_bindings()`, `assign_axis(axis, AxisChannels{dir_channel, enable_channel})`, `axis()`; `derive_axis_levels()` (CTL-006) |
+| `native_controller_runtime.hpp` | `board_interface_version()`; `placeholder_brownout_threshold_v`; `HostBuildRequest`, `build_host_firmware()` -> `{library, log}`; `NativeRuntimeConfig{control_rate, work_dir, brownout_threshold_v, channels, app_target, cmake_command}`; `NativeControllerRuntime` + `channel_map()`, `library_path()`, `build_log()`, `ticks_run()`, `inits()`, `frozen()`, `held_in_reset()`, `supply_voltage()` |
 
-## Mapping to the board interface (brief C6)
+## Native runtime (CTL-002 to CTL-007, CTL-011 to CTL-013, CTL-018)
 
-The C header in `board_interface/` has the same layout and widths. The native shim copies field for field, both
-directions; nothing is renamed, widened or reordered. More than 64 UART bytes in one tick is a `ControllerError`
-(run error), never silent truncation. Rail state reaches the runtime only via `reset` and `brownout` (CTL-013).
+| Step | Behavior |
+|---|---|
+| `load`, directory | `cmake --preset host -S <tree> -B <work_dir>/native-firmware/host -DMECHSIM_APP_TICK_HZ=<tick_hz> -DMECHSIM_FW_BUILD_TESTS=OFF`, `cmake --build ... --target <app_target>_native` -> `lib<app_target>_native.so` |
+| `load`, file | Loads a library built that way (or a fixture with the four entry points) |
+| `load`, checks | `tick_hz` equals the control rate before building; `mechsim_app_board_interface_version()` equals the runtime's header version; `mechsim_app_tick_hz()` equals the control rate. Failures: `ControllerConfigError` with tool output or `dlerror` |
+| Isolation | Each load copies the library to `<work_dir>/native-controller/<pid>-<n>/` and `dlopen`s it `RTLD_NOW|RTLD_LOCAL` (RAII), so runtimes never share firmware statics |
+| `reset(rail)` | Rail (0 V when off) at or above threshold (optional; unset throws): fresh copy, init; below: held |
+| `brownout(v)` | Below threshold: held, outputs zero; recovery after a reset: fresh copy, init |
+| `tick` | rx count > 64 throws; frozen: `held_levels()` (levels hold, buffers empty), no call; held: zero outputs; else copy field for field, call tick, derive direction/enable, tx count > 64 or event count > 16 throws `ControllerError` |
+
+Polled (ADR 0011 C3): deltas and levels pass through unchanged; no threads, no interrupts.
+
+## Tests
+
+`tests/fixtures/mirror_app.cpp`: four shared fixtures (matching, version + 1, no version, 250 Hz). The
+ctest fixture `mechsim_controller_native_reference_build` runs the hidden `[native-build]` case once (one real host
+configure of `firmware/app/main_tick.c`); other native tests load its library from `native_work/reference/`.
 
 ## Per-tick use (KER-009)
 
-Step 4: after sensors latch, `tick` runs once per control period; outputs then go to the signal layer. Frozen: no
-tick, outputs zeroed, physics and signals keep stepping (KER-021).
-
-## Conventions
-
-- Polled native semantics (ADR 0011 C3, CTL-004): counter deltas, latched levels, no interrupts.
-- `load` compares `tick_hz` with `RunConfig::control_rate` and throws `ControllerConfigError` on mismatch.
-- No Renode type crosses this interface (CTL-017).
-
-## Milestone 1 implements
-
-Native shim calling firmware init and tick directly (CTL-002 to CTL-007, CTL-012). Emulated runtime: milestone 4.
+Step 4: after sensors latch, `tick` runs once per control period; outputs then go to the signal layer. Physics and
+signals keep stepping while frozen (KER-021). No Renode type crosses this interface (CTL-017).
