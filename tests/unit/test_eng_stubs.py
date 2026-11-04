@@ -96,53 +96,8 @@ def test_eng_035() -> None:
     raise NotImplementedError
 
 
-@pytest.mark.req("ENG-043")
-@pytest.mark.xfail(strict=True, reason="stub")
-def test_eng_043() -> None:
-    """The engine shall simulate a belt and pulley transmission element of the neutral model with its ratio, efficiency,
-    stiffness, backlash and slip parameters.
-    """
-    raise NotImplementedError
-
-
-@pytest.mark.req("ENG-044")
-@pytest.mark.xfail(strict=True, reason="stub")
-def test_eng_044() -> None:
-    """The engine shall simulate a lead screw transmission element with its lead, efficiency, stiffness, backlash and
-    slip parameters, and a self-locking lead screw shall hold its joint against back-driving load with no motor torque.
-    """
-    raise NotImplementedError
-
-
-@pytest.mark.req("ENG-045")
-@pytest.mark.xfail(strict=True, reason="stub")
-def test_eng_045() -> None:
-    """The engine shall simulate a gear pair transmission element with its ratio, efficiency, stiffness, backlash and
-    slip parameters.
-    """
-    raise NotImplementedError
-
-
-@pytest.mark.req("ENG-046")
-@pytest.mark.xfail(strict=True, reason="stub")
-def test_eng_046() -> None:
-    """Every transmission element's slip parameter shall be zero by default, and the engine shall accept a mid-run
-    change of it so that a slip fault makes that transmission slip for the fault window.
-    """
-    raise NotImplementedError
-
-
 @pytest.mark.req("ENG-047")
 @pytest.mark.xfail(strict=True, reason="stub")
 def test_eng_047() -> None:
     """The engine shall simulate a rope as a lumped chain with unilateral tension, slack and length change."""
-    raise NotImplementedError
-
-
-@pytest.mark.req("ENG-048")
-@pytest.mark.xfail(strict=True, reason="stub")
-def test_eng_048() -> None:
-    """Each transmission element shall map the motor shaft torque the signal layer applies into joint force for the
-    step, and the engine shall publish the load torque on each motor shaft after every step for the stepper model.
-    """
     raise NotImplementedError

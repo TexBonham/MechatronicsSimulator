@@ -4,6 +4,7 @@
 #include <Eigen/LU>
 #include <Eigen/QR>
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstddef>
 #include <string>
@@ -220,6 +221,28 @@ void validate_constraint(const LoopConstraint& c, Eigen::Index i, Eigen::Index b
     }
 }
 
+void validate_transmission(const Transmission& t, Eigen::Index i, const std::vector<Body>& bodies) {
+    validate_transmission_parameters(t, i);
+    const std::string label = "transmission " + std::to_string(i) + ": ";
+    const Eigen::Index n = count(bodies.size());
+    if (t.input_body < 0 || t.input_body >= n || t.output_body < 0 || t.output_body >= n) {
+        throw InvalidModelError(0.0, label + "references a missing body");
+    }
+    if (t.input_body == t.output_body) {
+        throw InvalidModelError(0.0, label + "couples a body to itself");
+    }
+    if (at(bodies, t.input_body).joint.type != JointType::Revolute) {
+        throw InvalidModelError(0.0, label + "input shaft needs a Revolute joint");
+    }
+    JointType output = JointType::Prismatic;
+    if (t.type == TransmissionType::GearPair) {
+        output = JointType::Revolute;
+    }
+    if (at(bodies, t.output_body).joint.type != output) {
+        throw InvalidModelError(0.0, label + "output joint type does not match the transmission type");
+    }
+}
+
 // Wrench given world-aligned at a world point, expressed as a force vector in body coordinates.
 Vector6d to_body(const Transform& body_from_world, const Eigen::Vector3d& point, const Eigen::Vector3d& torque,
                  const Eigen::Vector3d& force) {
@@ -276,6 +299,12 @@ MultibodyProvider::MultibodyProvider(MultibodyModel model, MultibodyConfig confi
     }
     for (Eigen::Index i = 0; i < count(model_.constraints.size()); ++i) {
         validate_constraint(at(model_.constraints, i), i, n, config_.unit_tolerance);
+    }
+    for (Eigen::Index i = 0; i < count(model_.transmissions.size()); ++i) {
+        const Transmission& t = at(model_.transmissions, i);
+        validate_transmission(t, i, model_.bodies);
+        slip_.push_back(t.slip);
+        slip_offset_.push_back(0.0);
     }
     clear_inputs();
 }
@@ -474,6 +503,55 @@ void MultibodyProvider::evaluate(double /*t*/, const Eigen::VectorXd& q, const E
     terms.force = tau_ - external + joint_spring_forces(q, v);
     terms.stiffness = stiffness_.asDiagonal();
     terms.damping = damping_.asDiagonal();
+    add_transmission_terms(q, v, terms);
+}
+
+// ===== Transmissions =====================================================
+
+// Transmissions (ENG-043 to ENG-048): f gets the shaft torque input, F on the output and -g F on the shaft; in
+// contact K += k a b^T and D += c a b^T, a = [g, -1], b = [n_eff, -1] over (shaft, output); derivation in
+// transmission.hpp.
+TransmissionCoupling MultibodyProvider::coupling(Eigen::Index transmission, const Eigen::VectorXd& q,
+                                                 const Eigen::VectorXd& v) const {
+    const Transmission& t = at(model_.transmissions, transmission);
+    const Eigen::Index in_q = at(q_offset_, t.input_body);
+    const Eigen::Index in_v = at(v_offset_, t.input_body);
+    const Eigen::Index out_q = at(q_offset_, t.output_body);
+    const Eigen::Index out_v = at(v_offset_, t.output_body);
+    double drive = tau_[in_v];
+    for (Eigen::Index j = 0; j < count(model_.transmissions.size()); ++j) {
+        if (at(model_.transmissions, j).input_body == t.input_body) {
+            drive += at(shaft_torque_, j);
+        }
+    }
+    return couple(t, at(slip_, transmission), at(slip_offset_, transmission), q[in_q], v[in_v], q[out_q], v[out_v],
+                  drive);
+}
+
+void MultibodyProvider::add_transmission_terms(const Eigen::VectorXd& q, const Eigen::VectorXd& v,
+                                               DynamicsTerms& terms) const {
+    for (Eigen::Index i = 0; i < count(model_.transmissions.size()); ++i) {
+        const Transmission& t = at(model_.transmissions, i);
+        const Eigen::Index in = at(v_offset_, t.input_body);
+        const Eigen::Index out = at(v_offset_, t.output_body);
+        const TransmissionCoupling c = coupling(i, q, v);
+        terms.force[in] += at(shaft_torque_, i) + c.output.shaft_load_torque;
+        terms.force[out] += c.output.force;
+        if (!c.output.in_contact) {
+            continue;
+        }
+        const Eigen::Vector2d a(c.gain, -1.0);
+        const Eigen::Vector2d b(c.n_eff, -1.0);
+        const Eigen::Matrix2d ab = a * b.transpose();
+        const std::array<Eigen::Index, 2> dof = {in, out};
+        for (std::size_t r = 0; r < 2; ++r) {
+            for (std::size_t col = 0; col < 2; ++col) {
+                const double entry = ab(static_cast<Eigen::Index>(r), static_cast<Eigen::Index>(col));
+                terms.stiffness(dof.at(r), dof.at(col)) += t.stiffness * entry;
+                terms.damping(dof.at(r), dof.at(col)) += t.damping * entry;
+            }
+        }
+    }
 }
 
 // Joint springs and dampers (ENG-051): -K (q - rest) - D v; stiffness is zero wherever q and v are not aligned.
@@ -696,6 +774,46 @@ void MultibodyProvider::apply_body_wrench(Eigen::Index body, const Eigen::Vector
 void MultibodyProvider::clear_inputs() {
     tau_ = Eigen::VectorXd::Zero(nv_);
     wrench_.assign(model_.bodies.size(), Vector6d::Zero());
+    shaft_torque_.assign(model_.transmissions.size(), 0.0);
+}
+
+void MultibodyProvider::set_shaft_torque(Eigen::Index transmission, double torque) {
+    if (transmission < 0 || transmission >= count(model_.transmissions.size())) {
+        throw InvalidModelError(0.0, "shaft torque applied to a missing transmission");
+    }
+    if (!std::isfinite(torque)) {
+        throw InvalidModelError(0.0, "shaft torque is not finite");
+    }
+    at(shaft_torque_, transmission) = torque;
+}
+
+void MultibodyProvider::set_slip(Eigen::Index transmission, double slip) {
+    if (transmission < 0 || transmission >= count(model_.transmissions.size())) {
+        throw InvalidModelError(0.0, "slip set on a missing transmission");
+    }
+    Transmission changed = at(model_.transmissions, transmission);
+    changed.slip = slip;
+    validate_transmission_parameters(changed, transmission);
+    at(slip_, transmission) = slip;
+}
+
+double MultibodyProvider::slip(Eigen::Index transmission) const {
+    if (transmission < 0 || transmission >= count(model_.transmissions.size())) {
+        throw InvalidModelError(0.0, "slip read from a missing transmission");
+    }
+    return at(slip_, transmission);
+}
+
+std::vector<TransmissionOutput> MultibodyProvider::transmission_states(const Eigen::VectorXd& q,
+                                                                       const Eigen::VectorXd& v) const {
+    if (q.size() != nq_ || v.size() != nv_) {
+        throw InvalidModelError(0.0, "transmission state needs q and v of the model's sizes");
+    }
+    std::vector<TransmissionOutput> out;
+    for (Eigen::Index i = 0; i < count(model_.transmissions.size()); ++i) {
+        out.push_back(coupling(i, q, v).output);
+    }
+    return out;
 }
 
 std::vector<BodyOutput> MultibodyProvider::body_states(const Eigen::VectorXd& q, const Eigen::VectorXd& v) const {
@@ -722,7 +840,13 @@ StepHealth MultibodyProvider::step(Integrator& integrator, State& state) {
         clear_inputs();
         throw;
     }
+    for (Eigen::Index i = 0; i < count(model_.transmissions.size()); ++i) {
+        const Transmission& t = at(model_.transmissions, i);
+        const Eigen::Index in_q = at(q_offset_, t.input_body);
+        at(slip_offset_, i) += at(slip_, i) * output_per_input(t) * (state.q[in_q] - before.q[in_q]);
+    }
     record_outputs(before, state, integrator.config().h);
+    outputs_.transmissions = transmission_states(state.q, state.v);
     clear_inputs();
     return health;
 }

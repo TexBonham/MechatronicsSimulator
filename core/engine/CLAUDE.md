@@ -15,6 +15,7 @@ Namespace `mechsim::engine`; q (nq), v (nv). Eigen only, dense (ENG-001).
 | `spatial.hpp` | Featherstone 6-vectors (angular first), `Transform` B_X_A (`motion`, `force`, `inverse_*`, `then_from`), `inertia`, `cross_motion/force` |
 | `multibody_model.hpp` | `JointType`, `Joint`, `Body`, `LoopConstraint` (Point 3, Hinge 5 rows), `MultibodyModel`, `MultibodyConfig` |
 | `multibody_provider.hpp` | `MultibodyProvider`, output structs |
+| `transmission.hpp` | `Transmission` (belt, screw, gear), `TransmissionOutput`, `PowerFlow`, `couple` (derivation) |
 | `lumped_beam.hpp` | `BeamSpec`, `add_lumped_beam(model, spec, parent, position, orientation)`, `beam_point(beam, x)` (ENG-022) |
 
 ## DynamicsProvider hooks
@@ -44,19 +45,24 @@ min-norm steps; drift > `drift_threshold_m/_rad` (1e-6) throws `DriftError(t, ca
 `step(integrator, state)`: steps, records `outputs()` (body pose and twists; joint `S^T f` and wrench; constraint
 impulse, force, errors; empty `contacts`), clears inputs.
 Inputs: `set_generalized_forces(tau)`, `apply_body_wrench(body, torque, force)` world-aligned at the com.
-Also `constraint_errors(q)`, `body_states(q, v)`, `neutral_positions()`, `position/velocity_offset(b)`.
+Also `constraint_errors(q)`, `body_states(q, v)`, `neutral_positions()`, `*_offset(b)`.
 Hooks write mutable `impulse_`/`error_`; single-threaded (ENG-023).
+Transmissions: Revolute shaft to Prismatic or (gear) Revolute output; K, D += k, c a b^T in contact.
+`set_shaft_torque(i, tau)` (per step), `set_slip(i, s)` (persists), `slip(i)`, `transmission_states(q, v)`.
+`outputs().transmissions`: end state, step's drive (next step's pre-image); `shaft_load_torque`,
+`power_flow` not for per-step energy bookkeeping. Slip offsets move only in `step()`.
 
 ## Section index, `src/multibody_provider.cpp`
 
 | Section | Line |
 |---|---|
-| Helpers | 38 |
-| Construction | 239 |
-| Kinematics | 309 |
-| Dynamics | 376 |
-| Constraints | 529 |
-| Inputs and outputs | 672 |
+| Helpers | 39 |
+| Construction | 262 |
+| Kinematics | 338 |
+| Dynamics | 405 |
+| Transmissions | 509 |
+| Constraints | 607 |
+| Inputs and outputs | 750 |
 
 ## Lumped beam
 
@@ -65,7 +71,7 @@ Planar bending about root z; two-axis bending plus torsion: next tier. Derivatio
 
 ## Tests
 
-Unit: `mechsim_engine_tests`. Reference: `mechsim_engine_reference`, `ctest --preset debug-sanitize -L reference`.
+Unit: `mechsim_engine_tests`. Reference: `mechsim_engine_reference`, `ctest -L reference`.
 
 ## Conventions
 

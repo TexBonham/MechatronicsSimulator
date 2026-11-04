@@ -6,6 +6,8 @@
 #include <string>
 #include <vector>
 
+#include "mechsim/engine/transmission.hpp"
+
 namespace mechsim::engine {
 
 // Joint coordinates (q; v), ENG-006 to ENG-011:
@@ -60,6 +62,7 @@ struct LoopConstraint {
 struct MultibodyModel {
     std::vector<Body> bodies;
     std::vector<LoopConstraint> constraints;
+    std::vector<Transmission> transmissions;  // ENG-043 to ENG-046, ENG-048
     Eigen::Vector3d gravity = Eigen::Vector3d(0.0, 0.0, -9.81);  // world frame, m/s^2
 };
 
