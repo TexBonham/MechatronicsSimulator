@@ -45,3 +45,4 @@ type live in the root `CLAUDE.md` dispatch table once measured.
 | 2026-11-04 | M1-X1 fix round: MuJoCo adapter bound with libmujoco in the wheel, inverse heartbeat test, negative-ratio cases, ker.md rows | module-writer (opus), resumed | ~32K | 31 calls, 14 min |
 | 2026-11-04 | M1 review: core wiring (X1) | general-purpose (fable) | 198K | 22 calls, 5 min; accept with 5 minor fixes, applied inline by the coordinator |
 | 2026-11-04 | M1-X2: CoreDriver, PreparedModel assembly, rotor inertia (BLD-034), coupling mirror (REC-028), CLI entry, P1 green and run-twice identical | module-writer (opus), worktree | 286K | 109 calls, 28 min; gantry blocked on sensor placement in the design schema |
+| 2026-11-04 | M1-X3: sensor placement (DES-043), open-parameter defaults (DES-044), gantry cases G1, G2, G4, generated channel header, gantry end to end; G2 and G3 green | module-writer (opus), worktree | 345K | 150 calls, 35 min; G1 and G4 blocked on the stepper hold model |

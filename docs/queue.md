@@ -78,6 +78,13 @@ as data with an STM32-family placeholder, real parts drop in by file. MVP: miles
 - Kernel coupling values may be typed immutable payloads beside scalars (KER-008 row); KER-023 scheduling rule as
   written in ker.md; the physics party tests drift against the larger of the two thresholds until health carries
   per-kind drift (KER-016 row).
+- Behavioral stepper is position-commanded (SIG-033 model defect found by G1 and G4: the feedforward torque law
+  let the enabled lift creep under gravity): restoring torque `tau_hold sin(pi delta / (2 step_angle))` on the
+  commanded-minus-shaft angle, viscous term, capped by the torque-speed curve; pull-out at two step angles
+  re-synchronizes and counts missed steps, stall when it happens at zero commanded speed; disabled is zero torque.
+- Design firmware section declares `state_codes` and `fault_codes` name maps (DES-045); the controller state the
+  runner reports is `{state, fault}` by name and a case precondition names a state. Operator status message carries
+  `state` and `fault` fields. App target `mechsim_fw_<design name>` is the convention.
 - Owner question for the gate (C re-review): where the transmission loss sits. The bridge reflects the rotor
   lossless, `(m + J/c^2) a = eta tau / c`; if the loss is in the nut or belt the exact rigid relation is
   `(m + eta J/c^2) a` driving and `(m + J/(eta c^2)) a` back-driven (5 percent of acceleration on the review
