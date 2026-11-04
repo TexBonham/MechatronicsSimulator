@@ -40,3 +40,4 @@ type live in the root `CLAUDE.md` dispatch table once measured.
 | 2026-11-04 | M1-C re-review after fix round | general-purpose (fable), resumed | ~35K | 8 calls, 2 min; accept, 2 medium to integration and gate |
 | 2026-11-04 | M1-J fix round: transmission documentation items | module-writer (opus), resumed | ~10K | 9 calls, 6 min |
 | 2026-11-04 | M1-G fix round: engine submodule and boundary rule, lumped beam bound, 11 edge cases, cache-keys | module-writer (opus), resumed | ~24K | 12 calls, 7 min |
+| 2026-11-04 | Invariant audit: wave 1 stage commits (9fc0980..d4c7459) | invariant-auditor (sonnet) | 30K | 10 calls, 1 min; all nine pass, 2 low notes to integration |
