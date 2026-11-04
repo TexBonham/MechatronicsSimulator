@@ -1,0 +1,16 @@
+<mujoco model="pendulum">
+  <compiler angle="radian" autolimits="false" inertiafromgeom="false" balanceinertia="false" boundmass="0" boundinertia="0" />
+  <option timestep="0.001" gravity="0 -9.81 0" integrator="implicitfast" iterations="50" />
+  <worldbody>
+    <body name="link" pos="0 0 0" quat="0.7071067811865476 0 0 -0.7071067811865476">
+      <inertial pos="0.25 0 0" mass="1.0" fullinertia="5e-05 0.020833333333333332 0.020833333333333332 0 0 0" />
+      <joint name="pivot" type="hinge" axis="0 0 1.0" damping="0.04520785330006282" />
+      <geom name="link.shape0" pos="0.25 0 0" quat="0.7071067811865476 0 0.7071067811865476 0" type="cylinder" size="0.01 0.25" contype="0" conaffinity="0" />
+    </body>
+  </worldbody>
+  <custom>
+    <text name="mechsim:elements" data="body joint.revolute shape.cylinder" />
+    <text name="mechsim:bodies" data="link" />
+    <text name="mechsim:joints" data="pivot:revolute" />
+  </custom>
+</mujoco>

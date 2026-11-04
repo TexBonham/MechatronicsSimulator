@@ -1,0 +1,39 @@
+<mujoco model="mechanism">
+  <compiler angle="radian" autolimits="false" inertiafromgeom="false" balanceinertia="false" boundmass="0" boundinertia="0" />
+  <option timestep="0.001" gravity="0 -9.81 0" integrator="implicitfast" iterations="50" />
+  <worldbody>
+    <body name="arm" pos="0 0 0" quat="1.0 0 0 0">
+      <inertial pos="0.25 0 0" mass="1.0" fullinertia="5e-05 0.020833333333333332 0.020833333333333332 0 0 0" />
+      <joint name="hinge" type="hinge" axis="0 0 1.0" />
+      <site name="tie.a" pos="0.5 0 0" />
+    </body>
+    <body name="beam.segment0" pos="0.125 1.0 0" quat="1.0 0 0 0">
+      <inertial pos="0.125 0 0" mass="0.025" diaginertia="4.9999999999999996e-05 0.00013020833333333333 0.00013020833333333333" />
+      <joint name="beam.node0" type="hinge" axis="0 0 1" stiffness="40.0" damping="1.0" />
+      <body name="beam.segment1" pos="0.25 0 0" quat="1.0 0 0 0">
+        <inertial pos="0.125 0 0" mass="0.025" diaginertia="4.9999999999999996e-05 0.00013020833333333333 0.00013020833333333333" />
+        <joint name="beam.node1" type="hinge" axis="0 0 1" stiffness="40.0" damping="1.0" />
+        <body name="beam.segment2" pos="0.25 0 0" quat="1.0 0 0 0">
+          <inertial pos="0.125 0 0" mass="0.025" diaginertia="4.9999999999999996e-05 0.00013020833333333333 0.00013020833333333333" />
+          <joint name="beam.node2" type="hinge" axis="0 0 1" stiffness="40.0" damping="1.0" />
+          <body name="beam.segment3" pos="0.25 0 0" quat="1.0 0 0 0">
+            <inertial pos="0.0625 0 0" mass="0.0125" diaginertia="2.4999999999999998e-05 1.6276041666666666e-05 1.6276041666666666e-05" />
+            <joint name="beam.node3" type="hinge" axis="0 0 1" stiffness="40.0" damping="1.0" />
+          </body>
+        </body>
+      </body>
+    </body>
+    <site name="tie.b" pos="0.5 0 0" />
+  </worldbody>
+  <equality>
+    <connect name="tie" site1="tie.a" site2="tie.b" solref="0.002 1.0" />
+  </equality>
+  <custom>
+    <text name="mechsim:elements" data="body constraint.point joint.revolute lumped_member" />
+    <text name="mechsim:bodies" data="arm" />
+    <text name="mechsim:joints" data="hinge:revolute" />
+    <text name="mechsim:constraints" data="tie:point" />
+    <text name="mechsim:members" data="beam:world:clamped:free:4" />
+    <numeric name="mechsim:member:beam" data="0.25 0 1.0 0 1.0 0 0 0" />
+  </custom>
+</mujoco>

@@ -37,6 +37,9 @@ struct ConstraintForce {
     double rotational_error = 0.0;     // rad
 };
 
+// Body index standing for the world, or a body outside the neutral body list, in ContactForce::body_a and body_b.
+inline constexpr std::size_t kWorldBody = static_cast<std::size_t>(-1);
+
 struct ContactForce {
     std::size_t body_a = 0;
     std::size_t body_b = 0;

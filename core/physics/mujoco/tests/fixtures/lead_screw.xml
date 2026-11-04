@@ -1,0 +1,17 @@
+<mujoco model="lead_screw">
+  <compiler angle="radian" autolimits="false" inertiafromgeom="false" balanceinertia="false" boundmass="0" boundinertia="0" />
+  <option timestep="0.001" gravity="0 0 -9.81" integrator="implicitfast" iterations="50" />
+  <worldbody>
+    <body name="carriage" pos="0 0 0" quat="1.0 0 0 0">
+      <inertial pos="0 0 0" mass="10.0" fullinertia="0.0001 0.0001 0.0001 0 0 0" />
+      <joint name="rail" type="slide" axis="1.0 0 0" armature="3.330991485367658" />
+    </body>
+  </worldbody>
+  <custom>
+    <text name="mechsim:elements" data="body joint.prismatic joint.revolute transmission.lead_screw" />
+    <text name="mechsim:bodies" data="rotor carriage" />
+    <text name="mechsim:joints" data="screw:revolute rail:prismatic" />
+    <text name="mechsim:transmissions" data="drive:rotor:world:rail" />
+    <numeric name="mechsim:transmission:drive" data="0.0012732395447351628 1.0 5.4e-06 0 0 0 1.0 0 0 0 0 0 1.0" />
+  </custom>
+</mujoco>

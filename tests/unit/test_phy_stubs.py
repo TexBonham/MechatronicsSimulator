@@ -49,42 +49,10 @@ def test_phy_012() -> None:
     raise NotImplementedError
 
 
-@pytest.mark.req("PHY-013")
-@pytest.mark.xfail(strict=True, reason="stub")
-def test_phy_013() -> None:
-    """The MuJoCo adapter shall translate the neutral model into MJCF."""
-    raise NotImplementedError
-
-
-@pytest.mark.req("PHY-014")
-@pytest.mark.xfail(strict=True, reason="stub")
-def test_phy_014() -> None:
-    """The MuJoCo adapter shall run with the implicitfast integrator at a 1 ms step."""
-    raise NotImplementedError
-
-
-@pytest.mark.req("PHY-017")
-@pytest.mark.xfail(strict=True, reason="stub")
-def test_phy_017() -> None:
-    """The MuJoCo adapter shall map only elements of the neutral model and shall add no element type the neutral model
-    lacks.
-    """
-    raise NotImplementedError
-
-
 @pytest.mark.req("PHY-018")
 @pytest.mark.xfail(strict=True, reason="stub")
 def test_phy_018() -> None:
     """Every adapter shall map the neutral model's transmissions and lumped members onto its engine."""
-    raise NotImplementedError
-
-
-@pytest.mark.req("PHY-019")
-@pytest.mark.xfail(strict=True, reason="stub")
-def test_phy_019() -> None:
-    """An adapter shall declare the neutral elements it can map and shall refuse to load a model containing any other
-    element, ending with a report.
-    """
     raise NotImplementedError
 
 

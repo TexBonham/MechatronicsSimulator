@@ -13,7 +13,8 @@ Namespace `mechsim::kernel`; target `mechsim_kernel`; tests `mechsim_kernel_test
 | `kernel.hpp` | `Kernel`: `register_party`, `set_end_triggers(EndTriggers{at_time, on_signal, party_state})`, `run(EndCondition{end_time, stop}, sink) -> RunReport{outcome, base_rate, end_time, ticks, fault, end_reason, step_counts}`, `now`, `config`; `NullKernel` |
 | `cosim_kernel.hpp` | `CoSimKernel(RunConfig)`, `coupling()`; `splitmix64_next`, `derive_child_seeds` |
 | `null_party.hpp` | `NullParty(name, rate)`: tier 1 integrity slot until M3 |
-| `physics_types.hpp`, `physics_adapter.hpp` | `PhysicsOutputs/Inputs/Health`; `PhysicsAdapter`; `AdapterError` |
+| `physics_types.hpp` | `kWorldBody` (contact body index of the world); `PhysicsOutputs{steps, bodies, joints, constraints, contacts, members, ropes, transmissions}`, `PhysicsInputs`, `PhysicsHealth{drift, converged, iterations, steps, physics_rate}` |
+| `physics_adapter.hpp` | `PhysicsAdapter`: `supported_elements()`, `load(PreparedModel{json, engine_artifact, design_version}, physics_rate)`, `reset()`, `step()`, `outputs()`, `health()`, `set_inputs()`, mid-run `set_spring_offset/_stiffness`, `disable_constraint`, `release_load`, `set_payload_mass`, `set_payload_attachment`; `AdapterError(step, cause)` |
 | `tick_record.hpp` | `TickRecord{time, physics, pin_signals, rails, actuator_efforts, controller_state, events, coupling}` |
 | `recorder_sink.hpp` | `RecorderSink`: `write_row`, `subscribe`, `unsubscribe`, defaulted `subscriber_errors`; `NullRecorderSink` |
 | `memory_recorder_sink.hpp` | `InMemoryRecorderSink`: `rows`, `drain`, `drained`, `subscriber_count`, `subscriber_errors` |

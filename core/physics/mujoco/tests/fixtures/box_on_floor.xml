@@ -1,0 +1,20 @@
+<mujoco model="box_on_floor">
+  <compiler angle="radian" autolimits="false" inertiafromgeom="false" balanceinertia="false" boundmass="0" boundinertia="0" />
+  <option timestep="0.001" gravity="0 0 -9.81" integrator="implicitfast" iterations="50" />
+  <worldbody>
+    <geom name="world.shape0" pos="0 0 0" quat="1.0 0 0 0" type="plane" size="0 0 1" contype="0" conaffinity="0" />
+    <body name="box" pos="0 0 0.05" quat="1.0 0 0 0">
+      <inertial pos="0 0 0" mass="1.0" fullinertia="0.0016666666666666668 0.0016666666666666668 0.0016666666666666668 0 0 0" />
+      <joint name="float" type="free" />
+      <geom name="box.shape0" pos="0 0 0" quat="1.0 0 0 0" type="box" size="0.05 0.05 0.05" contype="0" conaffinity="0" />
+    </body>
+  </worldbody>
+  <contact>
+    <pair geom1="world.shape0" geom2="box.shape0" condim="3" friction="0.5 0.5 0 0 0" solref="-100000.0 -632.0" solimp="0.99 0.99 0.001 0.5 2.0" />
+  </contact>
+  <custom>
+    <text name="mechsim:elements" data="body contacts joint.free shape.box shape.plane" />
+    <text name="mechsim:bodies" data="box" />
+    <text name="mechsim:joints" data="float:free" />
+  </custom>
+</mujoco>

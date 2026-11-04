@@ -19,10 +19,17 @@ jobs:
       CXX: ${{ matrix.compiler.cxx }}
     steps:
       - uses: actions/checkout@v4
+      - name: MuJoCo include boundary (PHY-011, ADR 0014)
+        run: |
+          if grep -rnE '^\s*#\s*include\s*[<"]mujoco/' core | grep -v '^core/physics/mujoco/'; then
+            echo "MuJoCo headers are allowed only under core/physics/mujoco/"
+            exit 1
+          fi
       - name: Install toolchain
         run: |
           sudo apt-get update
           sudo apt-get install -y ninja-build clang-tidy ${{ matrix.compiler.packages }}
+      # Configure fetches the pinned MuJoCo release archive (core/cmake/MuJoCo.cmake) with its SHA-256.
       - name: Configure debug-sanitize
         run: cmake --preset debug-sanitize
       - name: Build debug-sanitize

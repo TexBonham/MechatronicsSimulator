@@ -53,11 +53,12 @@ proposed <value>)".
 | PHY-025 | The comparison recordings used for retirement shall be kept as fixed baselines, stored as YAML scoring summaries in git. | ADR 0004, Decision table and Consequences; ruling D4 | roadmap | unit | n/a |
 | PHY-026 | After retirement, no runtime code path shall import MuJoCo. | ADR 0004, Consequences | roadmap | invariant | n/a |
 | PHY-027 | Every adapter shall apply the design's gravity, joint friction and joint limits. | Requirements doc, Dynamics (rigid multibody dynamics) | M1 | unit | n/a |
-| PHY-028 | A rigid pendulum run on an adapter shall match the closed-form small-angle period. | Architecture doc, Technology recommendation, Validation paragraph; ruling P4 | M1 | reference | not set (owed by owner) |
+| PHY-028 | A rigid pendulum run on an adapter shall match the closed-form small-angle period. | Architecture doc, Technology recommendation, Validation paragraph; ruling P4 | M1 | reference | 0.1 % of period |
 | PHY-029 | A body resting on the floor under gravity shall stay at rest on an adapter, with penetration and drift within tolerance. | Requirements doc, Dynamics (contact, payload resting on the floor); ADR 0002 | M1 | reference | not set (owed by owner) |
 | PHY-030 | A body on a prismatic joint with Coulomb friction shall decelerate at the closed-form rate on an adapter. | Requirements doc, Dynamics (friction) | M1 | reference | not set (owed by owner) |
 | PHY-031 | Integrator choice and step size shall be per-adapter configuration, and no adapter shall change another adapter's configuration. | Ruling P2; ADR 0003 | M1 | unit | n/a |
 | PHY-032 | An adapter shall advance simulated time only on a step call and shall not read wall-clock time. | Architecture doc, Repository starting point, invariant 4; Modules: core, Co-simulation kernel row (kernel owns time) | M1 | unit | n/a |
+| PHY-033 | Every adapter shall publish, as each transmission shaft joint's generalized force after every step, the shaft load torque tau_load = tau_applied - J * qacc_shaft: the torque the shaft supplies along its + axis beyond accelerating its own rotor inertia J about the axis (qacc_shaft = qacc_driven / c for a rigid ratio driven = c * shaft). | ENG-048 (stepper reads it); M1-C stage review | M1 | unit | n/a |
 
 ## Open parameters
 
@@ -65,7 +66,7 @@ proposed <value>)".
 |---|---|---|
 | Differential tolerance between adapters (PHY-021, PHY-024) | not set | owner |
 | Constraint drift threshold that ends a run (PHY-009) | not set | owner |
-| Pendulum period tolerance (PHY-028); proposed 0.5 percent for small amplitude | not set | owner |
+| Pendulum period tolerance (PHY-028) | 0.1 % of period (coordinator ruling, as ENG-036; owner confirms at the gate) | owner |
 | Resting-contact penetration and drift tolerance (PHY-029) | not set | owner |
 | Friction deceleration tolerance (PHY-030) | not set | owner |
 | Milestone at which the native adapter is required (PHY-020) | not ruled | owner (ADR 0004 open item) |
@@ -73,6 +74,27 @@ proposed <value>)".
 | Status of the reserved Chrono adapter | not ruled | owner (ADR 0004 open item) |
 
 Which adapter carries milestone 3 is not ruled (ADR 0004 open item); live member end-loads at M3 require it.
+
+## MuJoCo adapter, milestone 1 mapping
+
+Recorded with the stepping adapter (ADR 0014; R-18). Full table: `mechsim/physics/mujoco/CLAUDE.md` and
+`core/physics/mujoco/CLAUDE.md`.
+
+| Item | Milestone 1 behavior |
+|---|---|
+| Release | MuJoCo 3.9.0, prebuilt Linux x86_64 archive pinned by SHA-256; other platforms not pinned |
+| Transmissions (PHY-018, PHY-033) | Reflection, exact for a rigid ratio driven = c * shaft (c = r, lead / 2 pi, 1 / ratio): the shaft body is not emitted, the driven joint carries armature J / c^2; the shaft torque tau acts on the driven joint as F = eta tau / c when driving (tau qd_driven c >= 0, standing still included) and F = tau / (eta c) when back-driven; the shaft's pose and rate are q_driven / c, qd_driven / c; its generalized force is the load torque (PHY-033). Finite stiffness is treated as rigid and reported; shaft mass, off-axis inertia and shapes are reported as not carried; backlash and slip are refused until milestone 2 (PHY-006), self-locking until the own engine's package 7 |
+| Contacts | Explicit pairs; bodies joined by a non-free joint do not collide, each skip reported |
+| Lumped members (PHY-018) | The own engine's midpoint-spring chain (ENG-022) as hinge joints; end-loads from the first segment's interaction force and the roller connect force |
+| Refused (PHY-017, PHY-019) | One-sided joint limits, non-uniform damping or friction on spherical or free joints, free joints below a body, unknown element types |
+| Spring index space (PHY-008) | Revolute, prismatic and planar joint DOFs in joint order, then lumped-member nodes root to tip |
+| Payload index space (PHY-008) | Neutral bodies; mass change rescales inertia |
+| Load release, re-attachment (PHY-008) | No mapping (no ropes, no re-parenting); the call is a run error |
+| Drift (PHY-009) | Reported in health; the threshold check stays with the kernel's drift configuration |
+
+Limits: implicitfast takes joint damping implicitly but member-node stiffness explicitly, so a lumped member on the
+bridge is stable only for omega h < 2, with omega = sqrt(3 E / rho) r / l^2 per segment (r = sqrt(I / A), l the
+segment length). The retirement baselines and milestone 3 bridge runs stay inside that envelope.
 
 ## Out of scope
 
