@@ -85,6 +85,12 @@ as data with an STM32-family placeholder, real parts drop in by file. MVP: miles
 - Design firmware section declares `state_codes` and `fault_codes` name maps (DES-045); the controller state the
   runner reports is `{state, fault}` by name and a case precondition names a state. Operator status message carries
   `state` and `fault` fields. App target `mechsim_fw_<design name>` is the convention.
+- Stepper hold through physics (X4 found the signal-layer hold spring explicit and unstable on the lift at 1 ms,
+  omega h 2.3): `PhysicsInputs.joint_drives` {joint, rest, stiffness, damping, enabled} applied implicitly by the
+  adapter (MuJoCo: soft joint equality with direct solref; own engine: ADR 0013 implicit spring); the stepper
+  publishes its commanded angle as the drive rest with the linearized detent stiffness and reads the drive torque back
+  for pull-out and stall. Alternative on the table for the gate: a 0.25 ms physics step (holds, 4x slower, and exposed
+  a UART byte-loss defect at unequal rates that is owed regardless).
 - Owner question for the gate (C re-review): where the transmission loss sits. The bridge reflects the rotor
   lossless, `(m + J/c^2) a = eta tau / c`; if the loss is in the nut or belt the exact rigid relation is
   `(m + eta J/c^2) a` driving and `(m + J/(eta c^2)) a` back-driven (5 percent of acceleration on the review
