@@ -67,11 +67,11 @@ proposed <value>)".
 | Parameter | Current value | Owed by |
 |---|---|---|
 | Recording rate of pulse-level signals finer than the physics step | not set | phase 1 contracts |
-| HDF5 archive layout (groups, datasets, attribute names) | not set | phase 1 schemas |
-| Which git hashes are recorded (repository, firmware tree, design file) | not set | phase 1 schemas |
-| Archive comparison rule for run-twice determinism (bitwise file or recorded content) | recorded content | phase 1 contracts |
-| Streaming interface shape and back-pressure | C++ seam: `RecorderSink::subscribe`, callback per row, synchronous, in subscription order (brief C5); facade-side shape and back-pressure not set | phase 1 ADR (facade protocol) |
-| MAT file version | not set | phase 1 contracts |
+| HDF5 archive layout (groups, datasets, attribute names) | format `mechsim-run-archive` version 1, layout in `mechsim/record/CLAUDE.md` | set (M1-F) |
+| Which git hashes are recorded (repository, firmware tree, design file) | repository HEAD commit (`unset` outside git), design file blob hash, test case file blob hash; firmware tree not set | firmware tree: M1 integration |
+| Archive comparison rule for run-twice determinism (bitwise file or recorded content) | recorded content; `archives_identical` also reports byte identity, which the synthetic run-twice test asserts | phase 1 contracts |
+| Streaming interface shape and back-pressure | C++ seam: `RecorderSink::subscribe`, callback per row, synchronous, in subscription order (brief C5); Python consumer `Recorder.subscribe`, same semantics; facade-side shape and back-pressure not set | phase 1 ADR (facade protocol) |
+| MAT file version | 5, uncompressed, via `scipy.io.savemat` | set (M1-F) |
 
 ## Out of scope
 

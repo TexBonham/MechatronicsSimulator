@@ -13,3 +13,10 @@ type live in the root `CLAUDE.md` dispatch table once measured.
 | 2026-11-04 | M1-S invariant audit | invariant-auditor (sonnet) | 29K | 6 calls, 0.5 min; clean |
 | 2026-11-04 | M1-V: peripheral-mode vocabulary unified, gantry pin table, rail-consumer rule | schema-author (opus), resumed | ~14K | 9 calls, 3 min |
 | 2026-11-04 | Inline: heartbeat field removal across header, runtime, reference firmware; wave 1 worktrees | inline | ~25K | |
+| 2026-11-04 | M1-F: recorder archives, exports, run-twice compare, 24 REC rows | module-writer (opus), worktree | 156K | 29 calls, 15 min |
+| 2026-11-04 | Lost wave 1 first dispatch (container restart, ten writers in their first minutes) | module-writer x10 | ~150K est. | no output survived |
+| 2026-11-04 | M1-H: gantry firmware G1 to G4, channel map, 62 host tests | firmware-builder (opus), worktree | 175K | 48 calls, 19 min |
+| 2026-11-04 | M1-A: builder, neutral model, wiring table, channels header, 93 tests | module-writer (opus), worktree | 240K | 54 calls, 19 min |
+| 2026-11-04 | M1-I: runner, driver protocol, scoring statistics, CLI, 23 TST and 18 SCO rows | module-writer (opus), worktree | 243K | 52 calls, 19 min |
+| 2026-11-04 | M1 review: builder and runner (A, I) | general-purpose (fable) | 208K | 47 calls, 8 min; 0 algorithm defects, 1 cross-brief medium, 3 low |
+| 2026-11-04 | M1 review: recorder and firmware (F, H) | general-purpose (fable) | pending | accept both; dir/enable source ruling |
