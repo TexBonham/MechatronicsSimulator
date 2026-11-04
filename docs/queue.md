@@ -4,11 +4,12 @@ State for the coordinating session. A new session reads this, then `docs/rulings
 
 ## Current checkpoint
 
-Milestone 1 in flight on `round/03-milestone-1`. Wave 0 landed (M1-S plus the vocabulary and heartbeat contract
-edits, commits 3f316b9 and 2eb0a2e). Wave 1 dispatched: ten briefs in worktrees `../MechatronicsSimulator-m1-{a..j}`
-on branches `wip/m1-{a..j}` from base 2eb0a2e: A builder, B kernel, C MuJoCo bridge, D signal built-ins, E native
-runtime, F recorder, G bindings, H gantry firmware, I runner and scoring and CLI, J engine package 7. Owner returns at
-the milestone 1 gate.
+Milestone 1 in flight on `round/03-milestone-1`. Wave 0 landed (3f316b9, 2eb0a2e). Wave 1 landed as ten stage
+commits through d4c7459 (recorder, runner, firmware, builder, kernel, signals, native runtime, MuJoCo bridge, engine
+package 7, bindings), each Fable-reviewed from spec and diff with one fix round where required and re-reviewed where
+the fix changed physics or contracts. Wave 2 dispatched: M1-X1 core wiring in `../MechatronicsSimulator-m1-x1`
+(`wip/m1-x1`); M1-X2 driver and acceptance follows it; invariant audit of wave 1 running. Owner returns at the
+milestone 1 gate.
 
 ## Milestone 1 rulings (owner, 2026-11-04)
 
@@ -21,11 +22,11 @@ as data with an STM32-family placeholder, real parts drop in by file. MVP: miles
 
 ## Next
 
-1. Wave 1 lands: Fable reviews in pairs, audits, merge-back, stage commits; one fix round each budgeted.
-2. (dispatched) Wave 1, ten concurrent briefs: M1-A builder, M1-B kernel, M1-C MuJoCo bridge, M1-D signal built-ins, M1-E native
-   runtime, M1-F recorder, M1-G bindings, M1-H gantry firmware, M1-I runner, scoring and CLI; M1-J engine package 7
-   non-blocking.
-3. Wave 2: M1-X integration, G1 to G4 and P1 end to end, run-twice determinism, reference-validator; owner gate.
+1. (dispatched) M1-X1 core wiring: coupling-table crossings, pins target, one load-torque convention (PHY-033),
+   catalog alignment, bindings for the kernel and signal names, KER-023 rule.
+2. M1-X2 driver and acceptance: CoreDriver over the bindings, builder and recorder follow-ups, generated channels
+   header, CLI entry, G1 to G4 and P1 converted, run-twice determinism, placeholder baselines.
+3. Reference-validator over the reference tier, Fable review of X1 and X2, audit; owner gate at the first green run.
 
 ## Rulings made during milestone 1 wave 1 (coordinator, 2026-11-04), for owner confirmation
 
