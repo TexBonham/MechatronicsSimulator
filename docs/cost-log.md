@@ -34,3 +34,5 @@ type live in the root `CLAUDE.md` dispatch table once measured.
 | 2026-11-04 | M1 review: MuJoCo bridge and signals (C, D) | general-purpose (fable) | 240K | 36 calls, 11 min; C blocked on transmission mapping, D accepted with 3 items to integration |
 | 2026-11-04 | M1-E fix round: six rulings, header 2.2, dir/enable from digital_out, held levels, reload on reset | module-writer (opus), resumed | ~39K | 24 calls, 9 min |
 | 2026-11-04 | Lost to container restart: G/J review and C fix round, both just dispatched | general-purpose (fable), module-writer | ~5K | re-dispatched with the same briefs |
+| 2026-11-04 | M1 review: bindings and transmissions (G, J) | general-purpose (fable) | 198K | 21 calls, 7 min; both accept with fixes, 1 high (G engine names flat in `_core`) |
+| 2026-11-04 | M1-C fix round: reflection mapping, efficiency by power direction, load torque (PHY-033), pair filter, kWorldBody | module-writer (opus), resumed | ~58K | 21 calls, 7 min |

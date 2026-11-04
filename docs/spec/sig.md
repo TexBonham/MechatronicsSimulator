@@ -74,15 +74,18 @@ proposed <value>)".
 
 | Parameter | Current value | Owed by |
 |---|---|---|
-| Noise distribution family (SIG-002) | not set | owner |
+| Noise distribution family (SIG-002) | not set for sensor noise parameters; fault noise (SIG-007) is an absolute standard deviation (owner ruling 2026-11-04) and the built-ins draw it normal from the child generator until the family is ruled | owner |
 | Encoder count tolerance (SIG-011) | not set, proposed exact count | owner |
 | Sensor delay granularity (whole ticks or sub-tick) | not set | owner |
 | Signal-layer internal rate for pulse-level signals | not set | owner |
 | Brake engagement semantics (rail-driven or pin-driven) (SIG-020) | not set | owner |
 | E-stop relay cutoff delay value | not set | gantry team (reference design data) |
 | Watchdog heartbeat timeout value | not set; the `watchdog` catalog part carries a placeholder `timeout` | gantry team (reference design data) |
-| UART framing and baud handling in the transport | not set | owner, phase 1 contracts |
-| Operator link codec for milestone 1 | ASCII line protocol over UART, one message per line, space-separated fields matching the design's message names; binary codec is a later class behind the same interface (owner ruling 2026-11-04) | owner |
+| UART framing and baud handling in the transport | milestone 1 transport: 8N1 (10 bits per byte), bytes paced at baud / 10 per second, at most 64 per tick to the controller, the rest carried; more than 64 from the controller in one tick is a run error; final framing not set | owner, phase 1 contracts |
+| Operator link codec for milestone 1 | ASCII line protocol over UART, one message per line, space-separated fields matching the design's message names; binary codec is a later class behind the same interface (owner ruling 2026-11-04). Grammar: `line = name *(SP value) LF`, name the design's message name, one value per field in field order as a shortest round-trip decimal in SI; no CR, no empty field | owner |
+| Fault forms (SIG-007, SIG-034) | noise as absolute standard deviation; stall as the fraction of available torque kept; slip as the fraction of commanded steps missed (owner ruling 2026-11-04) | owner |
+| Counter faults (SIG-006, SIG-008, SIG-036) | stuck and dropped deliver no edges for the window and the counts are lost; forced level presents that many counts per tick | owner (proposed by M1-D) |
+| Time parameters in layer periods (SIG-010, SIG-017, SIG-018) | cutoff delay and heartbeat timeout round down to whole periods (so the cut is within the delay), debounce rounds up; the watchdog trips once the periods since the last edge exceed the timeout's | owner (proposed by M1-D) |
 | Promotion criteria from Python to C++ beyond "stable" | not set | owner (ADR 0005, Open items) |
 
 ## Out of scope
