@@ -4,9 +4,11 @@ State for the coordinating session. A new session reads this, then `docs/rulings
 
 ## Current checkpoint
 
-Milestone 1 in flight on `round/03-milestone-1`. Wave 0 (M1-S: wiring, contact environment, watchdog type, chip
-definitions as data) dispatched to schema-author in worktree `../MechatronicsSimulator-m1-s`. Owner returns at the
-milestone 1 gate; wave 0 contract changes are reviewed by Fable and the auditor and folded into that gate.
+Milestone 1 in flight on `round/03-milestone-1`. Wave 0 landed (M1-S plus the vocabulary and heartbeat contract
+edits, commits 3f316b9 and 2eb0a2e). Wave 1 dispatched: ten briefs in worktrees `../MechatronicsSimulator-m1-{a..j}`
+on branches `wip/m1-{a..j}` from base 2eb0a2e: A builder, B kernel, C MuJoCo bridge, D signal built-ins, E native
+runtime, F recorder, G bindings, H gantry firmware, I runner and scoring and CLI, J engine package 7. Owner returns at
+the milestone 1 gate.
 
 ## Milestone 1 rulings (owner, 2026-11-04)
 
@@ -19,8 +21,8 @@ as data with an STM32-family placeholder, real parts drop in by file. MVP: miles
 
 ## Next
 
-1. Wave 0 lands: Fable review, audit, stage commit.
-2. Wave 1, nine concurrent briefs: M1-A builder, M1-B kernel, M1-C MuJoCo bridge, M1-D signal built-ins, M1-E native
+1. Wave 1 lands: Fable reviews in pairs, audits, merge-back, stage commits; one fix round each budgeted.
+2. (dispatched) Wave 1, ten concurrent briefs: M1-A builder, M1-B kernel, M1-C MuJoCo bridge, M1-D signal built-ins, M1-E native
    runtime, M1-F recorder, M1-G bindings, M1-H gantry firmware, M1-I runner, scoring and CLI; M1-J engine package 7
    non-blocking.
 3. Wave 2: M1-X integration, G1 to G4 and P1 end to end, run-twice determinism, reference-validator; owner gate.
