@@ -1,0 +1,674 @@
+"""Design to engine-neutral physics model (BLD-001 to BLD-005, BLD-010 to BLD-014, BLD-020 to BLD-022, BLD-024).
+
+The neutral model validates unit strings, so the builder writes every quantity as `repr(value) unit` in SI units,
+which parses back to the same float, and validates the whole model once.
+"""
+
+from __future__ import annotations
+
+import math
+from collections.abc import Collection, Sequence
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Any
+
+from pydantic import ValidationError
+
+from mechsim.builder import mass
+from mechsim.builder.result import LumpedRecord
+from mechsim.design.cad import MassPropertiesSI, StepImporter, cross_check_mass
+from mechsim.design.schema import (
+    WORLD,
+    AngularDof,
+    Body,
+    ComponentInstance,
+    Design,
+    FlexibleMember,
+    Joint,
+    LinearDof,
+    MassProperties,
+    OpenValue,
+    PrimitiveGeometry,
+    StepGeometry,
+    iter_open_values,
+    open_name,
+)
+from mechsim.library.registry import Registry, RegistryError
+from mechsim.materials.schema import Material
+from mechsim.physics.neutral import LumpedMember, PhysicsModel, StructuralMember
+from mechsim.schema_base import format_errors
+
+FLOOR_MATERIAL = "floor"
+LUMPED_SUFFIX = "_beam"
+TRANSMISSION_TYPES = ("belt_pulley", "lead_screw")
+LUMPED_ROOTS = ("clamped", "pinned")
+LUMPED_ENDS = ("free", "roller")
+
+
+@dataclass
+class Collector:
+    failures: list[str] = field(default_factory=list)
+    pending: list[str] = field(default_factory=list)
+    notes: list[str] = field(default_factory=list)
+
+
+def _q(value: float, unit: str) -> str:
+    return f"{value!r} {unit}"
+
+
+def _v(values: Sequence[float], unit: str) -> list[str]:
+    return [_q(value, unit) for value in values]
+
+
+def _f(value: float | OpenValue) -> float:
+    if isinstance(value, float):
+        return value
+    raise TypeError(f"open value {value} reached the physics build")
+
+
+def _floats(values: Sequence[float | OpenValue]) -> tuple[float, float, float]:
+    return (_f(values[0]), _f(values[1]), _f(values[2]))
+
+
+@dataclass(frozen=True)
+class PhysicsOutput:
+    model: PhysicsModel | None
+    members: tuple[StructuralMember, ...]
+    lumped: tuple[LumpedRecord, ...]
+
+
+# ===== Checks ===========================================================
+
+
+PHYSICS_CATEGORIES = ("actuator", "transmission")
+
+
+def _scan_pending(design: Design, registry: Registry, rigid_members: bool, collector: Collector) -> None:
+    """Open values the physics model needs. Only actuator and transmission mounts reach the model; a rigid build
+    does not need a flexible member's calibration."""
+    sections: list[tuple[str, Any]] = [
+        ("environment.gravity", design.environment.gravity),
+        ("environment.contact", design.environment.contact),
+    ]
+    for index, body in enumerate(design.bodies):
+        sections.append((f"bodies[{index}]", body))
+    for index, joint in enumerate(design.joints):
+        sections.append((f"joints[{index}]", joint))
+    for index, component in enumerate(design.components):
+        if not registry.has_type(component.type):
+            continue
+        if registry.component_type(component.type).category in PHYSICS_CATEGORIES:
+            sections.append((f"components[{index}].mechanical", component.mechanical))
+        if component.type in TRANSMISSION_TYPES:
+            for key, value in component.overrides.items():
+                if open_name(value) is not None:
+                    collector.pending.append(f"components[{index}].overrides.{key}")
+    skipped: list[str] = []
+    if rigid_members:
+        skipped = [f"bodies[{index}].flexible.calibration" for index in range(len(design.bodies))]
+    for path, value in sections:
+        for found, _open in iter_open_values(value, path):
+            if not any(found.startswith(prefix) for prefix in skipped):
+                collector.pending.append(found)
+
+
+def _order(design: Design, collector: Collector) -> list[tuple[Body, Joint]]:
+    """Bodies parent before child, depth first from the world in joint order; unreached bodies are unconstrained."""
+    bodies = {body.name: body for body in design.bodies}
+    children: dict[str, list[Joint]] = {}
+    for joint in design.joints:
+        children.setdefault(joint.parent, []).append(joint)
+        if joint.child not in bodies:
+            collector.failures.append(f"joint '{joint.name}': unknown child body '{joint.child}'")
+        if joint.parent != WORLD and joint.parent not in bodies:
+            collector.failures.append(f"joint '{joint.name}': unknown parent body '{joint.parent}'")
+    ordered: list[tuple[Body, Joint]] = []
+    reached: set[str] = set()
+    stack = list(reversed(children.get(WORLD, [])))
+    while len(stack) > 0:
+        joint = stack.pop()
+        if joint.child in reached or joint.child not in bodies:
+            continue
+        reached.add(joint.child)
+        ordered.append((bodies[joint.child], joint))
+        stack.extend(reversed(children.get(joint.child, [])))
+    for body in design.bodies:
+        if body.name not in reached:
+            collector.failures.append(
+                f"unconstrained body '{body.name}': no chain of joints connects it to the world (BLD-021)"
+            )
+    return ordered
+
+
+def _check_bodies(design: Design, materials: dict[str, Material], collector: Collector) -> None:
+    for body in design.bodies:
+        if isinstance(body.material, str) and body.material not in materials:
+            collector.failures.append(
+                f"body '{body.name}' has no material: '{body.material}' is not in the materials database (BLD-020)"
+            )
+    for joint in design.joints:
+        dofs: list[LinearDof | AngularDof] = [*joint.linear, *joint.angular]
+        for index, dof in enumerate(dofs):
+            if isinstance(dof.backlash, float) and dof.backlash != 0.0:
+                collector.failures.append(
+                    f"joint '{joint.name}' DOF {index}: backlash {dof.backlash!r} has no neutral joint element"
+                )
+
+
+def _check_supports(design: Design, collector: Collector) -> None:
+    """Skipped in a rigid build (BLD-033), where no lumped beam is made."""
+    for body in design.bodies:
+        if body.flexible is not None:
+            root, end = body.flexible.supports
+            if root not in LUMPED_ROOTS or end not in LUMPED_ENDS:
+                collector.failures.append(
+                    f"flexible body '{body.name}': supports ({root}, {end}) have no lumped beam; the neutral model "
+                    f"takes a root in {LUMPED_ROOTS} and an end in {LUMPED_ENDS}"
+                )
+
+
+def _check_bindings(design: Design, registry: Registry, collector: Collector) -> None:
+    """Every cross-domain binding resolves to an existing joint or body mount face (BLD-028)."""
+    bodies = {body.name for body in design.bodies}
+    joints = {joint.name for joint in design.joints}
+    for component in design.components:
+        if not registry.has_type(component.type):
+            continue
+        mounts = {mount.name: mount.kind for mount in registry.component_type(component.type).mechanical.mounts}
+        for binding in component.mechanical:
+            label = f"component '{component.name}' mount '{binding.mount}'"
+            if binding.mount not in mounts:
+                collector.failures.append(f"{label}: type '{component.type}' has no such mount (BLD-028)")
+                continue
+            if isinstance(binding.body, str) and binding.body not in bodies:
+                collector.failures.append(f"{label}: unresolved binding to unknown body '{binding.body}' (BLD-028)")
+            if isinstance(binding.joint, str) and binding.joint not in joints:
+                collector.failures.append(f"{label}: unresolved binding to unknown joint '{binding.joint}' (BLD-028)")
+            if mounts[binding.mount] == "shaft" and binding.joint is None:
+                collector.failures.append(f"{label}: a shaft mount must bind a joint (BLD-028)")
+
+
+# ===== Bodies and joints ================================================
+
+
+def _primitive_shapes(geometry: PrimitiveGeometry, material: str) -> list[dict[str, Any]]:
+    shapes: list[dict[str, Any]] = []
+    for shape in geometry.shapes:
+        entry: dict[str, Any] = {
+            "shape": shape.shape,
+            "position": _v(_floats(shape.position), "m"),
+            "orientation": list(shape.orientation),
+            "material": material,
+        }
+        if shape.shape == "box":
+            entry["size"] = _v(_floats(shape.size), "m")
+        else:
+            entry["radius"] = _q(_f(shape.radius), "m")
+        if shape.shape in ("cylinder", "capsule"):
+            entry["length"] = _q(_f(shape.length), "m")
+        shapes.append(entry)
+    return shapes
+
+
+def primitive_mass(geometry: PrimitiveGeometry, density: float) -> mass.MassProperties:
+    """Mass, center of mass and inertia of the union of a body's primitives at `density` (BLD-010)."""
+    parts: list[mass.MassProperties] = []
+    for shape in geometry.shapes:
+        if shape.shape == "box":
+            local = mass.box(density, _floats(shape.size))
+        elif shape.shape == "sphere":
+            local = mass.sphere(density, _f(shape.radius))
+        elif shape.shape == "cylinder":
+            local = mass.cylinder(density, _f(shape.radius), _f(shape.length))
+        else:
+            local = mass.capsule(density, _f(shape.radius), _f(shape.length))
+        parts.append(mass.place(local, _floats(shape.position), shape.orientation))
+    return mass.combine(parts)
+
+
+def _declared(properties: MassProperties) -> mass.MassProperties:
+    inertia = properties.inertia
+    ixy, ixz, iyz = _f(inertia.ixy), _f(inertia.ixz), _f(inertia.iyz)
+    return mass.MassProperties(
+        _f(properties.mass),
+        _floats(properties.com),
+        ((_f(inertia.ixx), ixy, ixz), (ixy, _f(inertia.iyy), iyz), (ixz, iyz, _f(inertia.izz))),
+    )
+
+
+def _inertia_entry(properties: mass.MassProperties) -> dict[str, str]:
+    tensor = properties.inertia
+    unit = "kg*m**2"
+    return {
+        "ixx": _q(tensor[0][0], unit),
+        "iyy": _q(tensor[1][1], unit),
+        "izz": _q(tensor[2][2], unit),
+        "ixy": _q(tensor[0][1], unit),
+        "ixz": _q(tensor[0][2], unit),
+        "iyz": _q(tensor[1][2], unit),
+    }
+
+
+def _step_body(
+    body: Body,
+    geometry: StepGeometry,
+    declared: mass.MassProperties,
+    density: float,
+    importer: StepImporter | None,
+    base: Path | None,
+    collector: Collector,
+) -> list[dict[str, Any]]:
+    if importer is None or base is None:
+        collector.notes.append(
+            f"body '{body.name}': STEP geometry, no importer; declared mass properties used without a cross-check"
+        )
+        return []
+    result = importer.import_body(base / geometry.file, body.name, density)
+    if result.needs_mesh_contact:
+        collector.failures.append(f"body '{body.name}': needs mesh contact, outside the v1 contact scope (BLD-012)")
+    tensor = declared.inertia
+    report = cross_check_mass(
+        body.name,
+        MassPropertiesSI(
+            mass=declared.mass,
+            center_of_mass=declared.com,
+            inertia=(tensor[0][0], tensor[1][1], tensor[2][2], tensor[0][1], tensor[0][2], tensor[1][2]),
+        ),
+        result.mass_properties,
+        _f(geometry.mass_check_tolerance),
+        result.volume ** (1.0 / 3.0),
+    )
+    for mismatch in report.mismatches:
+        collector.failures.append(
+            f"body '{body.name}': declared {mismatch.quantity} differs from the STEP geometry by {mismatch.error!r}, "
+            f"over the tolerance {mismatch.tolerance!r}"
+        )
+    return [
+        {"shape": "convex_hull", "vertices": [_v(vertex, "m") for vertex in hull.vertices], "material": body.material}
+        for hull in result.hulls
+    ]
+
+
+def _dof(dof: Any, unit_length: str, unit_force: str, unit_damping: str) -> dict[str, Any]:
+    entry: dict[str, Any] = {"friction": _q(_f(dof.friction), unit_force), "damping": _q(_f(dof.damping), unit_damping)}
+    if dof.limits is not None:
+        entry["lower"] = _q(_f(dof.limits.lower), unit_length)
+        entry["upper"] = _q(_f(dof.limits.upper), unit_length)
+    return entry
+
+
+def _joint(joint: Joint) -> dict[str, Any]:
+    placement = joint.placement
+    if isinstance(placement, OpenValue):
+        raise TypeError("open placement reached the physics build")
+    entry: dict[str, Any] = {
+        "name": joint.name,
+        "type": joint.type,
+        "position": _v(_floats(placement.position), "m"),
+        "orientation": list(placement.orientation),
+        "linear": [_dof(dof, "m", "N", "N*s/m") for dof in joint.linear],
+        "angular": [_dof(dof, "rad", "N*m", "N*m*s/rad") for dof in joint.angular],
+    }
+    if isinstance(joint.axis, list):
+        entry["axis"] = list(joint.axis)
+    return entry
+
+
+# ===== Overlap ==========================================================
+
+
+def _shape_boxes(entry: dict[str, Any], pose: tuple[mass.Vector, mass.Quaternion]) -> tuple[mass.Vector, mass.Vector]:
+    def number(text: str) -> float:
+        return float(text.split()[0])
+
+    position = [number(text) for text in entry.get("position", ["0 m", "0 m", "0 m"])]
+    orientation = entry.get("orientation", [1.0, 0.0, 0.0, 0.0])
+    shape_pose = mass.compose(pose, position, orientation)
+    if entry["shape"] == "convex_hull":
+        matrix = mass.rotation(shape_pose[1])
+        points = [mass.apply(matrix, [number(text) for text in vertex]) for vertex in entry["vertices"]]
+        low = tuple(shape_pose[0][axis] + min(point[axis] for point in points) for axis in range(3))
+        high = tuple(shape_pose[0][axis] + max(point[axis] for point in points) for axis in range(3))
+        return ((low[0], low[1], low[2]), (high[0], high[1], high[2]))
+    size = [number(text) for text in entry.get("size", ["0 m", "0 m", "0 m"])]
+    radius = number(entry.get("radius", "0 m"))
+    length = number(entry.get("length", "0 m"))
+    return mass.world_box(shape_pose, mass.half_extents(entry["shape"], size, radius, length))
+
+
+def _check_overlap(
+    ordered: list[tuple[Body, Joint]],
+    shapes: dict[str, list[dict[str, Any]]],
+    exclusions: set[tuple[str, str]],
+    collector: Collector,
+) -> None:
+    """Bodies not joined to each other and not excluded may not overlap at the reference configuration (BLD-022).
+
+    Test geometry: world axis-aligned bounds of each primitive or hull, all joint coordinates zero; touching passes.
+    """
+    poses: dict[str, tuple[mass.Vector, mass.Quaternion]] = {WORLD: (mass.ORIGIN, mass.IDENTITY)}
+    joined: set[tuple[str, str]] = set()
+    boxes: list[tuple[str, tuple[mass.Vector, mass.Vector]]] = []
+    for body, joint in ordered:
+        placement = joint.placement
+        if isinstance(placement, OpenValue):
+            raise TypeError("open placement reached the overlap test")
+        poses[body.name] = mass.compose(poses[joint.parent], _floats(placement.position), placement.orientation)
+        joined.add((min(joint.parent, body.name), max(joint.parent, body.name)))
+        for entry in shapes[body.name]:
+            boxes.append((body.name, _shape_boxes(entry, poses[body.name])))
+    reported: set[tuple[str, str]] = set()
+    for index, (first, (low_a, high_a)) in enumerate(boxes):
+        for second, (low_b, high_b) in boxes[index + 1 :]:
+            pair = (min(first, second), max(first, second))
+            if first == second or pair in joined or pair in exclusions or pair in reported:
+                continue
+            if all(low_a[axis] < high_b[axis] and low_b[axis] < high_a[axis] for axis in range(3)):
+                reported.add(pair)
+                collector.failures.append(
+                    f"overlapping bodies '{first}' and '{second}' at the reference configuration (BLD-022)"
+                )
+
+
+# ===== Lumped members ===================================================
+
+
+def lumped_record(body: str, member: LumpedMember, flexible: FlexibleMember) -> LumpedRecord:
+    """Segment layout per `core/engine` lumped beam: N segments of l = L / N, springs E I / l at segment midpoints;
+    rigid spans node to node, a clamped root leaving [0, l/2] on the parent, a pinned root adding [0, l/2]."""
+    section = member.section
+    count = member.segments
+    segment = section.length / count
+    spans = [segment] * (count - 1) + [segment / 2.0]
+    if member.root == "pinned":
+        spans = [segment / 2.0, *spans]
+    calibration = flexible.calibration
+    if isinstance(calibration, OpenValue):
+        raise TypeError("open calibration reached the lumped build")
+    return LumpedRecord(
+        member=member.name,
+        body=body,
+        segments=count,
+        segment_length=segment,
+        node_stiffness=section.elastic_modulus * section.second_moment_of_area / segment,
+        spans=tuple(spans),
+        masses=tuple(section.density * section.area * span for span in spans),
+        calibration_source=calibration.source,
+        calibration_load=_f(calibration.load),
+        calibration_deflection=_f(calibration.deflection),
+        calibration_frequency=_f(calibration.first_natural_frequency),
+    )
+
+
+def _section(flexible: FlexibleMember, material: Material) -> dict[str, str]:
+    return {
+        "elastic_modulus": _q(material.youngs_modulus.typ, "Pa"),
+        "second_moment_of_area": _q(_f(flexible.section.second_moment), "m**4"),
+        "density": _q(material.density.typ, "kg/m**3"),
+        "area": _q(_f(flexible.section.area), "m**2"),
+        "length": _q(_f(flexible.section.length), "m"),
+    }
+
+
+def _flexible(body: Body, material: Material) -> tuple[dict[str, Any], dict[str, Any]]:
+    """The lumped member and the structural member list entry of a flexible body."""
+    flexible = body.flexible
+    if flexible is None:
+        raise TypeError("rigid body passed as flexible")
+    root, end = flexible.supports
+    member: dict[str, Any] = {
+        "name": body.name + LUMPED_SUFFIX,
+        "parent": body.name,
+        "position": _v(mass.ORIGIN, "m"),
+        "section": _section(flexible, material),
+        "root": root,
+        "end": end,
+        "structural_member": body.name,
+    }
+    if "segments" in flexible.model_fields_set:
+        member["segments"] = flexible.segments
+    length = _f(flexible.section.length)
+    supports = [{"at": _q(0.0, "m"), "condition": root}]
+    if end != "free":
+        supports.append({"at": _q(length, "m"), "condition": end})
+    structural = {
+        "name": body.name,
+        "section": _section(flexible, material),
+        "material": material.name,
+        "supports": supports,
+        "fasteners": [fastener.model_dump(mode="json") for fastener in body.fasteners],
+    }
+    return member, structural
+
+
+# ===== Transmissions and signals ========================================
+
+
+def _transmission(
+    component: ComponentInstance, registry: Registry, child_joints: dict[str, Joint], collector: Collector
+) -> dict[str, Any] | None:
+    kind = registry.component_type(component.type)
+    shaft_mounts = {mount.name for mount in kind.mechanical.mounts if mount.kind == "shaft"}
+    shaft: str | None = None
+    driven: str | None = None
+    for binding in component.mechanical:
+        if binding.mount in shaft_mounts and isinstance(binding.joint, str):
+            shaft = binding.joint
+        elif isinstance(binding.body, str):
+            joint = child_joints.get(binding.body)
+            if joint is not None:
+                driven = joint.name
+    label = f"transmission '{component.name}'"
+    if shaft is None or driven is None:
+        collector.failures.append(f"{label}: needs a shaft joint and a driven body on a joint (BLD-005)")
+        return None
+    concrete = {key: value for key, value in component.overrides.items() if open_name(value) is None}
+    try:
+        values = registry.resolve_part(component.part, concrete).values
+    except RegistryError as error:
+        collector.failures.append(f"{label}: {error} (BLD-027)")
+        return None
+    if "stiffness" not in values:
+        collector.failures.append(f"{label}: part '{component.part}' sets no stiffness")
+        return None
+    ratio = float(values["ratio"])
+    entry: dict[str, Any] = {
+        "type": component.type,
+        "name": component.name,
+        "shaft_joint": shaft,
+        "driven_joint": driven,
+        "efficiency": float(values["efficiency"]),
+        "slip": float(values.get("slip", 0.0)),
+        "stiffness": _q(float(values["stiffness"]), "N/m"),
+        "backlash": _q(float(values.get("backlash", 0.0)), "m"),
+    }
+    if component.type == "belt_pulley":
+        entry["pulley_radius"] = _q(ratio, "m")
+    else:
+        entry["lead"] = _q(ratio * 2.0 * math.pi, "m")
+        entry["self_locking"] = bool(values["self_locking"])
+    return entry
+
+
+def _load_torque_joints(design: Design, registry: Registry) -> list[str]:
+    joints: list[str] = []
+    for component in design.components:
+        if not registry.has_type(component.type):
+            continue
+        kind = registry.component_type(component.type)
+        if kind.category != "actuator":
+            continue
+        shafts = {mount.name for mount in kind.mechanical.mounts if mount.kind == "shaft"}
+        for binding in component.mechanical:
+            if binding.mount in shafts and isinstance(binding.joint, str) and binding.joint not in joints:
+                joints.append(binding.joint)
+    return joints
+
+
+# ===== Physics model ====================================================
+
+
+def element_kinds(model: PhysicsModel) -> list[tuple[str, str]]:
+    """Every element of the model as (kind, name); kinds are the vocabulary `supported_elements` uses."""
+    elements: list[tuple[str, str]] = []
+    for shape in model.world_shapes:
+        elements.append((f"shape.{shape.shape}", WORLD))
+    if model.contacts is not None:
+        elements.append(("contacts", "contacts"))
+    for body in model.bodies:
+        elements.append(("body", body.name))
+        if body.joint is not None:
+            elements.append((f"joint.{body.joint.type}", body.joint.name))
+        for shape in body.shapes:
+            elements.append((f"shape.{shape.shape}", body.name))
+    for constraint in model.constraints:
+        elements.append((f"constraint.{constraint.type}", constraint.name))
+    for member in model.lumped_members:
+        elements.append(("lumped_member", member.name))
+    for transmission in model.transmissions:
+        elements.append((f"transmission.{transmission.type}", transmission.name))
+    return elements
+
+
+def build_physics(
+    design: Design,
+    registry: Registry,
+    materials: dict[str, Material],
+    collector: Collector,
+    *,
+    blob: str,
+    supported_elements: Collection[str] | None,
+    adapter: str,
+    step_importer: StepImporter | None,
+    base: Path | None,
+    rigid_members: bool,
+) -> PhysicsOutput:
+    """`rigid_members` builds flexible bodies as rigid bodies: no lumped members, the member list kept (BLD-033)."""
+    empty = PhysicsOutput(None, (), ())
+    _scan_pending(design, registry, rigid_members, collector)
+    ordered = _order(design, collector)
+    _check_bodies(design, materials, collector)
+    _check_bindings(design, registry, collector)
+    if not rigid_members:
+        _check_supports(design, collector)
+    if len(collector.pending) > 0 or len(collector.failures) > 0:
+        return empty
+    child_joints = {joint.child: joint for joint in design.joints}
+    bodies: list[dict[str, Any]] = []
+    shapes: dict[str, list[dict[str, Any]]] = {}
+    lumped: list[dict[str, Any]] = []
+    structural: list[dict[str, Any]] = []
+    flexible_bodies: dict[str, Body] = {}
+    for body, joint in ordered:
+        material = materials[_name(body.material)]
+        geometry = body.geometry
+        body_shapes: list[dict[str, Any]] = []
+        if isinstance(geometry, PrimitiveGeometry):
+            body_shapes = _primitive_shapes(geometry, material.name)
+        if isinstance(body.mass_properties, MassProperties):
+            properties = _declared(body.mass_properties)
+        elif isinstance(geometry, PrimitiveGeometry):
+            properties = primitive_mass(geometry, material.density.typ)
+        else:
+            raise TypeError(f"body '{body.name}' has neither declared mass properties nor primitives")
+        if isinstance(geometry, StepGeometry):
+            body_shapes = _step_body(body, geometry, properties, material.density.typ, step_importer, base, collector)
+        shapes[body.name] = body_shapes
+        bodies.append(
+            {
+                "name": body.name,
+                "mass": _q(properties.mass, "kg"),
+                "com": _v(properties.com, "m"),
+                "inertia": _inertia_entry(properties),
+                "material": material.name,
+                "parent": joint.parent,
+                "joint": _joint(joint),
+                "shapes": body_shapes,
+            }
+        )
+        if body.catalog_part is not None:
+            bodies[-1]["catalog_part"] = body.catalog_part.part
+        if body.flexible is not None:
+            member, entry = _flexible(body, material)
+            structural.append(entry)
+            if not rigid_members:
+                lumped.append(member)
+                flexible_bodies[member["name"]] = body
+    contact = design.environment.contact
+    exclusions: set[tuple[str, str]] = set()
+    data: dict[str, Any] = {
+        "schema_version": 1,
+        "design": {"name": design.name, "version": design.version, "blob": blob},
+        "gravity": _v(_floats(design.environment.gravity), "m/s**2"),
+        "bodies": bodies,
+        "lumped_members": lumped,
+        "transmissions": [],
+        "signals": {
+            "load_torque_joints": _load_torque_joints(design, registry),
+            "pose_bodies": [body.name for body, _joint_entry in ordered],
+        },
+        "structural_members": structural,
+    }
+    if contact is not None:
+        exclusions = {(min(pair), max(pair)) for pair in contact.exclusions}
+
+        def parameters(source: Any) -> dict[str, Any]:
+            return {
+                "stiffness": _q(_f(source.stiffness), "N/m"),
+                "damping": _q(_f(source.damping), "N*s/m"),
+                "friction": _f(source.friction),
+            }
+
+        data["contacts"] = {
+            "default": parameters(contact.default),
+            "pairs": [{**parameters(pair), "materials": list(pair.materials)} for pair in contact.pairs],
+            "exclusions": [list(pair) for pair in contact.exclusions],
+        }
+        if contact.floor is not None:
+            normal = contact.floor.normal
+            offset = _f(contact.floor.offset)
+            data["world_shapes"] = [
+                {
+                    "shape": "plane",
+                    "position": _v((normal[0] * offset, normal[1] * offset, normal[2] * offset), "m"),
+                    "orientation": list(mass.z_to(normal)),
+                    "material": FLOOR_MATERIAL,
+                }
+            ]
+    for component in design.components:
+        if registry.has_type(component.type) and registry.component_type(component.type).category == "transmission":
+            if component.type not in TRANSMISSION_TYPES:
+                collector.failures.append(
+                    f"transmission '{component.name}': type '{component.type}' has no neutral transmission model"
+                )
+                continue
+            transmission = _transmission(component, registry, child_joints, collector)
+            if transmission is not None:
+                data["transmissions"].append(transmission)
+    _check_overlap(ordered, shapes, exclusions, collector)
+    if len(collector.failures) > 0:
+        return empty
+    try:
+        model = PhysicsModel.model_validate(data)
+    except ValidationError as error:
+        collector.failures.extend(f"physics model: {message}" for message in format_errors(error))
+        return empty
+    if supported_elements is not None:
+        supported = set(supported_elements)
+        for kind, name in element_kinds(model):
+            if kind not in supported:
+                collector.failures.append(f"element '{name}' ({kind}): adapter '{adapter}' cannot map it (BLD-024)")
+        if len(collector.failures) > 0:
+            return empty
+    records: list[LumpedRecord] = []
+    for lumped_member in model.lumped_members:
+        flexible = flexible_bodies[lumped_member.name]
+        if flexible.flexible is not None:
+            records.append(lumped_record(flexible.name, lumped_member, flexible.flexible))
+    return PhysicsOutput(model, model.structural_members, tuple(records))
+
+
+def _name(value: str | OpenValue) -> str:
+    if isinstance(value, str):
+        return value
+    raise TypeError(f"open value {value} reached the physics build")

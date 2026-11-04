@@ -3,15 +3,6 @@
 import pytest
 
 
-@pytest.mark.req("BLD-010")
-@pytest.mark.xfail(strict=True, reason="stub")
-def test_bld_010() -> None:
-    """The builder shall compute mass, center of mass and inertia from a body's geometry and its material's density,
-    matching closed-form values for primitive solids.
-    """
-    raise NotImplementedError
-
-
 @pytest.mark.req("BLD-015")
 @pytest.mark.xfail(strict=True, reason="stub")
 def test_bld_015() -> None:

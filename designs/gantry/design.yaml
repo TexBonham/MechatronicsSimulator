@@ -1,7 +1,8 @@
 # Gantry reference design (DES-025), draft. Values the requirements doc gives are set: 1 cm position accuracy, 1 kHz
-# control tick (C4), rated load plus 15 percent design-load rule. Everything else is a ${name} open parameter owed by
-# the gantry team. Kinematic chain: frame on the world; rail_x fixed on the frame; rail_y travels along x on rail_x;
-# the trolley travels along y on rail_y; the lift carriage travels along z on the trolley (lead screw); the hook hangs
+# control tick (C4), rated load plus 15 percent design-load rule. Physics stand-ins are marked PLACEHOLDER; everything
+# else is a ${name} open parameter owed by the gantry team. Kinematic chain: frame on the world; rail_x fixed on
+# the frame; rail_y travels along x on rail_x; the trolley travels along y on rail_y; the lift carriage travels along z
+# on the trolley (lead screw); the hook hangs
 # from the lift carriage. Each axis motor drives a shaft body on a revolute joint. MCU pin names come from the
 # placeholder chip chips/stm32_placeholder until the STM32 part is selected. The controller heartbeat is a digital
 # output pin bound to the watchdog's heartbeat port; the watchdog and the E-stop relay both gate motor power.
@@ -149,173 +150,244 @@ environment:
   gravity: [0 m/s**2, 0 m/s**2, -9.81 m/s**2]
   ambient_temperature: ${ambient_temperature}
   contact:
+    # PLACEHOLDER contact parameters; contact_stiffness, contact_damping and contact_friction stay open.
     default:
-      stiffness: ${contact_stiffness}
-      damping: ${contact_damping}
-      friction: ${contact_friction}
+      stiffness: 100000 N/m
+      damping: 1000 N*s/m
+      friction: "0.5"
     # The frame is fixed to the world at the origin, so the floor is the world x-y plane.
     floor:
       normal: [0.0, 0.0, 1.0]
       offset: 0 m
+# PLACEHOLDER GEOMETRY until the gantry team's CAD arrives (DES open parameter cad_model).
+# Every body below is a box or cylinder of aluminium 6063-T5 with mass properties computed from it, and every joint
+# placement, motor axis, joint friction, damping and backlash, contact parameter and rail section is a stand-in
+# chosen only so the rigid milestone 1 gantry builds; none of it is gantry data. Placeholder sizes: workspace x 1.0 m
+# (rail_x 1.2 m long), workspace y 0.8 m (rail_y 1.0 m long), lift travel 0.5 m, rail_x 1.0 m above the floor.
+# Reference configuration (all joint coordinates zero), world positions of the body frames: frame (0, 0, 0),
+# rail_x (0, 0, 1), rail_y (0.1, 0, 1.04), trolley (0.1, 0.1, 1.09), lift_carriage (0.1, 0.1, 0.79), hook
+# (0.1, 0.1, 0.69), x_motor_shaft (-0.05, -0.1, 1), y_motor_shaft (0.1, -0.05, 1.04), lift_motor_shaft
+# (0.1, 0.1, 1.14); no two bodies not joined to each other overlap there (BLD-022).
 bodies:
   - name: frame
-    material: ${body_materials}
-    process: ${body_materials}
-    geometry: ${cad_model}
-    mass_properties: ${cad_model}
+    material: aluminium_6063_t5_extrusion
+    process:
+      kind: extrusion
+    # Two 0.1 m square end posts, 1 m tall, carrying rail_x.
+    geometry:
+      kind: primitives
+      shapes:
+        - shape: box
+          position: [-0.05 m, 0 m, 0.5 m]
+          size: [0.1 m, 0.1 m, 1 m]
+        - shape: box
+          position: [1.25 m, 0 m, 0.5 m]
+          size: [0.1 m, 0.1 m, 1 m]
   - name: rail_x
     material: aluminium_6063_t5_extrusion
     process:
       kind: extrusion
-    geometry: ${cad_model}
-    mass_properties: ${cad_model}
+    geometry:
+      kind: primitives
+      shapes:
+        - shape: box
+          position: [0.6 m, 0 m, 0 m]
+          size: [1.2 m, 0.04 m, 0.04 m]
     flexible:
       section:
-        area: ${rail_section_area}
-        second_moment: ${rail_section_second_moment}
-        length: ${workspace_x}
+        # Placeholder 40 x 40 mm extrusion section; rail_section_area and rail_section_second_moment stay open.
+        area: 1.5e-4 m**2
+        second_moment: 2e-8 m**4
+        length: 1.2 m
       calibration: ${rail_calibration}
       # Row 17 planning default for the rail end conditions (root, end); owed by the gantry team with the sections.
+      # Clamped-clamped has no lumped beam yet: the gantry builds with rigid_members until milestone 3.
       supports: [clamped, clamped]
   - name: rail_y
     material: aluminium_6063_t5_extrusion
     process:
       kind: extrusion
-    geometry: ${cad_model}
-    mass_properties: ${cad_model}
+    geometry:
+      kind: primitives
+      shapes:
+        - shape: box
+          position: [0 m, 0.5 m, 0 m]
+          size: [0.06 m, 1 m, 0.04 m]
     flexible:
       section:
-        area: ${rail_section_area}
-        second_moment: ${rail_section_second_moment}
-        length: ${workspace_y}
+        area: 1.5e-4 m**2
+        second_moment: 2e-8 m**4
+        length: 1 m
       calibration: ${rail_calibration}
       # Row 17 planning default for the rail end conditions (root, end); owed by the gantry team with the sections.
       supports: [pinned, roller]
   - name: trolley
-    material: ${body_materials}
-    process: ${body_materials}
-    geometry: ${cad_model}
-    mass_properties: ${cad_model}
+    material: aluminium_6063_t5_extrusion
+    process:
+      kind: extrusion
+    geometry:
+      kind: primitives
+      shapes:
+        - shape: box
+          position: [0 m, 0 m, 0 m]
+          size: [0.1 m, 0.1 m, 0.04 m]
   - name: lift_carriage
-    material: ${body_materials}
-    process: ${body_materials}
-    geometry: ${cad_model}
-    mass_properties: ${cad_model}
+    material: aluminium_6063_t5_extrusion
+    process:
+      kind: extrusion
+    geometry:
+      kind: primitives
+      shapes:
+        - shape: box
+          position: [0 m, 0 m, 0 m]
+          size: [0.08 m, 0.08 m, 0.04 m]
   - name: hook
-    material: ${body_materials}
-    process: ${body_materials}
-    geometry: ${cad_model}
-    mass_properties: ${cad_model}
+    material: aluminium_6063_t5_extrusion
+    process:
+      kind: extrusion
+    geometry:
+      kind: primitives
+      shapes:
+        - shape: box
+          position: [0 m, 0 m, 0 m]
+          size: [0.04 m, 0.04 m, 0.04 m]
   - name: x_motor_shaft
-    material: ${body_materials}
-    process: ${body_materials}
-    geometry: ${cad_model}
-    mass_properties: ${cad_model}
+    material: aluminium_6063_t5_extrusion
+    process:
+      kind: extrusion
+    geometry:
+      kind: primitives
+      shapes:
+        - shape: cylinder
+          position: [0 m, 0 m, 0 m]
+          radius: 2.5 mm
+          length: 20 mm
   - name: y_motor_shaft
-    material: ${body_materials}
-    process: ${body_materials}
-    geometry: ${cad_model}
-    mass_properties: ${cad_model}
+    material: aluminium_6063_t5_extrusion
+    process:
+      kind: extrusion
+    geometry:
+      kind: primitives
+      shapes:
+        - shape: cylinder
+          position: [0 m, 0 m, 0 m]
+          radius: 2.5 mm
+          length: 20 mm
   - name: lift_motor_shaft
-    material: ${body_materials}
-    process: ${body_materials}
-    geometry: ${cad_model}
-    mass_properties: ${cad_model}
+    material: aluminium_6063_t5_extrusion
+    process:
+      kind: extrusion
+    geometry:
+      kind: primitives
+      shapes:
+        - shape: cylinder
+          position: [0 m, 0 m, 0 m]
+          radius: 2.5 mm
+          length: 20 mm
 joints:
   - name: frame_mount
     type: fixed
     parent: world
     child: frame
-    placement: ${cad_model}
+    placement:
+      position: [0 m, 0 m, 0 m]
   - name: rail_x_mount
     type: fixed
     parent: frame
     child: rail_x
-    placement: ${cad_model}
+    placement:
+      position: [0 m, 0 m, 1 m]
   - name: x_axis
     type: prismatic
     parent: rail_x
     child: rail_y
-    placement: ${cad_model}
+    placement:
+      position: [0.1 m, 0 m, 0.04 m]
     axis: [1.0, 0.0, 0.0]
     linear:
       - limits:
           lower: 0 m
-          upper: ${workspace_x}
-        friction: ${axis_friction}
-        damping: ${axis_damping}
-        backlash: ${axis_backlash}
+          upper: 1 m
+        friction: 0 N
+        damping: 0 N*s/m
+        backlash: 0 m
   - name: y_axis
     type: prismatic
     parent: rail_y
     child: trolley
-    placement: ${cad_model}
+    placement:
+      position: [0 m, 0.1 m, 0.05 m]
     axis: [0.0, 1.0, 0.0]
     linear:
       - limits:
           lower: 0 m
-          upper: ${workspace_y}
-        friction: ${axis_friction}
-        damping: ${axis_damping}
-        backlash: ${axis_backlash}
+          upper: 0.8 m
+        friction: 0 N
+        damping: 0 N*s/m
+        backlash: 0 m
   - name: lift_axis
     type: prismatic
     parent: trolley
     child: lift_carriage
-    placement: ${cad_model}
+    placement:
+      position: [0 m, 0 m, -0.3 m]
     axis: [0.0, 0.0, 1.0]
     linear:
       - limits:
           lower: 0 m
-          upper: ${lift_travel}
-        friction: ${axis_friction}
-        damping: ${axis_damping}
-        backlash: ${axis_backlash}
+          upper: 0.5 m
+        friction: 0 N
+        damping: 0 N*s/m
+        backlash: 0 m
   - name: hook_swing
     type: spherical
     parent: lift_carriage
     child: hook
-    placement: ${cad_model}
+    placement:
+      position: [0 m, 0 m, -0.1 m]
     angular:
-      - friction: ${hook_friction}
-        damping: ${hook_damping}
-        backlash: ${hook_backlash}
-      - friction: ${hook_friction}
-        damping: ${hook_damping}
-        backlash: ${hook_backlash}
-      - friction: ${hook_friction}
-        damping: ${hook_damping}
-        backlash: ${hook_backlash}
+      - friction: 0 N*m
+        damping: 0 N*m*s/rad
+        backlash: 0 rad
+      - friction: 0 N*m
+        damping: 0 N*m*s/rad
+        backlash: 0 rad
+      - friction: 0 N*m
+        damping: 0 N*m*s/rad
+        backlash: 0 rad
   - name: x_motor_spin
     type: revolute
     parent: frame
     child: x_motor_shaft
-    placement: ${cad_model}
-    axis: ${cad_model}
+    placement:
+      position: [-0.05 m, -0.1 m, 1 m]
+    axis: [0.0, 0.0, 1.0]
     angular:
-      - friction: ${shaft_friction}
-        damping: ${shaft_damping}
-        backlash: ${shaft_backlash}
+      - friction: 0 N*m
+        damping: 0 N*m*s/rad
+        backlash: 0 rad
   - name: y_motor_spin
     type: revolute
     parent: rail_y
     child: y_motor_shaft
-    placement: ${cad_model}
-    axis: ${cad_model}
+    placement:
+      position: [0 m, -0.05 m, 0 m]
+    axis: [0.0, 0.0, 1.0]
     angular:
-      - friction: ${shaft_friction}
-        damping: ${shaft_damping}
-        backlash: ${shaft_backlash}
+      - friction: 0 N*m
+        damping: 0 N*m*s/rad
+        backlash: 0 rad
   - name: lift_motor_spin
     type: revolute
     parent: trolley
     child: lift_motor_shaft
-    placement: ${cad_model}
-    axis: ${cad_model}
+    placement:
+      position: [0 m, 0 m, 0.05 m]
+    axis: [0.0, 0.0, 1.0]
     angular:
-      - friction: ${shaft_friction}
-        damping: ${shaft_damping}
-        backlash: ${shaft_backlash}
+      - friction: 0 N*m
+        damping: 0 N*m*s/rad
+        backlash: 0 rad
 components:
   - name: x_motor
     type: stepper_behavioral
@@ -516,6 +588,16 @@ components:
       - name: watchdog.heartbeat
         pin: heartbeat
         direction: consumes
+  - name: operator_link
+    type: uart_link
+    part: uart_link_115200_generic
+    signals:
+      - name: operator_link.uart_tx
+        pin: uart_tx
+        direction: consumes
+      - name: operator_link.uart_rx
+        pin: uart_rx
+        direction: emits
 wiring:
   - source: motor_supply.v_out
     destination: estop.contact_in
@@ -614,6 +696,12 @@ pin_bindings:
   - signal: watchdog.heartbeat
     pin: PB6
     mode: digital_output
+  - signal: operator_link.uart_tx
+    pin: PA9
+    mode: uart_tx
+  - signal: operator_link.uart_rx
+    pin: PA10
+    mode: uart_rx
 power:
   rails:
     - name: motor_power

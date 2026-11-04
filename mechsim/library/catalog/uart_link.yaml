@@ -1,0 +1,61 @@
+# Operator link: a UART connection between the controller and the operator. Pin names follow the controller's side
+# of the line: the controller transmits on uart_tx (an input of the link) and receives on uart_rx (an output of the
+# link). Numeric part values are placeholders.
+types:
+  - name: uart_link
+    version: 1.0.0
+    category: driver
+    description: Operator link over a UART; carries the design's operator messages at a fixed baud rate.
+    parameters:
+      - name: mass
+        dimension: "[mass]"
+        minimum: "0 kg"
+      - name: baud
+        dimension: "1 / [time]"
+        minimum: "1 Hz"
+      - name: logic_voltage
+        dimension: "[mass] * [length] ** 2 / [time] ** 3 / [current]"
+        minimum: "0 V"
+    tiers:
+      - name: ideal
+        parameters: [mass, baud, logic_voltage]
+    mechanical:
+      mass:
+        source: parameter
+        parameter: mass
+      mounts:
+        - name: board
+          kind: pad
+          offset: ["0 mm", "0 mm", "0 mm"]
+    electrical:
+      pins:
+        - name: uart_tx
+          direction: input
+          signal_kind: digital
+          voltage_rating: logic_voltage
+        - name: uart_rx
+          direction: output
+          signal_kind: digital
+          voltage_rating: logic_voltage
+        - name: gnd
+          direction: ground
+          signal_kind: ground
+    ratings:
+      absolute_maximums:
+        - name: logic_voltage
+          parameter: logic_voltage
+    thermal:
+      held_constant: true
+      temperature: "298.15 K"
+    plugin:
+      cpp: uart_link
+parts:
+  - name: uart_link_115200_generic
+    type: uart_link
+    tier: ideal
+    source: placeholder values, no datasheet assigned
+    values:
+      mass: "5 g"
+      baud: "115200 Hz"
+      logic_voltage: "3.3 V"
+    placeholders: [mass, logic_voltage]

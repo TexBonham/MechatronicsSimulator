@@ -74,6 +74,7 @@ proposed <value>)".
 
 | Parameter | Current value | Owed by |
 |---|---|---|
+| Gantry placeholder geometry (DES-025) | Every gantry body is a placeholder box or cylinder of aluminium 6063-T5, with placeholder joint placements, motor axes, joint friction, damping and backlash, contact parameters and rail sections, marked PLACEHOLDER GEOMETRY in the design file, so the rigid milestone 1 gantry builds; the open parameter `cad_model` stays declared until the CAD replaces them | gantry team |
 | Mass cross-check tolerance between declared and recomputed values (DES-022); proposed 5 percent on mass and center-of-mass offset relative to body size | not set | owner |
 | Whether a mass cross-check mismatch is an error or a reported warning | not set | owner |
 | STEP mass-property reference tolerance on closed-form solids (DES-018); proposed 1e-6 relative | not set | owner |

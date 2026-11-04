@@ -22,3 +22,4 @@ type live in the root `CLAUDE.md` dispatch table once measured.
 | 2026-11-04 | M1 review: recorder and firmware (F, H) | general-purpose (fable) | 177K | 27 calls, 10 min; accept both; dir/enable source ruling |
 | 2026-11-04 | M1-I fix round: baseline round trip, CLI kinds, tst rows | module-writer (opus), resumed | ~20K | ~10 calls |
 | 2026-11-04 | M1-H fix round: single dir/enable source, fw rows, markers | firmware-builder (opus), resumed | ~10K | 9 calls, 5 min |
+| 2026-11-04 | M1-A fix round: run step decoupled, module order, rigid_members (BLD-033), gantry placeholder geometry | module-writer (opus), resumed | ~36K | 24 calls, 13 min |

@@ -62,6 +62,7 @@ proposed <value>)".
 | BLD-030 | The neutral model shall hold only plain SI floats and builder-owned types, and no unit object or engine type. | Ruling L5; Architecture doc, Repository starting point, invariant 5 | M1 | unit | n/a |
 | BLD-031 | Every fastener and mount shall be emitted as an individually addressable constraint, so that a modeled failure can disable it. | ADR 0010, Tier 2 table and Consequences | M3 | unit | n/a |
 | BLD-032 | A rope shall be emitted as a lumped chain in the neutral form. | Ruling R-13; ruling P4 | M3 | unit | n/a |
+| BLD-033 | The builder shall offer a rigid-members option that builds every flexible member as a rigid body while keeping the structural member list, for milestone 1 runs. | Requirements doc, Instructions for the planning session, milestone plan item 1 | M1 | unit | n/a |
 
 ## Open parameters
 
@@ -70,7 +71,17 @@ proposed <value>)".
 | Mass property tolerance on primitive solids (BLD-010); proposed 1e-9 relative | not set | owner |
 | Lumped beam deflection and first-mode tolerances (BLD-015 to BLD-017, BLD-019); proposed 2 percent | not set | owner |
 | Default segment count per lumped beam (BLD-018) | 4 (ADR 0013); 8 for a pinned root with a roller end (ENG-040); overridable per member in the neutral model | owner |
-| Overlap test geometry and allowed contact clearance (BLD-022) | not set | owner |
+| Overlap test geometry and allowed contact clearance (BLD-022) | World axis-aligned bounds of each primitive or hull at the reference configuration (all joint coordinates zero); bodies joined by a joint or excluded in the contacts element are skipped; touching passes (zero clearance); milestone 1 brief M1-A | owner (to confirm) |
+| Draft design whose physics holds open values | The physics model and member list are not emitted and the open paths are listed as pending; wiring and chip configuration are still emitted; a release design with a pending value fails; no BLD row covers it (milestone 1 brief M1-A) | owner |
+| Element kinds an adapter declares (BLD-024) | `body`, `joint.<type>`, `shape.<shape>`, `contacts`, `constraint.<type>`, `lumped_member`, `transmission.<type>` (milestone 1 brief M1-A) | PHY |
+| Flexible member supports with no lumped form (BLD-014) | The neutral beam takes a clamped or pinned root and a free or roller end; any other pair (the gantry rail_x planning default clamped-clamped, Decisions log row 17) fails the build once its physics is set | owner, with ENG |
+| Lumped member placement (BLD-014) | Rooted on the flexible body itself at its frame origin along its x axis, named `<body>_beam`; the rigid body stays in the model | milestone 3 |
+| Joint backlash | No neutral joint element; a non-zero design backlash fails the build | owner |
+| Floor plane material | The world plane carries the material name `floor` | owner |
+| Signal slots | Load torque on every joint an actuator's shaft mount binds; a pose slot for every body | SIG |
+| Board channel index | Per peripheral mode, counted from 0 in pin-binding order; `channels.h` defines `MECHSIM_CH_<INSTANCE>_<SIGNAL>` | SIG, FW |
+| Physics step in the neutral model | Not taken from the design's tick rate: physics step is run configuration (C4, KER run configuration keeps physics and control rates apart); the model carries the 1 ms default (ADR 0013) and the run configuration overrides it | KER |
+| Module instance order (`module_instances`) | KER-009 tick order: physics, integrity, sensor instances, controller, signal layer, power and safety instances, drivers, actuators, transmissions, any other instance, recorder; design order within a group; the runner's D1 seeding spawns child generators in this order | KER |
 | Neutral model schema | `mechsim/physics/neutral.py`, generated `schemas/physics_model.json` (phase 1 brief C1) | phase 1 contracts and schemas (ADR 0003) |
 | Rope lumped-chain detail (BLD-032) | not set | milestone 3 ADR (ruling P4) |
 | Default soft-contact parameters (normal stiffness, normal damping, friction coefficient) in the neutral model's contacts element; ADR 0002 fixes soft contact but no values, so the model requires them per design | not set | owner |

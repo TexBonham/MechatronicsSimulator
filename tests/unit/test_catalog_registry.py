@@ -19,6 +19,7 @@ SHIPPED_TYPES = [
     "power_supply",
     "step_dir_driver",
     "stepper_behavioral",
+    "uart_link",
     "watchdog",
 ]
 

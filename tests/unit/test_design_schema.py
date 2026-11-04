@@ -121,8 +121,11 @@ def test_gantry_is_a_draft_design_with_open_parameters() -> None:
     design = accepted(gantry())
     assert design.status == "draft"
     assert len(design.open_parameters) > 0
-    assert isinstance(design.bodies[0].geometry, OpenValue)
-    assert design.bodies[0].geometry.name == "cad_model"
+    assert "cad_model" in [parameter.name for parameter in design.open_parameters]
+    flexible = design.bodies[1].flexible
+    assert flexible is not None
+    assert isinstance(flexible.calibration, OpenValue)
+    assert flexible.calibration.name == "rail_calibration"
 
 
 @pytest.mark.req("DES-014")
@@ -1170,7 +1173,7 @@ def test_every_gantry_signal_bound_exactly_once() -> None:
     design = accepted(gantry())
     bound = sorted(binding.signal for binding in design.pin_bindings)
     assert bound == sorted(design.signal_names())
-    assert len(bound) == 22
+    assert len(bound) == 24
 
 
 # ===== Power ===========================================================
@@ -1555,10 +1558,10 @@ def test_contact_values_held_as_si_and_mirror_the_neutral_model() -> None:
 
 
 @pytest.mark.req("DES-042")
-def test_gantry_contact_defaults_are_open_and_floor_is_the_world_plane() -> None:
+def test_gantry_contact_defaults_are_placeholders_and_floor_is_the_world_plane() -> None:
     contact = accepted(gantry()).environment.contact
     assert contact is not None
-    assert contact.default.stiffness == OpenValue("contact_stiffness", "[mass] / [time] ** 2")
+    assert contact.default.stiffness == pytest.approx(100000.0)
     assert contact.floor is not None
     assert contact.floor.normal == [0.0, 0.0, 1.0]
     assert contact.floor.offset == pytest.approx(0.0)

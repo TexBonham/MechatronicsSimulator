@@ -64,6 +64,7 @@ proposed <value>)".
 
 | Parameter | Current value | Owed by |
 |---|---|---|
+| Operator link component type | `uart_link` (catalog `uart_link.yaml`, pins uart_tx and uart_rx, parameter baud) ships in milestone 1 under SIG-029; LIB-018's milestone 1 type list should name it; no LIB row yet | owner |
 | Stepper pull-out torque tolerance against the published curve (LIB-022); proposed 10% of the curve value per speed point | not set | owner |
 | Flexible beam deflection and first-mode tolerance (LIB-032) | not set | owner |
 | Fidelity tier names per component type | set per type in `mechsim/library/catalog/*.yaml` (phase 1 C2); new types name their own | library briefs, per type |
