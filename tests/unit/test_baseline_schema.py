@@ -88,6 +88,18 @@ def test_example_round_trips_and_writer_is_byte_identical() -> None:
     assert baseline_text(load_baseline(EXAMPLE)) == text
 
 
+@pytest.mark.req("SCO-011")
+@pytest.mark.parametrize("worst_time", ["1.5 s", "250 ms", "0.1 s", "0 s", None])
+def test_baseline_text_round_trips_through_load_baseline(tmp_path: Path, worst_time: str | None) -> None:
+    item = entry("G3", "final_x", "pass", worst_time=worst_time)
+    if worst_time is None:
+        item.pop("worst_time")
+    original = accepted(baseline(item, entry("G3", "final_y", "error"), entry("G4", "a")))
+    path = tmp_path / "baseline.yaml"
+    path.write_text(baseline_text(original), encoding="utf-8")
+    assert load_baseline(path) == original
+
+
 @pytest.mark.req("SCO-009")
 def test_writer_sorts_entries_naturally_and_is_deterministic() -> None:
     data = baseline(entry("G3", "b"), entry("G10", "a"), entry("G3", "a"), entry("G2", "z"))

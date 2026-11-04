@@ -16,7 +16,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Annotated, Any, Literal
 
-from pydantic import ConfigDict, Field, ValidationError, model_validator
+from pydantic import ConfigDict, Field, ValidationError, field_serializer, model_validator
 
 from mechsim.design.schema import Name, yaml_loader
 from mechsim.schema_base import StrictModel, format_errors
@@ -66,6 +66,13 @@ class Entry(StrictModel):
         if self.worst_time is not None and self.worst_time < 0.0:
             raise ValueError(f"worst_time must not be negative, got {self.worst_time}")
         return self
+
+    @field_serializer("worst_time", when_used="json")
+    def _worst_time_text(self, value: float | None) -> str | None:
+        """Written back as the unit string `Time` reads, so `load_baseline(baseline_text(b)) == b`."""
+        if value is None:
+            return None
+        return f"{value!r} s"
 
 
 def entry_key(entry: Entry) -> tuple[str, int, str]:
