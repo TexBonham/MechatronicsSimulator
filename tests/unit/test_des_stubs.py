@@ -60,30 +60,3 @@ def test_des_024() -> None:
     joint.
     """
     raise NotImplementedError
-
-
-@pytest.mark.req("DES-029")
-@pytest.mark.xfail(strict=True, reason="stub")
-def test_des_029() -> None:
-    """Every pin-binding table entry shall name a pin and peripheral mode that the chip's pin map provides, and any
-    other entry shall be rejected at load.
-    """
-    raise NotImplementedError
-
-
-@pytest.mark.req("DES-041")
-@pytest.mark.xfail(strict=True, reason="stub")
-def test_des_041() -> None:
-    """A design file shall declare the electrical wiring between component instances (driver to motor, supply to
-    driver) and the consumers of each power rail, so the builder can gate motor power and wire the signal layer
-    (BLD-006, G7, G8).
-    """
-    raise NotImplementedError
-
-
-@pytest.mark.req("DES-042")
-@pytest.mark.xfail(strict=True, reason="stub")
-def test_des_042() -> None:
-    """A design file's environment shall declare the contact model defaults, per-material-pair overrides, body-pair
-    exclusions and the floor plane, from which the builder fills the neutral model's contact section."""
-    raise NotImplementedError

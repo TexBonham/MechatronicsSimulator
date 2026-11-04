@@ -2,8 +2,9 @@
 # control tick (C4), rated load plus 15 percent design-load rule. Everything else is a ${name} open parameter owed by
 # the gantry team. Kinematic chain: frame on the world; rail_x fixed on the frame; rail_y travels along x on rail_x;
 # the trolley travels along y on rail_y; the lift carriage travels along z on the trolley (lead screw); the hook hangs
-# from the lift carriage. Each axis motor drives a shaft body on a revolute joint. MCU pin names are placeholders in
-# STM32 style until the chip is selected.
+# from the lift carriage. Each axis motor drives a shaft body on a revolute joint. MCU pin names come from the
+# placeholder chip chips/stm32_placeholder until the STM32 part is selected. The controller heartbeat is a digital
+# output pin bound to the watchdog's heartbeat port; the watchdog and the E-stop relay both gate motor power.
 name: gantry
 version: 0.1.0
 source_hash: unset
@@ -85,22 +86,29 @@ open_parameters:
   - name: stm32_part
     dimension: choice
     owed_by: gantry team
-    note: STM32 chip, not selected; names the chip definition under chips/.
+    note: >-
+      STM32 chip, not selected; firmware.chip names chips/stm32_placeholder meanwhile, and the selected part replaces
+      it with its own chip definition.
   - name: logic_supply
     dimension: choice
     owed_by: gantry team
     note: Supply of the controller's logic rail.
-  - name: heartbeat_wiring
-    dimension: choice
-    owed_by: gantry team
-    note: >-
-      The controller heartbeat is a pin signal into the E-stop relay or a watchdog, routed through the pin-binding
-      table (SIG-018, SIG-021, FW-025). It is not represented yet: the catalog has no watchdog type and estop_relay
-      declares no heartbeat input pin (LIB-019, milestone 2).
   - name: ambient_temperature
     dimension: "[temperature]"
     owed_by: gantry team
     note: Ambient temperature of the operating environment.
+  - name: contact_stiffness
+    dimension: "[mass] / [time] ** 2"
+    owed_by: gantry team
+    note: Default normal contact stiffness (DES-042, ADR 0002).
+  - name: contact_damping
+    dimension: "[mass] / [time]"
+    owed_by: gantry team
+    note: Default normal contact damping.
+  - name: contact_friction
+    dimension: dimensionless
+    owed_by: gantry team
+    note: Default Coulomb friction coefficient.
   - name: axis_friction
     dimension: "[mass] * [length] / [time] ** 2"
     owed_by: gantry team
@@ -140,6 +148,15 @@ open_parameters:
 environment:
   gravity: [0 m/s**2, 0 m/s**2, -9.81 m/s**2]
   ambient_temperature: ${ambient_temperature}
+  contact:
+    default:
+      stiffness: ${contact_stiffness}
+      damping: ${contact_damping}
+      friction: ${contact_friction}
+    # The frame is fixed to the world at the origin, so the floor is the world x-y plane.
+    floor:
+      normal: [0.0, 0.0, 1.0]
+      offset: 0 m
 bodies:
   - name: frame
     material: ${body_materials}
@@ -492,6 +509,44 @@ components:
   - name: estop
     type: estop_relay
     part: estop_relay_24v_generic
+  - name: watchdog
+    type: watchdog
+    part: watchdog_24v_generic
+    signals:
+      - name: watchdog.heartbeat
+        pin: heartbeat
+        direction: consumes
+wiring:
+  - source: motor_supply.v_out
+    destination: estop.contact_in
+  - source: estop.contact_out
+    destination: watchdog.contact_in
+  - source: watchdog.contact_out
+    destination: x_driver.vmot
+  - source: watchdog.contact_out
+    destination: y_driver.vmot
+  - source: watchdog.contact_out
+    destination: lift_driver.vmot
+  - source: motor_supply.gnd
+    destination: watchdog.gnd
+  - source: motor_supply.gnd
+    destination: x_driver.gnd
+  - source: motor_supply.gnd
+    destination: y_driver.gnd
+  - source: motor_supply.gnd
+    destination: lift_driver.gnd
+  - source: x_driver.coil_a
+    destination: x_motor.coil_a
+  - source: x_driver.coil_b
+    destination: x_motor.coil_b
+  - source: y_driver.coil_a
+    destination: y_motor.coil_a
+  - source: y_driver.coil_b
+    destination: y_motor.coil_b
+  - source: lift_driver.coil_a
+    destination: lift_motor.coil_a
+  - source: lift_driver.coil_b
+    destination: lift_motor.coil_b
 pin_bindings:
   - signal: x_driver.step
     pin: PA0
@@ -556,17 +611,22 @@ pin_bindings:
   - signal: lift_encoder.channel_b
     pin: PC5
     mode: timer_encoder
+  - signal: watchdog.heartbeat
+    pin: PB6
+    mode: gpio_output
 power:
   rails:
     - name: motor_power
       supply: motor_supply
-      gated_by: [estop]
+      gated_by: [estop, watchdog]
+      consumers: [x_driver, y_driver, lift_driver]
     - name: logic
       supply: ${logic_supply}
+      consumers: [x_encoder, y_encoder, lift_encoder]
   controller_rail: logic
 firmware:
   path: firmware
-  chip: ${stm32_part}
+  chip: stm32_placeholder
   tick_rate: 1 kHz
 operator_messages:
   - name: target

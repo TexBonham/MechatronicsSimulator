@@ -82,9 +82,10 @@ proposed <value>)".
 | Whether the gantry deflection target is static or dynamic (DES-032) | not set; planning default static with dynamic reported | gantry team |
 | Which gantry members are flexible and their sections (DES-033) | not set; planning default rails, extrusion sections | gantry team |
 | Where the minimum safety factor is declared (design or test case); the design schema carries an optional `structural.minimum_safety_factor` meanwhile | not set | owner |
-| Wiring between component instances (driver coils to motor, supply to driver) beyond the controller-facing pin-binding table | not set; required by DES-041 | owner |
+| Wiring between component instances (driver coils to motor, supply to driver) beyond the controller-facing pin-binding table | ruled: connectivity only; physical wire properties are a later component type (owner ruling 2026-11-04). The design's `wiring` list connects `instance.port` to `instance.port`, ports being the pins of each type's electrical facet; output to input or bidirectional, bidirectional to input or bidirectional, power out to power in, ground to ground; a signal port carries one connection (a controller-facing signal counts as one), power and ground ports may be shared; each rail lists its `consumers` (DES-041) | owner |
 | Closed-loop mates (DES-002): not representable yet; every body has exactly one parent joint, and loop closure arrives with the constraint element | not set | owner |
-| Where contact model parameters and the floor live | design environment (owner ruling 2026-11-04); DES-042 carries it | owner |
+| Where contact model parameters and the floor live | design environment (owner ruling 2026-11-04); DES-042 carries it as `environment.contact`: `default`, `pairs`, `exclusions` field for field with the neutral model's contacts element, plus `floor` (normal and offset, on the world only) | owner |
+| Chip pin-map check (DES-029) | a concrete `firmware.chip` names `chips/<name>/chip.yaml`; an open chip skips the check. Pin-map modes use the design's peripheral-mode names | owner |
 
 ## Out of scope
 

@@ -84,10 +84,10 @@ proposed <value>)".
 | Drift limit that counts as constraint drift | not set | engine ADR, PHY spec |
 | Controller mode for a design without firmware | the case omits `controller_mode`; it is required when the design has firmware (TST-036) | set in phase 1 C4 |
 | Where the baseline path lives (TST-008 names a suite file; no suite file schema yet) | each case may name its suite's baseline file, relative to the case folder | phase 1 suite file schema |
-| Fault parameter forms | sensor noise as an absolute standard deviation in the signal's unit; motor stall as the available-torque fraction in [0, 1); slip as a fraction in (0, 1] | owner confirmation pending |
+| Fault parameter forms | sensor noise as an absolute standard deviation in the signal's unit; motor stall as the available-torque fraction in [0, 1); slip as a fraction in (0, 1] | owner ruling 2026-11-04 |
 | Position criterion per axis or planar distance (G3) | per axis, x and y each within 1 cm (owner ruling 2026-11-04); a per-axis pass admits a 1.41 cm planar error | owner |
 | Initial joint state for multi-DOF joints | single-axis (prismatic, revolute) starting positions only | phase 1 contracts |
-| `initial_state.controller` | a precondition the runner checks before t = 0, not a state it sets | owner confirmation pending |
+| `initial_state.controller` | a precondition the runner checks before t = 0 against the firmware's reported state, not a state it sets; a mismatch is an error | owner ruling 2026-11-04 |
 | CLI exit status for failed, errored and passed suites | not set | phase 1 contracts |
 | Run archive output location | not set | phase 1 contracts |
 

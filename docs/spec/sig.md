@@ -80,8 +80,9 @@ proposed <value>)".
 | Signal-layer internal rate for pulse-level signals | not set | owner |
 | Brake engagement semantics (rail-driven or pin-driven) (SIG-020) | not set | owner |
 | E-stop relay cutoff delay value | not set | gantry team (reference design data) |
-| Watchdog heartbeat timeout value | not set | gantry team (reference design data) |
+| Watchdog heartbeat timeout value | not set; the `watchdog` catalog part carries a placeholder `timeout` | gantry team (reference design data) |
 | UART framing and baud handling in the transport | not set | owner, phase 1 contracts |
+| Operator link codec for milestone 1 | ASCII line protocol over UART, one message per line, space-separated fields matching the design's message names; binary codec is a later class behind the same interface (owner ruling 2026-11-04) | owner |
 | Promotion criteria from Python to C++ beyond "stable" | not set | owner (ADR 0005, Open items) |
 
 ## Out of scope

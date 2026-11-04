@@ -522,6 +522,103 @@
       "title": "ComponentInstance",
       "type": "object"
     },
+    "Contact": {
+      "additionalProperties": false,
+      "description": "The neutral model's contacts element field for field (DES-042, ADR 0003), plus the floor plane.",
+      "properties": {
+        "default": {
+          "$ref": "#/$defs/ContactParameters"
+        },
+        "exclusions": {
+          "items": {
+            "items": {
+              "pattern": "^[a-z][a-z0-9_]*$",
+              "type": "string"
+            },
+            "maxItems": 2,
+            "minItems": 2,
+            "type": "array"
+          },
+          "title": "Exclusions",
+          "type": "array"
+        },
+        "floor": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Floor"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "pairs": {
+          "items": {
+            "$ref": "#/$defs/MaterialPair"
+          },
+          "title": "Pairs",
+          "type": "array"
+        }
+      },
+      "required": [
+        "default"
+      ],
+      "title": "Contact",
+      "type": "object"
+    },
+    "ContactParameters": {
+      "additionalProperties": false,
+      "description": "Soft contact (ADR 0002): normal stiffness and damping, Coulomb friction coefficient.",
+      "properties": {
+        "damping": {
+          "anyOf": [
+            {
+              "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s+\\S.*)?$",
+              "type": "string"
+            },
+            {
+              "pattern": "^\\$\\{[a-z][a-z0-9_]*\\}$",
+              "type": "string"
+            }
+          ],
+          "title": "Damping"
+        },
+        "friction": {
+          "anyOf": [
+            {
+              "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s+\\S.*)?$",
+              "type": "string"
+            },
+            {
+              "pattern": "^\\$\\{[a-z][a-z0-9_]*\\}$",
+              "type": "string"
+            }
+          ],
+          "title": "Friction"
+        },
+        "stiffness": {
+          "anyOf": [
+            {
+              "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s+\\S.*)?$",
+              "type": "string"
+            },
+            {
+              "pattern": "^\\$\\{[a-z][a-z0-9_]*\\}$",
+              "type": "string"
+            }
+          ],
+          "title": "Stiffness"
+        }
+      },
+      "required": [
+        "stiffness",
+        "damping",
+        "friction"
+      ],
+      "title": "ContactParameters",
+      "type": "object"
+    },
     "Cylinder": {
       "additionalProperties": false,
       "properties": {
@@ -659,6 +756,17 @@
             }
           ],
           "title": "Ambient Temperature"
+        },
+        "contact": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Contact"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
         },
         "gravity": {
           "items": {
@@ -840,6 +948,46 @@
         "supports"
       ],
       "title": "FlexibleMember",
+      "type": "object"
+    },
+    "Floor": {
+      "additionalProperties": false,
+      "description": "The floor plane on the world: points x with normal . x = offset; contact acts on the side the normal faces.",
+      "properties": {
+        "body": {
+          "default": "world",
+          "pattern": "^[a-z][a-z0-9_]*$",
+          "title": "Body",
+          "type": "string"
+        },
+        "normal": {
+          "items": {
+            "type": "number"
+          },
+          "maxItems": 3,
+          "minItems": 3,
+          "title": "Normal",
+          "type": "array"
+        },
+        "offset": {
+          "anyOf": [
+            {
+              "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s+\\S.*)?$",
+              "type": "string"
+            },
+            {
+              "pattern": "^\\$\\{[a-z][a-z0-9_]*\\}$",
+              "type": "string"
+            }
+          ],
+          "title": "Offset"
+        }
+      },
+      "required": [
+        "normal",
+        "offset"
+      ],
+      "title": "Floor",
       "type": "object"
     },
     "InertiaTensor": {
@@ -1182,6 +1330,69 @@
         "inertia"
       ],
       "title": "MassProperties",
+      "type": "object"
+    },
+    "MaterialPair": {
+      "additionalProperties": false,
+      "description": "Contact parameters overriding the default for one unordered pair of materials.",
+      "properties": {
+        "damping": {
+          "anyOf": [
+            {
+              "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s+\\S.*)?$",
+              "type": "string"
+            },
+            {
+              "pattern": "^\\$\\{[a-z][a-z0-9_]*\\}$",
+              "type": "string"
+            }
+          ],
+          "title": "Damping"
+        },
+        "friction": {
+          "anyOf": [
+            {
+              "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s+\\S.*)?$",
+              "type": "string"
+            },
+            {
+              "pattern": "^\\$\\{[a-z][a-z0-9_]*\\}$",
+              "type": "string"
+            }
+          ],
+          "title": "Friction"
+        },
+        "materials": {
+          "items": {
+            "pattern": "^[a-z][a-z0-9_]*$",
+            "type": "string"
+          },
+          "maxItems": 2,
+          "minItems": 2,
+          "title": "Materials",
+          "type": "array"
+        },
+        "stiffness": {
+          "anyOf": [
+            {
+              "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s+\\S.*)?$",
+              "type": "string"
+            },
+            {
+              "pattern": "^\\$\\{[a-z][a-z0-9_]*\\}$",
+              "type": "string"
+            }
+          ],
+          "title": "Stiffness"
+        }
+      },
+      "required": [
+        "stiffness",
+        "damping",
+        "friction",
+        "materials"
+      ],
+      "title": "MaterialPair",
       "type": "object"
     },
     "MechanicalBinding": {
@@ -1538,6 +1749,14 @@
     "Rail": {
       "additionalProperties": false,
       "properties": {
+        "consumers": {
+          "items": {
+            "pattern": "^[a-z][a-z0-9_]*$",
+            "type": "string"
+          },
+          "title": "Consumers",
+          "type": "array"
+        },
         "gated_by": {
           "items": {
             "anyOf": [
@@ -1816,6 +2035,28 @@
       ],
       "title": "Structural",
       "type": "object"
+    },
+    "Wire": {
+      "additionalProperties": false,
+      "description": "A connection from one instance port to another (DES-041); ports are the pins of each type's electrical facet.\n\nWires carry connectivity only in v1: no resistance, inductance, length or failure. Physical wire properties are a\nlater component type (a seam).",
+      "properties": {
+        "destination": {
+          "pattern": "^[a-z][a-z0-9_]*\\.[a-z][a-z0-9_]*$",
+          "title": "Destination",
+          "type": "string"
+        },
+        "source": {
+          "pattern": "^[a-z][a-z0-9_]*\\.[a-z][a-z0-9_]*$",
+          "title": "Source",
+          "type": "string"
+        }
+      },
+      "required": [
+        "source",
+        "destination"
+      ],
+      "title": "Wire",
+      "type": "object"
     }
   },
   "$id": "design.json",
@@ -1937,6 +2178,13 @@
       "pattern": "^\\d+\\.\\d+\\.\\d+$",
       "title": "Version",
       "type": "string"
+    },
+    "wiring": {
+      "items": {
+        "$ref": "#/$defs/Wire"
+      },
+      "title": "Wiring",
+      "type": "array"
     }
   },
   "required": [

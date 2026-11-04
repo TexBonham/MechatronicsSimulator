@@ -94,3 +94,31 @@ def test_json_schema_rejects_bare_number_quantity() -> None:
     )
     data["density"]["typ"] = 1240
     assert list(validator(material_schema.SCHEMA_PATH).iter_errors(data)) != []
+
+
+@pytest.mark.req("LIB-019")
+@pytest.mark.req("LIB-010")
+def test_watchdog_type_ships_with_heartbeat_timeout_and_gated_contacts() -> None:
+    """Covers LIB-019's watchdog half only; the load cell, amplifier and IMU types remain owed (LIB-019 stub)."""
+    catalog = component_schema.load_catalog_file(component_schema.CATALOG_DIR / "watchdog.yaml")
+    watchdog = catalog.component_type("watchdog")
+    assert watchdog.category == "safety"
+    pins = {pin.name: pin for pin in watchdog.electrical.pins}
+    assert pins["heartbeat"].direction == "input"
+    assert pins["heartbeat"].signal_kind == "digital"
+    assert pins["contact_in"].direction == "power_in"
+    assert pins["contact_out"].direction == "power_out"
+    timeout = watchdog.parameter("timeout")
+    assert isinstance(timeout, component_schema.QuantityParameter)
+    assert component_schema.dimensions_equal(timeout.dimension, "[time]")
+    assert catalog.resolved_parts()[0].parameter_values()["timeout"] == pytest.approx(0.05)
+
+
+@pytest.mark.req("LIB-019")
+@pytest.mark.req("LIB-010")
+def test_estop_relay_has_a_heartbeat_input_port() -> None:
+    """Covers LIB-019's watchdog half only: the E-stop relay can take the heartbeat in place of a watchdog."""
+    relay = component_schema.load_catalog_file(component_schema.CATALOG_DIR / "estop_relay.yaml").types[0]
+    pins = {pin.name: pin for pin in relay.electrical.pins}
+    assert pins["heartbeat"].direction == "input"
+    assert pins["heartbeat"].signal_kind == "digital"
