@@ -12,6 +12,11 @@ jobs:
       - uses: astral-sh/setup-uv@v6
         with:
           enable-cache: true
+      - name: Install C++ toolchain
+        # uv sync builds the core runtime's binding (mechsim._core_ext) through scikit-build-core and CMake.
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends cmake ninja-build g++
       - name: Sync environment
         run: uv sync --locked
       - name: Lint

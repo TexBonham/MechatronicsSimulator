@@ -23,11 +23,29 @@ dev = [
 ]
 
 [build-system]
-requires = ["hatchling"]
-build-backend = "hatchling.build"
+requires = ["scikit-build-core>=0.10"]
+build-backend = "scikit_build_core.build"
 
-[tool.hatch.build.targets.wheel]
-packages = ["mechsim"]
+# The compiled core runtime, mechsim._core_ext, is built by CMake from the root CMakeLists.txt with the release
+# preset's build type; pybind11 and Eigen are fetched by CMake at pinned tags (core/bindings/, core/cmake/).
+[tool.scikit-build]
+minimum-version = "build-system.requires"
+cmake.version = ">=3.28"
+cmake.source-dir = "."
+cmake.build-type = "Release"
+build-dir = "build/python/{wheel_tag}"
+build.targets = ["_core_ext"]
+install.components = ["python"]
+wheel.packages = ["mechsim"]
+
+# uv rebuilds the extension when any of these change (C++ sources are not Python sources it would watch otherwise).
+[tool.uv]
+cache-keys = [
+    { file = "pyproject.toml" },
+    { file = "core/**/*.cpp" },
+    { file = "core/**/*.hpp" },
+    { file = "**/CMakeLists.txt" },
+]
 
 [tool.ruff]
 line-length = 120
