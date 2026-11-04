@@ -23,7 +23,8 @@ only here (CI grep, `tests/invariant/test_phy_stubs.py`); the public header name
 | constraints | equality `efc_force` rows (3 per connect; empty when disabled); errors from site positions |
 | contacts | `mj_contactForce` in world, on body_a (geom1); world and member bodies are `kernel::kWorldBody` |
 | members | start: `cfrc_int` of the first segment moved to the root point; end: roller connect force on the tip, else zero |
-| ropes, transmissions | empty (milestones 2, 3) |
+| ropes | empty (milestone 3) |
+| transmissions | per shaft, neutral order: `shaft_load_torque` (PHY-033, the joint's value), `force` = gain tau_load / c (gain eta driving, 1 / eta back-driven; the load's share, not the force applied this step, which is gain tau / c: they differ by (1 - eta) J a / c^2 under acceleration, see the open owner question on where the loss sits), `stretch` 0 (rigid), `power_flow` Static (tau qd = 0), Forward, Backward; `slip` 0 |
 
 ## Transmissions (reflection, PHY-018, PHY-033)
 

@@ -116,9 +116,16 @@ def test_watchdog_type_ships_with_heartbeat_timeout_and_gated_contacts() -> None
 
 @pytest.mark.req("LIB-019")
 @pytest.mark.req("LIB-010")
-def test_estop_relay_has_a_heartbeat_input_port() -> None:
-    """Covers LIB-019's watchdog half only: the E-stop relay can take the heartbeat in place of a watchdog."""
+def test_estop_relay_has_no_heartbeat_port_the_watchdog_trips_it() -> None:
+    """Covers LIB-019's watchdog half only: the heartbeat goes to the watchdog, never to the E-stop relay; the
+    watchdog's trip output (and its contacts) act on the safety chain the relay's E-stop loop input belongs to."""
     relay = component_schema.load_catalog_file(component_schema.CATALOG_DIR / "estop_relay.yaml").types[0]
-    pins = {pin.name: pin for pin in relay.electrical.pins}
-    assert pins["heartbeat"].direction == "input"
-    assert pins["heartbeat"].signal_kind == "digital"
+    relay_pins = {pin.name: pin for pin in relay.electrical.pins}
+    assert "heartbeat" not in relay_pins
+    assert relay_pins["estop_loop"].direction == "input"
+    assert relay_pins["estop_loop"].signal_kind == "digital"
+    watchdog = component_schema.load_catalog_file(component_schema.CATALOG_DIR / "watchdog.yaml").types[0]
+    watchdog_pins = {pin.name: pin for pin in watchdog.electrical.pins}
+    assert watchdog_pins["heartbeat"].direction == "input"
+    assert watchdog_pins["tripped"].direction == "output"
+    assert watchdog_pins["tripped"].signal_kind == "digital"

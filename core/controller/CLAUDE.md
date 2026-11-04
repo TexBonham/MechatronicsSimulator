@@ -1,8 +1,8 @@
 # core/controller: contract
 
 Namespace `mechsim::controller`. Target `mechsim_controller` (links `${CMAKE_DL_LIBS}`); tests `mechsim_controller_tests`,
-`mechsim_controller_native_tests`. Public headers include only `signals/power_rail.hpp`, `signals/pin_binding.hpp` and
-`kernel/time.hpp`, never a kernel physics header (CTL-014, invariant 1); `mechsim_board.h` only privately in `src/`.
+`mechsim_controller_native_tests`. Public headers include only `pins/pins.hpp` (target `mechsim_pins`), `signals/pin_binding.hpp`,
+`kernel/party.hpp` and `kernel/time.hpp`, never a kernel physics header (CTL-014, invariant 1); `mechsim_board.h` only privately in `src/`.
 
 ## Headers (`include/mechsim/controller/`)
 
@@ -10,6 +10,7 @@ Namespace `mechsim::controller`. Target `mechsim_controller` (links `${CMAKE_DL_
 |---|---|
 | `controller_runtime.hpp` | `PinInputs`, `PinOutputs` (no heartbeat; header v2.2), `EventLogEntry`, size constants, `FirmwareImage{path, tick_hz}`, `ControllerRuntime` (`load`, `reset`, `tick`, `freeze`, `brownout`), `ControllerConfigError` (load), `ControllerError` (run), `NullControllerRuntime(Rate)` |
 | `channel_map.hpp` | `PinSlot` (no direction/enable); `slot_capacity()`; `slot_accepts()`; `ChannelAssignment{signal, slot, channel}`; `ChannelMap`: `add()`, `find()`, `entries()`, `check_bindings()`, `assign_axis(axis, AxisChannels{dir_channel, enable_channel})`, `axis()`; `derive_axis_levels()` (CTL-006) |
+| `controller_party.hpp` | `ControllerPartyConfig{name, rate, pin_inputs, rails, rail}`; `ControllerParty(unique_ptr<ControllerRuntime>, config)`: role controller, publishes `<name>.pin_outputs`; with `rail`: reset on the first step, brownout on a voltage change; `record` writes the state code |
 | `native_controller_runtime.hpp` | `board_interface_version()`; `placeholder_brownout_threshold_v`; `HostBuildRequest`, `build_host_firmware()` -> `{library, log}`; `NativeRuntimeConfig{control_rate, work_dir, brownout_threshold_v, channels, app_target, cmake_command}`; `NativeControllerRuntime` + `channel_map()`, `library_path()`, `build_log()`, `ticks_run()`, `inits()`, `frozen()`, `held_in_reset()`, `supply_voltage()` |
 
 ## Native runtime (CTL-002 to CTL-007, CTL-011 to CTL-013, CTL-018)

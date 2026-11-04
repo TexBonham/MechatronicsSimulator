@@ -9,12 +9,16 @@
 #include <utility>
 #include <vector>
 
+#include "mechsim/kernel/cosim_kernel.hpp"
+#include "mechsim/physics/mujoco/mujoco_adapter.hpp"
+
 namespace mechsim::bindings {
 
 namespace {
 
 const std::map<std::string, PhysicsAdapterFactory, std::less<>>& physics_adapters() {
     static const std::map<std::string, PhysicsAdapterFactory, std::less<>> factories{
+        {"mujoco", [] { return std::make_unique<physics::mujoco::MujocoAdapter>(); }},
         {"null", [] { return std::make_unique<kernel::NullPhysicsAdapter>(); }},
     };
     return factories;
@@ -52,7 +56,7 @@ template <typename Map>
 }  // namespace
 
 std::unique_ptr<kernel::Kernel> make_kernel(kernel::RunConfig config) {
-    return std::make_unique<kernel::NullKernel>(std::move(config));
+    return std::make_unique<kernel::CoSimKernel>(std::move(config));
 }
 
 std::vector<std::string> physics_adapter_names() {

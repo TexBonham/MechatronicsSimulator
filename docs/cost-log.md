@@ -43,3 +43,4 @@ type live in the root `CLAUDE.md` dispatch table once measured.
 | 2026-11-04 | Invariant audit: wave 1 stage commits (9fc0980..d4c7459) | invariant-auditor (sonnet) | 30K | 10 calls, 1 min; all nine pass, 2 low notes to integration |
 | 2026-11-04 | M1-X1: core wiring, coupling crossings, pins target, load-torque convention, catalog alignment, kernel and signal bindings, KER-023 | module-writer (opus), worktree | 312K | 135 calls, 45 min; MuJoCo adapter binding left open, fix round sent |
 | 2026-11-04 | M1-X1 fix round: MuJoCo adapter bound with libmujoco in the wheel, inverse heartbeat test, negative-ratio cases, ker.md rows | module-writer (opus), resumed | ~32K | 31 calls, 14 min |
+| 2026-11-04 | M1 review: core wiring (X1) | general-purpose (fable) | 198K | 22 calls, 5 min; accept with 5 minor fixes, applied inline by the coordinator |

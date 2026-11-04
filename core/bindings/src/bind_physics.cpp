@@ -12,6 +12,7 @@
 #include "mechsim/kernel/physics_adapter.hpp"
 #include "mechsim/kernel/physics_types.hpp"
 #include "mechsim/kernel/time.hpp"
+#include "mechsim/physics/mujoco/mujoco_adapter.hpp"
 
 namespace py = pybind11;
 
@@ -105,10 +106,19 @@ void bind_types(py::module_& m) {
         .def(py::init<>())
         .def_readwrite("tension", &kernel::RopeTension::tension)
         .def_readwrite("slack", &kernel::RopeTension::slack);
+    py::enum_<kernel::PowerFlow>(m, "PowerFlow")
+        .value("Static", kernel::PowerFlow::Static)
+        .value("Forward", kernel::PowerFlow::Forward)
+        .value("Backward", kernel::PowerFlow::Backward)
+        .value("Locked", kernel::PowerFlow::Locked);
     py::class_<kernel::TransmissionState>(m, "TransmissionState")
         .def(py::init<>())
         .def_readwrite("slip", &kernel::TransmissionState::slip)
-        .def_readwrite("slipping", &kernel::TransmissionState::slipping);
+        .def_readwrite("slipping", &kernel::TransmissionState::slipping)
+        .def_readwrite("shaft_load_torque", &kernel::TransmissionState::shaft_load_torque)
+        .def_readwrite("force", &kernel::TransmissionState::force)
+        .def_readwrite("stretch", &kernel::TransmissionState::stretch)
+        .def_readwrite("power_flow", &kernel::TransmissionState::power_flow);
     py::class_<kernel::PhysicsHealth>(m, "PhysicsHealth")
         .def(py::init<>())
         .def_readwrite("max_constraint_drift", &kernel::PhysicsHealth::max_constraint_drift)
@@ -166,6 +176,12 @@ void bind_adapter(py::module_& m) {
         .def("set_payload_mass", &PhysicsAdapter::set_payload_mass, py::arg("payload"), py::arg("mass"))
         .def("set_payload_attachment", &PhysicsAdapter::set_payload_attachment, py::arg("payload"),
              py::arg("body"));
+
+    py::class_<physics::mujoco::MujocoAdapter, PhysicsAdapter, py::smart_holder>(
+        m, "MujocoAdapter", "MuJoCo behind the PhysicsAdapter interface (PHY-014, ADR 0014); load the translation's MJCF.")
+        .def(py::init<>())
+        .def("integrator", &physics::mujoco::MujocoAdapter::integrator)
+        .def("timestep", &physics::mujoco::MujocoAdapter::timestep);
 
     py::class_<kernel::NullPhysicsAdapter, PhysicsAdapter, py::smart_holder>(m, "NullPhysicsAdapter")
         .def(py::init<>())

@@ -455,6 +455,14 @@ def _reflections(model: PhysicsModel, report: list[str]) -> dict[str, _Reflectio
         if shaft.shapes:
             report.append(f"{element}: the {len(shaft.shapes)} shape(s) of shaft body '{shaft.name}' are not emitted")
         report.append(f"{element}: stiffness {_num(transmission.stiffness)} treated as rigid (milestone 1)")
+        report.append(
+            f"{element}: the rotor's reaction torque on its mount body '{shaft.parent}' and the spin-mount "
+            "(gyroscopic) coupling are dropped: the shaft has no hinge in the MJCF"
+        )
+        report.append(
+            f"{element}: efficiency read lossless on the rotor, (m + J / c^2) a = eta tau / c driving and "
+            "tau / (eta c) back-driven; where the loss sits is an owner ruling (PHY-033)"
+        )
         reflected[shaft.name] = _Reflection(
             transmission.name,
             f"transmission.{transmission.type}",

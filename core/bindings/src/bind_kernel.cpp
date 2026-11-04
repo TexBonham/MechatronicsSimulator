@@ -7,6 +7,7 @@
 #include <exception>
 #include <functional>
 #include <memory>
+#include <optional>
 #include <span>
 #include <stdexcept>
 #include <string>
@@ -16,10 +17,12 @@
 
 #include "bindings.hpp"
 #include "factories.hpp"
+#include "mechsim/kernel/coupling.hpp"
 #include "mechsim/kernel/kernel.hpp"
 #include "mechsim/kernel/party.hpp"
 #include "mechsim/kernel/recorder_sink.hpp"
 #include "mechsim/kernel/run_config.hpp"
+#include "mechsim/kernel/tick_record.hpp"
 #include "mechsim/kernel/time.hpp"
 
 namespace py = pybind11;
@@ -79,7 +82,55 @@ public:
         }
     }
 
+    // Defaulted hooks: a Python subclass that does not define one gets the C++ default. The GIL is taken before
+    // py::cast builds the argument object.
+    [[nodiscard]] kernel::PartyRole role() const override {
+        if (!has_override("role")) {
+            return Party::role();
+        }
+        return call_override<kernel::PartyRole>(this, "role");
+    }
+
+    void set_seed(std::uint64_t child_seed) override {
+        if (has_override("set_seed")) {
+            call_override<void>(this, "set_seed", child_seed);
+        }
+    }
+
+    void read_inputs(const kernel::CouplingReader& inputs) override {
+        if (has_override("read_inputs")) {
+            const py::gil_scoped_acquire gil;
+            call_override<void>(this, "read_inputs", py::cast(&inputs, py::return_value_policy::reference));
+        }
+    }
+
+    void write_outputs(kernel::CouplingWriter& outputs) override {
+        if (has_override("write_outputs")) {
+            const py::gil_scoped_acquire gil;
+            call_override<void>(this, "write_outputs", py::cast(&outputs, py::return_value_policy::reference));
+        }
+    }
+
+    [[nodiscard]] bool finished() const override {
+        if (!has_override("finished")) {
+            return false;
+        }
+        return call_override<bool>(this, "finished");
+    }
+
+    void record(kernel::TickRecord& row) const override {
+        if (has_override("record")) {
+            const py::gil_scoped_acquire gil;
+            call_override<void>(this, "record", py::cast(&row, py::return_value_policy::reference));
+        }
+    }
+
 private:
+    [[nodiscard]] bool has_override(const char* method) const {
+        const py::gil_scoped_acquire gil;
+        return static_cast<bool>(py::get_override(static_cast<const Party*>(this), method));
+    }
+
     mutable std::string name_;
     mutable std::vector<std::string> published_;
     mutable std::vector<std::string> consumed_;
@@ -93,6 +144,15 @@ std::string rate_repr(const Rate& rate) {
 }
 
 void bind_party(py::module_& m) {
+    py::enum_<kernel::PartyRole>(m, "PartyRole")
+        .value("physics", kernel::PartyRole::physics)
+        .value("sensors", kernel::PartyRole::sensors)
+        .value("integrity", kernel::PartyRole::integrity)
+        .value("controller", kernel::PartyRole::controller)
+        .value("outputs", kernel::PartyRole::outputs)
+        .value("drivers", kernel::PartyRole::drivers)
+        .value("recorder", kernel::PartyRole::recorder)
+        .value("other", kernel::PartyRole::other);
     py::class_<Party, PyParty, py::smart_holder>(m, "Party",
                                                  "One interface for every party (KER-018); subclass it in Python for "
                                                  "the slow path (KER-019). Call super().__init__().")
@@ -111,6 +171,12 @@ void bind_party(py::module_& m) {
              })
         .def("start", &Party::start, py::arg("base_rate"))
         .def("step", &Party::step, py::arg("t"), py::arg("dt"))
+        .def("role", &Party::role)
+        .def("set_seed", &Party::set_seed, py::arg("child_seed"))
+        .def("read_inputs", &Party::read_inputs, py::arg("inputs"))
+        .def("write_outputs", &Party::write_outputs, py::arg("outputs"))
+        .def("finished", &Party::finished)
+        .def("record", &Party::record, py::arg("row"))
         .def(
             "on_fault",
             [](Party&, const py::object&) { throw std::logic_error("Python subclass does not implement on_fault()"); },
@@ -157,11 +223,42 @@ void bind_run_config(py::module_& m) {
         .value("end_condition_met", kernel::RunOutcome::end_condition_met)
         .value("run_error", kernel::RunOutcome::run_error);
 
+    py::enum_<kernel::EndReason>(m, "EndReason")
+        .value("max_duration", kernel::EndReason::max_duration)
+        .value("at_time", kernel::EndReason::at_time)
+        .value("stop_requested", kernel::EndReason::stop_requested)
+        .value("signal", kernel::EndReason::signal)
+        .value("party_state", kernel::EndReason::party_state)
+        .value("run_error", kernel::EndReason::run_error);
+    py::enum_<kernel::RateSource>(m, "RateSource")
+        .value("nominal", kernel::RateSource::nominal)
+        .value("control_rate", kernel::RateSource::control_rate)
+        .value("override", kernel::RateSource::override);
+    py::class_<kernel::PartyRate>(m, "PartyRate")
+        .def_readonly("party", &kernel::PartyRate::party)
+        .def_readonly("rate", &kernel::PartyRate::rate)
+        .def_readonly("source", &kernel::PartyRate::source);
+    py::class_<kernel::PartyStepCount>(m, "PartyStepCount")
+        .def_readonly("party", &kernel::PartyStepCount::party)
+        .def_readonly("steps", &kernel::PartyStepCount::steps);
+    py::class_<kernel::EndTriggers>(m, "EndTriggers", "Further end conditions, set before run() (KER-017).")
+        .def(py::init([](std::optional<Seconds> at_time, std::string on_signal, std::string party_state) {
+                 return kernel::EndTriggers{at_time, std::move(on_signal), std::move(party_state)};
+             }),
+             py::arg("at_time") = py::none(), py::arg("on_signal") = "", py::arg("party_state") = "")
+        .def_readwrite("at_time", &kernel::EndTriggers::at_time)
+        .def_readwrite("on_signal", &kernel::EndTriggers::on_signal)
+        .def_readwrite("party_state", &kernel::EndTriggers::party_state);
+
     py::class_<kernel::RunReport>(m, "RunReport", "How the run ended (KER-015, KER-017).")
         .def_readonly("outcome", &kernel::RunReport::outcome)
         .def_readonly("base_rate", &kernel::RunReport::base_rate)
         .def_readonly("end_time", &kernel::RunReport::end_time)
         .def_readonly("ticks", &kernel::RunReport::ticks)
+        .def_readonly("end_reason", &kernel::RunReport::end_reason)
+        .def_readonly("step_counts", &kernel::RunReport::step_counts)
+        .def_readonly("party_rates", &kernel::RunReport::party_rates)
+        .def_readonly("sink_errors", &kernel::RunReport::sink_errors)
         .def_property_readonly("fault", [](const kernel::RunReport& report) -> py::object {
             if (!report.fault.has_value()) {
                 return py::none();

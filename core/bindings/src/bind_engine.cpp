@@ -12,6 +12,7 @@
 #include "mechsim/engine/lumped_beam.hpp"
 #include "mechsim/engine/multibody_model.hpp"
 #include "mechsim/engine/multibody_provider.hpp"
+#include "mechsim/engine/transmission.hpp"
 #include "mechsim/engine/state.hpp"
 #include "mechsim/engine/step_config.hpp"
 #include "mechsim/engine/step_health.hpp"
@@ -83,11 +84,47 @@ void bind_model(py::module_& m) {
         .def_readwrite("axis_a", &LoopConstraint::axis_a)
         .def_readwrite("axis_b", &LoopConstraint::axis_b);
 
+    py::enum_<engine::TransmissionType>(m, "TransmissionType")
+        .value("BeltPulley", engine::TransmissionType::BeltPulley)
+        .value("LeadScrew", engine::TransmissionType::LeadScrew)
+        .value("GearPair", engine::TransmissionType::GearPair);
+    py::enum_<engine::PowerFlow>(m, "PowerFlow")
+        .value("Static", engine::PowerFlow::Static)
+        .value("Forward", engine::PowerFlow::Forward)
+        .value("Backward", engine::PowerFlow::Backward)
+        .value("Locked", engine::PowerFlow::Locked);
+    py::class_<engine::Transmission>(m, "Transmission", "Belt, lead screw or gear pair (ENG-043 to ENG-046).")
+        .def(py::init<>())
+        .def_readwrite("type", &engine::Transmission::type)
+        .def_readwrite("input_body", &engine::Transmission::input_body)
+        .def_readwrite("output_body", &engine::Transmission::output_body)
+        .def_readwrite("ratio", &engine::Transmission::ratio)
+        .def_readwrite("reverses", &engine::Transmission::reverses)
+        .def_readwrite("efficiency", &engine::Transmission::efficiency)
+        .def_readwrite("back_efficiency", &engine::Transmission::back_efficiency)
+        .def_readwrite("self_locking", &engine::Transmission::self_locking)
+        .def_readwrite("stiffness", &engine::Transmission::stiffness)
+        .def_readwrite("damping", &engine::Transmission::damping)
+        .def_readwrite("backlash", &engine::Transmission::backlash)
+        .def_readwrite("slip", &engine::Transmission::slip);
+    py::class_<engine::TransmissionOutput>(m, "TransmissionOutput",
+                                           "shaft_load_torque: torque the shaft must supply (PHY-033, ENG-048).")
+        .def_readonly("force", &engine::TransmissionOutput::force)
+        .def_readonly("shaft_load_torque", &engine::TransmissionOutput::shaft_load_torque)
+        .def_readonly("stretch", &engine::TransmissionOutput::stretch)
+        .def_readonly("backlash_position", &engine::TransmissionOutput::backlash_position)
+        .def_readonly("in_contact", &engine::TransmissionOutput::in_contact)
+        .def_readonly("slip", &engine::TransmissionOutput::slip)
+        .def_readonly("slip_active", &engine::TransmissionOutput::slip_active)
+        .def_readonly("slip_offset", &engine::TransmissionOutput::slip_offset)
+        .def_readonly("power_flow", &engine::TransmissionOutput::power_flow);
+
     py::class_<MultibodyModel>(m, "MultibodyModel",
                                "Bodies in topological order (ENG-005); assign lists whole, they are copied.")
         .def(py::init<>())
         .def_readwrite("bodies", &MultibodyModel::bodies)
         .def_readwrite("constraints", &MultibodyModel::constraints)
+        .def_readwrite("transmissions", &MultibodyModel::transmissions)
         .def_readwrite("gravity", &MultibodyModel::gravity);
 
     py::class_<MultibodyConfig>(m, "MultibodyConfig")
@@ -124,6 +161,7 @@ void bind_outputs(py::module_& m) {
         .def_readonly("joints", &engine::MultibodyOutputs::joints)
         .def_readonly("constraints", &engine::MultibodyOutputs::constraints)
         .def_readonly("contacts", &engine::MultibodyOutputs::contacts)
+        .def_readonly("transmissions", &engine::MultibodyOutputs::transmissions)
         .def_readonly("time", &engine::MultibodyOutputs::time);
     py::class_<engine::ConstraintError>(m, "ConstraintError")
         .def_readonly("residual", &engine::ConstraintError::residual)
@@ -173,6 +211,10 @@ void bind_stepping(py::module_& m) {
         .def("position_offset", &MultibodyProvider::position_offset, py::arg("body"))
         .def("velocity_offset", &MultibodyProvider::velocity_offset, py::arg("body"))
         .def("neutral_positions", &MultibodyProvider::neutral_positions)
+        .def("set_shaft_torque", &MultibodyProvider::set_shaft_torque, py::arg("transmission"), py::arg("torque"))
+        .def("set_slip", &MultibodyProvider::set_slip, py::arg("transmission"), py::arg("slip"))
+        .def("slip", &MultibodyProvider::slip, py::arg("transmission"))
+        .def("transmission_states", &MultibodyProvider::transmission_states, py::arg("q"), py::arg("v"))
         .def("constraint_errors", &MultibodyProvider::constraint_errors, py::arg("q"))
         .def("body_states", &MultibodyProvider::body_states, py::arg("q"), py::arg("v"))
         .def("set_generalized_forces", &MultibodyProvider::set_generalized_forces, py::arg("tau"))

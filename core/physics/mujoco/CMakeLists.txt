@@ -17,5 +17,5 @@ add_executable(mechsim_physics_mujoco_tests
 target_compile_definitions(mechsim_physics_mujoco_tests PRIVATE
     MECHSIM_MUJOCO_FIXTURES="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures")
 target_link_libraries(mechsim_physics_mujoco_tests PRIVATE
-    mechsim_physics_mujoco mechsim_warnings Catch2::Catch2WithMain)
+    mechsim_physics_mujoco mechsim_signals mechsim_warnings Catch2::Catch2WithMain)
 catch_discover_tests(mechsim_physics_mujoco_tests)

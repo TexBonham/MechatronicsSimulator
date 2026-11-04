@@ -811,7 +811,9 @@ std::vector<TransmissionOutput> MultibodyProvider::transmission_states(const Eig
     }
     std::vector<TransmissionOutput> out;
     for (Eigen::Index i = 0; i < count(model_.transmissions.size()); ++i) {
-        out.push_back(coupling(i, q, v).output);
+        TransmissionOutput published = coupling(i, q, v).output;
+        published.shaft_load_torque = -published.shaft_load_torque;
+        out.push_back(published);
     }
     return out;
 }

@@ -17,6 +17,7 @@
 #include <utility>
 #include <vector>
 
+#include "mechsim/kernel/coupling.hpp"
 #include "mechsim/signals/component_base.hpp"
 
 namespace mechsim::signals {
@@ -61,17 +62,17 @@ bool mode_fits(PinField field, PeripheralMode mode) noexcept {
 std::size_t channels(PinField field) noexcept {
     switch (field) {
         case PinField::digital_in:
-            return controller::digital_in_channels;
+            return pins::digital_in_channels;
         case PinField::counter_delta:
-            return controller::counter_channels;
+            return pins::counter_channels;
         case PinField::adc_sample:
-            return controller::adc_channels;
+            return pins::adc_channels;
         case PinField::step_count:
         case PinField::direction:
         case PinField::enable:
-            return controller::stepper_channels;
+            return pins::stepper_channels;
         case PinField::digital_out:
-            return controller::digital_out_channels;
+            return pins::digital_out_channels;
         case PinField::uart_rx:
         case PinField::uart_tx:
             return 1;
@@ -111,8 +112,10 @@ bool ends_with_stalled(std::string_view name) noexcept {
 SignalLayer::SignalLayer(SignalLayerConfig config) : config_(std::move(config)) {
     published_ = {config_.name + ".pin_inputs", config_.name + ".physics_inputs", config_.name + ".rails",
                   config_.name + ".operator_status"};
-    consumed_ = {"physics.outputs", "controller.pin_outputs", config_.name + ".external_inputs",
-                 config_.name + ".operator_commands"};
+    consumed_ = {config_.physics_outputs, config_.pin_outputs};
+    if (!config_.externals.empty()) {
+        consumed_.push_back(config_.name + ".external_inputs");
+    }
 }
 
 std::size_t SignalLayer::intern(const std::string& signal) {
@@ -165,6 +168,7 @@ void SignalLayer::add_operator_link(std::unique_ptr<OperatorLink> link) {
     OperatorLink* raw = link.get();
     add_component(std::move(link), Stage::sensor);
     link_ = raw;
+    consumed_.push_back(config_.name + ".operator_commands");
 }
 
 std::string_view SignalLayer::name() const {
@@ -339,7 +343,7 @@ void SignalLayer::read_pin_outputs() {
                 bus_[slot.bus] = static_cast<double>(pin_outputs_.digital_out.at(slot.channel) != 0U);
                 break;
             case PinField::uart_tx: {
-                if (pin_outputs_.uart_tx_count > controller::uart_buffer_bytes) {
+                if (pin_outputs_.uart_tx_count > pins::uart_buffer_bytes) {
                     throw SignalRunError("controller sent " + std::to_string(pin_outputs_.uart_tx_count) +
                                          " UART bytes in one tick, over 64");
                 }
@@ -407,7 +411,7 @@ void SignalLayer::update_rails(kernel::SimTime t) {
 
 // ===== WritePinInputs ==============================================================================================
 void SignalLayer::write_pin_inputs() {
-    pin_inputs_ = controller::PinInputs{};
+    pin_inputs_ = pins::PinInputs{};
     for (const ResolvedSlot& slot : slots_) {
         const double value = bus_[slot.bus];
         switch (slot.field) {
@@ -448,6 +452,7 @@ void SignalLayer::step(kernel::SimTime t, kernel::Duration /*dt*/) {
         throw SignalRunError("signal layer stepped before start");
     }
     events_.clear();
+    step_status_.clear();
     read_pin_outputs();
     if (link_ != nullptr) {
         for (StatusMessage& status : link_->take_status()) {
@@ -456,6 +461,7 @@ void SignalLayer::step(kernel::SimTime t, kernel::Duration /*dt*/) {
                 detail += " " + format_number(value);
             }
             event(t, std::string(link_->instance_name()), "operator_status", std::move(detail));
+            step_status_.push_back(status);
             status_.push_back(std::move(status));
         }
         for (const OperatorMessage& command : link_->take_posted()) {
@@ -487,12 +493,48 @@ void SignalLayer::step(kernel::SimTime t, kernel::Duration /*dt*/) {
 
 void SignalLayer::on_fault(const kernel::PartyFault& /*fault*/) noexcept {}
 
+void SignalLayer::read_inputs(const kernel::CouplingReader& inputs) {
+    if (inputs.has_value(config_.physics_outputs)) {
+        state_ = inputs.payload<kernel::PhysicsOutputs>(config_.physics_outputs);
+    }
+    if (inputs.has_value(config_.pin_outputs)) {
+        pin_outputs_ = inputs.payload<pins::PinOutputs>(config_.pin_outputs);
+    }
+    if (!config_.externals.empty()) {
+        const std::string externals = config_.name + ".external_inputs";
+        if (inputs.has_value(externals)) {
+            for (const auto& [signal, value] : inputs.payload<ExternalInputs>(externals)) {
+                set_external_input(signal, value);
+            }
+        }
+    }
+    if (link_ != nullptr) {
+        const std::string commands = config_.name + ".operator_commands";
+        if (inputs.has_value(commands)) {
+            const auto& batch = inputs.payload<OperatorCommands>(commands);
+            if (!command_sequence_.has_value() || *command_sequence_ != batch.sequence) {
+                command_sequence_ = batch.sequence;
+                for (const OperatorMessage& message : batch.messages) {
+                    link_->post(message);
+                }
+            }
+        }
+    }
+}
+
+void SignalLayer::write_outputs(kernel::CouplingWriter& outputs) {
+    outputs.set(published_[0], kernel::make_payload(pin_inputs_, pins::pin_inputs_kind));
+    outputs.set(published_[1], kernel::make_payload(physics_inputs_, "PhysicsInputs"));
+    outputs.set(published_[2], kernel::make_payload(rails_, pins::power_rails_kind));
+    outputs.set(published_[3], kernel::make_payload(step_status_, operator_status_kind));
+}
+
 // ===== Coupling ====================================================================================================
 void SignalLayer::set_physical_state(const PhysicalState& state) {
     state_ = state;
 }
 
-void SignalLayer::set_pin_outputs(const controller::PinOutputs& outputs) {
+void SignalLayer::set_pin_outputs(const pins::PinOutputs& outputs) {
     pin_outputs_ = outputs;
 }
 
@@ -517,7 +559,7 @@ std::vector<StatusMessage> SignalLayer::take_operator_status() {
     return status;
 }
 
-const controller::PinInputs& SignalLayer::pin_inputs() const noexcept {
+const pins::PinInputs& SignalLayer::pin_inputs() const noexcept {
     return pin_inputs_;
 }
 

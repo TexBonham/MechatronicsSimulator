@@ -7,47 +7,20 @@
 #include <string>
 
 #include "mechsim/kernel/time.hpp"
-#include "mechsim/signals/power_rail.hpp"
+#include "mechsim/pins/pins.hpp"
 
 namespace mechsim::controller {
 
-// Fixed contract sizes, identical to the board interface C header (board_interface/, brief C6); not overridable.
-inline constexpr std::size_t digital_in_channels = 32;
-inline constexpr std::size_t counter_channels = 8;
-inline constexpr std::size_t adc_channels = 16;
-inline constexpr std::size_t uart_buffer_bytes = 64;
-inline constexpr std::size_t stepper_channels = 8;
-inline constexpr std::size_t digital_out_channels = 32;
-inline constexpr std::size_t event_log_entries = 16;
-
-// Polled semantics (CTL-004, ADR 0011 C3): levels latched at the sync point, counter deltas accumulated during the
-// tick, bytes that arrived during the tick, nothing interrupts the tick. No rail field: the rail reaches the
-// runtime through reset() and brownout() (CTL-013).
-struct PinInputs {
-    std::array<std::uint8_t, digital_in_channels> digital_in{};  // 0 or 1
-    std::array<std::int32_t, counter_channels> counter_delta{};  // counts accumulated during the tick
-    std::array<std::uint16_t, adc_channels> adc_sample{};
-    std::array<std::uint8_t, uart_buffer_bytes> uart_rx{};
-    std::uint16_t uart_rx_count = 0;
-};
-
-struct EventLogEntry {
-    std::uint8_t code = 0;
-    std::uint16_t arg = 0;
-};
-
-struct PinOutputs {
-    std::array<std::uint32_t, stepper_channels> step_count{};  // pulses this tick
-    std::array<std::uint8_t, stepper_channels> direction{};
-    std::array<std::uint8_t, stepper_channels> enable{};
-    std::array<std::uint8_t, digital_out_channels> digital_out{};
-    std::array<std::uint8_t, uart_buffer_bytes> uart_tx{};
-    std::uint16_t uart_tx_count = 0;
-    std::uint8_t state_code = 0;  // CTL-018 controller state
-    std::uint8_t fault_code = 0;  // CTL-018 fault
-    std::array<EventLogEntry, event_log_entries> event_log{};  // CTL-018 fault log
-    std::uint8_t event_count = 0;
-};
+using pins::adc_channels;
+using pins::counter_channels;
+using pins::digital_in_channels;
+using pins::digital_out_channels;
+using pins::event_log_entries;
+using pins::EventLogEntry;
+using pins::PinInputs;
+using pins::PinOutputs;
+using pins::stepper_channels;
+using pins::uart_buffer_bytes;
 
 // Native mode: a firmware source tree the runtime builds for the host, or an application library it built earlier;
 // emulated mode: the .elf Renode loads (CTL-007, CTL-008). tick_hz is the design's control rate the firmware is
@@ -83,7 +56,7 @@ public:
     // Throws ControllerConfigError unless the firmware's declared tick rate equals the control rate.
     virtual void load(const FirmwareImage& firmware) = 0;
     // Restart from the reset state; native mode then calls init once (CTL-002, CTL-012).
-    virtual void reset(const signals::PowerRail& rail) = 0;
+    virtual void reset(const pins::PowerRail& rail) = 0;
     // One control tick; native mode calls the tick entry point once, emulated mode runs one tick of virtual time
     // (CTL-008). outputs is overwritten. While frozen nothing runs, levels hold and per-tick buffers are empty
     // (held_levels, CTL-011); while held in brownout reset nothing runs and outputs are zeroed (CTL-013).
@@ -105,7 +78,7 @@ public:
     explicit NullControllerRuntime(kernel::Rate control_rate);
 
     void load(const FirmwareImage& firmware) override;
-    void reset(const signals::PowerRail& rail) override;
+    void reset(const pins::PowerRail& rail) override;
     void tick(const PinInputs& inputs, PinOutputs& outputs) override;
     void freeze(bool frozen) override;
     void brownout(double voltage) override;

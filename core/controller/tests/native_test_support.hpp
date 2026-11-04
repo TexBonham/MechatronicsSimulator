@@ -7,7 +7,7 @@
 #include "mechsim/controller/controller_runtime.hpp"
 #include "mechsim/controller/native_controller_runtime.hpp"
 #include "mechsim/kernel/time.hpp"
-#include "mechsim/signals/power_rail.hpp"
+#include "mechsim/pins/pins.hpp"
 
 namespace native_test {
 
@@ -21,7 +21,7 @@ inline constexpr std::string_view mirror_250hz = MECHSIM_TEST_MIRROR_250HZ;
 // Placeholder threshold for the tests; the chip's value is an open CTL parameter (owner, with chips/).
 inline constexpr double brownout_threshold_v = 2.7;
 
-inline const mechsim::signals::PowerRail logic_rail{"logic", 3.3, true};
+inline const mechsim::pins::PowerRail logic_rail{"logic", 3.3, true};
 
 [[nodiscard]] std::filesystem::path work_dir(std::string_view name);
 // Work directory of the one real host build of the reference stub (the ctest fixture writes it).

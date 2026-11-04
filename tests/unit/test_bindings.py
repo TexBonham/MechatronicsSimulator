@@ -7,6 +7,7 @@ tests under core/.
 import gc
 import math
 import sys
+from pathlib import Path
 from typing import Any
 
 import numpy as np
@@ -310,7 +311,7 @@ def test_adapter_misuse_raises_adapter_error() -> None:
         adapter.load(core.PreparedModel(), core.Rate(1000))
     with pytest.raises(core.AdapterError, match="spring 3"):
         adapter.set_spring_offset(3, 0.1)
-    with pytest.raises(ValueError, match="unknown physics adapter 'nope'; known: null"):
+    with pytest.raises(ValueError, match="unknown physics adapter 'nope'; known: mujoco, null"):
         core.make_physics_adapter("nope")
 
 
@@ -710,3 +711,482 @@ def test_python_party_fault_attributes_are_replaced_by_the_kernel() -> None:
     assert report.fault.party == "p"
     assert report.fault.time == core.SimTime(0)
     assert report.fault.cause == "explicit cause"
+
+
+# ===== M1-X1: co-simulation surface ==================================================================================
+
+COUPLING_NAMES = [
+    "controller.pin_outputs",
+    "physics.outputs",
+    "signals.operator_status",
+    "signals.physics_inputs",
+    "signals.pin_inputs",
+    "signals.rails",
+]
+
+
+class ShaftAdapter(core.PhysicsAdapter):  # type: ignore[misc]
+    """One body at x = 1 m turning 0.01 rad per step; transmission 0 carries a 0.02 N m load torque."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.received: list[list[float]] = []
+        self._out = core.PhysicsOutputs()
+        self._out.bodies = [core.BodyState()]
+        self._out.joints = [core.JointForce()]
+        state = core.TransmissionState()
+        state.shaft_load_torque = 0.02
+        state.power_flow = core.PowerFlow.Forward
+        self._out.transmissions = [state]
+        self._move()
+
+    def _move(self) -> None:
+        body = core.BodyState()
+        body.position = [1.0, 0.0, 0.0]
+        angle = 0.01 * self._out.steps
+        body.orientation = [math.cos(angle / 2.0), 0.0, 0.0, math.sin(angle / 2.0)]
+        self._out.bodies = [body]
+
+    def supported_elements(self) -> list[str]:
+        return []
+
+    def load(self, model: Any, rate: Any) -> None:
+        pass
+
+    def reset(self) -> None:
+        pass
+
+    def step(self) -> None:
+        self._out.steps = self._out.steps + 1
+        self._move()
+
+    def outputs(self) -> Any:
+        return self._out
+
+    def health(self) -> Any:
+        return core.PhysicsHealth()
+
+    def set_inputs(self, inputs: Any) -> None:
+        self.received.append(list(inputs.generalized_forces))
+
+    def set_spring_offset(self, spring: int, offset: float) -> None:
+        pass
+
+    def set_spring_stiffness(self, spring: int, stiffness: float) -> None:
+        pass
+
+    def disable_constraint(self, constraint: int) -> None:
+        pass
+
+    def release_load(self, load: int) -> None:
+        pass
+
+    def set_payload_mass(self, payload: int, mass: float) -> None:
+        pass
+
+    def set_payload_attachment(self, payload: int, body: int) -> None:
+        pass
+
+
+def chain_layer() -> Any:
+    config = core.SignalLayerConfig()
+    table = core.PinBindingTable()
+    for signal, pin, mode in [
+        ("x_driver.step", "PA0", core.PeripheralMode.pulse_output),
+        ("x_driver.dir", "PA1", core.PeripheralMode.digital_output),
+        ("x_driver.enable", "PA2", core.PeripheralMode.digital_output),
+        ("x_max_switch.out", "PB1", core.PeripheralMode.digital_input),
+        ("x_encoder.channel_a", "PC0", core.PeripheralMode.counter_input),
+        ("x_encoder.channel_b", "PC1", core.PeripheralMode.counter_input),
+    ]:
+        table.add(core.PinBinding(signal, pin, mode))
+    config.bindings = table
+    config.slots = [
+        core.ChannelSlot("x_driver.step", core.PinField.step_count, 0),
+        core.ChannelSlot("x_driver.dir", core.PinField.direction, 0),
+        core.ChannelSlot("x_driver.enable", core.PinField.enable, 0),
+        core.ChannelSlot("x_max_switch.out", core.PinField.digital_in, 1),
+        core.ChannelSlot("x_encoder.channel_a", core.PinField.counter_delta, 0),
+        core.ChannelSlot("x_encoder.channel_b", core.PinField.counter_delta, 0),
+    ]
+    config.connections = [
+        core.Connection("x_driver.full_steps", "x_motor.full_steps"),
+        core.Connection("x_driver.direction", "x_motor.direction"),
+        core.Connection("x_driver.enabled", "x_motor.enabled"),
+        core.Connection("x_driver.supply", "x_motor.supply"),
+    ]
+    config.rails = [
+        core.RailSpec("motor_power", "motor_supply.voltage", [], ["x_driver.vmot"]),
+        core.RailSpec("logic", "logic_supply.voltage"),
+    ]
+    config.controller_rail = "logic"
+    config.actuators = [core.ActuatorOutput("x_motor.torque", 0)]
+    config.velocity_dofs = 1
+    layer = core.SignalLayer(config)
+    layer.add_component(core.make_signal_component("power_supply", "motor_supply", {"voltage": 24.0}), core.Stage.power)
+    layer.add_component(core.make_signal_component("power_supply", "logic_supply", {"voltage": 3.3}), core.Stage.power)
+    angular = core.JointCoordinate(core.CoordinateKind.angular, 0, None, [0.0, 0.0, 1.0])
+    encoder = {"coordinate": angular, "resolution": 2.0 * math.pi / 2400.0}
+    layer.add_component(core.make_signal_component("incremental_encoder", "x_encoder", encoder), core.Stage.sensor)
+    linear = core.JointCoordinate(core.CoordinateKind.linear, 0)
+    switch = {"coordinate": linear, "position": 0.5}
+    layer.add_component(core.make_signal_component("limit_switch", "x_max_switch", switch), core.Stage.sensor)
+    driver = core.make_signal_component("step_dir_driver", "x_driver", {"microsteps": 16})
+    layer.add_component(driver, core.Stage.driver)
+    motor = {"step_angle": math.pi / 100.0, "rotor_inertia": 0.0, "torque_speed": [(0.0, 0.4), (100.0, 0.3)]}
+    layer.add_component(core.make_signal_component("stepper_behavioral", "x_motor", motor), core.Stage.actuator)
+    return layer
+
+
+@pytest.mark.req("KER-019")
+@pytest.mark.req("KER-022")
+@pytest.mark.req("KER-008")
+def test_cosim_chain_runs_100_ticks_and_records_every_coupling_name() -> None:
+    kernel = core.make_kernel(core.RunConfig())
+    assert isinstance(kernel, core.CoSimKernel)
+    adapter = ShaftAdapter()
+    kernel.register_party(core.PhysicsParty(adapter, core.PhysicsPartyConfig()))
+    kernel.register_party(chain_layer())
+    config = core.ControllerPartyConfig()
+    config.rail = "logic"
+    runtime = core.make_controller_runtime("null", core.Rate(1000))
+    firmware = core.FirmwareImage()
+    firmware.path = "firmware/app"
+    firmware.tick_hz = 1000
+    runtime.load(firmware)
+    kernel.register_party(core.ControllerParty(runtime, config))
+    sink = core.InMemoryRecorderSink()
+    report = kernel.run(core.EndCondition(core.Seconds(100, 1000)), sink)
+    assert report.outcome == core.RunOutcome.end_condition_met
+    assert [(r.party, r.source) for r in report.party_rates] == [
+        ("physics", core.RateSource.nominal),
+        ("signals", core.RateSource.nominal),
+        ("controller", core.RateSource.control_rate),
+    ]
+    assert report.sink_errors == []
+    assert sorted(kernel.coupling.names()) == COUPLING_NAMES
+    rows = sink.drain()
+    assert len(rows) == 100
+    assert sink.drained() == 100
+    last = rows[-1].to_dict()
+    assert sorted(last["coupling"]) == COUPLING_NAMES
+    coupling = last["coupling"]
+    assert isinstance(coupling["physics.outputs"], core.PhysicsOutputs)
+    assert coupling["physics.outputs"].steps == 100
+    assert coupling["physics.outputs"].transmissions[0].shaft_load_torque == 0.02
+    assert isinstance(coupling["signals.physics_inputs"], core.PhysicsInputs)
+    assert isinstance(coupling["signals.pin_inputs"], core.PinInputs)
+    assert coupling["signals.pin_inputs"].digital_in[1] == 1
+    assert isinstance(coupling["controller.pin_outputs"], core.PinOutputs)
+    assert coupling["signals.operator_status"] == []
+    rails = {rail.name: rail.voltage for rail in coupling["signals.rails"]}
+    assert rails == {"motor_power": 24.0, "logic": 3.3}
+    units = {sample["name"]: sample["unit"] for sample in last["pin_signals"] + last["rails"]}
+    assert units["logic.voltage"] == "V"
+    assert units["x_driver.step"] != ""
+    assert last["controller_state"] == "0"
+    assert last["physics"]["transmissions"][0]["shaft_load_torque"] == 0.02
+    # The null runtime leaves the driver disabled: the stalled stepper applies no torque.
+    assert adapter.received[-1] == [0.0]
+
+
+@pytest.mark.req("KER-019")
+@pytest.mark.req("KER-008")
+def test_python_party_reads_and_writes_the_coupling_table() -> None:
+    seen: list[Any] = []
+
+    class Writer(RecordingParty):
+        def published(self) -> list[str]:
+            return ["writer.level", "writer.forces", "writer.count", "writer.flag"]
+
+        def write_outputs(self, outputs: Any) -> None:
+            forces = core.PhysicsInputs()
+            forces.generalized_forces = [1.5]
+            outputs.set("writer.level", 0.25)
+            outputs.set("writer.forces", forces)
+            outputs.set("writer.count", 7)
+            outputs.set("writer.flag", True)
+
+    class Reader(RecordingParty):
+        def consumed(self) -> list[str]:
+            return ["writer.level", "writer.forces", "writer.count", "writer.flag"]
+
+        def read_inputs(self, inputs: Any) -> None:
+            seen.append(
+                (
+                    inputs.real("writer.level"),
+                    inputs.value("writer.forces").generalized_forces,
+                    inputs.integer("writer.count"),
+                    inputs.flag("writer.flag"),
+                )
+            )
+
+    log: list[Any] = []
+    report = run_kernel([Writer("writer", log), Reader("reader", log)], core.Seconds(2, 1000))
+    assert report.outcome == core.RunOutcome.end_condition_met
+    assert seen == [(0.25, [1.5], 7, True), (0.25, [1.5], 7, True)]
+
+    class BadWriter(RecordingParty):
+        def write_outputs(self, outputs: Any) -> None:
+            outputs.set("bad.out", object())
+
+    report = run_kernel([BadWriter("bad", log)], core.Seconds(1, 1000))
+    assert report.outcome == core.RunOutcome.run_error
+    assert "TypeError" in report.fault.cause
+
+
+@pytest.mark.req("KER-008")
+def test_python_party_publishes_an_empty_and_a_filled_rail_list() -> None:
+    seen: list[Any] = []
+
+    class Rails(RecordingParty):
+        def published(self) -> list[str]:
+            return ["rails.empty", "rails.main"]
+
+        def write_outputs(self, outputs: Any) -> None:
+            outputs.set("rails.empty", [])
+            outputs.set("rails.main", [core.PowerRail("main", 24.0, True)])
+
+    class Reader(RecordingParty):
+        def consumed(self) -> list[str]:
+            return ["rails.empty", "rails.main"]
+
+        def read_inputs(self, inputs: Any) -> None:
+            seen.append((list(inputs.value("rails.empty")), [rail.name for rail in inputs.value("rails.main")]))
+
+    log: list[Any] = []
+    report = run_kernel([Rails("rails", log), Reader("reader", log)], core.Seconds(1, 1000))
+    assert report.outcome == core.RunOutcome.end_condition_met
+    assert seen == [([], ["main"])]
+
+
+@pytest.mark.req("KER-017")
+def test_end_triggers_end_on_a_published_signal() -> None:
+    class Flag(RecordingParty):
+        def published(self) -> list[str]:
+            return ["flag.done"]
+
+        def write_outputs(self, outputs: Any) -> None:
+            outputs.set("flag.done", len(self._log) >= 3)
+
+    log: list[Any] = []
+    kernel = core.CoSimKernel(core.RunConfig())
+    kernel.register_party(Flag("flag", log))
+    kernel.set_end_triggers(core.EndTriggers(on_signal="flag.done"))
+    report = kernel.run(core.EndCondition(core.Seconds(1)), core.InMemoryRecorderSink())
+    assert report.end_reason == core.EndReason.signal
+    assert [count.steps for count in report.step_counts] == [2]
+
+
+@pytest.mark.req("KER-022")
+def test_in_memory_sink_subscribes_and_unsubscribes() -> None:
+    sink = core.InMemoryRecorderSink()
+    times: list[int] = []
+    subscription = sink.subscribe(lambda row: times.append(row.time.count()))
+    assert sink.subscriber_count() == 1
+    log: list[Any] = []
+    kernel = core.CoSimKernel(core.RunConfig())
+    kernel.register_party(RecordingParty("a", log))
+    kernel.run(core.EndCondition(core.Seconds(2, 1000)), sink)
+    sink.unsubscribe(subscription)
+    assert sink.subscriber_count() == 0
+    assert times == [1, 2]
+    assert len(sink.rows()) == 2
+    assert sink.subscriber_errors() == []
+
+
+@pytest.mark.req("SIG-029")
+@pytest.mark.req("SIG-034")
+def test_builtin_components_by_catalog_type_name() -> None:
+    coordinate = core.JointCoordinate(core.CoordinateKind.linear, 0)
+    made = {
+        "limit_switch": core.make_signal_component("limit_switch", "s", {"coordinate": coordinate}),
+        "incremental_encoder": core.make_signal_component(
+            "incremental_encoder",
+            "e",
+            {
+                "coordinate": core.JointCoordinate(core.CoordinateKind.angular, 0, None, [0.0, 0.0, 1.0]),
+                "resolution": 0.01,
+            },
+        ),
+        "step_dir_driver": core.make_signal_component("step_dir_driver", "d", {"microsteps": 8}),
+        "stepper_behavioral": core.make_signal_component(
+            "stepper_behavioral", "m", {"step_angle": 0.01, "torque_speed": [(0.0, 0.4)]}
+        ),
+        "power_supply": core.make_signal_component("power_supply", "p", {"voltage": 24.0}),
+        "estop_relay": core.make_signal_component("estop_relay", "r", {"cutoff_delay": 0.02}),
+        "watchdog": core.make_signal_component("watchdog", "w", {"timeout": 0.05}),
+    }
+    assert made["stepper_behavioral"].outputs() == ["m.torque", "m.stalled", "m.missed_steps"]
+    assert made["estop_relay"].inputs() == ["r.estop_loop", "r.reset"]
+    assert made["power_supply"].outputs() == ["p.voltage"]
+    with pytest.raises(ValueError, match="no parameter 'heartbeat'"):
+        core.make_signal_component("estop_relay", "r", {"heartbeat": 1.0})
+    with pytest.raises(ValueError, match="unknown built-in"):
+        core.make_signal_component("hydraulic_ram", "h", {})
+    with pytest.raises(ValueError, match="x_shaft"):
+        core.make_signal_component(
+            "stepper_behavioral",
+            "m",
+            {
+                "step_angle": 0.01,
+                "rotor_inertia": 1e-5,
+                "torque_speed": [(0.0, 0.4)],
+                "shaft_axial_inertia": 2e-5,
+                "shaft_body": "x_shaft",
+            },
+        )
+    injection = core.FailureInjection()
+    injection.mode = core.FailureMode.slip
+    injection.fraction = 0.5
+    injection.end = core.SimTime(10)
+    assert injection.fraction == 0.5
+    assert core.FailureMode.stall != core.FailureMode.slip
+
+
+@pytest.mark.req("SIG-030")
+def test_component_clock_and_child_seed() -> None:
+    clock = core.ComponentClock(core.Rate(1000), core.Duration(1), core.derive_child_seed(42, "x_encoder"))
+    assert clock.seed == core.derive_child_seed(42, "x_encoder")
+    assert core.derive_child_seed(42, "x_encoder") != core.derive_child_seed(42, "y_encoder")
+    started: list[int] = []
+
+    class Clocked(Doubler):
+        def start(self, clock: Any) -> None:
+            started.append(clock.seed)
+
+        def begin_tick(self, t: Any) -> None:
+            started.append(-t.count())
+
+    component = Clocked()
+    component.start(clock)
+    component.begin_tick(core.SimTime(3))
+    assert started == [clock.seed, -3]
+
+
+@pytest.mark.req("CTL-006")
+def test_channel_map_and_native_config_round_trip() -> None:
+    channels = core.ChannelMap()
+    channels.add(core.ChannelAssignment("x_max_switch.out", core.PinSlot.digital_in, 1))
+    channels.add(core.ChannelAssignment("x_driver.dir", core.PinSlot.digital_out, 2))
+    channels.add(core.ChannelAssignment("x_driver.enable", core.PinSlot.digital_out, 3))
+    channels.assign_axis(0, core.AxisChannels(2, 3))
+    assert channels.axis(0).enable_channel == 3
+    assert channels.find("x_max_switch.out").channel == 1
+    assert core.slot_capacity(core.PinSlot.digital_in) == 32
+    config = core.NativeRuntimeConfig()
+    config.control_rate = core.Rate(1000)
+    config.channels = channels
+    config.work_dir = "native_work"
+    assert config.brownout_threshold_v == core.placeholder_brownout_threshold_v
+    runtime = core.NativeControllerRuntime(config)
+    assert runtime.ticks_run() == 0
+    assert runtime.channel_map().entries()[0].signal == "x_max_switch.out"
+    assert core.board_interface_version() > 0
+    request = core.HostBuildRequest()
+    request.tick_hz = 1000
+    assert request.app_target == "mechsim_fw_app"
+
+
+@pytest.mark.req("ENG-048")
+@pytest.mark.req("PHY-033")
+def test_engine_transmission_publishes_the_shaft_supply_sign() -> None:
+    def body(name: str, joint_type: Any, axis: list[float], mass: float) -> Any:
+        joint = eng.Joint()
+        joint.type = joint_type
+        joint.position = np.zeros(3)
+        joint.axis = np.array(axis)
+        made = eng.Body()
+        made.name = name
+        made.parent = -1
+        made.joint = joint
+        made.mass = mass
+        made.com = np.zeros(3)
+        made.inertia = np.diag([1e-5, 1e-5, 1e-5])
+        return made
+
+    model = eng.MultibodyModel()
+    model.bodies = [
+        body("shaft", eng.JointType.Revolute, [0.0, 0.0, 1.0], 0.1),
+        body("carriage", eng.JointType.Prismatic, [1.0, 0.0, 0.0], 10.0),
+    ]
+    model.gravity = np.zeros(3)
+    drive = eng.Transmission()
+    drive.type = eng.TransmissionType.LeadScrew
+    drive.input_body = 0
+    drive.output_body = 1
+    drive.ratio = 0.008
+    model.transmissions = [drive]
+    provider = eng.MultibodyProvider(model)
+    integrator = eng.SemiImplicitEuler(eng.StepConfig())
+    state = eng.State(provider.neutral_positions(), np.zeros(provider.velocity_size()), 0.0)
+    provider.set_shaft_torque(0, 0.01)
+    provider.step(integrator, state)
+    out = provider.outputs.transmissions[0]
+    # Driving the carriage, the shaft supplies torque along its + axis: positive, g F with g = lead / 2 pi.
+    assert out.shaft_load_torque > 0.0
+    assert out.shaft_load_torque == pytest.approx(0.008 / (2.0 * math.pi) * out.force, rel=1e-12)
+    states = provider.transmission_states(state.q, state.v)
+    assert states[0].shaft_load_torque == out.shaft_load_torque
+    provider.set_slip(0, 0.25)
+    assert provider.slip(0) == 0.25
+
+
+PENDULUM_EXAMPLE = Path(__file__).resolve().parents[2] / "schemas" / "examples" / "physics_model.pendulum.yaml"
+
+
+@pytest.mark.req("PHY-014")
+@pytest.mark.req("KER-019")
+@pytest.mark.req("KER-016")
+def test_mujoco_pendulum_through_a_physics_party_matches_the_small_angle_closed_form() -> None:
+    # Closed form: a 9 N m torque for the one step ending at 2 ms gives the rod v1 = h tau / (I + h D) (the damping is
+    # implicit in the step), I = m L^2 / 3 about the pivot. Semi-implicit Euler then puts q = h v1 at 2 ms, which is
+    # the free damped motion theta = v1 / omega_d exp(-zeta omega0 s) sin(omega_d s), s = t - 1 ms, started at 1 ms.
+    # Amplitude 0.02 rad: the sin(theta) term departs from small angle by theta^2 / 6 ~ 7e-5; the scheme's phase error
+    # over 100 steps is (omega0 h)^2 / 24 per radian, ~1e-6. Both are far inside the brief's 1 percent.
+    from mechsim.physics import neutral
+    from mechsim.physics.mujoco import translate as mj
+
+    model = neutral.from_yaml(PENDULUM_EXAMPLE.read_text(encoding="utf-8"))
+    translation = mj.translate_report(model)
+    # The pendulum maps exactly: no approximation, no omission to report.
+    assert translation.report == ()
+    adapter = core.make_physics_adapter("mujoco")
+    assert isinstance(adapter, core.MujocoAdapter)
+    prepared = core.PreparedModel(model.model_dump_json(), translation.mjcf, model.design.version)
+    adapter.load(prepared, core.Rate(1000))
+    assert adapter.integrator() == "implicitfast"
+    assert adapter.timestep() == 0.001
+
+    h, tau, mass, length, damping, gravity = 0.001, 9.0, 1.0, 0.5, 0.04520785330006282, 9.81
+    inertia = mass * length**2 / 3.0
+    omega0 = math.sqrt(mass * gravity * 0.5 * length / inertia)
+    zeta = damping / (2.0 * inertia * omega0)
+    omega_d = omega0 * math.sqrt(1.0 - zeta * zeta)
+    v1 = h * tau / (inertia + h * damping)
+
+    class Kick(RecordingParty):
+        def published(self) -> list[str]:
+            return ["kick.forces"]
+
+        def write_outputs(self, outputs: Any) -> None:
+            forces = core.PhysicsInputs()
+            forces.generalized_forces = [tau if len(self._log) == 2 else 0.0]
+            outputs.set("kick.forces", forces)
+
+    config = core.PhysicsPartyConfig()
+    config.inputs = ["kick.forces"]
+    kernel = core.CoSimKernel(core.RunConfig())
+    kernel.register_party(core.PhysicsParty(adapter, config))
+    kernel.register_party(Kick("kick", []))
+    sink = core.InMemoryRecorderSink()
+    report = kernel.run(core.EndCondition(core.Seconds(100, 1000)), sink)
+    assert report.outcome == core.RunOutcome.end_condition_met
+    rows = sink.drain()
+    assert len(rows) == 100
+    w, _, _, z = rows[-1].physics.bodies[0].orientation
+    angle = 2.0 * math.atan2(z, w) + math.pi / 2.0
+    s = 0.1 - h
+    closed_form = v1 / omega_d * math.exp(-zeta * omega0 * s) * math.sin(omega_d * s)
+    print(f"pendulum at 100 ms: closed form {closed_form} rad, measured {angle} rad")
+    assert abs(angle - closed_form) <= 0.01 * abs(closed_form)

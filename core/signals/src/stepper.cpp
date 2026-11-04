@@ -1,5 +1,6 @@
 #include "mechsim/signals/stepper.hpp"
 
+#include <algorithm>
 #include <cmath>
 #include <optional>
 #include <string>
@@ -81,17 +82,24 @@ BehavioralStepper::BehavioralStepper(std::string instance, BehavioralStepperPara
     if (!std::isfinite(params_.rotor_inertia) || params_.rotor_inertia < 0.0) {
         throw SignalConfigError("stepper rotor inertia must be finite and non-negative");
     }
+    if (params_.shaft_axial_inertia.has_value()) {
+        const double shaft = *params_.shaft_axial_inertia;
+        const double scale = std::max(std::fabs(params_.rotor_inertia), std::fabs(shaft));
+        if (!std::isfinite(shaft) || std::fabs(shaft - params_.rotor_inertia) > rotor_inertia_tolerance * scale) {
+            throw SignalConfigError("stepper '" + std::string(instance_name()) + "' rotor_inertia " +
+                                    std::to_string(params_.rotor_inertia) + " kg m^2 differs from shaft body '" +
+                                    params_.shaft_body + "' axial inertia " + std::to_string(shaft) +
+                                    " kg m^2; the builder copies rotor_inertia into the shaft body (SIG-037)");
+        }
+    }
 }
 
 void BehavioralStepper::sample(const PhysicalState& state) {
-    if (params_.shaft_joint >= state.joints.size()) {
-        throw SignalRunError("stepper '" + std::string(instance_name()) + "': shaft joint outside the published state");
+    if (params_.transmission >= state.transmissions.size()) {
+        throw SignalRunError("stepper '" + std::string(instance_name()) +
+                             "': transmission outside the published state");
     }
-    const std::vector<double>& force = state.joints[params_.shaft_joint].generalized_force;
-    if (params_.shaft_joint_dof >= force.size()) {
-        throw SignalRunError("stepper '" + std::string(instance_name()) + "': shaft DOF outside the joint");
-    }
-    load_ = force[params_.shaft_joint_dof];
+    load_ = state.transmissions[params_.transmission].shaft_load_torque;
 }
 
 void BehavioralStepper::latch_outputs() {

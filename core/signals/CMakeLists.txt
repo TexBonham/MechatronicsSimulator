@@ -13,9 +13,8 @@ add_library(mechsim_signals
 add_library(mechsim::signals ALIAS mechsim_signals)
 # The layer presents PinInputs and collects PinOutputs, plain structs in the controller's header (no controller
 # symbol is linked); mechsim_controller links this target, so the dependency runs header-only the other way.
-target_include_directories(mechsim_signals PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include
-    ${CMAKE_CURRENT_SOURCE_DIR}/../controller/include)
-target_link_libraries(mechsim_signals PUBLIC mechsim_kernel PRIVATE mechsim_warnings)
+target_include_directories(mechsim_signals PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
+target_link_libraries(mechsim_signals PUBLIC mechsim_kernel mechsim_pins PRIVATE mechsim_warnings)
 
 add_executable(mechsim_signals_tests
     tests/test_pin_binding.cpp

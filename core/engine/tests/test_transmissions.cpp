@@ -3,6 +3,7 @@
 #include <Eigen/LU>
 #include <algorithm>
 #include <catch2/catch_test_macros.hpp>
+#include <array>
 #include <cmath>
 #include <complex>
 #include <cstdio>
@@ -152,7 +153,7 @@ TEST_CASE("belt-driven carriage holds a hanging mass at force = torque / r", "[E
     }
     const TransmissionOutput& out = provider.outputs().transmissions.at(0);
     REQUIRE(close(out.force, tau / r, rel));
-    REQUIRE(close(out.shaft_load_torque, -tau, rel));
+    REQUIRE(close(out.shaft_load_torque, tau, rel));
     REQUIRE(close(out.stretch, m * gravity / k, rel));
     REQUIRE(out.in_contact);
     REQUIRE_FALSE(out.slip_active);
@@ -203,7 +204,7 @@ TEST_CASE("published shaft load torque and joint forces equal the hand-computed 
         }
         const double scale = std::max(1.0, std::abs(f));
         REQUIRE(std::abs(out.force - f) <= 1e-12 * scale);
-        REQUIRE(std::abs(out.shaft_load_torque + g * f) <= 1e-12 * scale);
+        REQUIRE(std::abs(out.shaft_load_torque - g * f) <= 1e-12 * scale);
         seen.push_back(out.power_flow);
 
         provider.set_shaft_torque(0, drive);
@@ -377,7 +378,7 @@ TEST_CASE("gear pair multiplies the shaft torque by the ratio at the output", "[
     }
     const TransmissionOutput& o = provider.outputs().transmissions.at(0);
     REQUIRE(close(o.force, -ratio * tau, rel));
-    REQUIRE(close(o.shaft_load_torque, -tau, rel));
+    REQUIRE(close(o.shaft_load_torque, tau, rel));
     REQUIRE(close(state.q[1], -ratio * tau / k_out, rel));
 }
 
@@ -563,7 +564,7 @@ TEST_CASE("self-locking lead screw holds a hanging load with zero drive torque",
     provider.set_shaft_torque(0, 1.0);
     const TransmissionOutput lift = provider.transmission_states(state.q, state.v).at(0);
     REQUIRE(lift.power_flow == PowerFlow::Static);
-    REQUIRE(lift.shaft_load_torque == -n * lift.force);
+    REQUIRE(lift.shaft_load_torque == n * lift.force);
 }
 
 TEST_CASE("a lead screw without self-locking is back-driven by the load", "[ENG-044]") {
@@ -696,4 +697,42 @@ TEST_CASE("invalid transmission parameters are rejected with the cause", "[ENG-0
     REQUIRE_THROWS_AS(provider.set_shaft_torque(1, 0.1), InvalidModelError);
     REQUIRE_THROWS_AS(provider.set_shaft_torque(0, inf), InvalidModelError);
     REQUIRE(provider.slip(0) == 1.0);
+}
+
+TEST_CASE("reversing a gear pair flips the output's F, q and qd and keeps the shaft load torque", "[ENG-045][ENG-048]") {
+    // The model is symmetric under q_out -> -q_out when n -> -n: the output's force, position and rate change sign
+    // exactly (IEEE negation is exact), while the shaft sees the same coupling and supplies the same load torque
+    // along its + axis. Held bitwise.
+    auto run = [](bool reverses) {
+        Body out = shaft(2e-3);
+        out.joint.stiffness = Eigen::VectorXd::Constant(1, 5.0);
+        Transmission t;
+        t.type = TransmissionType::GearPair;
+        t.ratio = 3.0;
+        t.reverses = reverses;
+        t.stiffness = 50.0;
+        t.damping = 0.6;
+        MultibodyModel model = pair_model(out, t, Eigen::Vector3d::Zero());
+        model.bodies[0] = shaft(1e-3);
+        MultibodyProvider provider(model);
+        SemiImplicitEuler integrator{StepConfig{}};
+        State state = rest_state(provider);
+        for (int i = 0; i < 50; ++i) {
+            provider.set_shaft_torque(0, 0.01);
+            provider.step(integrator, state);
+        }
+        const TransmissionOutput o = provider.outputs().transmissions.at(0);
+        return std::array<double, 6>{o.force, state.q[1], state.v[1], o.shaft_load_torque, state.q[0], state.v[0]};
+    };
+    const std::array<double, 6> forward = run(false);
+    const std::array<double, 6> reversed = run(true);
+    REQUIRE(forward[0] != 0.0);
+    REQUIRE(forward[1] != 0.0);
+    REQUIRE(forward[2] != 0.0);
+    CHECK(reversed[0] == -forward[0]);
+    CHECK(reversed[1] == -forward[1]);
+    CHECK(reversed[2] == -forward[2]);
+    CHECK(reversed[3] == forward[3]);
+    CHECK(reversed[4] == forward[4]);
+    CHECK(reversed[5] == forward[5]);
 }

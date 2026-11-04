@@ -8,7 +8,7 @@
 #include <utility>
 #include <vector>
 
-#include "mechsim/controller/controller_runtime.hpp"
+#include "mechsim/pins/pins.hpp"
 #include "mechsim/kernel/tick_record.hpp"
 #include "mechsim/kernel/time.hpp"
 #include "mechsim/signals/operator_link.hpp"
@@ -19,8 +19,8 @@
 #include "mechsim/signals/stepper.hpp"
 #include "signal_test_support.hpp"
 
-using mechsim::controller::PinInputs;
-using mechsim::controller::PinOutputs;
+using mechsim::pins::PinInputs;
+using mechsim::pins::PinOutputs;
 using mechsim::kernel::Duration;
 using mechsim::kernel::Rate;
 using mechsim::kernel::SimTime;

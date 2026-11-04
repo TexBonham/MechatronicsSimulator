@@ -10,7 +10,7 @@
 #include "mechsim/controller/channel_map.hpp"
 #include "mechsim/controller/controller_runtime.hpp"
 #include "mechsim/kernel/time.hpp"
-#include "mechsim/signals/power_rail.hpp"
+#include "mechsim/pins/pins.hpp"
 
 namespace mechsim::controller {
 
@@ -61,7 +61,7 @@ public:
     NativeControllerRuntime& operator=(NativeControllerRuntime&&) = delete;
 
     void load(const FirmwareImage& firmware) override;
-    void reset(const signals::PowerRail& rail) override;
+    void reset(const pins::PowerRail& rail) override;
     void tick(const PinInputs& inputs, PinOutputs& outputs) override;
     void freeze(bool frozen) override;
     void brownout(double voltage) override;

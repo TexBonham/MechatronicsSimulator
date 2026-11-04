@@ -154,6 +154,15 @@ CoSimKernel::Limits CoSimKernel::prepare(const EndCondition& end) {
             if (!coupling_.contains(name)) {
                 throw KernelConfigError("party '" + entry.name + "' consumes '" + name + "', which no party publishes");
             }
+            if (entry.party->role() == PartyRole::controller) {
+                for (const Entry& publisher : parties_) {
+                    if (publisher.name == coupling_.publisher(name) && publisher.party->role() == PartyRole::physics) {
+                        throw KernelConfigError("controller party '" + entry.name + "' consumes '" + name +
+                                                "', published by physics party '" + publisher.name +
+                                                "': the controller sees pin inputs and rails only (KER-020)");
+                    }
+                }
+            }
         }
     }
     if (!triggers_.on_signal.empty() && !coupling_.contains(triggers_.on_signal)) {

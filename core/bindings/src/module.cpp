@@ -11,6 +11,7 @@ PYBIND11_MODULE(_core_ext, m) {
     mechsim::bindings::bind_physics(m);
     mechsim::bindings::bind_signals(m);
     mechsim::bindings::bind_controller(m);
+    mechsim::bindings::bind_cosim(m);
     // Engine types live in their own submodule so the import-boundary check can keep them behind
     // mechsim/physics/native/ (invariant 5); registering it in sys.modules makes it importable by its dotted name.
     pybind11::module_ engine =

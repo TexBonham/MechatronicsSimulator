@@ -4,8 +4,8 @@ types:
     version: 1.0.0
     category: safety
     description: >-
-      Safety relay that opens its output contacts when the E-stop loop opens; its heartbeat input takes the
-      controller heartbeat when the design routes it to the relay rather than to a watchdog.
+      Safety relay that opens its output contacts when the E-stop loop opens. It has no heartbeat input: a watchdog
+      watches the controller heartbeat and its contacts gate power in series with the relay's.
     parameters:
       - name: mass
         dimension: "[mass]"
@@ -59,10 +59,6 @@ types:
         - name: status
           direction: output
           signal_kind: digital
-        - name: heartbeat
-          direction: input
-          signal_kind: digital
-          voltage_rating: coil_voltage
     ratings:
       absolute_maximums:
         - name: contact_voltage

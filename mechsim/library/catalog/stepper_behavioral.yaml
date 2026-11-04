@@ -82,7 +82,7 @@ parts:
     type: stepper_behavioral
     tier: behavioral
     description: NEMA 17 frame class stepper, 1.8 degree.
-    source: placeholder values, no datasheet assigned
+    source: placeholder values and placeholder torque-speed curve, no datasheet assigned
     values:
       mass: "0.28 kg"
       step_angle: "1.8 deg"

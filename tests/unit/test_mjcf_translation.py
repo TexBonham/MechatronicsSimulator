@@ -277,6 +277,34 @@ def _lead_screw(efficiency: float) -> dict[str, Any]:
     return data
 
 
+def _gear(ratio: float) -> dict[str, Any]:
+    """C++ fixture: the same rotor driving a wheel (izz 0.01 kg m^2) about z through a rigid gear pair, no gravity."""
+    data = _example()
+    data["design"]["name"] = "gear_pair"
+    data["gravity"] = ["0 m/s**2", "0 m/s**2", "0 m/s**2"]
+    rotor = "5.4e-6 kg*m**2"
+    wheel = "0.01 kg*m**2"
+    data["bodies"] = [
+        _body(
+            "rotor", _joint("spindle", "revolute"), inertia={"ixx": rotor, "iyy": rotor, "izz": rotor}, mass="0.2 kg"
+        ),
+        _body("wheel", _joint("axle", "revolute"), inertia={"ixx": wheel, "iyy": wheel, "izz": wheel}, mass="1 kg"),
+    ]
+    data["signals"] = {"load_torque_joints": ["spindle"], "pose_bodies": ["wheel"]}
+    data["transmissions"] = [
+        {
+            "type": "gear_pair",
+            "name": "gears",
+            "shaft_joint": "spindle",
+            "driven_joint": "axle",
+            "efficiency": 1.0,
+            "ratio": ratio,
+            "stiffness": "1e6 N*m/rad",
+        }
+    ]
+    return data
+
+
 def fixtures() -> dict[str, str]:
     """The MJCF fixtures committed under core/physics/mujoco/tests/fixtures/, by file name."""
     return {
@@ -285,6 +313,8 @@ def fixtures() -> dict[str, str]:
         "box_on_floor.xml": mj.translate(_model(_box_on_floor())),
         "lead_screw.xml": mj.translate(_model(_lead_screw(1.0))),
         "lead_screw_lossy.xml": mj.translate(_model(_lead_screw(0.8))),
+        "gear_pair.xml": mj.translate(_model(_gear(4.0))),
+        "gear_pair_reversed.xml": mj.translate(_model(_gear(-4.0))),
     }
 
 
@@ -756,11 +786,15 @@ def test_reflection_report_names_every_approximation() -> None:
     data["bodies"][-1]["shapes"] = [{"shape": "sphere", "radius": "0.01 m", "material": "steel"}]
     report = mj.translate_report(_model(data)).report
     reflected = [line for line in report if line.startswith("transmission 'drive'")]
-    assert len(reflected) == 3
+    assert len(reflected) == 5
     assert "armature J / c^2 = 0.25" in reflected[0]
     assert "mass 2.0 kg" in reflected[0]
     assert "1 shape(s) of shaft body 'rotor' are not emitted" in reflected[1]
     assert reflected[2] == "transmission 'drive': stiffness 100000.0 treated as rigid (milestone 1)"
+    assert "reaction torque on its mount body" in reflected[3]
+    assert "spin-mount" in reflected[3]
+    assert "lossless" in reflected[4]
+    assert "eta tau / c" in reflected[4]
 
 
 def test_axis_inertia_adds_the_offset_mass() -> None:
@@ -787,6 +821,25 @@ def test_gear_pair_reflects_with_c_one_over_ratio() -> None:
     ]
     axle = _named(_xml(data), "joint", "axle")
     assert float(axle.get("armature", "")) == pytest.approx(1e-4 * 16.0, rel=1e-15)
+
+
+@pytest.mark.req("PHY-018")
+@pytest.mark.req("PHY-033")
+def test_negative_gear_ratio_flips_the_coefficient_sign_only() -> None:
+    # c = 1 / ratio carries the direction: q_driven = c q_shaft, F = eta tau / c, tau_load = tau - J qacc_driven / c.
+    # Reversing the ratio flips c and so, together, the signs of the driven side's F, q and qd; the shaft's load
+    # torque (qacc_driven / c) keeps its sign; the armature J / c^2 is unchanged.
+    frames = {}
+    for ratio in (4.0, -4.0):
+        root = _xml(_gear(ratio))
+        frame = root.find("./custom/numeric[@name='mechsim:transmission:gears']")
+        assert frame is not None
+        frames[ratio] = [float(v) for v in frame.get("data", "").split()]
+        axle = _named(root, "joint", "axle")
+        assert float(axle.get("armature", "")) == pytest.approx(5.4e-6 * 16.0, rel=1e-15)
+    assert frames[4.0][0] == 0.25
+    assert frames[-4.0][0] == -0.25
+    assert frames[4.0][1:] == frames[-4.0][1:]
 
 
 @pytest.mark.parametrize(

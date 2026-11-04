@@ -1,8 +1,10 @@
 #include <catch2/catch_test_macros.hpp>
 #include <cmath>
+#include <limits>
 #include <numbers>
 #include <span>
 #include <stdexcept>
+#include <string>
 #include <vector>
 
 #include "mechsim/kernel/time.hpp"
@@ -186,8 +188,33 @@ TEST_CASE("The stepper rejects bad parameters and a shaft outside the published 
     no_angle.step_angle = 0.0;
     CHECK_THROWS_AS(BehavioralStepper("m", no_angle), SignalConfigError);
     BehavioralStepperParams far = motor_params(0.0);
-    far.shaft_joint = 3;
+    far.transmission = 3;
     BehavioralStepper motor("m", far);
     Stepper run(motor);
     CHECK_THROWS_AS(run.step(state_at(0.0, 0.0), drive(1.0)), mechsim::signals::SignalRunError);
+}
+
+// SIG-037: one rotor inertia source. 1e-9 relative is the tolerance in sig.md; a shaft body copied from the same
+// catalog value is equal to rounding, so a 1e-12 relative difference passes and 1e-6 is refused.
+TEST_CASE("The stepper refuses a shaft body whose axial inertia is not its rotor inertia", "[SIG-037]") {
+    constexpr double rotor = 5.4e-6;
+    BehavioralStepperParams same = motor_params(rotor);
+    same.shaft_axial_inertia = rotor * (1.0 + 1e-12);
+    same.shaft_body = "x_shaft";
+    CHECK_NOTHROW(BehavioralStepper("m", same));
+    BehavioralStepperParams off = motor_params(rotor);
+    off.shaft_axial_inertia = rotor * (1.0 + 1e-6);
+    off.shaft_body = "x_shaft";
+    try {
+        const BehavioralStepper motor("x_motor", off);
+        FAIL("a mismatched shaft inertia was accepted");
+    } catch (const mechsim::signals::SignalConfigError& error) {
+        const std::string text = error.what();
+        CHECK(text.find("x_motor") != std::string::npos);
+        CHECK(text.find("x_shaft") != std::string::npos);
+    }
+    BehavioralStepperParams bad = motor_params(rotor);
+    bad.shaft_axial_inertia = std::numeric_limits<double>::quiet_NaN();
+    CHECK_THROWS_AS(BehavioralStepper("m", bad), mechsim::signals::SignalConfigError);
+    CHECK_NOTHROW(BehavioralStepper("m", motor_params(rotor)));
 }

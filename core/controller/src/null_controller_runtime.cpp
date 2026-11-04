@@ -32,7 +32,7 @@ void NullControllerRuntime::load(const FirmwareImage& firmware) {
     firmware_path_ = firmware.path;
 }
 
-void NullControllerRuntime::reset(const signals::PowerRail& rail) {
+void NullControllerRuntime::reset(const pins::PowerRail& rail) {
     if (!loaded_) {
         throw ControllerError("reset() before load()");
     }

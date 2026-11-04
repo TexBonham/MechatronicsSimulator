@@ -1,7 +1,7 @@
 # core/signals: contract
 
-Namespace `mechsim::signals`. Target `mechsim_signals` (links `mechsim_kernel`; uses the controller header's plain
-`PinInputs`/`PinOutputs` structs, include path only); tests `mechsim_signals_tests`.
+Namespace `mechsim::signals`. Target `mechsim_signals` (links `mechsim_kernel`, `mechsim_pins`; never the controller's
+directory); tests `mechsim_signals_tests`.
 
 ## Headers (`include/mechsim/signals/`)
 
@@ -16,7 +16,7 @@ Namespace `mechsim::signals`. Target `mechsim_signals` (links `mechsim_kernel`; 
 | `stepper.hpp` | `StepDirDriver` step, dir, enable, vmot -> full_steps, direction, enabled, supply; `TorqueSpeedTable`; `BehavioralStepper` -> torque, stalled, missed_steps |
 | `safety.hpp` | `PowerSupply` voltage; `EStopRelay` estop_loop, reset -> status, contact_closed; `Watchdog` heartbeat -> tripped, contact_closed |
 | `operator_link.hpp` | `MessageSpec`, `OperatorMessage`; `LineCodec` / `AsciiLineCodec`; `UartTransport(baud)`; `OperatorLink` tx -> rx, `post`, `accept_controller_bytes`, `take_status` |
-| `signal_layer.hpp` | `SignalLayer(SignalLayerConfig)` Party; `add_component(ptr, Stage)`, `add_operator_link`; coupling setters/getters; `record(TickRecord&)` |
+| `signal_layer.hpp` | `SignalLayer(SignalLayerConfig{..., physics_outputs, pin_outputs})` Party; `read_inputs`/`write_outputs` (names in `core/kernel/CLAUDE.md`); `ExternalInputs`, `OperatorCommands`; `add_component(ptr, Stage)`, `add_operator_link`; setters/getters for kernel-free unit tests; `record(TickRecord&)` |
 
 ## Layer step
 
@@ -32,7 +32,8 @@ element; counter channels may sum several signals (A + B).
   `periods_ceil`. Trip when no edge for more than the timeout periods; the first sample counts as an edge.
 - Faults: stuck holds levels; on counters stuck and dropped deliver no edges (counts lost); forced_level sets the
   value; noisy draws N(0, magnitude) from the child generator; stall scales available torque; slip misses steps.
-- Stepper load torque = `joints[j].generalized_force[dof]`, torque the shaft supplies; demand = J alpha + load.
+- Stepper load torque = `transmissions[transmission].shaft_load_torque` (PHY-033 sign); demand = J alpha + load.
+  `shaft_axial_inertia` given: must equal `rotor_inertia` to 1e-9 relative, else SignalConfigError naming both (SIG-037).
 - ASCII line: `name *(SP value) LF`, shortest round-trip SI decimals; UART 8N1, baud / 10 bytes per s, <= 64 per tick.
 - Built-ins hold no design names; the gantry message set is test data only.
 

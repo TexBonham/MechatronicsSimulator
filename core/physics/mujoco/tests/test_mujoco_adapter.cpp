@@ -15,6 +15,8 @@
 #include "mechsim/kernel/physics_types.hpp"
 #include "mechsim/kernel/time.hpp"
 #include "mechsim/physics/mujoco/mujoco_adapter.hpp"
+#include "mechsim/signals/signal_component.hpp"
+#include "mechsim/signals/stepper.hpp"
 
 namespace {
 
@@ -481,7 +483,7 @@ PhysicsInputs shaft_torque(double value) {
 // Closed form a = tau (2 pi / lead) / (m + J (2 pi / lead)^2). Semi-implicit Euler under a constant force gives
 // v_n = n h a and x_n = a h^2 n (n + 1) / 2 exactly, so the scheme check is held to 1e-6 (rounding is ~n eps, 1e-12)
 // and the continuum x = a t^2 / 2 differs by the scheme's 1 / n, held to 1 / n + 1e-6.
-TEST_CASE("MuJoCo lead screw tracks the closed-form rigid drive", "[PHY-018][PHY-033][ENG-048][reference]") {
+TEST_CASE("MuJoCo lead screw tracks the closed-form rigid drive", "[PHY-018][PHY-033][ENG-048]") {
     constexpr double tau = 0.1;
     const double a = tau / lead_c / reflected_mass;
     auto adapter = loaded("lead_screw.xml");
@@ -522,6 +524,89 @@ TEST_CASE("MuJoCo lead screw applies efficiency by power direction", "[PHY-018][
     adapter->step();
     CHECK(adapter->outputs().bodies[1].linear_velocity[0] == v2);
     CHECK(adapter->outputs().joints[0].generalized_force.at(0) == 0.0);
+}
+
+// Lifting a 10 kg carriage on an 8 mm lead screw (eta 0.8) at constant speed, gravity m g along -x as a body force.
+// Rigid and steady: the driving thrust eta tau / c balances m g exactly, so a = 0 and the load torque is the closed
+// form m g c / eta = m g lead / (2 pi eta), positive along the shaft's + axis (PHY-033). Every term is one or two
+// roundings from the closed form, held to 1e-9. The stepper, stepping at a constant rate, demands J * 0 + load.
+TEST_CASE("MuJoCo lead screw lifting a load publishes the positive closed-form load torque the stepper demands",
+          "[PHY-033][ENG-048][SIG-033]") {
+    constexpr double eta = 0.8;
+    const double weight = carriage_mass * gravity;
+    const double closed_form = weight * 0.008 / (2.0 * std::numbers::pi * eta);
+    auto adapter = loaded("lead_screw_lossy.xml");
+    for (int k = 0; k < 50; ++k) {
+        adapter->set_inputs(shaft_torque(0.1));
+        adapter->step();
+    }
+    REQUIRE(adapter->outputs().bodies[1].linear_velocity[0] > 0.0);
+    PhysicsInputs lift = shaft_torque(closed_form);
+    lift.body_wrenches.push_back({1, {{0.0, 0.0, 0.0}, {-weight, 0.0, 0.0}}});
+    for (int k = 0; k < 20; ++k) {
+        adapter->set_inputs(lift);
+        adapter->step();
+    }
+    const mechsim::kernel::TransmissionState& state = adapter->outputs().transmissions.at(0);
+    std::cout << "lead screw lift: closed-form load torque " << closed_form << " N m, measured "
+              << state.shaft_load_torque << " N m\n";
+    CHECK(state.shaft_load_torque > 0.0);
+    CHECK(relative(state.shaft_load_torque, closed_form) < 1e-9);
+    CHECK(relative(state.force, weight) < 1e-9);
+    CHECK(state.power_flow == mechsim::kernel::PowerFlow::Forward);
+    CHECK(state.stretch == 0.0);
+    CHECK(adapter->outputs().joints[0].generalized_force.at(0) == state.shaft_load_torque);
+
+    mechsim::signals::BehavioralStepperParams params;
+    params.step_angle = std::numbers::pi / 100.0;
+    params.rotor_inertia = rotor_inertia;
+    params.torque_speed = {{0.0, 1.0}, {1000.0, 1.0}};
+    params.transmission = 0;
+    mechsim::signals::BehavioralStepper motor("lift_motor", params);
+    motor.start(mechsim::signals::ComponentClock{Rate(1000), mechsim::kernel::Duration(1), 1});
+    const std::vector<double> drive{2.0, 1.0, 1.0, 24.0};
+    double demand = 0.0;
+    for (int k = 0; k < 2; ++k) {
+        motor.begin_tick(mechsim::kernel::SimTime(k));
+        motor.sample(adapter->outputs());
+        motor.set_inputs(drive);
+        motor.latch_outputs();
+        demand = motor.output_values()[0];
+    }
+    CHECK(relative(demand, closed_form) < 1e-9);
+}
+
+// Gear pair, ratio +4 and -4 (c = 1 / ratio = +-0.25): the reflection is symmetric under q_driven -> -q_driven with
+// c -> -c, so the wheel's angle, rate and the transmission force flip sign while the shaft's rate and load torque,
+// both about the shaft's + axis, are unchanged. Every quantity is a product of negated exact factors: held to 1e-12.
+TEST_CASE("MuJoCo negative gear ratio flips the driven side and keeps the shaft side", "[PHY-018][PHY-033]") {
+    struct Result {
+        double wheel_rate = 0.0;
+        double wheel_quat_z = 0.0;
+        double force = 0.0;
+        double load = 0.0;
+        double shaft_rate = 0.0;
+    };
+    auto run = [](const std::string& name) {
+        auto adapter = loaded(name);
+        for (int k = 0; k < 100; ++k) {
+            adapter->set_inputs(shaft_torque(0.01));
+            adapter->step();
+        }
+        const PhysicsOutputs& out = adapter->outputs();
+        return Result{out.bodies[1].angular_velocity[2], out.bodies[1].orientation[3], out.transmissions.at(0).force,
+                      out.transmissions.at(0).shaft_load_torque, out.bodies[0].angular_velocity[2]};
+    };
+    const Result forward = run("gear_pair.xml");
+    const Result reversed = run("gear_pair_reversed.xml");
+    REQUIRE(forward.wheel_rate > 0.0);
+    REQUIRE(forward.force > 0.0);
+    REQUIRE(forward.load > 0.0);
+    CHECK(relative(reversed.wheel_rate, -forward.wheel_rate) < 1e-12);
+    CHECK(relative(reversed.wheel_quat_z, -forward.wheel_quat_z) < 1e-12);
+    CHECK(relative(reversed.force, -forward.force) < 1e-12);
+    CHECK(relative(reversed.load, forward.load) < 1e-12);
+    CHECK(relative(reversed.shaft_rate, forward.shaft_rate) < 1e-12);
 }
 
 TEST_CASE("MuJoCo reflected shaft refuses body-level changes", "[PHY-008]") {

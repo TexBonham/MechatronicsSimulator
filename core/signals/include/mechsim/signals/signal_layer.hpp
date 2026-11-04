@@ -11,7 +11,7 @@
 #include <utility>
 #include <vector>
 
-#include "mechsim/controller/controller_runtime.hpp"
+#include "mechsim/pins/pins.hpp"
 #include "mechsim/kernel/party.hpp"
 #include "mechsim/kernel/physics_types.hpp"
 #include "mechsim/kernel/tick_record.hpp"
@@ -79,8 +79,21 @@ struct ActuatorOutput {
     std::string unit = "N*m";
 };
 
+// Coupling payloads the layer consumes from the test runner (KER-008): external input values by signal, and operator
+// commands posted once per new sequence number (a held value is not re-posted, KER-011).
+using ExternalInputs = std::map<std::string, double, std::less<>>;
+struct OperatorCommands {
+    std::int64_t sequence = 0;
+    std::vector<OperatorMessage> messages;
+};
+inline constexpr const char* external_inputs_kind = "ExternalInputs";
+inline constexpr const char* operator_commands_kind = "OperatorCommands";
+inline constexpr const char* operator_status_kind = "OperatorStatus";
+
 struct SignalLayerConfig {
     std::string name = "signals";
+    std::string physics_outputs = "physics.outputs";         // PhysicsOutputs payload
+    std::string pin_outputs = "controller.pin_outputs";      // PinOutputs payload
     kernel::Rate rate{1000};
     std::uint64_t seed = 0;
     PinBindingTable bindings;
@@ -96,8 +109,12 @@ struct SignalLayerConfig {
 // The signal layer party (KER-009, SIG-024). It owns the components, the pin tables and the rails. Per step: pin
 // outputs and external inputs onto the signal bus, power stage, rails, then sensor, driver and actuator stages, each
 // component begin_tick / set_inputs / sample / latch_outputs in registration order; then pin inputs from the bus
-// through the slots only, and actuator torques into PhysicsInputs. step() runs on the values last handed in through
-// the coupling setters and publishes through the getters.
+// through the slots only, and actuator torques into PhysicsInputs.
+// Kernel coupling (KER-008, invariant 1): consumes config.physics_outputs, config.pin_outputs, `<name>.external_inputs`
+// (only with externals configured) and `<name>.operator_commands` (only with an operator link); publishes
+// `<name>.pin_inputs` (PinInputs), `.physics_inputs` (PhysicsInputs), `.rails` (PowerRails: std::vector<PowerRail>)
+// and `.operator_status` (this step's std::vector<StatusMessage>). The setters and getters below are the same data
+// for unit tests that drive the layer without a kernel.
 class SignalLayer final : public kernel::Party {
 public:
     explicit SignalLayer(SignalLayerConfig config);
@@ -113,19 +130,21 @@ public:
     [[nodiscard]] std::span<const std::string> consumed() const override;
     // Validates the wiring (SignalConfigError naming the fault), then starts every component.
     void start(const kernel::Rate& base_rate) override;
+    void read_inputs(const kernel::CouplingReader& inputs) override;
     void step(kernel::SimTime t, kernel::Duration dt) override;
+    void write_outputs(kernel::CouplingWriter& outputs) override;
     void on_fault(const kernel::PartyFault& fault) noexcept override;
 
     // Coupling surface.
     void set_physical_state(const PhysicalState& state);
-    void set_pin_outputs(const controller::PinOutputs& outputs);
+    void set_pin_outputs(const pins::PinOutputs& outputs);
     // Throws SignalConfigError on a signal not declared external.
     void set_external_input(std::string_view signal, double value);
     // Throws SignalConfigError without an operator link; the bytes leave on the following steps.
     void post_operator_message(const OperatorMessage& message);
     // Status messages decoded since the last call, in arrival order.
     [[nodiscard]] std::vector<StatusMessage> take_operator_status();
-    [[nodiscard]] const controller::PinInputs& pin_inputs() const noexcept;
+    [[nodiscard]] const pins::PinInputs& pin_inputs() const noexcept;
     [[nodiscard]] const kernel::PhysicsInputs& physics_inputs() const noexcept;
     [[nodiscard]] std::span<const PowerRail> rails() const noexcept;
     // The controller's rail, for ControllerRuntime::brownout() (SIG-022).
@@ -180,11 +199,13 @@ private:
     std::vector<double> last_stall_;
     bool started_ = false;
     PhysicalState state_;
-    controller::PinOutputs pin_outputs_;
-    controller::PinInputs pin_inputs_;
+    pins::PinOutputs pin_outputs_;
+    pins::PinInputs pin_inputs_;
     kernel::PhysicsInputs physics_inputs_;
     std::vector<kernel::RecordedEvent> events_;
     std::vector<StatusMessage> status_;
+    std::vector<StatusMessage> step_status_;
+    std::optional<std::int64_t> command_sequence_;
 };
 
 }  // namespace mechsim::signals

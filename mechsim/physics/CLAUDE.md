@@ -1,6 +1,6 @@
 # mechsim/physics/: contract
 
-Adapters `mujoco/` (MJCF, ADR 0014), `native/`; `neutral.py` is the engine-neutral model (ADR 0003).
+Adapters `mujoco/` (MJCF, ADR 0014), `native/` (`adapter.py`: re-export skeleton until PHY-020; the only Python importer of `_core_ext.engine`); `neutral.py` is the engine-neutral model (ADR 0003).
 
 ## neutral.py
 

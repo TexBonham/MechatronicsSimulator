@@ -2,6 +2,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -47,16 +48,21 @@ private:
     std::vector<TorqueSpeedPoint> points_;
 };
 
-// Catalog type stepper_behavioral, tier 1 (behavioral). shaft_joint and shaft_joint_dof select the load torque in
-// the published state: joints[shaft_joint].generalized_force[shaft_joint_dof], taken as the torque the shaft must
-// supply to the load.
+// Catalog type stepper_behavioral, tier 1 (behavioral). transmission selects the load torque in the published
+// state: transmissions[transmission].shaft_load_torque, the torque the shaft must supply along its + axis (PHY-033,
+// ENG-048). rotor_inertia is the catalog instance's parameter, the one source the builder also copies into the shaft
+// body; with shaft_axial_inertia given (the shaft body's inertia about its joint axis, from the prepared model), the
+// two must agree to rotor_inertia_tolerance relative, else construction throws SignalConfigError naming both (SIG-037).
 struct BehavioralStepperParams {
     double step_angle = 0.0;     // rad per full step
     double rotor_inertia = 0.0;  // kg m^2
     std::vector<TorqueSpeedPoint> torque_speed;
-    std::size_t shaft_joint = 0;
-    std::size_t shaft_joint_dof = 0;
+    std::size_t transmission = 0;
+    std::optional<double> shaft_axial_inertia;  // kg m^2
+    std::string shaft_body;
 };
+
+inline constexpr double rotor_inertia_tolerance = 1e-9;
 
 // Inputs `full_steps`, `direction`, `enabled`, `supply` (from the driver). Outputs `torque` (N m, the actuator input
 // for the shaft), `stalled` (level), `missed_steps` (full steps this tick) (SIG-032, SIG-033).

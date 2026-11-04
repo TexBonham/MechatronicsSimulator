@@ -62,6 +62,20 @@ public:
         call_override<void>(this, "inject", signals::FailureInjection(injection));
     }
 
+    void start(const signals::ComponentClock& clock) override {
+        const py::gil_scoped_acquire gil;
+        if (static_cast<bool>(py::get_override(static_cast<const SignalComponent*>(this), "start"))) {
+            call_override<void>(this, "start", signals::ComponentClock(clock));
+        }
+    }
+
+    void begin_tick(kernel::SimTime t) override {
+        const py::gil_scoped_acquire gil;
+        if (static_cast<bool>(py::get_override(static_cast<const SignalComponent*>(this), "begin_tick"))) {
+            call_override<void>(this, "begin_tick", t);
+        }
+    }
+
 private:
     mutable std::string instance_;
     mutable std::vector<std::string> inputs_;
@@ -131,7 +145,9 @@ void bind_failures(py::module_& m) {
         .value("stuck", signals::FailureMode::stuck)
         .value("noisy", signals::FailureMode::noisy)
         .value("dropped", signals::FailureMode::dropped)
-        .value("forced_level", signals::FailureMode::forced_level);
+        .value("forced_level", signals::FailureMode::forced_level)
+        .value("stall", signals::FailureMode::stall)
+        .value("slip", signals::FailureMode::slip);
 
     py::class_<signals::FailureInjection>(m, "FailureInjection", "Active for start <= t < end, in base ticks.")
         .def(py::init<>())
@@ -139,7 +155,8 @@ void bind_failures(py::module_& m) {
         .def_readwrite("start", &signals::FailureInjection::start)
         .def_readwrite("end", &signals::FailureInjection::end)
         .def_readwrite("noise_magnitude", &signals::FailureInjection::noise_magnitude)
-        .def_readwrite("forced_level", &signals::FailureInjection::forced_level);
+        .def_readwrite("forced_level", &signals::FailureInjection::forced_level)
+        .def_readwrite("fraction", &signals::FailureInjection::fraction);
 
     m.def("validate_injection", &signals::validate_injection, py::arg("injection"));
 }
@@ -162,7 +179,9 @@ void bind_components(py::module_& m) {
                  const auto view = c.output_values();
                  return std::vector<double>(view.begin(), view.end());
              })
-        .def("inject", &SignalComponent::inject, py::arg("injection"));
+        .def("inject", &SignalComponent::inject, py::arg("injection"))
+        .def("start", &SignalComponent::start, py::arg("clock"))
+        .def("begin_tick", &SignalComponent::begin_tick, py::arg("t"));
     m.attr("PythonSlowPathComponent") = m.attr("SignalComponent");
 
     py::class_<signals::NullSignalComponent, SignalComponent, py::smart_holder>(m, "NullSignalComponent")

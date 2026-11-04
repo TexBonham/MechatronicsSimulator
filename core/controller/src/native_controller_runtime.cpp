@@ -19,7 +19,7 @@
 #include "mechsim/controller/channel_map.hpp"
 #include "mechsim/controller/controller_runtime.hpp"
 #include "mechsim/kernel/time.hpp"
-#include "mechsim/signals/power_rail.hpp"
+#include "mechsim/pins/pins.hpp"
 #include "mechsim_board.h"
 
 namespace mechsim::controller {
@@ -266,7 +266,7 @@ void NativeControllerRuntime::load(const FirmwareImage& firmware) {
     frozen_ = false;
 }
 
-void NativeControllerRuntime::reset(const signals::PowerRail& rail) {
+void NativeControllerRuntime::reset(const pins::PowerRail& rail) {
     if (library_path_.empty()) {
         throw ControllerError("reset() before load()");
     }

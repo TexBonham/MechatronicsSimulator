@@ -59,10 +59,18 @@ struct RopeTension {
     bool slack = false;
 };
 
-// Transmission slip state after the step (PHY-006): accumulated slip between input and output side.
+// Direction of power through a transmission at the step (ENG-044): Static at zero shaft speed, Forward when the shaft
+// drives the load, Backward when the load drives the shaft, Locked for a self-locking screw holding.
+enum class PowerFlow : std::uint8_t { Static, Forward, Backward, Locked };
+
+// Transmission state after the step, one per neutral transmission in file order (PHY-006, ENG-048, PHY-033).
 struct TransmissionState {
     double slip = 0.0;  // m or rad, output side
     bool slipping = false;
+    double shaft_load_torque = 0.0;  // torque the shaft must supply along its + axis, N m (PHY-033)
+    double force = 0.0;              // the load's share on the driven joint, gain * shaft_load_torque / c: N (belt, screw) or N m (gear)
+    double stretch = 0.0;            // m or rad at the output; 0 for a rigid coupling
+    PowerFlow power_flow = PowerFlow::Static;
 };
 
 // Field for field with mechsim::engine::StepHealth (ENG-026); time and step are carried as the completed step count

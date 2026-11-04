@@ -49,7 +49,8 @@ Also `constraint_errors(q)`, `body_states(q, v)`, `neutral_positions()`, `*_offs
 Hooks write mutable `impulse_`/`error_`; single-threaded (ENG-023).
 Transmissions: Revolute shaft to Prismatic or (gear) Revolute output; K, D += k, c a b^T in contact.
 `set_shaft_torque(i, tau)` (per step), `set_slip(i, s)` (persists), `slip(i)`, `transmission_states(q, v)`.
-`outputs().transmissions`: end state, step's drive (next step's pre-image); `shaft_load_torque`,
+`outputs().transmissions`, `transmission_states`: end state, step's drive (next step's pre-image); `shaft_load_torque`
+= g F, the torque the shaft must supply along its + axis (PHY-033; `couple()` keeps the applied sign -g F internally);
 `power_flow` not for per-step energy bookkeeping. Slip offsets move only in `step()`.
 
 ## Section index, `src/multibody_provider.cpp`

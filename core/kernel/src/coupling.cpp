@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <span>
 #include <string>
+#include <typeinfo>
 #include <string_view>
 #include <variant>
 #include <vector>
@@ -16,6 +17,12 @@ namespace {
 
 bool listed(std::span<const std::string> names, std::string_view name) {
     return std::ranges::any_of(names, [name](const std::string& candidate) { return candidate == name; });
+}
+
+bool same_payload_type(const CouplingPayload& a, const CouplingPayload& b) {
+    const std::type_info& left = typeid(a);
+    const std::type_info& right = typeid(b);
+    return left == right;
 }
 
 }  // namespace
@@ -60,9 +67,18 @@ void CouplingTable::set(std::string_view name, const CouplingValue& value) {
     if (std::holds_alternative<std::monostate>(value)) {
         throw CouplingError("coupling variable '" + std::string(name) + "' written with no value");
     }
+    const PayloadPtr* incoming = std::get_if<PayloadPtr>(&value);
+    if (incoming != nullptr && *incoming == nullptr) {
+        throw CouplingError("coupling variable '" + std::string(name) + "' written with a null payload");
+    }
     CouplingValue& held = found->second.value;
     if (!std::holds_alternative<std::monostate>(held) && held.index() != value.index()) {
         throw CouplingError("coupling variable '" + std::string(name) + "' changed type");
+    }
+    const PayloadPtr* previous = std::get_if<PayloadPtr>(&held);
+    if (previous != nullptr && incoming != nullptr && !same_payload_type(**previous, **incoming)) {
+        throw CouplingError("coupling variable '" + std::string(name) + "' changed payload type from " +
+                            std::string((*previous)->kind()) + " to " + std::string((*incoming)->kind()));
     }
     held = value;
 }
@@ -74,6 +90,18 @@ std::vector<CouplingSample> CouplingTable::snapshot() const {
         samples.push_back(CouplingSample{name, held.value});
     }
     return samples;
+}
+
+void throw_payload_mismatch(std::string_view name, const CouplingValue& value) {
+    std::string held = "a scalar";
+    if (std::holds_alternative<std::monostate>(value)) {
+        held = "no value";
+    }
+    if (const PayloadPtr* payload = std::get_if<PayloadPtr>(&value)) {
+        held = std::string((*payload)->kind());
+    }
+    throw CouplingError("coupling variable '" + std::string(name) + "' holds " + held +
+                        ", not the payload type this party reads");
 }
 
 CouplingReader::CouplingReader(const CouplingTable& table, std::span<const std::string> consumed) noexcept

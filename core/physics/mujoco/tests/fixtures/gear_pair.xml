@@ -1,0 +1,17 @@
+<mujoco model="gear_pair">
+  <compiler angle="radian" autolimits="false" inertiafromgeom="false" balanceinertia="false" boundmass="0" boundinertia="0" />
+  <option timestep="0.001" gravity="0 0 0" integrator="implicitfast" iterations="50" />
+  <worldbody>
+    <body name="wheel" pos="0 0 0" quat="1.0 0 0 0">
+      <inertial pos="0 0 0" mass="1.0" fullinertia="0.01 0.01 0.01 0 0 0" />
+      <joint name="axle" type="hinge" axis="0 0 1.0" armature="8.64e-05" />
+    </body>
+  </worldbody>
+  <custom>
+    <text name="mechsim:elements" data="body joint.revolute transmission.gear_pair" />
+    <text name="mechsim:bodies" data="rotor wheel" />
+    <text name="mechsim:joints" data="spindle:revolute axle:revolute" />
+    <text name="mechsim:transmissions" data="gears:rotor:world:axle" />
+    <numeric name="mechsim:transmission:gears" data="0.25 1.0 5.4e-06 0 0 0 1.0 0 0 0 0 0 1.0" />
+  </custom>
+</mujoco>

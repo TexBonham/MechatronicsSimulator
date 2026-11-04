@@ -259,6 +259,8 @@ struct MujocoAdapter::Engine {
     std::vector<int> shaft_of_body;
     std::vector<double> shaft_torque;
     std::vector<double> driven_velocity;
+    std::vector<double> shaft_gain;  // eta driving, 1 / eta back-driven, for the step taken
+    std::vector<kernel::PowerFlow> shaft_flow;
     std::size_t velocity_dofs = 0;
     kernel::PhysicsInputs pending;
     kernel::PhysicsOutputs outputs;
@@ -422,6 +424,8 @@ void MujocoAdapter::Engine::map_shafts(const std::vector<std::string>& body_name
     }
     shaft_torque.assign(shafts.size(), 0.0);
     driven_velocity.assign(shafts.size(), 0.0);
+    shaft_gain.assign(shafts.size(), 1.0);
+    shaft_flow.assign(shafts.size(), kernel::PowerFlow::Static);
 }
 
 // ===== Outputs ==========================================================
@@ -496,7 +500,15 @@ void MujocoAdapter::Engine::collect_forces() {
     }
 
     outputs.ropes.clear();
-    outputs.transmissions.clear();
+    outputs.transmissions.assign(shafts.size(), {});
+    for (std::size_t i = 0; i < shafts.size(); ++i) {
+        const ShaftMap& shaft = shafts[i];
+        const double acceleration = (d.qvel[shaft.driven_dof] - driven_velocity[i]) / m.opt.timestep;
+        kernel::TransmissionState& out = outputs.transmissions[i];
+        out.shaft_load_torque = shaft_torque[i] - shaft.inertia * acceleration / shaft.coefficient;
+        out.force = shaft_gain[i] * out.shaft_load_torque / shaft.coefficient;
+        out.power_flow = shaft_flow[i];
+    }
 }
 
 // Poses, velocities and constraint errors of the state the step produced.
@@ -595,6 +607,8 @@ void MujocoAdapter::Engine::apply_inputs() {
     for (std::size_t i = 0; i < shafts.size(); ++i) {
         shaft_torque[i] = 0.0;
         driven_velocity[i] = d.qvel[shafts[i].driven_dof];
+        shaft_gain[i] = shafts[i].efficiency;
+        shaft_flow[i] = kernel::PowerFlow::Static;
     }
     if (!pending.generalized_forces.empty()) {
         std::size_t offset = 0;
@@ -604,10 +618,17 @@ void MujocoAdapter::Engine::apply_inputs() {
                 const ShaftMap& shaft = shafts[index];
                 const double tau = pending.generalized_forces[offset];
                 shaft_torque[index] = tau;
-                double force = tau / (shaft.efficiency * shaft.coefficient);
-                if (tau * driven_velocity[index] * shaft.coefficient >= 0.0) {
-                    force = shaft.efficiency * tau / shaft.coefficient;
+                const double power = tau * driven_velocity[index] * shaft.coefficient;
+                shaft_gain[index] = 1.0 / shaft.efficiency;
+                shaft_flow[index] = kernel::PowerFlow::Backward;
+                if (power >= 0.0) {
+                    shaft_gain[index] = shaft.efficiency;
+                    shaft_flow[index] = kernel::PowerFlow::Forward;
                 }
+                if (power == 0.0) {
+                    shaft_flow[index] = kernel::PowerFlow::Static;
+                }
+                const double force = shaft_gain[index] * tau / shaft.coefficient;
                 d.qfrc_applied[shaft.driven_dof] += force;
                 ++offset;
                 continue;

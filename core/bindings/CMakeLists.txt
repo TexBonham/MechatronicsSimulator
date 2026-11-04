@@ -18,10 +18,11 @@ FetchContent_Declare(
 FetchContent_MakeAvailable(pybind11)
 
 # The core libraries are static; linking them into a shared extension module needs position-independent code.
-set_target_properties(mechsim_engine mechsim_kernel mechsim_signals mechsim_controller
+set_target_properties(mechsim_engine mechsim_kernel mechsim_signals mechsim_controller mechsim_physics_mujoco
     PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
 pybind11_add_module(_core_ext MODULE
+    src/bind_cosim.cpp
     src/bind_controller.cpp
     src/bind_engine.cpp
     src/bind_kernel.cpp
@@ -33,6 +34,10 @@ pybind11_add_module(_core_ext MODULE
     src/module.cpp
 )
 target_include_directories(_core_ext PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
-target_link_libraries(_core_ext PRIVATE mechsim_engine mechsim_controller mechsim_warnings)
+target_link_libraries(_core_ext PRIVATE mechsim_engine mechsim_controller mechsim_physics_mujoco mechsim_warnings)
+# libmujoco ships next to the extension in the mechsim package; the installed extension finds it through $ORIGIN, the
+# build tree keeps its own RPATH to the fetched release.
+set_target_properties(_core_ext PROPERTIES INSTALL_RPATH "$ORIGIN" BUILD_WITH_INSTALL_RPATH OFF)
 
 install(TARGETS _core_ext LIBRARY DESTINATION mechsim COMPONENT python)
+install(FILES $<TARGET_FILE:mujoco::mujoco> DESTINATION mechsim COMPONENT python)

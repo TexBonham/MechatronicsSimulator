@@ -7,6 +7,7 @@
 #include <type_traits>
 #include <utility>
 
+#include "mechsim/kernel/coupling.hpp"
 #include "mechsim/kernel/party.hpp"
 
 namespace mechsim::bindings {
@@ -19,6 +20,13 @@ void bind_recorder(pybind11::module_& m);
 void bind_signals(pybind11::module_& m);
 void bind_controller(pybind11::module_& m);
 void bind_engine(pybind11::module_& m);
+void bind_cosim(pybind11::module_& m);
+
+// Coupling values across the binding (KER-008): scalars as bool, int, float; payloads as their bound classes
+// (PhysicsOutputs, PhysicsInputs, PinInputs, PinOutputs, list[PowerRail], list[StatusMessage],
+// dict[str, float] for external inputs, OperatorCommands); unset as None.
+[[nodiscard]] pybind11::object coupling_to_python(const kernel::CouplingValue& value);
+[[nodiscard]] kernel::CouplingValue coupling_from_python(const pybind11::handle& value);
 
 // The Python PartyFault exception instance for a C++ fault (RunReport.fault, Party.on_fault).
 [[nodiscard]] pybind11::object party_fault_object(const kernel::PartyFault& fault);

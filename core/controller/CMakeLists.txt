@@ -3,6 +3,7 @@ set(MECHSIM_BOARD_INTERFACE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../../board_interfac
 
 add_library(mechsim_controller
     src/channel_map.cpp
+    src/controller_party.cpp
     src/host_build.cpp
     src/native_controller_runtime.cpp
     src/null_controller_runtime.cpp
@@ -10,10 +11,11 @@ add_library(mechsim_controller
 add_library(mechsim::controller ALIAS mechsim_controller)
 target_include_directories(mechsim_controller PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
 target_include_directories(mechsim_controller SYSTEM PRIVATE ${MECHSIM_BOARD_INTERFACE_DIR})
-target_link_libraries(mechsim_controller PUBLIC mechsim_signals PRIVATE mechsim_warnings ${CMAKE_DL_LIBS})
+target_link_libraries(mechsim_controller PUBLIC mechsim_pins mechsim_signals PRIVATE mechsim_warnings ${CMAKE_DL_LIBS})
 
 add_executable(mechsim_controller_tests
     tests/test_channel_map.cpp
+    tests/test_controller_party.cpp
     tests/test_controller_runtime.cpp
 )
 target_link_libraries(mechsim_controller_tests PRIVATE mechsim_controller mechsim_warnings Catch2::Catch2WithMain)

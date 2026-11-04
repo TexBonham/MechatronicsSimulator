@@ -172,6 +172,10 @@ py::dict physics_dict(const kernel::PhysicsOutputs& physics) {
         py::dict entry;
         entry["slip"] = transmission.slip;
         entry["slipping"] = transmission.slipping;
+        entry["shaft_load_torque"] = transmission.shaft_load_torque;
+        entry["force"] = transmission.force;
+        entry["stretch"] = transmission.stretch;
+        entry["power_flow"] = static_cast<int>(transmission.power_flow);
         transmissions.append(entry);
     }
     out["transmissions"] = transmissions;
@@ -186,6 +190,11 @@ py::dict row_dict(const TickRecord& row) {
     out["rails"] = series_list(row.rails);
     out["actuator_efforts"] = series_list(row.actuator_efforts);
     out["controller_state"] = row.controller_state;
+    py::dict coupling;
+    for (const kernel::CouplingSample& sample : row.coupling) {
+        coupling[py::str(sample.name)] = coupling_to_python(sample.value);
+    }
+    out["coupling"] = coupling;
     py::list events;
     for (const kernel::RecordedEvent& event : row.events) {
         py::dict entry;

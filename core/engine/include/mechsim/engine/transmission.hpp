@@ -61,7 +61,9 @@ struct Transmission {
 
 struct TransmissionOutput {
     double force = 0.0;              // F on the output joint: belt tension, screw thrust (N), gear torque (N m)
-    double shaft_load_torque = 0.0;  // reaction on the shaft about its joint axis, N m (ENG-048)
+    double shaft_load_torque = 0.0;  // couple(): torque applied to the shaft, -g F; published by
+                                     // transmission_states()/outputs() negated, g F: the torque the shaft must
+                                     // supply along its + axis (PHY-033, ENG-048), N m
     double stretch = 0.0;            // E, m or rad at the output
     double backlash_position = 0.0;  // E clamped to [-b/2, b/2]
     bool in_contact = false;

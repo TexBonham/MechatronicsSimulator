@@ -7,7 +7,7 @@
 
 #include "mechsim/controller/controller_runtime.hpp"
 #include "mechsim/kernel/time.hpp"
-#include "mechsim/signals/power_rail.hpp"
+#include "mechsim/pins/pins.hpp"
 
 using mechsim::controller::ControllerConfigError;
 using mechsim::controller::ControllerError;
@@ -17,7 +17,7 @@ using mechsim::controller::NullControllerRuntime;
 using mechsim::controller::PinInputs;
 using mechsim::controller::PinOutputs;
 using mechsim::kernel::Rate;
-using mechsim::signals::PowerRail;
+using mechsim::pins::PowerRail;
 
 namespace controller = mechsim::controller;
 

@@ -17,7 +17,7 @@
 
 #include "mechsim/controller/controller_runtime.hpp"
 #include "mechsim/controller/native_controller_runtime.hpp"
-#include "mechsim/signals/power_rail.hpp"
+#include "mechsim/pins/pins.hpp"
 #include "native_test_support.hpp"
 
 using mechsim::controller::ControllerConfigError;
@@ -26,7 +26,7 @@ using mechsim::controller::FirmwareImage;
 using mechsim::controller::NativeControllerRuntime;
 using mechsim::controller::PinInputs;
 using mechsim::controller::PinOutputs;
-using mechsim::signals::PowerRail;
+using mechsim::pins::PowerRail;
 
 namespace {
 
