@@ -23,3 +23,14 @@ type live in the root `CLAUDE.md` dispatch table once measured.
 | 2026-11-04 | M1-I fix round: baseline round trip, CLI kinds, tst rows | module-writer (opus), resumed | ~20K | ~10 calls |
 | 2026-11-04 | M1-H fix round: single dir/enable source, fw rows, markers | firmware-builder (opus), resumed | ~10K | 9 calls, 5 min |
 | 2026-11-04 | M1-A fix round: run step decoupled, module order, rigid_members (BLD-033), gantry placeholder geometry | module-writer (opus), resumed | ~36K | 24 calls, 13 min |
+| 2026-11-04 | M1-B: kernel implementation, coupling table, in-memory sink, 58 cases | module-writer (opus), worktree | 194K | 56 calls, 58 min; builds contended with concurrent worktrees |
+| 2026-11-04 | M1-E: native controller runtime, host build, shim, channel map, 30 tests | module-writer (opus), worktree | 170K | 49 calls, 62 min; builds contended |
+| 2026-11-04 | M1-D: signal built-ins, SignalLayer party, ASCII operator link, 26 SIG rows, 141 core tests | module-writer (opus), worktree | 269K | 87 calls, 62 min; over the 150 cap region, builds contended |
+| 2026-11-04 | M1-C: MuJoCo bridge, MJCF translation and C++ stepping adapter, 3.9.0 pinned, 123 core tests | module-writer (opus), worktree | 279K | 78 calls, 64 min; builds contended |
+| 2026-11-04 | M1-J: engine package 7 transmissions, 14 cases, derived bounds | module-writer (opus), worktree | 183K | 41 calls, 66 min; builds contended |
+| 2026-11-04 | M1 review: kernel and native runtime (B, E) | general-purpose (fable) | 159K | 21 calls, 5 min; 2 high (E), 2 medium each, 4 rulings |
+| 2026-11-04 | M1-G: pybind11 bindings, scikit-build wiring, `mechsim/_core.py`, 26 binding tests | module-writer (opus), worktree | 208K | 60 calls, 72 min; uv sync 4m24s cold, 51s warm |
+| 2026-11-04 | M1-B fix round: role-defaulted rates, physics-boundary end checks, sink_errors, line index | module-writer (opus), resumed | ~19K | 14 calls, 6 min |
+| 2026-11-04 | M1 review: MuJoCo bridge and signals (C, D) | general-purpose (fable) | 240K | 36 calls, 11 min; C blocked on transmission mapping, D accepted with 3 items to integration |
+| 2026-11-04 | M1-E fix round: six rulings, header 2.2, dir/enable from digital_out, held levels, reload on reset | module-writer (opus), resumed | ~39K | 24 calls, 9 min |
+| 2026-11-04 | Lost to container restart: G/J review and C fix round, both just dispatched | general-purpose (fable), module-writer | ~5K | re-dispatched with the same briefs |

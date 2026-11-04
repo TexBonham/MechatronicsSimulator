@@ -1,13 +1,29 @@
 #pragma once
 
+#include <cstdint>
 #include <span>
 #include <stdexcept>
 #include <string>
 #include <string_view>
 
+#include "mechsim/kernel/coupling.hpp"
+#include "mechsim/kernel/tick_record.hpp"
 #include "mechsim/kernel/time.hpp"
 
 namespace mechsim::kernel {
+
+// A party's place in the KER-009 per-tick order. The kernel uses it for rates: a controller party runs at
+// RunConfig::control_rate and a physics party must run at RunConfig::physics_rate.
+enum class PartyRole : std::uint8_t {
+    physics,
+    sensors,
+    integrity,
+    controller,
+    outputs,
+    drivers,
+    recorder,
+    other,
+};
 
 // The one error type that crosses from a party into the kernel (KER-015). The kernel wraps any other exception a
 // party throws into a PartyFault carrying the party's name and the simulated time of the failing step.
@@ -54,6 +70,25 @@ public:
 
     // Called once on every registered party, in registration order, when any party faults; the run then ends.
     virtual void on_fault(const PartyFault& fault) noexcept = 0;
+
+    // Defaulted hooks added in milestone 1; a party that needs none of them overrides nothing.
+
+    [[nodiscard]] virtual PartyRole role() const {
+        return PartyRole::other;
+    }
+    // Before start(): this party's child seed, derived from RunConfig::seed in registration order (KER-012).
+    virtual void set_seed(std::uint64_t /*child_seed*/) {}
+    // At the start of each step, before step(): the consumed variables as of the last sync point (KER-008, KER-011).
+    virtual void read_inputs(const CouplingReader& /*inputs*/) {}
+    // At the end of each step, after step(): this party's published variables; unwritten ones hold (KER-011).
+    virtual void write_outputs(CouplingWriter& /*outputs*/) {}
+    // Checked at every sync point when EndCondition::party_state names this party (KER-017).
+    [[nodiscard]] virtual bool finished() const {
+        return false;
+    }
+    // Once per physics tick, in registration order, after every step of that tick: fill this party's slice of the
+    // recorder row (KER-009 step 7, KER-022).
+    virtual void record(TickRecord& /*row*/) const {}
 };
 
 }  // namespace mechsim::kernel

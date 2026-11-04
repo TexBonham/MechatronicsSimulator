@@ -3,6 +3,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <functional>
+#include <string>
 #include <utility>
 #include <vector>
 
@@ -17,7 +18,9 @@ public:
     constexpr SubscriptionId() noexcept = default;
     constexpr explicit SubscriptionId(std::uint64_t value) noexcept : value_(value) {}
 
-    [[nodiscard]] constexpr std::uint64_t value() const noexcept { return value_; }
+    [[nodiscard]] constexpr std::uint64_t value() const noexcept {
+        return value_;
+    }
 
     friend constexpr bool operator==(SubscriptionId, SubscriptionId) noexcept = default;
 
@@ -40,6 +43,12 @@ public:
     virtual void write_row(const TickRecord& row) = 0;
     [[nodiscard]] virtual SubscriptionId subscribe(TickCallback callback) = 0;
     virtual void unsubscribe(SubscriptionId id) = 0;
+
+    // Defaulted in milestone 1: errors of subscribers the sink dropped for throwing (REC-020); the kernel copies them
+    // into RunReport::sink_errors.
+    [[nodiscard]] virtual std::vector<std::string> subscriber_errors() const {
+        return {};
+    }
 };
 
 // Stores nothing; counts rows and forwards them to subscribers.

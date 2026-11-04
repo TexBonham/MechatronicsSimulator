@@ -27,6 +27,39 @@ as data with an STM32-family placeholder, real parts drop in by file. MVP: miles
    non-blocking.
 3. Wave 2: M1-X integration, G1 to G4 and P1 end to end, run-twice determinism, reference-validator; owner gate.
 
+## Rulings made during milestone 1 wave 1 (coordinator, 2026-11-04), for owner confirmation
+
+- Direction and enable: the pin-table-bound digital outputs are the single source; the native shim derives the
+  stepper arrays from them; firmware holds the stepper arrays low.
+- Frozen controller: latched levels hold, per-tick buffers are empty (no pulses, no bytes, no events); timer-driven
+  pulses that continue on a hang are a milestone 2 option.
+- Reset and brownout recovery reload a private copy of the firmware library, so no firmware static survives.
+- Board interface 2.2: `mechsim_app_board_interface_version()` entry point implemented by every app.
+- Physics step is run configuration, not design data; the builder no longer ties it to the firmware tick.
+- Milestone 1 runs rigid: BLD-033 rigid-members option; the gantry ships placeholder primitive geometry until CAD.
+- Kernel: control_rate maps onto the controller party by role; a physics party whose rate differs from
+  physics_rate is a config error.
+- MuJoCo bridge transmissions (from the C review): a joint equality leaks metres with a light shaft on a heavy
+  load, so the bridge maps a rigid transmission by reflection: no shaft hinge in MJCF, rotor inertia reflected
+  as `armature = J / c^2` on the driven joint, shaft torque applied as `tau / c`, shaft position and velocity
+  reported as `q / c`, `qd / c`. Efficiency by power direction (driving `eta tau / c`, back-driven `tau / (eta c)`).
+  `self_locking: true` refused in the bridge (own engine handles it); finite stiffness treated as rigid and recorded
+  as an approximation; backlash and slip stay refused until milestone 2.
+- Shaft load torque (ENG-048, SIG-033): `tau_load = tau_applied - J_rotor * alpha_shaft`, positive along the shaft's
+  + axis, published as the shaft joint's generalized force; the stepper's demand is `J alpha_commanded + tau_load`.
+  Rotor inertia has one source, the motor instance's `rotor_inertia`: the builder copies it into the shaft body and
+  the signal layer reads the same value.
+- Explicit MuJoCo contact pairs bypass the parent-child filter: the bridge skips pairs between joint-connected bodies
+  and records them.
+- PHY-028 pendulum period tolerance set to 0.1 percent (T4 spec edit; the reviewer measured 0.0135 percent).
+- Signal layer: counters refuse a forced-level fault (recommendation accepted); relay floor, debounce ceiling and
+  watchdog rounding to whole ticks accepted; UART pacing is 8N1 at the configured baud.
+- Catalog alignment owed to the integration brief: `stepper_behavioral` gains a torque-speed table parameter
+  (holding torque alone stalls any motion above zero speed); `estop_relay` keeps no heartbeat input, the watchdog's
+  trip output drives it; power supply output named `v_out` to match the pin.
+- Milestone 3 note: MuJoCo implicitfast treats member-node stiffness explicitly, stable only for omega h < 2 per
+  segment, so the bridge cannot be the oracle for fine-segment beams; retirement baselines stay inside that envelope.
+
 ## Rulings made overnight 2026-11-03/04, confirmed by the owner 2026-11-04
 
 - Kernel time: integer ticks of a per-run base period (1 / lcm of all party and physics rates), rates as rational

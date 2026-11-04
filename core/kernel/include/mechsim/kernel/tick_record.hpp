@@ -3,6 +3,7 @@
 #include <string>
 #include <vector>
 
+#include "mechsim/kernel/coupling.hpp"
 #include "mechsim/kernel/physics_types.hpp"
 #include "mechsim/kernel/time.hpp"
 
@@ -33,6 +34,7 @@ struct TickRecord {
     std::vector<SeriesSample> actuator_efforts; // torques and forces applied to physics (REC-027)
     std::string controller_state;               // REC-007
     std::vector<RecordedEvent> events;          // REC-007 to REC-010
+    std::vector<CouplingSample> coupling;       // every coupling variable at the row's sync point, name order (KER-022)
 };
 
 }  // namespace mechsim::kernel

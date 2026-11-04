@@ -70,7 +70,7 @@ proposed <value>)".
 | HDF5 archive layout (groups, datasets, attribute names) | format `mechsim-run-archive` version 1, layout in `mechsim/record/CLAUDE.md` | set (M1-F) |
 | Which git hashes are recorded (repository, firmware tree, design file) | repository HEAD commit (`unset` outside git), design file blob hash, test case file blob hash; firmware tree not set | firmware tree: M1 integration |
 | Archive comparison rule for run-twice determinism (bitwise file or recorded content) | recorded content; `archives_identical` also reports byte identity, which the synthetic run-twice test asserts | phase 1 contracts |
-| Streaming interface shape and back-pressure | C++ seam: `RecorderSink::subscribe`, callback per row, synchronous, in subscription order (brief C5); Python consumer `Recorder.subscribe`, same semantics; facade-side shape and back-pressure not set | phase 1 ADR (facade protocol) |
+| Streaming interface shape and back-pressure | C++ seam: `RecorderSink::subscribe`, callback per row, synchronous, in subscription order (brief C5); Python consumer `Recorder.subscribe`, same semantics; `InMemoryRecorderSink` stores each row before dispatch, hands it out const, removes a subscriber that throws and keeps its error (REC-020), applies subscribe and unsubscribe made inside a callback from the next row, and `drain()` returns rows since the last drain (M1-B, for owner review); facade-side shape and back-pressure not set | phase 1 ADR (facade protocol) |
 | MAT file version | 5, uncompressed, via `scipy.io.savemat` | set (M1-F) |
 
 ## Out of scope
