@@ -44,3 +44,4 @@ type live in the root `CLAUDE.md` dispatch table once measured.
 | 2026-11-04 | M1-X1: core wiring, coupling crossings, pins target, load-torque convention, catalog alignment, kernel and signal bindings, KER-023 | module-writer (opus), worktree | 312K | 135 calls, 45 min; MuJoCo adapter binding left open, fix round sent |
 | 2026-11-04 | M1-X1 fix round: MuJoCo adapter bound with libmujoco in the wheel, inverse heartbeat test, negative-ratio cases, ker.md rows | module-writer (opus), resumed | ~32K | 31 calls, 14 min |
 | 2026-11-04 | M1 review: core wiring (X1) | general-purpose (fable) | 198K | 22 calls, 5 min; accept with 5 minor fixes, applied inline by the coordinator |
+| 2026-11-04 | M1-X2: CoreDriver, PreparedModel assembly, rotor inertia (BLD-034), coupling mirror (REC-028), CLI entry, P1 green and run-twice identical | module-writer (opus), worktree | 286K | 109 calls, 28 min; gantry blocked on sensor placement in the design schema |

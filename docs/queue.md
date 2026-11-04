@@ -68,6 +68,16 @@ as data with an STM32-family placeholder, real parts drop in by file. MVP: miles
   integration brief aligns both to PHY-033 (the shaft-must-supply sign) so the stepper reads one convention.
 - ENG-045 and ENG-046 (gear pair, slip parameter) pulled forward from milestone 2: delivered in package 7.
 - Self-locking screw lowering under drive is unresisted in this tier (no nut-friction model); recorded in eng.md.
+- Sensor placement is design data (DES-043, from the X2 blocker): a sensor instance carries `senses` (joint; limit
+  switch position and side; encoder reversed) and the builder maps it to the signal layer's joint coordinate.
+- Open parameters resolve case value, then the design's `default`, else an error (DES-044); the gantry draft ships
+  placeholder defaults flagged until the gantry team rules.
+- Gantry lift screw runs with zero backlash in milestone 1 (bridge refuses backlash until PHY-006, M2).
+- Generated channel header names (`MECHSIM_CH_<SIGNAL>`) are the firmware convention; the committed gantry header is
+  the builder's output, identity-tested.
+- Kernel coupling values may be typed immutable payloads beside scalars (KER-008 row); KER-023 scheduling rule as
+  written in ker.md; the physics party tests drift against the larger of the two thresholds until health carries
+  per-kind drift (KER-016 row).
 - Owner question for the gate (C re-review): where the transmission loss sits. The bridge reflects the rotor
   lossless, `(m + J/c^2) a = eta tau / c`; if the loss is in the nut or belt the exact rigid relation is
   `(m + eta J/c^2) a` driving and `(m + J/(eta c^2)) a` back-driven (5 percent of acceleration on the review
