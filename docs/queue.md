@@ -98,6 +98,13 @@ as data with an STM32-family placeholder, real parts drop in by file. MVP: miles
 - Signal layer accumulates controller-facing per-tick buffers (UART bytes, counter deltas) across its own steps and
   clears them at controller-tick boundaries (the root cause of the UART loss at 4 kHz physics with a 1 kHz tick).
 - Owed after the gate: recorded joint positions and drive torques series; stepper sinusoidal detent (M2).
+- Stepper above-curve torque (X review Q1): the motor loses synchronism whatever the lead; re-synchronize by at least
+  one step toward the load, count it, stall at zero commanded speed.
+- Shaft body axial inertia is the motor's rotor inertia, set by the builder (BLD-034 reworded); a design shaft body
+  declaring its own is a build error; SIG-037 refusal wired through the Python wiring.
+- PHY-034 drive mapping envelope: K_d A0 h^2 < 400 (omega h < 20), AdapterError beyond; the gantry lift sits at 2.7.
+- Reference tier (validator): BLD-010 test asserts 1e-12 against a "not set, proposed 1e-9" row; SIG-011 asserts an
+  exact count against "not set". Owner sets both rows at the gate (T4).
 - Owner question for the gate (C re-review): where the transmission loss sits. The bridge reflects the rotor
   lossless, `(m + J/c^2) a = eta tau / c`; if the loss is in the nut or belt the exact rigid relation is
   `(m + eta J/c^2) a` driving and `(m + J/(eta c^2)) a` back-driven (5 percent of acceleration on the review

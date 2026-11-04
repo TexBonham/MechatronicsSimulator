@@ -51,3 +51,4 @@ type live in the root `CLAUDE.md` dispatch table once measured.
 | 2026-11-04 | M1-X6: no-motion criterion (SCO-026), UART and counter accumulation at unequal rates (SIG-038), baselines; G1 to G4 and P1 green, run twice identical | module-writer (opus), resumed | ~45K | ~40 calls, 20 min |
 | 2026-11-04 | Invariant audit: wave 2 (ae4f7c7..1826496) | invariant-auditor (sonnet) | 26K | 8 calls, 2 min; all pass, stale matrix only |
 | 2026-11-04 | Reference validation: milestone 1 (C++ 8, Python 9, MuJoCo 26, P1) | reference-validator (sonnet) | 42K | 12 calls, 3 min; 0 failed; two T4 rows to set (BLD-010, SIG-011) |
+| 2026-11-04 | M1 review: wave 2 (X2 to X6) | general-purpose (fable) | 327K | 35 calls, 12 min; accept with fixes: 3 major (matrix, typed errors, approximation lines), 4 minor, 4 owner questions |
