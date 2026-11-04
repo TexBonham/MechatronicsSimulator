@@ -65,18 +65,30 @@ proposed <value>)".
 
 | Parameter | Current value | Owed by |
 |---|---|---|
-| New-target-during-move policy (FW-026) | not set | gantry team |
+| New-target-during-move policy (FW-026) | not set; firmware placeholder `GANTRY_NEW_TARGET_POLICY` = reject (`fault 3`), queue (one slot, second refused `fault 5`) selectable | gantry team |
 | Lift-while-moving policy (FW-027) | not set | gantry team |
-| Workspace dimensions (FW-016) | not set | gantry team |
+| Workspace dimensions (FW-016) | not set; firmware placeholder 1.0 m by 0.8 m, bounds inclusive, origin at the min switches | gantry team |
 | Rated load and overload limit (FW-018, FW-019) | not set | gantry team |
 | Encoder mismatch threshold (FW-020) | not set | gantry team |
-| Acceleration and deceleration limits (FW-022) | not set | gantry team |
-| Slow-down zones near targets and limits (FW-023) | not set | gantry team |
+| Acceleration and deceleration limits (FW-022) | not set; firmware placeholder 0.5 m/s^2, cruise 0.2 m/s, homing 0.02 m/s; per-axis trapezoid in Q16 integer steps | gantry team |
+| Slow-down zones near targets and limits (FW-023) | not set; firmware placeholder 50 mm zone at each travel end capped at 0.05 m/s, entered under the deceleration limit; every move decelerates to its target | gantry team |
 | Heartbeat period and timeout (FW-025) | not set | gantry team |
-| Encoder placement | not set | gantry team |
+| Encoder placement | not set; firmware placeholder 60000 counts/m read from channel A, 80000 steps/m | gantry team |
 | Firmware-declared tick rate (FW-010) | Checked against the design's control rate at load; a mismatch is an error | set (C6 ruling) |
 | Board interface sizes (FW-010) | Fixed contract constants: 32 digital in, 8 counters, 16 ADC, 64-byte UART, 8 axes, 32 digital out, 16 events | set (C6 ruling) |
 | STM32 part and arm-none-eabi target flags | not set | gantry team, after the peripheral smoke test |
+| Gantry operator protocol (FW-029; SIG-027) | ASCII lines, `\n` terminated (a trailing `\r` dropped), fields split by spaces. In: `target <x> <y>` in metres (optional sign, up to 6 decimals), `home`. Out: `position <x> <y>` (metres, 6 decimals, from the encoder deltas every 100 ticks in READY and MOVING and on arrival), `ready` (homing done, move arrived), `fault <code>`. Lines over 48 bytes, unknown words and bad numbers are refused with `fault 4` | set (owner ruling 2026-11-04) |
+| Gantry state, fault and event codes (FW-013 to FW-016, FW-030) | `state_code`: 1 NOT_HOMED, 2 HOMING, 3 READY, 4 MOVING, 5 FAULT. Refusals (state kept, `fault_code` for that tick): 1 not homed, 2 outside workspace, 3 busy, 4 malformed, 5 queue full, 6 in fault. Latched in FAULT until `home`: 7 homing found no switch within 1.2 m, 8 event queue overflow, 9 transmit queue overflow. Events: 1 state change (from << 8 \| to), 2 command (1 target, 2 home, 3 unknown), 3 refusal, 4 fault, 5 origin set (axis); queued beyond 16 per tick and 64 bytes of UART per tick, continued next tick | firmware (`firmware/app/gantry/gantry_config.h`) |
+| Gantry channel map | Per peripheral mode, channels numbered from 0 in pin-table order (`firmware/app/gantry/channels.h`) | firmware until the builder generates the header |
+| Direction and enable source (invariant 1) | The pin-table-bound `digital_out` channels are the single source of truth for driver direction and enable; the native shim fills the stepper `direction[]` and `enable[]` arrays from them, and firmware holds those arrays low; `step_count[]` stays the firmware's | set (review ruling 2026-11-04) |
+| Homing maximum travel (FW-014) | not set; firmware placeholder 1.2 m per axis before `fault 7` | gantry team |
+| Limit switch active level | not set; firmware placeholder high | gantry team |
+| Driver direction levels | not set; firmware placeholder high for positive travel, low for negative | gantry team |
+| Driver enable levels | not set; firmware placeholder high active, low inactive | gantry team |
+| Position status period (FW-029) | not set; firmware placeholder 100 ticks | gantry team |
+| Firmware TX queue | firmware placeholder 512 bytes, drained 64 per tick; overflow latches `fault 9` | firmware |
+| Firmware event queue | firmware placeholder 64 events, drained 16 per tick; overflow latches `fault 8` | firmware |
+| Overflow while in FAULT (FW-030) | In FAULT, further event-log and TX overflows are dropped silently behind the latched fault code (milestone 1); milestone 2 adds a counter | firmware |
 
 ## Out of scope
 

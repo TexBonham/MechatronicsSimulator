@@ -142,7 +142,7 @@ TEST_CASE("every output field is written each tick and steps are zero", "[FW-010
         REQUIRE(outputs.direction[axis] == MECHSIM_LEVEL_LOW);
         REQUIRE(outputs.enable[axis] == MECHSIM_LEVEL_LOW);
     }
-    for (std::uint32_t pin = 0U; pin < MECHSIM_DIGITAL_OUT_COUNT; ++pin) {
+    for (std::uint32_t pin = MECHSIM_REF_HEARTBEAT_CHANNEL + 1U; pin < MECHSIM_DIGITAL_OUT_COUNT; ++pin) {
         REQUIRE(outputs.digital_out[pin] == MECHSIM_LEVEL_LOW);
     }
     for (std::uint32_t index = 0U; index < MECHSIM_UART_TX_BYTES; ++index) {

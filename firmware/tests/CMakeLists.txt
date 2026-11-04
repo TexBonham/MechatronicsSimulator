@@ -17,6 +17,16 @@ endfunction()
 mechsim_fw_add_test(test_fw_reference mechsim_fw_app)
 mechsim_fw_add_test(test_fw_variant mechsim_fw_app_variant)
 
+# Gantry controller as shipped, and a variant with the queue policy and a 500 Hz tick to exercise the macros.
+mechsim_fw_add_app(mechsim_fw_gantry_variant ${MECHSIM_FW_GANTRY_SOURCES})
+target_compile_definitions(mechsim_fw_gantry_variant
+    PRIVATE GANTRY_NEW_TARGET_POLICY=1 GANTRY_TX_QUEUE_BYTES=64u
+    PUBLIC MECHSIM_APP_TICK_HZ=500u)
+mechsim_fw_add_test(test_gantry mechsim_fw_gantry)
+mechsim_fw_add_test(test_gantry_variant mechsim_fw_gantry_variant)
+target_include_directories(test_gantry PRIVATE ${MECHSIM_FW_APP_ROOT}/gantry)
+target_include_directories(test_gantry_variant PRIVATE ${MECHSIM_FW_APP_ROOT}/gantry)
+
 set(fixtures ${CMAKE_CURRENT_SOURCE_DIR}/fixtures)
 function(mechsim_fw_add_include_check name file)
     add_test(NAME "fw_include_check: ${name}"
