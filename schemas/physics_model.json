@@ -1670,8 +1670,17 @@
     },
     "SignalInterface": {
       "additionalProperties": false,
-      "description": "Names the signal layer reads from physics: shaft load torques (ENG-048) and body poses for sensors.",
+      "description": "Names the signal layer reads from physics: shaft load torques (ENG-048) and body poses for sensors; and the\nrevolute or prismatic joints it may drive (PHY-034) besides the transmission shaft joints, which are always\ndrivable.",
       "properties": {
+        "drive_joints": {
+          "default": [],
+          "items": {
+            "pattern": "^[a-z][a-z0-9_]*$",
+            "type": "string"
+          },
+          "title": "Drive Joints",
+          "type": "array"
+        },
         "load_torque_joints": {
           "default": [],
           "items": {

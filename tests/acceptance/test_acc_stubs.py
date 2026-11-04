@@ -1,68 +1,190 @@
 """Strict-xfail stubs for the ACC spec (acceptance tier)."""
 
+import itertools
+import math
+from pathlib import Path
+from typing import Any
+
+import numpy as np
 import pytest
+
+from mechsim.testing.core_driver import CoreDriver, core_services
+from mechsim.testing.runner import RunResult, Services, prepare, run_case
+from mechsim.testing.schema import ROOT
+
+PENDULUM_CASE = ROOT / "test_cases" / "pendulum" / "P1_period.yaml"
+GANTRY_CASES = ROOT / "test_cases" / "gantry"
+_VIEWS: dict[str, CoreDriver] = {}
+
+
+@pytest.fixture(scope="module")
+def gantry() -> dict[str, RunResult]:
+    """G1 to G4 once each through the real stack (gantry design, builder, MuJoCo bridge, kernel, signal layer, native
+    gantry firmware, recorder, scoring); placeholder defaults for every open parameter (DES-044)."""
+    results: dict[str, RunResult] = {}
+    services = core_services()
+    for case in ("G1", "G2", "G3", "G4"):
+        driver = CoreDriver()
+        _VIEWS[case] = driver
+        results[case] = run_case(
+            GANTRY_CASES / f"{case}.yaml", Services(lambda d=driver: d, services.builder), None, None
+        )
+        report = results[case].report
+        assert report is not None, results[case].score
+        assert not report.errored, report.error
+    return results
+
+
+def _criterion(result: RunResult, name: str) -> Any:
+    for criterion in result.score.criteria:
+        if criterion.name == name:
+            return criterion
+    raise KeyError(name)
+
+
+def _status_after(result: RunResult, start: float) -> tuple[str, str]:
+    """The first status message at or after `start`, its fields named by the design's code tables (DES-045)."""
+    build = core_services().builder(prepare(GANTRY_CASES / f"{result.score.case_id}.yaml").design)
+    firmware = build.design.firmware
+    assert firmware is not None
+    rate = _VIEWS[result.score.case_id].recording().recording.base_rate
+    for _, event in _VIEWS[result.score.case_id].recording().recording.events:
+        if event.kind == "operator_status" and float(event.time / rate) >= start:
+            fields = dict(item.split("=") for item in event.detail.removeprefix("ready / fault ").split())
+            state = firmware.state_name(int(fields["state"]))
+            fault = firmware.fault_name(int(fields["fault"]))
+            assert state is not None
+            assert fault is not None
+            return state, fault
+    raise AssertionError(f"no status message after {start} s")
+
+
+def result_series(result: RunResult, reference: str) -> Any:
+    return _VIEWS[result.score.case_id].recording().series(reference)
 
 
 @pytest.mark.req("ACC-001")
-@pytest.mark.xfail(strict=True, reason="stub")
-def test_acc_001() -> None:
+def test_acc_001(gantry: dict[str, RunResult]) -> None:
     """Reference design (gantry), G1: when target (40, 25) is sent at power on before homing, no actuator
     shall move.
+
+    Criterion (M1-X6 ruling 2, acc.md row): no step pulse on any axis for the whole run (every recorded step count
+    zero) and every axis within its power-on hold band, placeholder 1 mm owed by the gantry team: the stepper hold sags
+    and rings by micrometres, which is not motion.
     """
-    raise NotImplementedError
+    result = gantry["G1"]
+    for axis, driver in (("x", "x_driver"), ("y", "y_driver"), ("lift", "lift_driver")):
+        assert _criterion(result, f"no_step_pulses_{axis}").status == "pass"
+        assert len(result_series(result, f"signal:{driver}.step").values) > 0
+    band = _criterion(result, "hold_band")
+    print(f"G1 hold band: measured {band.measured} m (placeholder band 1 mm)")
+    assert band.status == "pass"
+    assert band.measured < 0.001
 
 
 @pytest.mark.req("ACC-002")
-@pytest.mark.xfail(strict=True, reason="stub")
-def test_acc_002() -> None:
-    """Reference design (gantry), G1: the refusal shall be reported with status "not homed"."""
-    raise NotImplementedError
+def test_acc_002(gantry: dict[str, RunResult]) -> None:
+    """Reference design (gantry), G1: the refusal shall be reported with status "not homed".
+
+    Tolerance not set (owed by gantry team, ACC-002 row): the behavior is asserted. The status message after the
+    target carries state not_homed and fault not_homed by the design's code tables (DES-045).
+    """
+    assert _criterion(gantry["G1"], "refusal_reported").status == "pass"
+    assert _status_after(gantry["G1"], 0.0) == ("not_homed", "not_homed")
 
 
 @pytest.mark.req("ACC-003")
-@pytest.mark.xfail(strict=True, reason="stub")
-def test_acc_003() -> None:
+def test_acc_003(gantry: dict[str, RunResult]) -> None:
     """Reference design (gantry), G2: after homing, each axis's origin shall lie within the tolerance of
     its true origin.
+
+    Tolerance 1 cm (ACC-003 row). The true origin is the min switch at 0 m on each axis joint (DES-043); the homed axis
+    stops on its switch, so the joint coordinate when homing has finished is the origin error.
     """
-    raise NotImplementedError
+    result = gantry["G2"]
+    for name in ("origin_x", "origin_y"):
+        criterion = _criterion(result, name)
+        print(f"G2 {name}: target 0 m, measured {criterion.measured} m ({criterion.limit})")
+        assert criterion.status == "pass", criterion
 
 
 @pytest.mark.req("ACC-004")
-@pytest.mark.xfail(strict=True, reason="stub")
-def test_acc_004() -> None:
-    """Reference design (gantry), G2: after homing, the status shall be "ready"."""
-    raise NotImplementedError
+def test_acc_004(gantry: dict[str, RunResult]) -> None:
+    """Reference design (gantry), G2: after homing, the status shall be "ready".
+
+    Tolerance not set (owed by gantry team, ACC-004 row): the behavior is asserted. The controller enters ready and
+    its status message reports state ready with fault none (DES-045).
+    """
+    assert _criterion(gantry["G2"], "ready").status == "pass"
+    assert _criterion(gantry["G2"], "status_reported").status == "pass"
+    assert _status_after(gantry["G2"], 0.0) == ("ready", "none")
+    assert gantry["G2"].score.status == "pass"
 
 
 @pytest.mark.req("ACC-005")
-@pytest.mark.xfail(strict=True, reason="stub")
-def test_acc_005() -> None:
+def test_acc_005(gantry: dict[str, RunResult]) -> None:
     """Reference design (gantry), G3: after target (40, 25) is sent following homing, the hook's final
     position shall lie within the tolerance of the target.
+
+    Tolerance 1 cm (ACC-005 row), in the homed origin frame (G3.yaml); the hook's displacement from its reference pose
+    is that frame because homing puts the origin at each joint's zero.
     """
-    raise NotImplementedError
+    result = gantry["G3"]
+    for name, target in (("final_x", 0.40), ("final_y", 0.25)):
+        criterion = _criterion(result, name)
+        print(f"G3 {name}: target {target} m, measured {criterion.measured} m ({criterion.limit})")
+        assert criterion.status == "pass", criterion
 
 
 @pytest.mark.req("ACC-006")
-@pytest.mark.xfail(strict=True, reason="stub")
-def test_acc_006() -> None:
-    """Reference design (gantry), G3: no travel limit shall be exceeded during the move."""
-    raise NotImplementedError
+def test_acc_006(gantry: dict[str, RunResult]) -> None:
+    """Reference design (gantry), G3: no travel limit shall be exceeded during the move.
+
+    Tolerance not set (owed by gantry team, ACC-006 row): the behavior is asserted, every joint inside its design
+    limits, ends included, from the target on.
+    """
+    result = gantry["G3"]
+    for criterion in result.score.criteria:
+        if criterion.name.endswith(("_upper", "_lower")):
+            print(f"G3 {criterion.name}: measured {criterion.measured} m ({criterion.limit})")
+            assert criterion.status == "pass", criterion
+    assert result.score.status == "pass"
 
 
 @pytest.mark.req("ACC-007")
-@pytest.mark.xfail(strict=True, reason="stub")
-def test_acc_007() -> None:
-    """Reference design (gantry), G4: for a target outside the workspace, no actuator shall move."""
-    raise NotImplementedError
+def test_acc_007(gantry: dict[str, RunResult]) -> None:
+    """Reference design (gantry), G4: for a target outside the workspace, no actuator shall move.
+
+    Criterion as ACC-001 from the target on (after homing): no step pulse on any axis and every axis within the
+    placeholder 1 mm hold band of its position when the target arrives.
+    """
+    result = gantry["G4"]
+    for axis, driver in (("x", "x_driver"), ("y", "y_driver"), ("lift", "lift_driver")):
+        assert _criterion(result, f"no_step_pulses_{axis}").status == "pass"
+        assert len(result_series(result, f"signal:{driver}.step").values) > 0
+    band = _criterion(result, "hold_band")
+    print(f"G4 hold band: measured {band.measured} m (placeholder band 1 mm)")
+    assert band.status == "pass"
+    assert band.measured < 0.001
 
 
 @pytest.mark.req("ACC-008")
-@pytest.mark.xfail(strict=True, reason="stub")
-def test_acc_008() -> None:
-    """Reference design (gantry), G4: the target shall be rejected with a reported fault, not clipped."""
-    raise NotImplementedError
+def test_acc_008(gantry: dict[str, RunResult]) -> None:
+    """Reference design (gantry), G4: the target shall be rejected with a reported fault, not clipped.
+
+    Tolerance not set (owed by gantry team, ACC-008 row): the behavior is asserted. Rejected: the status message after
+    the target reports fault outside_workspace (DES-045); not clipped: the carriage never moves toward the workspace
+    edge, its x joint stays within 1 cm (the position accuracy) of the homed origin from the target on.
+    """
+    result = gantry["G4"]
+    assert _criterion(result, "rejection_reported").status == "pass"
+    commands = prepare(GANTRY_CASES / "G4.yaml").case.commands
+    homing = float(next(command.at for command in commands if command.message == "target"))  # type: ignore[arg-type]
+    assert _status_after(result, homing) == ("ready", "outside_workspace")
+    series = result_series(result, "joint:x_axis.position")
+    after = [value for time, value in zip(series.times, series.values, strict=True) if time >= homing]
+    print(f"G4 x after the target: max {max(after)} m, min {min(after)} m")
+    assert max(abs(value) for value in after) < 0.01
 
 
 @pytest.mark.req("ACC-009")
@@ -264,22 +386,55 @@ def test_acc_032() -> None:
 
 
 @pytest.mark.req("ACC-033")
-@pytest.mark.xfail(strict=True, reason="stub")
-def test_acc_033() -> None:
-    """Pendulum design, rigid link: the small-amplitude swing period shall match the small-angle formula
-    for the link, 2 pi sqrt(I / (m g d)) (2 pi sqrt(L / g) for a point mass), within the period
-    tolerance.
+def test_acc_033(tmp_path: Path) -> None:
+    """Pendulum design, rigid link: the small-amplitude swing period shall match the damped small-angle period
+    for the link, T0 / sqrt(1 - zeta^2) with T0 = 2 pi sqrt(I / (m g d)), within the period tolerance.
+
+    Closed form (P1_period.yaml): I = m L^2 / 3 = 1/12 kg m^2, m = 1 kg, g = 9.81 m/s^2, d = 0.25 m give
+    T0 = 1.1582031 s; zeta = 0.05 gives T_d = 1.1596536 s. Tolerance 0.1 percent (ACC-033 row, PHY-028), scored by
+    the case's own criterion through the real stack: YAML case, builder, MuJoCo bridge, kernel, recorder, scoring.
     """
-    raise NotImplementedError
+    result = run_case(PENDULUM_CASE, core_services(), None, tmp_path)
+    assert result.report is not None
+    assert not result.report.errored, result.report.error
+    period = result.score.criteria[0]
+    print(f"P1 period: closed form 1.1596536 s, measured {period.measured} s ({period.limit})")
+    assert period.name == "period"
+    assert period.status == "pass"
+    assert result.score.status == "pass"
+    assert result.archive is not None
+    assert result.archive.is_file()
 
 
 @pytest.mark.req("ACC-034")
-@pytest.mark.xfail(strict=True, reason="stub")
-def test_acc_034() -> None:
+def test_acc_034(tmp_path: Path) -> None:
     """Pendulum design, rigid link: the swing amplitude decay shall match the closed-form decay for the
     link's stated joint damping within the decay tolerance.
+
+    The decay tolerance is not set (owed by the owner, ACC-034 row), so the numeric match is printed and not asserted;
+    the behavior is asserted: released from 0.05 rad at rest the swing starts at the release angle and every positive
+    peak is lower than the one before. Closed form of the envelope: theta0 exp(-zeta omega0 t), zeta = 0.05,
+    omega0 = 2 pi / T0 = 5.42494 rad/s, so peak n of the damped swing sits near theta0 exp(-zeta omega0 n T_d).
     """
-    raise NotImplementedError
+    driver = CoreDriver()
+    services = core_services()
+    result = run_case(PENDULUM_CASE, Services(lambda: driver, services.builder), None, None)
+    assert result.report is not None
+    assert not result.report.errored
+    series = driver.recording().series("joint:pivot.position")
+    values = np.asarray(series.values)
+    times = np.asarray(series.times)
+    assert abs(values[0] - 0.05) < 0.05 * 0.01
+    inner = values[1:-1]
+    peaks = np.nonzero((inner > values[:-2]) & (inner >= values[2:]) & (inner > 0.0))[0] + 1
+    assert len(peaks) >= 10
+    zeta, period0, period_d, theta0 = 0.05, 1.1582031, 1.1596536, 0.05
+    omega0 = 2.0 * math.pi / period0
+    for index in peaks[:3]:
+        closed = theta0 * math.exp(-zeta * omega0 * times[index])
+        print(f"peak at {times[index]:.4f} s: closed-form envelope {closed:.6e} rad, measured {values[index]:.6e} rad")
+    print(f"decay per period: closed form {math.exp(-zeta * omega0 * period_d):.6f}")
+    assert all(values[later] < values[earlier] for earlier, later in itertools.pairwise(peaks))
 
 
 @pytest.mark.req("ACC-035")

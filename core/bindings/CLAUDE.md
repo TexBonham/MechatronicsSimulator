@@ -52,9 +52,7 @@ cause reads `"ValueError: boom"`; a Python `PartyFault` or `AdapterError` keeps 
   `mechsim.physics.native._engine`; `tools/check_imports.py` allows those imports only under `mechsim/physics/native/`
   and `tests/`, and `mechsim._core.engine` raises. Neutral types and exception classes stay top-level.
 - Views (`string_view`, `span`) returned to C++ are copied out of Python into trampoline members.
-- Arguments to Python overrides and subscriber callbacks are copies (REC-020), except `read_inputs`,
-  `write_outputs` and `record`, which hand a view (`CouplingReader`, `CouplingWriter`, `TickRecord`) valid only
-  during the call: a party that stores it dangles.
+- Arguments to Python overrides and subscriber callbacks are copies (REC-020): Python never holds kernel memory.
 - `Kernel.run` releases the GIL; every trampoline and callback takes it per call. No threads (invariant 4).
 - Party hooks `role`, `set_seed`, `read_inputs`, `write_outputs`, `finished`, `record` and SignalComponent `start`,
   `begin_tick` are optional in Python subclasses; the trampoline takes the GIL before casting their arguments.

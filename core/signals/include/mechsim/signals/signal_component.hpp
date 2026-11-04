@@ -74,6 +74,8 @@ public:
     // nothing: start() once before t = 0, begin_tick(t) at the start of every layer step before sample().
     virtual void start(const ComponentClock& /*clock*/) {}
     virtual void begin_tick(kernel::SimTime /*t*/) {}
+    // Joint drives this component asks physics to apply in the next step, read after latch_outputs() (KER-027).
+    [[nodiscard]] virtual std::span<const kernel::JointDrive> joint_drives() const { return {}; }
 };
 
 // The Python tier's surface: the binding derives its trampoline from this, so a slow-path component is a

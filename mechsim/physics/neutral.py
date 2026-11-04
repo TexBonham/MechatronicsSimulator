@@ -563,10 +563,13 @@ DRIVEN_JOINT_TYPES: dict[str, str] = {"belt_pulley": "prismatic", "lead_screw": 
 
 
 class SignalInterface(_Model):
-    """Names the signal layer reads from physics: shaft load torques (ENG-048) and body poses for sensors."""
+    """Names the signal layer reads from physics: shaft load torques (ENG-048) and body poses for sensors; and the
+    revolute or prismatic joints it may drive (PHY-034) besides the transmission shaft joints, which are always
+    drivable."""
 
     load_torque_joints: tuple[Name, ...] = ()
     pose_bodies: tuple[Name, ...] = ()
+    drive_joints: tuple[Name, ...] = ()
 
 
 class Support(_Model):
@@ -678,6 +681,11 @@ class PhysicsModel(_Model):
         for name in self.signals.pose_bodies:
             if name not in bodies or name == WORLD:
                 problems.append(f"signals: unknown pose body '{name}'")
+        for name in _duplicates(self.signals.drive_joints):
+            problems.append(f"signals: drive joint '{name}' listed twice")
+        for name in self.signals.drive_joints:
+            if name not in joints:
+                problems.append(f"signals: unknown drive joint '{name}'")
         if problems:
             raise ValueError("; ".join(problems))
         return self

@@ -166,13 +166,11 @@ CouplingValue coupling_from_python(const py::handle& value) {
     if (py::isinstance<py::dict>(value)) {
         return make_payload(value.cast<signals::ExternalInputs>(), signals::external_inputs_kind);
     }
-    if (py::isinstance<py::list>(value)) {
-        if (py::len(value) == 0 || py::isinstance<pins::PowerRail>(value[py::int_(0)])) {
-            return make_payload(value.cast<std::vector<pins::PowerRail>>(), pins::power_rails_kind);
-        }
+    if (py::isinstance<py::list>(value) && py::len(value) > 0 && py::isinstance<pins::PowerRail>(value[py::int_(0)])) {
+        return make_payload(value.cast<std::vector<pins::PowerRail>>(), pins::power_rails_kind);
     }
     throw py::type_error("a coupling value is a bool, int, float, PhysicsOutputs, PhysicsInputs, PinInputs, "
-                         "PinOutputs, OperatorCommands, dict[str, float] or a list of PowerRail (empty allowed)");
+                         "PinOutputs, OperatorCommands, dict[str, float] or a non-empty list of PowerRail");
 }
 
 std::unique_ptr<signals::SignalComponent> make_signal_component(const std::string& type, const std::string& instance,
@@ -208,11 +206,16 @@ std::unique_ptr<signals::SignalComponent> make_signal_component(const std::strin
         return std::make_unique<signals::StepDirDriver>(instance, p);
     }
     if (type == "stepper_behavioral") {
-        check_known(type, params, {"step_angle", "rotor_inertia", "torque_speed", "transmission",
-                                   "shaft_axial_inertia", "shaft_body"});
+        check_known(type, params, {"step_angle", "rotor_inertia", "holding_torque", "damping", "joint",
+                                   "torque_speed", "transmission", "shaft_axial_inertia", "shaft_body"});
         signals::BehavioralStepperParams p;
         p.step_angle = number(params, "step_angle", p.step_angle);
         p.rotor_inertia = number(params, "rotor_inertia", p.rotor_inertia);
+        p.holding_torque = number(params, "holding_torque", p.holding_torque);
+        p.damping = number(params, "damping", p.damping);
+        if (params.contains("joint")) {
+            p.joint = params["joint"].cast<std::size_t>();
+        }
         if (params.contains("torque_speed")) {
             for (const auto& point : params["torque_speed"].cast<std::vector<std::pair<double, double>>>()) {
                 p.torque_speed.push_back(signals::TorqueSpeedPoint{point.first, point.second});
@@ -428,10 +431,11 @@ void bind_cosim(py::module_& m) {
         .def_readwrite("gates", &signals::RailSpec::gates)
         .def_readwrite("consumers", &signals::RailSpec::consumers);
     py::class_<signals::ActuatorOutput>(m, "ActuatorOutput")
-        .def(py::init([](std::string signal, std::size_t dof, std::string unit) {
-                 return signals::ActuatorOutput{std::move(signal), dof, std::move(unit)};
+        .def(py::init([](std::string signal, std::size_t dof, std::string unit, bool applied) {
+                 return signals::ActuatorOutput{std::move(signal), dof, std::move(unit), applied};
              }),
-             py::arg("signal"), py::arg("dof"), py::arg("unit") = "N*m")
+             py::arg("signal"), py::arg("dof"), py::arg("unit") = "N*m", py::arg("applied") = true)
+        .def_readwrite("applied", &signals::ActuatorOutput::applied)
         .def_readwrite("signal", &signals::ActuatorOutput::signal)
         .def_readwrite("dof", &signals::ActuatorOutput::dof)
         .def_readwrite("unit", &signals::ActuatorOutput::unit);
@@ -441,6 +445,7 @@ void bind_cosim(py::module_& m) {
         .def_readwrite("physics_outputs", &signals::SignalLayerConfig::physics_outputs)
         .def_readwrite("pin_outputs", &signals::SignalLayerConfig::pin_outputs)
         .def_readwrite("rate", &signals::SignalLayerConfig::rate)
+        .def_readwrite("controller_rate", &signals::SignalLayerConfig::controller_rate)
         .def_readwrite("seed", &signals::SignalLayerConfig::seed)
         .def_readwrite("bindings", &signals::SignalLayerConfig::bindings)
         .def_readwrite("slots", &signals::SignalLayerConfig::slots)

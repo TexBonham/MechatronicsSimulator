@@ -15,6 +15,9 @@ dependencies = [
     "jsonschema",
 ]
 
+[project.scripts]
+mechsim = "mechsim.cli:main_exit"
+
 [dependency-groups]
 dev = [
     "pytest",

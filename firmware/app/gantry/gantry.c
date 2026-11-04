@@ -228,7 +228,7 @@ static int64_t encoder_um(const gantry_axis *axis)
 static void send_position(void)
 {
     uint8_t line[48];
-    uint32_t length = append_text(line, 0u, "position ");
+    uint32_t length = append_text(line, 0u, "current_position ");
     length = append_metres(line, length, encoder_um(&g_app.axis[GANTRY_AXIS_X]));
     line[length] = (uint8_t)' ';
     length = append_metres(line, length + 1u, encoder_um(&g_app.axis[GANTRY_AXIS_Y]));
@@ -236,18 +236,14 @@ static void send_position(void)
     send_bytes(line, length + 1u);
 }
 
-static void send_ready(void)
+/* The design's "ready / fault" message, named status: the state code and the fault code of this report. */
+static void send_status(uint8_t fault)
 {
-    uint8_t line[8];
-    uint32_t length = append_text(line, 0u, "ready\n");
-    send_bytes(line, length);
-}
-
-static void send_fault(uint8_t code)
-{
-    uint8_t line[16];
-    uint32_t length = append_text(line, 0u, "fault ");
-    length = append_unsigned(line, length, code, 1u);
+    uint8_t line[20];
+    uint32_t length = append_text(line, 0u, "status ");
+    length = append_unsigned(line, length, (uint32_t)g_app.state, 1u);
+    line[length] = (uint8_t)' ';
+    length = append_unsigned(line, length + 1u, (uint32_t)fault, 1u);
     line[length] = (uint8_t)'\n';
     send_bytes(line, length + 1u);
 }
@@ -291,7 +287,7 @@ static void enter_fault(uint8_t code)
     g_app.has_queued_target = 0u;
     set_state(GANTRY_STATE_FAULT);
     log_event(GANTRY_EVENT_FAULT, code);
-    send_fault(code);
+    send_status(code);
     g_app.entering_fault = 0u;
 }
 
@@ -299,7 +295,7 @@ static void refuse(uint8_t code)
 {
     g_app.tick_fault = code;
     log_event(GANTRY_EVENT_REFUSED, code);
-    send_fault(code);
+    send_status(code);
 }
 
 static void start_move(const int32_t target_steps[GANTRY_AXIS_COUNT])
@@ -614,7 +610,7 @@ static void run_moving(void)
     stop_axes();
     set_state(GANTRY_STATE_READY);
     send_position();
-    send_ready();
+    send_status(GANTRY_FAULT_NONE);
 }
 
 static void start_queued_target(void)
@@ -627,7 +623,7 @@ static void start_queued_target(void)
 
 static void run_homing(const mechsim_board_inputs *inputs)
 {
-    static const uint32_t switch_channel[GANTRY_AXIS_COUNT] = {GANTRY_CH_X_MIN, GANTRY_CH_Y_MIN};
+    static const uint32_t switch_channel[GANTRY_AXIS_COUNT] = {MECHSIM_CH_X_MIN_SWITCH_OUT, MECHSIM_CH_Y_MIN_SWITCH_OUT};
     const gantry_limits *limits = &g_app.limits;
     uint8_t all_homed = 1u;
     uint32_t index;
@@ -654,16 +650,19 @@ static void run_homing(const mechsim_board_inputs *inputs)
     }
     if (all_homed == 1u) {
         set_state(GANTRY_STATE_READY);
-        send_ready();
+        send_status(GANTRY_FAULT_NONE);
     }
 }
 
 static void accumulate_encoders(const mechsim_board_inputs *inputs)
 {
-    static const uint32_t counter_channel[GANTRY_AXIS_COUNT] = {GANTRY_CH_X_ENC_A, GANTRY_CH_Y_ENC_A};
+    /* Quadrature: the A and B edge counts together are the encoder's full count (four per line). */
+    static const uint32_t channel_a[GANTRY_AXIS_COUNT] = {MECHSIM_CH_X_ENCODER_CHANNEL_A, MECHSIM_CH_Y_ENCODER_CHANNEL_A};
+    static const uint32_t channel_b[GANTRY_AXIS_COUNT] = {MECHSIM_CH_X_ENCODER_CHANNEL_B, MECHSIM_CH_Y_ENCODER_CHANNEL_B};
     uint32_t index;
     for (index = 0u; index < GANTRY_AXIS_COUNT; index = index + 1u) {
-        int64_t sum = (int64_t)g_app.axis[index].encoder_counts + (int64_t)inputs->counter_delta[counter_channel[index]];
+        int64_t sum = (int64_t)g_app.axis[index].encoder_counts + (int64_t)inputs->counter_delta[channel_a[index]] +
+                      (int64_t)inputs->counter_delta[channel_b[index]];
         if (sum > (int64_t)INT32_MAX) {
             sum = (int64_t)INT32_MAX;
         }
@@ -697,7 +696,8 @@ static void clear_outputs(mechsim_board_outputs *outputs)
     }
     outputs->uart_tx_count = 0u;
     outputs->event_count = 0u;
-    outputs->digital_out[GANTRY_CH_LIFT_ENABLE] = GANTRY_ENABLE_INACTIVE_LEVEL;
+    /* Milestone 1 never moves the lift: its driver stays enabled with no steps, so the motor holds the lift. */
+    outputs->digital_out[MECHSIM_CH_LIFT_DRIVER_ENABLE] = GANTRY_ENABLE_ACTIVE_LEVEL;
 }
 
 static void write_axis(mechsim_board_outputs *outputs, uint32_t index, uint32_t step_ch, uint32_t dir_ch, uint32_t en_ch)
@@ -779,8 +779,8 @@ void mechsim_app_tick(const mechsim_board_inputs *inputs, mechsim_board_outputs 
             send_position();
         }
     }
-    write_axis(outputs, GANTRY_AXIS_X, GANTRY_CH_X_STEP, GANTRY_CH_X_DIR, GANTRY_CH_X_ENABLE);
-    write_axis(outputs, GANTRY_AXIS_Y, GANTRY_CH_Y_STEP, GANTRY_CH_Y_DIR, GANTRY_CH_Y_ENABLE);
+    write_axis(outputs, GANTRY_AXIS_X, MECHSIM_CH_X_DRIVER_STEP, MECHSIM_CH_X_DRIVER_DIR, MECHSIM_CH_X_DRIVER_ENABLE);
+    write_axis(outputs, GANTRY_AXIS_Y, MECHSIM_CH_Y_DRIVER_STEP, MECHSIM_CH_Y_DRIVER_DIR, MECHSIM_CH_Y_DRIVER_ENABLE);
     drain_queues(outputs);
     if (g_app.state == GANTRY_STATE_FAULT) {
         g_app.heartbeat = MECHSIM_LEVEL_LOW;
@@ -793,7 +793,7 @@ void mechsim_app_tick(const mechsim_board_inputs *inputs, mechsim_board_outputs 
         }
         outputs->fault_code = g_app.tick_fault;
     }
-    outputs->digital_out[GANTRY_CH_HEARTBEAT] = g_app.heartbeat;
+    outputs->digital_out[MECHSIM_CH_WATCHDOG_HEARTBEAT] = g_app.heartbeat;
     outputs->state_code = g_app.state;
 }
 

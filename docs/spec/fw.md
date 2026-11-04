@@ -60,6 +60,7 @@ proposed <value>)".
 | FW-028 | Reference design (gantry): rapid-fire and conflicting commands shall never produce overlapping actuator commands. | Requirements doc, Test cases (G14) | M2 | acceptance | n/a |
 | FW-029 | Reference design (gantry): the firmware shall accept the operator messages "target (x, y)" and "home" and report "current position, ready / fault". | Requirements doc, Controller requirements (gantry messages); ADR 0012, D2 | M1 | acceptance | n/a |
 | FW-030 | Reference design (gantry): the firmware shall log every state change, command and fault through the runtime's fault log. | Requirements doc, Controller requirements (logging) | M1 | acceptance | n/a |
+| FW-031 | Reference design (gantry): the committed `firmware/app/gantry/channels.h` shall be the builder's generated channel header for the gantry design (`MECHSIM_CH_<SIGNAL>`), byte for byte, and the firmware shall name channels only through it. | M1-X3 coordinator ruling 4 (2026-11-04), for owner confirmation | M1 | unit | n/a |
 
 ## Open parameters
 
@@ -73,13 +74,14 @@ proposed <value>)".
 | Acceleration and deceleration limits (FW-022) | not set; firmware placeholder 0.5 m/s^2, cruise 0.2 m/s, homing 0.02 m/s; per-axis trapezoid in Q16 integer steps | gantry team |
 | Slow-down zones near targets and limits (FW-023) | not set; firmware placeholder 50 mm zone at each travel end capped at 0.05 m/s, entered under the deceleration limit; every move decelerates to its target | gantry team |
 | Heartbeat period and timeout (FW-025) | not set | gantry team |
-| Encoder placement | not set; firmware placeholder 60000 counts/m read from channel A, 80000 steps/m | gantry team |
+| Encoder placement | not set; firmware placeholder 60000 counts/m, the sum of the channel A and B edge counts (quadrature), 80000 steps/m | gantry team |
 | Firmware-declared tick rate (FW-010) | Checked against the design's control rate at load; a mismatch is an error | set (C6 ruling) |
 | Board interface sizes (FW-010) | Fixed contract constants: 32 digital in, 8 counters, 16 ADC, 64-byte UART, 8 axes, 32 digital out, 16 events | set (C6 ruling) |
 | STM32 part and arm-none-eabi target flags | not set | gantry team, after the peripheral smoke test |
-| Gantry operator protocol (FW-029; SIG-027) | ASCII lines, `\n` terminated (a trailing `\r` dropped), fields split by spaces. In: `target <x> <y>` in metres (optional sign, up to 6 decimals), `home`. Out: `position <x> <y>` (metres, 6 decimals, from the encoder deltas every 100 ticks in READY and MOVING and on arrival), `ready` (homing done, move arrived), `fault <code>`. Lines over 48 bytes, unknown words and bad numbers are refused with `fault 4` | set (owner ruling 2026-11-04) |
+| Gantry operator protocol (FW-029; SIG-027) | ASCII lines, `\n` terminated (a trailing `\r` dropped), fields split by spaces. In: `target <x> <y>` in metres (optional sign, up to 6 decimals), `home`. Out: `current_position <x> <y>` (metres, 6 decimals, from the encoder deltas every 100 ticks in READY and MOVING and on arrival), `status <state> <fault>` (the design's "ready / fault" message, DES-045 code tables: on homing done and move arrived with fault 0, on every refusal with that tick's fault code and the state kept, on a latched fault with state 5). Lines over 48 bytes, unknown words and bad numbers are refused with `fault 4` | set (owner ruling 2026-11-04) |
 | Gantry state, fault and event codes (FW-013 to FW-016, FW-030) | `state_code`: 1 NOT_HOMED, 2 HOMING, 3 READY, 4 MOVING, 5 FAULT. Refusals (state kept, `fault_code` for that tick): 1 not homed, 2 outside workspace, 3 busy, 4 malformed, 5 queue full, 6 in fault. Latched in FAULT until `home`: 7 homing found no switch within 1.2 m, 8 event queue overflow, 9 transmit queue overflow. Events: 1 state change (from << 8 \| to), 2 command (1 target, 2 home, 3 unknown), 3 refusal, 4 fault, 5 origin set (axis); queued beyond 16 per tick and 64 bytes of UART per tick, continued next tick | firmware (`firmware/app/gantry/gantry_config.h`) |
-| Gantry channel map | Per peripheral mode, channels numbered from 0 in pin-table order (`firmware/app/gantry/channels.h`) | firmware until the builder generates the header |
+| Gantry channel map | The builder's generated header (`MECHSIM_CH_<SIGNAL>`, per peripheral mode numbered from 0 in pin-table order), committed as `firmware/app/gantry/channels.h` (FW-031) | set (M1-X3 ruling 4) |
+| Lift in milestone 1 | The firmware never moves the lift; it holds the lift driver enabled with no steps from the first tick | gantry team (lift commands, M2) |
 | Direction and enable source (invariant 1) | The pin-table-bound `digital_out` channels are the single source of truth for driver direction and enable; the native shim fills the stepper `direction[]` and `enable[]` arrays from them, and firmware holds those arrays low; `step_count[]` stays the firmware's | set (review ruling 2026-11-04) |
 | Homing maximum travel (FW-014) | not set; firmware placeholder 1.2 m per axis before `fault 7` | gantry team |
 | Limit switch active level | not set; firmware placeholder high | gantry team |

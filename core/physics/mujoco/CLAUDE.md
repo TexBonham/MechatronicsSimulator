@@ -24,7 +24,9 @@ only here (CI grep, `tests/invariant/test_phy_stubs.py`); the public header name
 | contacts | `mj_contactForce` in world, on body_a (geom1); world and member bodies are `kernel::kWorldBody` |
 | members | start: `cfrc_int` of the first segment moved to the root point; end: roller connect force on the tip, else zero |
 | ropes | empty (milestone 3) |
-| transmissions | per shaft, neutral order: `shaft_load_torque` (PHY-033, the joint's value), `force` = gain tau_load / c (gain eta driving, 1 / eta back-driven; the load's share, not the force applied this step, which is gain tau / c: they differ by (1 - eta) J a / c^2 under acceleration, see the open owner question on where the loss sits), `stretch` 0 (rigid), `power_flow` Static (tau qd = 0), Forward, Backward; `slip` 0 |
+| joint_positions | per neutral joint: revolute/prismatic q - qpos0; reflected shaft (q_driven - qpos0) / c; others 0 (PHY-034) |
+| joint_drive_torques | one per input drive, in order: the drive equality's `efc_force` (times c on a shaft), 0 when disabled |
+| transmissions | per shaft, neutral order: `shaft_load_torque` (PHY-033, the joint's value, explicit torque plus drive torque), `force` = gain tau_load / c (gain eta driving, 1 / eta back-driven), `stretch` 0 (rigid), `power_flow` Static (tau qd = 0), Forward, Backward; `slip` 0 |
 
 ## Transmissions (reflection, PHY-018, PHY-033)
 
@@ -34,6 +36,14 @@ F = eta tau / c when driving (tau qd_driven c >= 0, standing still included), F 
 Outputs: the shaft body's pose and velocity turn q_driven / c, qd_driven / c about its axis on its parent; the shaft
 joint's `generalized_force` is the load torque tau_load = tau - J (qd_driven' - qd_driven) / (h c). Body wrenches,
 springs and payload changes on a shaft body throw `AdapterError`.
+
+## Joint drives (PHY-034)
+
+Every shaft joint and every `signals.drive_joints` entry has an inactive one-joint equality `<joint>.drive` (listed
+in `mechsim:drives`) on the DOF it moves. `apply_drives` each step: all off, then per enabled drive K_d = K / c^2,
+D_d = D / c^2, `eq_data[0]` = rest c, d = clamp(1 - 1 / (K_d A0 h^2), 1e-4, 0.99) (A0 = `dof_invweight0`),
+solref = (-(1 - d) K_d A0, -(1 - d) D_d A0), solimp (d, d, 0.001, 0.5, 2); s0 h^2 + 2 s1 h >= 4 throws. Exact static
+sag and steady lag; above K_d A0 h^2 = 1 an apparent inertia m / (1 - d). Derivation above `apply_drives`.
 
 ## Index spaces (neutral file order)
 
@@ -48,13 +58,13 @@ rescales inertia and reruns `mj_setConst` on scratch data. `release_load` (no ro
 |---|---|
 | Supported elements | 35 |
 | Helpers | 61 |
-| Engine | 246 |
-| Element maps | 279 |
-| Shafts | 383 |
-| Outputs | 427 |
-| Inputs | 589 |
-| Adapter | 636 |
-| Mid-run changes | 762 |
+| Engine | 267 |
+| Element maps | 307 |
+| Shafts | 446 |
+| Outputs | 492 |
+| Inputs | 690 |
+| Adapter | 804 |
+| Mid-run changes | 949 |
 
 ## Build notes
 

@@ -19,12 +19,12 @@ constexpr std::int64_t slow_zone_steps = 4000;
 
 std::uint32_t steps_x(const mechsim_board_outputs& out)
 {
-    return out.step_count[GANTRY_CH_X_STEP];
+    return out.step_count[MECHSIM_CH_X_DRIVER_STEP];
 }
 
 std::uint32_t steps_y(const mechsim_board_outputs& out)
 {
-    return out.step_count[GANTRY_CH_Y_STEP];
+    return out.step_count[MECHSIM_CH_Y_DRIVER_STEP];
 }
 
 bool is_state(const mechsim_board_outputs& out, std::uint8_t state)
@@ -51,7 +51,7 @@ MoveTrace run_move(Plant& plant, const std::string& command)
         trace.x.push_back(steps_x(out));
         trace.y.push_back(steps_y(out));
         trace.x_position.push_back(plant.position[0]);
-        REQUIRE(out.digital_out[GANTRY_CH_X_ENABLE] == GANTRY_ENABLE_ACTIVE_LEVEL);
+        REQUIRE(out.digital_out[MECHSIM_CH_X_DRIVER_ENABLE] == GANTRY_ENABLE_ACTIVE_LEVEL);
     }
     REQUIRE(out.state_code == GANTRY_STATE_READY);
     plant.tick();
@@ -92,7 +92,7 @@ TEST_CASE("G1: every target before homing is refused with no motion", "[FW-013][
         out = plant.tick(command);
         REQUIRE(out.state_code == GANTRY_STATE_NOT_HOMED);
         REQUIRE(out.fault_code == GANTRY_FAULT_NOT_HOMED);
-        REQUIRE(plant.take_lines() == std::vector<std::string>{"fault 1"});
+        REQUIRE(plant.take_lines() == std::vector<std::string>{"status 1 1"});
         const std::vector<Event> events = plant.take_events();
         REQUIRE(events.size() == 2U);
         REQUIRE(events[0].code == GANTRY_EVENT_COMMAND);
@@ -104,8 +104,8 @@ TEST_CASE("G1: every target before homing is refused with no motion", "[FW-013][
         out = plant.tick();
         REQUIRE(steps_x(out) == 0U);
         REQUIRE(steps_y(out) == 0U);
-        REQUIRE(out.digital_out[GANTRY_CH_X_ENABLE] == GANTRY_ENABLE_INACTIVE_LEVEL);
-        REQUIRE(out.digital_out[GANTRY_CH_Y_ENABLE] == GANTRY_ENABLE_INACTIVE_LEVEL);
+        REQUIRE(out.digital_out[MECHSIM_CH_X_DRIVER_ENABLE] == GANTRY_ENABLE_INACTIVE_LEVEL);
+        REQUIRE(out.digital_out[MECHSIM_CH_Y_DRIVER_ENABLE] == GANTRY_ENABLE_INACTIVE_LEVEL);
         REQUIRE(out.state_code == GANTRY_STATE_NOT_HOMED);
         REQUIRE(out.fault_code == GANTRY_FAULT_NONE);
     }
@@ -124,7 +124,7 @@ TEST_CASE("G1: a reset returns to NOT_HOMED and refuses targets again", "[FW-013
     REQUIRE(out.state_code == GANTRY_STATE_NOT_HOMED);
     REQUIRE(out.fault_code == GANTRY_FAULT_NOT_HOMED);
     REQUIRE(steps_x(out) == 0U);
-    REQUIRE(out.digital_out[GANTRY_CH_X_ENABLE] == GANTRY_ENABLE_INACTIVE_LEVEL);
+    REQUIRE(out.digital_out[MECHSIM_CH_X_DRIVER_ENABLE] == GANTRY_ENABLE_INACTIVE_LEVEL);
 }
 
 // ===== G2 homing =====================================================================================================
@@ -135,9 +135,9 @@ TEST_CASE("G2: homing drives each axis to its min switch, sets the origin and re
     Plant plant(1600, 800);
     mechsim_board_outputs out = plant.tick("home\n");
     REQUIRE(out.state_code == GANTRY_STATE_HOMING);
-    REQUIRE(out.digital_out[GANTRY_CH_X_DIR] == GANTRY_DIR_NEGATIVE_LEVEL);
-    REQUIRE(out.digital_out[GANTRY_CH_Y_DIR] == GANTRY_DIR_NEGATIVE_LEVEL);
-    REQUIRE(out.digital_out[GANTRY_CH_X_ENABLE] == GANTRY_ENABLE_ACTIVE_LEVEL);
+    REQUIRE(out.digital_out[MECHSIM_CH_X_DRIVER_DIR] == GANTRY_DIR_NEGATIVE_LEVEL);
+    REQUIRE(out.digital_out[MECHSIM_CH_Y_DRIVER_DIR] == GANTRY_DIR_NEGATIVE_LEVEL);
+    REQUIRE(out.digital_out[MECHSIM_CH_X_DRIVER_ENABLE] == GANTRY_ENABLE_ACTIVE_LEVEL);
     std::vector<Event> events = plant.take_events();
     REQUIRE(has_event(events, GANTRY_EVENT_COMMAND, GANTRY_COMMAND_HOME));
     REQUIRE(has_event(events, GANTRY_EVENT_STATE, transition(GANTRY_STATE_NOT_HOMED, GANTRY_STATE_HOMING)));
@@ -158,7 +158,7 @@ TEST_CASE("G2: homing drives each axis to its min switch, sets the origin and re
     REQUIRE(plant.position[0] * 1000000 / gantry_test::steps_per_m > -accuracy_um);
     REQUIRE(plant.position[1] <= 0);
     REQUIRE(plant.position[1] * 1000000 / gantry_test::steps_per_m > -accuracy_um);
-    REQUIRE(plant.take_lines() == std::vector<std::string>{"ready"});
+    REQUIRE(plant.take_lines() == std::vector<std::string>{"status 3 0"});
     events = plant.take_events();
     REQUIRE(has_event(events, GANTRY_EVENT_ORIGIN, GANTRY_AXIS_X));
     REQUIRE(has_event(events, GANTRY_EVENT_ORIGIN, GANTRY_AXIS_Y));
@@ -170,7 +170,7 @@ TEST_CASE("G2: homing drives each axis to its min switch, sets the origin and re
         REQUIRE(steps_y(out) == 0U);
     }
     plant.run_until([](const mechsim_board_outputs& o) { return o.uart_tx_count > 0U; }, GANTRY_STATUS_PERIOD_TICKS);
-    REQUIRE(plant.take_lines() == std::vector<std::string>{"position 0.000000 0.000000"});
+    REQUIRE(plant.take_lines() == std::vector<std::string>{"current_position 0.000000 0.000000"});
 }
 
 TEST_CASE("G2: homing an axis already on its switch sets the origin on the first tick", "[FW-014]")
@@ -180,7 +180,7 @@ TEST_CASE("G2: homing an axis already on its switch sets the origin on the first
     REQUIRE(out.state_code == GANTRY_STATE_READY);
     REQUIRE(steps_x(out) == 0U);
     REQUIRE(steps_y(out) == 0U);
-    REQUIRE(plant.take_lines() == std::vector<std::string>{"ready"});
+    REQUIRE(plant.take_lines() == std::vector<std::string>{"status 3 0"});
     const std::vector<Event> events = plant.take_events();
     REQUIRE(has_event(events, GANTRY_EVENT_STATE, transition(GANTRY_STATE_NOT_HOMED, GANTRY_STATE_HOMING)));
     REQUIRE(has_event(events, GANTRY_EVENT_STATE, transition(GANTRY_STATE_HOMING, GANTRY_STATE_READY)));
@@ -196,7 +196,7 @@ TEST_CASE("G2: homing re-zeroes the origin from READY", "[FW-014]")
     REQUIRE(plant.position[0] <= 0);
     REQUIRE(plant.position[1] <= 0);
     plant.run_until([](const mechsim_board_outputs& o) { return o.uart_tx_count > 0U; }, GANTRY_STATUS_PERIOD_TICKS);
-    REQUIRE(plant.take_lines() == std::vector<std::string>{"position 0.000000 0.000000"});
+    REQUIRE(plant.take_lines() == std::vector<std::string>{"current_position 0.000000 0.000000"});
 }
 
 TEST_CASE("G2: a switch that never trips faults the homing", "[FW-014][FW-030]")
@@ -211,8 +211,8 @@ TEST_CASE("G2: a switch that never trips faults the homing", "[FW-014][FW-030]")
     mechsim_board_outputs out = plant.last;
     REQUIRE(out.fault_code == GANTRY_FAULT_HOMING_FAILED);
     REQUIRE(steps_x(out) == 0U);
-    REQUIRE(out.digital_out[GANTRY_CH_X_ENABLE] == GANTRY_ENABLE_INACTIVE_LEVEL);
-    REQUIRE(plant.take_lines() == std::vector<std::string>{"fault 7"});
+    REQUIRE(out.digital_out[MECHSIM_CH_X_DRIVER_ENABLE] == GANTRY_ENABLE_INACTIVE_LEVEL);
+    REQUIRE(plant.take_lines() == std::vector<std::string>{"status 5 7"});
     const std::vector<Event> events = plant.take_events();
     REQUIRE(has_event(events, GANTRY_EVENT_STATE, transition(GANTRY_STATE_HOMING, GANTRY_STATE_FAULT)));
     REQUIRE(has_event(events, GANTRY_EVENT_FAULT, GANTRY_FAULT_HOMING_FAILED));
@@ -220,7 +220,7 @@ TEST_CASE("G2: a switch that never trips faults the homing", "[FW-014][FW-030]")
     out = plant.tick("target 0.1 0.1\n");
     REQUIRE(out.state_code == GANTRY_STATE_FAULT);
     REQUIRE(out.fault_code == GANTRY_FAULT_HOMING_FAILED);
-    REQUIRE(plant.take_lines() == std::vector<std::string>{"fault 6"});
+    REQUIRE(plant.take_lines() == std::vector<std::string>{"status 5 6"});
     REQUIRE(has_event(plant.take_events(), GANTRY_EVENT_REFUSED, GANTRY_FAULT_IN_FAULT));
 
     plant.switches_work = true;
@@ -251,7 +251,7 @@ TEST_CASE("G3: a target inside the workspace is reached within the accuracy and 
 
     const std::vector<std::string> lines = plant.take_lines();
     REQUIRE(lines.size() >= 3U);
-    REQUIRE(lines.back() == "ready");
+    REQUIRE(lines.back() == "status 3 0");
     std::int64_t x_um = 0;
     std::int64_t y_um = 0;
     REQUIRE(parse_position(lines[lines.size() - 2U], x_um, y_um));
@@ -302,14 +302,14 @@ TEST_CASE("G3: moves into the slow zones at both travel ends stay below the slow
     plant.take_lines();
 
     trace = run_move(plant, "target 0 0\n");
-    REQUIRE(plant.last.digital_out[GANTRY_CH_X_DIR] == GANTRY_DIR_NEGATIVE_LEVEL);
+    REQUIRE(plant.last.digital_out[MECHSIM_CH_X_DRIVER_DIR] == GANTRY_DIR_NEGATIVE_LEVEL);
     for (std::size_t index = 1U; index < trace.x.size(); ++index) {
         if (trace.x_position[index - 1U] <= slow_zone_steps) {
             REQUIRE(trace.x[index] <= slow_steps_per_tick + 1U);
         }
     }
     REQUIRE(plant.position[0] == 0);
-    REQUIRE(plant.take_lines().back() == "ready");
+    REQUIRE(plant.take_lines().back() == "status 3 0");
 }
 
 TEST_CASE("G3: a zero-length move arrives on the same tick with no steps", "[FW-015][FW-030]")
@@ -321,7 +321,7 @@ TEST_CASE("G3: a zero-length move arrives on the same tick with no steps", "[FW-
     REQUIRE(steps_x(out) == 0U);
     REQUIRE(steps_y(out) == 0U);
     REQUIRE(out.fault_code == GANTRY_FAULT_NONE);
-    REQUIRE(plant.take_lines() == std::vector<std::string>{"position 0.000000 0.000000", "ready"});
+    REQUIRE(plant.take_lines() == std::vector<std::string>{"current_position 0.000000 0.000000", "status 3 0"});
     const std::vector<Event> events = plant.take_events();
     REQUIRE(events.size() == 3U);
     REQUIRE(events[0].code == GANTRY_EVENT_COMMAND);
@@ -349,7 +349,7 @@ TEST_CASE("G3: a target at the workspace corner is accepted and reached", "[FW-0
     run_move(plant, "target 1.000000 0.800000\n");
     REQUIRE(plant.position[0] == gantry_test::workspace_x_steps);
     REQUIRE(plant.position[1] == gantry_test::workspace_y_steps);
-    REQUIRE(plant.take_lines().back() == "ready");
+    REQUIRE(plant.take_lines().back() == "status 3 0");
 }
 
 TEST_CASE("G3: a new target while moving is rejected and the first move completes", "[FW-015][FW-030]")
@@ -363,7 +363,7 @@ TEST_CASE("G3: a new target while moving is rejected and the first move complete
     out = plant.tick("target 0.2 0.2\n");
     REQUIRE(out.state_code == GANTRY_STATE_MOVING);
     REQUIRE(out.fault_code == GANTRY_FAULT_BUSY);
-    REQUIRE(plant.take_lines() == std::vector<std::string>{"fault 3"});
+    REQUIRE(plant.take_lines() == std::vector<std::string>{"status 4 3"});
     REQUIRE(has_event(plant.take_events(), GANTRY_EVENT_REFUSED, GANTRY_FAULT_BUSY));
     out = plant.tick("home\n");
     REQUIRE(out.state_code == GANTRY_STATE_MOVING);
@@ -383,7 +383,7 @@ TEST_CASE("G3: commands during homing are refused as busy", "[FW-014][FW-030]")
     out = plant.tick("target 0.1 0.1\nhome\n");
     REQUIRE(out.state_code == GANTRY_STATE_HOMING);
     REQUIRE(out.fault_code == GANTRY_FAULT_BUSY);
-    REQUIRE(plant.take_lines() == std::vector<std::string>{"fault 3", "fault 3"});
+    REQUIRE(plant.take_lines() == std::vector<std::string>{"status 2 3", "status 2 3"});
 }
 
 // ===== G4 workspace ==================================================================================================
@@ -400,7 +400,7 @@ TEST_CASE("G4: a target outside the workspace is refused with no motion and READ
         REQUIRE(out.state_code == GANTRY_STATE_READY);
         REQUIRE(out.fault_code == GANTRY_FAULT_OUTSIDE_WORKSPACE);
         REQUIRE(std::count(plant.tx.begin(), plant.tx.end(), '\n') >= 1);
-        REQUIRE(plant.take_lines().back() == "fault 2");
+        REQUIRE(plant.take_lines().back() == "status 3 2");
         const std::vector<Event> events = plant.take_events();
         REQUIRE(events.size() == 2U);
         REQUIRE(events[1].code == GANTRY_EVENT_REFUSED);
@@ -413,7 +413,7 @@ TEST_CASE("G4: a target outside the workspace is refused with no motion and READ
             REQUIRE(out.fault_code == GANTRY_FAULT_NONE);
         }
         for (const std::string& line : plant.take_lines()) {
-            REQUIRE(line == "position 0.000000 0.000000");
+            REQUIRE(line == "current_position 0.000000 0.000000");
         }
     }
     REQUIRE(plant.position[0] == 0);
@@ -473,7 +473,7 @@ TEST_CASE("operator lines are buffered across ticks and parsed strictly", "[FW-0
         REQUIRE(out.state_code == GANTRY_STATE_READY);
         REQUIRE(out.fault_code == GANTRY_FAULT_MALFORMED);
         REQUIRE(steps_x(out) == 0U);
-        REQUIRE(plant.take_lines() == std::vector<std::string>{"fault 4"});
+        REQUIRE(plant.take_lines() == std::vector<std::string>{"status 3 4"});
         const std::vector<Event> events = plant.take_events();
         REQUIRE(events.size() == 2U);
         REQUIRE(events[1].arg == GANTRY_FAULT_MALFORMED);
@@ -495,12 +495,12 @@ TEST_CASE("an overlong line is refused once and the next line is parsed", "[FW-0
     plant.tick("target " + long_part);
     mechsim_board_outputs out = plant.tick(long_part + "\n");
     REQUIRE(out.fault_code == GANTRY_FAULT_MALFORMED);
-    REQUIRE(plant.take_lines() == std::vector<std::string>{"fault 4"});
+    REQUIRE(plant.take_lines() == std::vector<std::string>{"status 3 4"});
     std::string exact(GANTRY_LINE_MAX - 4U, ' ');
     out = plant.tick(exact + "home\n");
     REQUIRE(out.state_code == GANTRY_STATE_READY);
     REQUIRE(out.fault_code == GANTRY_FAULT_NONE);
-    REQUIRE(plant.take_lines() == std::vector<std::string>{"ready"});
+    REQUIRE(plant.take_lines() == std::vector<std::string>{"status 3 0"});
     std::string over(GANTRY_LINE_MAX - 3U, ' ');
     out = plant.tick(over + "home\n");
     REQUIRE(out.fault_code == GANTRY_FAULT_MALFORMED);
@@ -519,12 +519,15 @@ TEST_CASE("transmit beyond 64 bytes continues on the next tick in order", "[FW-0
     REQUIRE(out.uart_tx_count == MECHSIM_UART_TX_BYTES);
     REQUIRE(out.event_count == MECHSIM_EVENT_LOG_COUNT);
     out = plant.tick();
-    REQUIRE(out.uart_tx_count == 12U * 8U - MECHSIM_UART_TX_BYTES);
+    REQUIRE(out.uart_tx_count == MECHSIM_UART_TX_BYTES);
     REQUIRE(out.event_count == 24U - MECHSIM_EVENT_LOG_COUNT);
+    out = plant.tick();
+    REQUIRE(out.uart_tx_count == 12U * 11U - 2U * MECHSIM_UART_TX_BYTES);
+    REQUIRE(out.event_count == 0U);
     out = plant.tick();
     REQUIRE(out.uart_tx_count == 0U);
     REQUIRE(out.event_count == 0U);
-    REQUIRE(plant.take_lines() == std::vector<std::string>(12U, "fault 4"));
+    REQUIRE(plant.take_lines() == std::vector<std::string>(12U, "status 1 4"));
     const std::vector<Event> events = plant.take_events();
     REQUIRE(events.size() == 24U);
     for (std::size_t index = 0U; index < events.size(); index = index + 2U) {
@@ -545,7 +548,7 @@ TEST_CASE("a flood that overflows the event queue latches a fault", "[FW-030]")
     out = plant.tick(burst);
     REQUIRE(out.state_code == GANTRY_STATE_FAULT);
     REQUIRE(out.fault_code == GANTRY_FAULT_EVENT_OVERFLOW);
-    REQUIRE(out.digital_out[GANTRY_CH_HEARTBEAT] == MECHSIM_LEVEL_LOW);
+    REQUIRE(out.digital_out[MECHSIM_CH_WATCHDOG_HEARTBEAT] == MECHSIM_LEVEL_LOW);
 }
 
 TEST_CASE("every transition is logged in order across a full session", "[FW-030][CTL-018]")
@@ -582,7 +585,7 @@ TEST_CASE("heartbeat toggles every tick outside FAULT and holds low in FAULT", "
             rx = "target 0.01 0\n";
         }
         const mechsim_board_outputs out = plant.tick(rx);
-        REQUIRE(out.digital_out[GANTRY_CH_HEARTBEAT] == expected);
+        REQUIRE(out.digital_out[MECHSIM_CH_WATCHDOG_HEARTBEAT] == expected);
         if (expected == MECHSIM_LEVEL_HIGH) {
             expected = MECHSIM_LEVEL_LOW;
         } else {
@@ -595,22 +598,22 @@ TEST_CASE("heartbeat toggles every tick outside FAULT and holds low in FAULT", "
     REQUIRE(plant.last.state_code == GANTRY_STATE_HOMING);
     plant.run_until([](const mechsim_board_outputs& o) { return is_state(o, GANTRY_STATE_FAULT); }, 200000);
     for (int tick = 0; tick < 10; ++tick) {
-        REQUIRE(plant.tick().digital_out[GANTRY_CH_HEARTBEAT] == MECHSIM_LEVEL_LOW);
+        REQUIRE(plant.tick().digital_out[MECHSIM_CH_WATCHDOG_HEARTBEAT] == MECHSIM_LEVEL_LOW);
     }
 }
 
-TEST_CASE("position status integrates the per-tick encoder deltas", "[FW-029][CTL-004]")
+TEST_CASE("current_position status integrates the per-tick encoder deltas", "[FW-029][CTL-004]")
 {
     Plant plant(0, 0);
     plant.home();
     plant.extra_counts[0] = 600;
     plant.extra_counts[1] = -1;
     plant.run_until([](const mechsim_board_outputs& o) { return o.uart_tx_count > 0U; }, GANTRY_STATUS_PERIOD_TICKS);
-    REQUIRE(plant.take_lines() == std::vector<std::string>{"position 0.010000 -0.000016"});
+    REQUIRE(plant.take_lines() == std::vector<std::string>{"current_position 0.010000 -0.000016"});
     plant.extra_counts[0] = -600;
     plant.extra_counts[1] = 60001;
     plant.run_until([](const mechsim_board_outputs& o) { return o.uart_tx_count > 0U; }, GANTRY_STATUS_PERIOD_TICKS);
-    REQUIRE(plant.take_lines() == std::vector<std::string>{"position 0.000000 1.000000"});
+    REQUIRE(plant.take_lines() == std::vector<std::string>{"current_position 0.000000 1.000000"});
 }
 
 TEST_CASE("every output field is written each tick", "[FW-010][CTL-003]")
@@ -626,12 +629,14 @@ TEST_CASE("every output field is written each tick", "[FW-010][CTL-003]")
         REQUIRE(outputs.enable[axis] == MECHSIM_LEVEL_LOW);
     }
     for (std::uint32_t pin = 0U; pin < MECHSIM_DIGITAL_OUT_COUNT; ++pin) {
-        if (pin == GANTRY_CH_HEARTBEAT) {
+        if (pin == MECHSIM_CH_WATCHDOG_HEARTBEAT) {
             REQUIRE(outputs.digital_out[pin] == MECHSIM_LEVEL_HIGH);
-        } else if ((pin == GANTRY_CH_X_DIR) || (pin == GANTRY_CH_Y_DIR)) {
+        } else if ((pin == MECHSIM_CH_X_DRIVER_DIR) || (pin == MECHSIM_CH_Y_DRIVER_DIR)) {
             REQUIRE(outputs.digital_out[pin] == GANTRY_DIR_NEGATIVE_LEVEL);
-        } else if ((pin == GANTRY_CH_X_ENABLE) || (pin == GANTRY_CH_Y_ENABLE) || (pin == GANTRY_CH_LIFT_ENABLE)) {
+        } else if ((pin == MECHSIM_CH_X_DRIVER_ENABLE) || (pin == MECHSIM_CH_Y_DRIVER_ENABLE)) {
             REQUIRE(outputs.digital_out[pin] == GANTRY_ENABLE_INACTIVE_LEVEL);
+        } else if (pin == MECHSIM_CH_LIFT_DRIVER_ENABLE) {
+            REQUIRE(outputs.digital_out[pin] == GANTRY_ENABLE_ACTIVE_LEVEL);
         } else {
             REQUIRE(outputs.digital_out[pin] == MECHSIM_LEVEL_LOW);
         }

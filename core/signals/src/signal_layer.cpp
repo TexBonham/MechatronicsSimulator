@@ -282,6 +282,7 @@ void SignalLayer::resolve() {
             throw SignalConfigError("actuator '" + actuator.signal + "' names a DOF outside the model");
         }
         actuators_.emplace_back(require_output(actuator.signal), actuator.dof);
+        applied_.push_back(actuator.applied);
     }
     for (const Entry& entry : entries_) {
         for (const std::size_t index : entry.input_sources) {
@@ -320,6 +321,18 @@ void SignalLayer::start(const kernel::Rate& base_rate) {
         entry.component->start(clock);
     }
     physics_inputs_.generalized_forces.assign(config_.velocity_dofs, 0.0);
+    controller_period_ = kernel::period_in_ticks(config_.controller_rate.value_or(config_.rate), base_rate).count();
+}
+
+// The controller steps after the layer within a tick, so it has consumed what the layer published at its last step,
+// and published new outputs, when one of its period boundaries lies in [last layer step, t).
+bool SignalLayer::controller_stepped_before(kernel::SimTime t) const {
+    if (!last_step_.has_value()) {
+        return true;
+    }
+    const std::int64_t from = last_step_->count();
+    const std::int64_t next = ((from + controller_period_ - 1) / controller_period_) * controller_period_;
+    return next < t.count();
 }
 
 void SignalLayer::event(kernel::SimTime t, std::string source, std::string kind, std::string detail) {
@@ -327,11 +340,14 @@ void SignalLayer::event(kernel::SimTime t, std::string source, std::string kind,
 }
 
 // ===== ReadPinOutputs ==============================================================================================
-void SignalLayer::read_pin_outputs() {
+void SignalLayer::read_pin_outputs(bool fresh) {
     for (const ResolvedSlot& slot : slots_) {
         switch (slot.field) {
             case PinField::step_count:
-                bus_[slot.bus] = static_cast<double>(pin_outputs_.step_count.at(slot.channel));
+                bus_[slot.bus] = 0.0;
+                if (fresh) {
+                    bus_[slot.bus] = static_cast<double>(pin_outputs_.step_count.at(slot.channel));
+                }
                 break;
             case PinField::direction:
                 bus_[slot.bus] = static_cast<double>(pin_outputs_.direction.at(slot.channel) != 0U);
@@ -343,6 +359,10 @@ void SignalLayer::read_pin_outputs() {
                 bus_[slot.bus] = static_cast<double>(pin_outputs_.digital_out.at(slot.channel) != 0U);
                 break;
             case PinField::uart_tx: {
+                bus_[slot.bus] = 0.0;
+                if (!fresh) {
+                    break;
+                }
                 if (pin_outputs_.uart_tx_count > pins::uart_buffer_bytes) {
                     throw SignalRunError("controller sent " + std::to_string(pin_outputs_.uart_tx_count) +
                                          " UART bytes in one tick, over 64");
@@ -410,8 +430,14 @@ void SignalLayer::update_rails(kernel::SimTime t) {
 }
 
 // ===== WritePinInputs ==============================================================================================
-void SignalLayer::write_pin_inputs() {
+void SignalLayer::write_pin_inputs(bool consumed) {
+    const pins::PinInputs held = pin_inputs_;
     pin_inputs_ = pins::PinInputs{};
+    if (!consumed) {
+        pin_inputs_.counter_delta = held.counter_delta;
+        pin_inputs_.uart_rx = held.uart_rx;
+        pin_inputs_.uart_rx_count = held.uart_rx_count;
+    }
     for (const ResolvedSlot& slot : slots_) {
         const double value = bus_[slot.bus];
         switch (slot.field) {
@@ -432,8 +458,14 @@ void SignalLayer::write_pin_inputs() {
                 break;
             case PinField::uart_rx: {
                 const std::span<const std::uint8_t> bytes = link_->controller_rx();
-                std::copy(bytes.begin(), bytes.end(), pin_inputs_.uart_rx.begin());
-                pin_inputs_.uart_rx_count = static_cast<std::uint16_t>(bytes.size());
+                const std::size_t held_bytes = pin_inputs_.uart_rx_count;
+                if (held_bytes + bytes.size() > pins::uart_buffer_bytes) {
+                    throw SignalRunError("UART rx: " + std::to_string(held_bytes + bytes.size()) +
+                                         " bytes for one controller step, over 64 (SIG-038)");
+                }
+                std::copy(bytes.begin(), bytes.end(),
+                          pin_inputs_.uart_rx.begin() + static_cast<std::ptrdiff_t>(held_bytes));
+                pin_inputs_.uart_rx_count = static_cast<std::uint16_t>(held_bytes + bytes.size());
                 break;
             }
             case PinField::step_count:
@@ -453,21 +485,25 @@ void SignalLayer::step(kernel::SimTime t, kernel::Duration /*dt*/) {
     }
     events_.clear();
     step_status_.clear();
-    read_pin_outputs();
+    const bool controller_stepped = controller_stepped_before(t);
+    last_step_ = t;
+    read_pin_outputs(controller_stepped);
     if (link_ != nullptr) {
         for (StatusMessage& status : link_->take_status()) {
             std::string detail = status.label;
-            for (const double value : status.message.fields) {
-                detail += " " + format_number(value);
+            const MessageSpec& status_spec = link_->codec().spec(status.message.name);
+            for (std::size_t f = 0; f < status.message.fields.size(); ++f) {
+                detail += " " + status_spec.fields.at(f) + "=" + format_number(status.message.fields[f]);
             }
             event(t, std::string(link_->instance_name()), "operator_status", std::move(detail));
             step_status_.push_back(status);
             status_.push_back(std::move(status));
         }
         for (const OperatorMessage& command : link_->take_posted()) {
-            std::string detail = link_->codec().spec(command.name).label;
-            for (const double value : command.fields) {
-                detail += " " + format_number(value);
+            const MessageSpec& command_spec = link_->codec().spec(command.name);
+            std::string detail = command_spec.label;
+            for (std::size_t f = 0; f < command.fields.size(); ++f) {
+                detail += " " + command_spec.fields.at(f) + "=" + format_number(command.fields[f]);
             }
             event(t, std::string(link_->instance_name()), "operator_command", std::move(detail));
         }
@@ -477,10 +513,17 @@ void SignalLayer::step(kernel::SimTime t, kernel::Duration /*dt*/) {
     run_stage(Stage::sensor, t);
     run_stage(Stage::driver, t);
     run_stage(Stage::actuator, t);
-    write_pin_inputs();
+    write_pin_inputs(controller_stepped);
     std::fill(physics_inputs_.generalized_forces.begin(), physics_inputs_.generalized_forces.end(), 0.0);
-    for (const auto& [bus, dof] : actuators_) {
-        physics_inputs_.generalized_forces[dof] += bus_[bus];
+    for (std::size_t i = 0; i < actuators_.size(); ++i) {
+        if (applied_[i]) {
+            physics_inputs_.generalized_forces[actuators_[i].second] += bus_[actuators_[i].first];
+        }
+    }
+    physics_inputs_.joint_drives.clear();
+    for (const Entry& entry : entries_) {
+        const std::span<const kernel::JointDrive> drives = entry.component->joint_drives();
+        physics_inputs_.joint_drives.insert(physics_inputs_.joint_drives.end(), drives.begin(), drives.end());
     }
     for (std::size_t i = 0; i < stall_outputs_.size(); ++i) {
         const double stalled = bus_[stall_outputs_[i]];

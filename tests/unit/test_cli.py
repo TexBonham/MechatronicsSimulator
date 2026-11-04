@@ -105,7 +105,7 @@ def test_validate_an_invalid_physics_model_fails(tmp_path: Path) -> None:
 def test_validate_a_folder_runs_nothing() -> None:
     code, out, _ = call(["validate", str(ROOT / "test_cases")])
     assert code == EXIT_PASS
-    assert out.count(": valid ") == 3
+    assert out.count(": valid ") == 6
 
 
 @pytest.mark.req("TST-030")
@@ -187,7 +187,7 @@ def test_run_with_a_malformed_binding_or_no_driver_is_an_error(tmp_path: Path) -
     case = write_case(tmp_path / "cases", MACHINE_CASE)
     code, _, err = call(["run", str(case), "--set", "link_mass"], cli_services(tmp_path))
     assert (code, err) == (EXIT_ERROR, "error: --set takes name=value, got 'link_mass'\n")
-    code, _, err = call(["run", str(case)])
+    code, _, err = call(["run", str(case)], CliServices())
     assert (code, err) == (EXIT_ERROR, "error: no simulation driver is wired into this build\n")
 
 

@@ -21,7 +21,8 @@ inline ComponentClock khz_clock(std::uint64_t seed = 7) {
     return ComponentClock{mechsim::kernel::Rate(1000), mechsim::kernel::Duration(1), seed};
 }
 
-// One body turned by angle about z and displaced by x along x; one joint and one transmission carrying load.
+// One body turned by angle about z and displaced by x along x; one joint at coordinate angle and one transmission
+// carrying load.
 inline PhysicalState state_at(double angle, double x, double load = 0.0) {
     PhysicalState state;
     mechsim::kernel::BodyState body;
@@ -34,6 +35,7 @@ inline PhysicalState state_at(double angle, double x, double load = 0.0) {
     mechsim::kernel::TransmissionState transmission;
     transmission.shaft_load_torque = load;
     state.transmissions.push_back(transmission);
+    state.joint_positions.push_back(angle);
     return state;
 }
 

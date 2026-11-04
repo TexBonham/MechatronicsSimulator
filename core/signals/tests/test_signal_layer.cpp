@@ -46,8 +46,8 @@ SignalLayerConfig layer_config(std::uint64_t seed) {
                                            {"x_encoder.channel_a", "PC0", PeripheralMode::counter_input},
                                            {"x_encoder.channel_b", "PC1", PeripheralMode::counter_input},
                                            {"watchdog.heartbeat", "PB6", PeripheralMode::digital_output},
-                                           {"operator.rx", "PA10", PeripheralMode::uart_rx},
-                                           {"operator.tx", "PA9", PeripheralMode::uart_tx}};
+                                           {"operator.uart_rx", "PA10", PeripheralMode::uart_rx},
+                                           {"operator.uart_tx", "PA9", PeripheralMode::uart_tx}};
     for (const PinBinding& binding : bindings) {
         config.bindings.add(binding);
     }
@@ -55,8 +55,8 @@ SignalLayerConfig layer_config(std::uint64_t seed) {
                     {"x_driver.enable", PinField::enable, 0},         {"x_max_switch.out", PinField::digital_in, 1},
                     {"x_encoder.channel_a", PinField::counter_delta, 0},
                     {"x_encoder.channel_b", PinField::counter_delta, 0},
-                    {"watchdog.heartbeat", PinField::digital_out, 0}, {"operator.rx", PinField::uart_rx, 0},
-                    {"operator.tx", PinField::uart_tx, 0}};
+                    {"watchdog.heartbeat", PinField::digital_out, 0}, {"operator.uart_rx", PinField::uart_rx, 0},
+                    {"operator.uart_tx", PinField::uart_tx, 0}};
     config.connections = {{"x_driver.full_steps", "x_motor.full_steps"},
                           {"x_driver.direction", "x_motor.direction"},
                           {"x_driver.enabled", "x_motor.enabled"},
@@ -66,7 +66,7 @@ SignalLayerConfig layer_config(std::uint64_t seed) {
                              {"x_driver.vmot"}},
                     RailSpec{"logic", "logic_supply.voltage", {}, {}}};
     config.controller_rail = "logic";
-    config.actuators = {ActuatorOutput{"x_motor.torque", 0, "N*m"}};
+    config.actuators = {ActuatorOutput{"x_motor.torque", 0, "N*m", false}};
     config.velocity_dofs = 1;
     return config;
 }
@@ -100,6 +100,8 @@ std::unique_ptr<SignalLayer> make_layer(std::uint64_t seed, const Faults& faults
     layer->add_component(std::make_unique<StepDirDriver>("x_driver", StepDirDriverParams{16, true}), Stage::driver);
     BehavioralStepperParams motor;
     motor.step_angle = std::numbers::pi / 100.0;
+    motor.holding_torque = 0.40;
+    motor.joint = 0;
     motor.torque_speed = {{0.0, 0.40}, {300.0 * std::numbers::pi / 30.0, 0.36}, {600.0 * std::numbers::pi / 30.0, 0.30}};
     layer->add_component(std::make_unique<BehavioralStepper>("x_motor", motor), Stage::actuator);
     layer->add_operator_link(
@@ -117,6 +119,8 @@ PinOutputs controller_outputs(std::int64_t tick, bool beating) {
     return out;
 }
 
+constexpr double full_step = std::numbers::pi / 100.0;
+
 void step(SignalLayer& layer, std::int64_t tick, const PhysicalState& state, const PinOutputs& outputs) {
     layer.set_physical_state(state);
     layer.set_pin_outputs(outputs);
@@ -125,31 +129,40 @@ void step(SignalLayer& layer, std::int64_t tick, const PhysicalState& state, con
 
 }  // namespace
 
-TEST_CASE("Pulses on the step pin become shaft torque gated by the motor rail; an E-stop press cuts it",
-          "[SIG-029][SIG-013][SIG-015][SIG-016][SIG-017][SIG-032]") {
-    // One full step per tick is 10 pi rad/s = 300 rpm, 0.36 N m available; rotor inertia 0 and a 0.1 N m load give
-    // a torque of exactly the load. The press is seen at step 100; the relay's 20 ms at 1 kHz opens the contacts at
-    // step 120, from when no torque reaches physics.
+TEST_CASE("Pulses on the step pin become a shaft drive gated by the motor rail; an E-stop press cuts it",
+          "[SIG-029][SIG-013][SIG-015][SIG-016][SIG-017][SIG-032][SIG-033][KER-027]") {
+    // One full step per tick; the shaft follows one step behind, inside the pull-out angle, so the drive's rest is the
+    // integrated command (k + 1) steps with K_hold = pi 0.40 / (2 step) = 20 N m/rad. The stepper torque is a
+    // read-back, recorded and never added to the generalized forces. The press is seen at step 100; the relay's 20 ms
+    // at 1 kHz opens the contacts at step 120, from when the drive is disabled.
     const std::unique_ptr<SignalLayer> layer = make_layer(1);
     layer->start(Rate(1000));
     for (std::int64_t k = 0; k < 140; ++k) {
         if (k == 100) {
             layer->set_external_input("estop.estop_loop", 0.0);
         }
-        step(*layer, k, state_at(0.0, 0.0, 0.1), controller_outputs(k, true));
+        step(*layer, k, state_at(static_cast<double>(k) * full_step, 0.0, 0.1), controller_outputs(k, true));
+        CHECK(layer->physics_inputs().generalized_forces[0] == 0.0);
+        REQUIRE(layer->physics_inputs().joint_drives.size() == 1);
+        const mechsim::kernel::JointDrive& hold = layer->physics_inputs().joint_drives[0];
+        CHECK(hold.joint == 0);
         if (k < 120) {
-            CHECK(layer->physics_inputs().generalized_forces[0] == 0.1);
+            CHECK(hold.enabled);
+            CHECK(std::fabs(hold.rest - (static_cast<double>(k + 1) * full_step)) < 1e-12);
+            CHECK(std::fabs(hold.stiffness - 20.0) < 1e-12);
             CHECK(layer->rails()[0].on);
             CHECK(layer->rails()[0].voltage == 24.0);
             CHECK(layer->signal_value("x_driver.vmot") == 24.0);
         } else {
-            CHECK(layer->physics_inputs().generalized_forces[0] == 0.0);
+            CHECK_FALSE(hold.enabled);
             CHECK_FALSE(layer->rails()[0].on);
             CHECK(layer->rails()[0].voltage == 0.0);
         }
         if (k == 120) {
             TickRecord row;
             layer->record(row);
+            REQUIRE(row.actuator_efforts.size() == 1);
+            CHECK(row.actuator_efforts[0].name == "x_motor.torque");
             REQUIRE(!row.events.empty());
             CHECK(row.events[0].kind == "rail_off");
             CHECK(row.events[0].source == "motor_power");
@@ -164,7 +177,7 @@ TEST_CASE("The watchdog opens the motor rail when the heartbeat pin stops toggli
     const std::unique_ptr<SignalLayer> layer = make_layer(1);
     layer->start(Rate(1000));
     for (std::int64_t k = 0; k < 170; ++k) {
-        step(*layer, k, state_at(0.0, 0.0, 0.1), controller_outputs(k, k < 100));
+        step(*layer, k, state_at(static_cast<double>(k) * full_step, 0.0, 0.1), controller_outputs(k, k < 100));
         CHECK(layer->rails()[0].on == (k < 160));
     }
 }
@@ -199,7 +212,7 @@ TEST_CASE("Only bound slot signals reach pin inputs; an E-stop press shows only 
     CHECK(in.counter_delta == expected.counter_delta);
     CHECK(in.adc_sample == expected.adc_sample);
     CHECK(in.uart_rx_count == 0);
-    CHECK(layer->physics_inputs().generalized_forces[0] == 0.1);
+    CHECK(layer->physics_inputs().generalized_forces.size() == 1);
 }
 
 TEST_CASE("The layer rejects wiring that bypasses or misuses the pin-binding table", "[SIG-024]") {
@@ -258,12 +271,12 @@ TEST_CASE("Operator commands reach uart_rx and status lines come back as labelle
         if (k == 0) {
             REQUIRE(row.events.size() == 1);
             CHECK(row.events[0].kind == "operator_command");
-            CHECK(row.events[0].detail == "target (x, y) 0.5 0.25");
+            CHECK(row.events[0].detail == "target (x, y) x=0.5 y=0.25");
         }
         if (k == 1) {
             REQUIRE(row.events.size() == 1);
             CHECK(row.events[0].kind == "operator_status");
-            CHECK(row.events[0].detail == "current position 0.1 0.2");
+            CHECK(row.events[0].detail == "current position x=0.1 y=0.2");
         }
     }
     CHECK(received == "target 0.5 0.25\n");
@@ -281,7 +294,9 @@ TEST_CASE("Every bound pin signal, rail and actuator effort is recorded each tic
     const std::unique_ptr<SignalLayer> layer = make_layer(1);
     layer->start(Rate(1000));
     for (std::int64_t k = 0; k < 3; ++k) {
-        step(*layer, k, state_at(0.0, 0.0, 0.1), controller_outputs(k, true));
+        PhysicalState state = state_at(static_cast<double>(k) * full_step, 0.0, 0.1);
+        state.joint_drive_torques.push_back(mechsim::kernel::JointDriveTorque{0, 0.25});
+        step(*layer, k, state, controller_outputs(k, true));
         TickRecord row;
         layer->record(row);
         REQUIRE(row.pin_signals.size() == 9);
@@ -295,7 +310,7 @@ TEST_CASE("Every bound pin signal, rail and actuator effort is recorded each tic
         CHECK(row.rails[0].value == 24.0);
         CHECK(row.rails[3].name == "logic.on");
         REQUIRE(row.actuator_efforts.size() == 1);
-        CHECK(row.actuator_efforts[0].value == 0.1);
+        CHECK(row.actuator_efforts[0].value == 0.25);
     }
 }
 
@@ -317,4 +332,54 @@ TEST_CASE("Two runs with one seed give identical layer outputs; noise follows th
     CHECK(run(11) != run(12));
     CHECK(derive_child_seed(11, "x_encoder") != derive_child_seed(11, "y_encoder"));
     CHECK(derive_child_seed(11, "x_encoder") == derive_child_seed(11, "x_encoder"));
+}
+
+namespace {
+
+struct Crossed {
+    std::int64_t counts = 0;
+    double full_steps = 0.0;
+    std::string rx;
+};
+
+// The layer at `ratio` steps per controller step; the controller steps after the layer whenever the step index is a
+// multiple of `ratio`, takes the pin inputs and sends one full step (16 pulses) for the layer to read next.
+Crossed cross(std::int64_t ratio, std::int64_t controller_steps) {
+    SignalLayerConfig config = layer_config(0);
+    config.rate = Rate(1000 * ratio);
+    config.controller_rate = Rate(1000);
+    const std::unique_ptr<SignalLayer> layer = make_layer(1, {}, std::move(config));
+    layer->start(Rate(1000 * ratio));
+    layer->post_operator_message(OperatorMessage{"target", {0.5, 0.25}});
+    Crossed crossed;
+    PinOutputs outputs;
+    const double per_step = 2.5 * resolution * 4.0 / static_cast<double>(ratio);
+    for (std::int64_t k = 0; k <= controller_steps * ratio; ++k) {
+        step(*layer, k, state_at(static_cast<double>(k) * per_step, 0.0, 0.1), outputs);
+        crossed.full_steps += layer->signal_value("x_driver.full_steps");
+        outputs = PinOutputs{};
+        if (k % ratio == 0) {
+            const PinInputs& in = layer->pin_inputs();
+            crossed.counts += in.counter_delta[0];
+            crossed.rx.append(in.uart_rx.begin(), in.uart_rx.begin() + in.uart_rx_count);
+            outputs = controller_outputs(k / ratio, true);
+        }
+    }
+    return crossed;
+}
+
+}  // namespace
+
+TEST_CASE("At a 4 kHz layer and a 1 kHz controller every counter delta, UART byte and pulse crosses once", "[SIG-038]") {
+    // The shaft turns 10 counts per controller step either way, 200 steps: the encoder's first sample is the
+    // reference, so the deltas sum to 2000 counts at both rates. The line "target 0.5 0.25\n" leaves at 115200 baud
+    // (11.5 bytes per ms) and arrives whole, in order, once. One full step per controller step is read once: 200.
+    const Crossed equal = cross(1, 200);
+    const Crossed fast = cross(4, 200);
+    CHECK(equal.counts == 2000);
+    CHECK(fast.counts == equal.counts);
+    CHECK(equal.rx == "target 0.5 0.25\n");
+    CHECK(fast.rx == equal.rx);
+    CHECK(equal.full_steps == 200.0);
+    CHECK(fast.full_steps == equal.full_steps);
 }

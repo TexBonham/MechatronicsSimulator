@@ -341,6 +341,32 @@ def test_no_motion_against_the_threshold() -> None:
     assert (result.status, result.measured, result.worst_time) == ("fail", 0.02, 2.0)
 
 
+@pytest.mark.req("SCO-026")
+def test_hold_band_measures_each_joints_excursion_from_its_first_sample() -> None:
+    criterion = {
+        "name": "h",
+        "check": "hold_band",
+        "joints": ["x", "lift"],
+        "band": "1 mm",
+        "window": {"start": "1 s"},
+    }
+    # In the window (t >= 1 s) x starts at 0.2 and sways 0.4 mm; lift sags 0.9 mm from 0.1: worst 0.9 mm at 3 s.
+    held = recording_from(
+        TIMES, {"joint:x.position": [5.0, 0.2, 0.2004, 0.1999], "joint:lift.position": [0.0, 0.1, 0.1, 0.0991]}, "m"
+    )
+    result = score_one(criterion, held)
+    assert result.status == "pass"
+    assert result.measured == pytest.approx(0.0009)
+    assert result.worst_time == 3.0
+    assert result.limit == "every joint within 1 mm of its first sample"
+    moved = recording_from(
+        TIMES, {"joint:x.position": [0.0, 0.0, 0.0011, 0.0], "joint:lift.position": [0.0, 0.0, 0.0, 0.0]}, "m"
+    )
+    result = score_one(criterion, moved)
+    assert (result.status, result.worst_time) == ("fail", 2.0)
+    assert result.measured == pytest.approx(0.0011)
+
+
 def test_no_overlap_is_not_evaluated_and_never_passes() -> None:
     result = score_one({"name": "o", "check": "no_overlap", "actuators": ["a"]}, recording_from(TIMES, {}))
     assert result.status == "error"

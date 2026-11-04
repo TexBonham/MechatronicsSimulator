@@ -277,6 +277,24 @@ def _lead_screw(efficiency: float) -> dict[str, Any]:
     return data
 
 
+def _lift_screw() -> dict[str, Any]:
+    """C++ fixture: the lead screw turned vertical, so gravity loads the carriage along the rail (PHY-034)."""
+    data = _lead_screw(1.0)
+    data["design"]["name"] = "lift_screw"
+    data["bodies"][1]["joint"] = _joint("rail", "prismatic", axis=[0.0, 0.0, 1.0])
+    return data
+
+
+def _slider() -> dict[str, Any]:
+    """C++ fixture: a 1 kg body on a drivable prismatic joint along x, no gravity (PHY-034)."""
+    data = _example()
+    data["design"]["name"] = "slider"
+    data["gravity"] = ["0 m/s**2", "0 m/s**2", "0 m/s**2"]
+    data["bodies"] = [_body("block", _joint("slide", "prismatic", axis=[1.0, 0.0, 0.0]), mass="1 kg")]
+    data["signals"] = {"pose_bodies": ["block"], "drive_joints": ["slide"]}
+    return data
+
+
 def _gear(ratio: float) -> dict[str, Any]:
     """C++ fixture: the same rotor driving a wheel (izz 0.01 kg m^2) about z through a rigid gear pair, no gravity."""
     data = _example()
@@ -313,6 +331,8 @@ def fixtures() -> dict[str, str]:
         "box_on_floor.xml": mj.translate(_model(_box_on_floor())),
         "lead_screw.xml": mj.translate(_model(_lead_screw(1.0))),
         "lead_screw_lossy.xml": mj.translate(_model(_lead_screw(0.8))),
+        "lift_screw.xml": mj.translate(_model(_lift_screw())),
+        "slider.xml": mj.translate(_model(_slider())),
         "gear_pair.xml": mj.translate(_model(_gear(4.0))),
         "gear_pair_reversed.xml": mj.translate(_model(_gear(-4.0))),
     }
@@ -398,7 +418,18 @@ def test_step_override_sets_timestep_and_equality_reference() -> None:
 
 @pytest.mark.req("PHY-013")
 @pytest.mark.parametrize(
-    "name", ["pendulum.xml", "mechanism.xml", "box_on_floor.xml", "lead_screw.xml", "lead_screw_lossy.xml"]
+    "name",
+    [
+        "pendulum.xml",
+        "mechanism.xml",
+        "box_on_floor.xml",
+        "lead_screw.xml",
+        "lead_screw_lossy.xml",
+        "lift_screw.xml",
+        "slider.xml",
+        "gear_pair.xml",
+        "gear_pair_reversed.xml",
+    ],
 )
 def test_committed_cpp_fixtures_are_current_translations(name: str) -> None:
     assert (FIXTURES / name).read_text(encoding="utf-8") == fixtures()[name]
@@ -764,7 +795,6 @@ def test_linear_transmission_reflects_the_shaft_onto_the_driven_joint(
     transmission: dict[str, Any], coefficient: float
 ) -> None:
     root = _xml(_drive(transmission))
-    assert root.find("equality/joint") is None
     assert root.find(".//body[@name='rotor']") is None
     assert root.find(".//joint[@name='spindle']") is None
     slide = _named(root, "joint", "slide")
@@ -795,6 +825,64 @@ def test_reflection_report_names_every_approximation() -> None:
     assert "spin-mount" in reflected[3]
     assert "lossless" in reflected[4]
     assert "eta tau / c" in reflected[4]
+
+
+@pytest.mark.req("PHY-034")
+def test_shaft_joint_is_drivable_through_an_inactive_equality_on_the_driven_joint() -> None:
+    data = _drive({"type": "lead_screw", "lead": "0.008 m", "stiffness": "1e5 N/m"})
+    translation = mj.translate_report(_model(data))
+    root = ET.fromstring(translation.mjcf)
+    drives = root.findall("equality/joint")
+    assert len(drives) == 1
+    drive = drives[0]
+    assert drive.get("name") == "spindle.drive"
+    assert drive.get("joint1") == "slide"
+    assert drive.get("joint2") is None
+    assert drive.get("active") == "false"
+    assert _floats(drive.get("polycoef")) == [0.0, 0.0, 0.0, 0.0, 0.0]
+    assert drive.get("solref") == mj.DRIVE_SOLREF
+    assert drive.get("solimp") == mj.DRIVE_SOLIMP
+    assert _custom(root, "mechsim:drives") == ["spindle"]
+    lines = [line for line in translation.report if line.startswith("joint 'spindle': drive")]
+    assert len(lines) == 1
+    assert "'spindle.drive' on joint 'slide'" in lines[0]
+    assert "inactive at load (PHY-034)" in lines[0]
+
+
+@pytest.mark.req("PHY-034")
+def test_listed_drive_joint_gets_its_own_equality_and_none_is_emitted_without_one() -> None:
+    root = _xml(_slider())
+    drive = _named(root, "joint", "slide.drive")
+    assert drive.get("joint1") == "slide"
+    assert _custom(root, "mechsim:drives") == ["slide"]
+    plain = _slider()
+    plain["signals"] = {"pose_bodies": ["block"]}
+    bare = _xml(plain)
+    assert bare.find("equality") is None
+    assert _custom(bare, "mechsim:drives") == []
+
+
+@pytest.mark.req("PHY-034")
+@pytest.mark.parametrize(
+    ("joint", "reason"),
+    [
+        ("spindle", "listed as a drive joint; shafts always are"),
+        ("slide", "a drive on a transmission's driven joint"),
+        ("weld", "a drive on a fixed joint"),
+    ],
+)
+def test_drive_joints_the_bridge_cannot_drive_are_unmappable(joint: str, reason: str) -> None:
+    data = _drive({"type": "lead_screw", "lead": "0.008 m", "stiffness": "1e5 N/m"})
+    data["signals"] = {"drive_joints": [joint]}
+    with pytest.raises(mj.UnmappableElementError, match=reason):
+        mj.translate(_model(data))
+
+
+def test_neutral_model_refuses_unknown_or_repeated_drive_joints() -> None:
+    data = _slider()
+    data["signals"] = {"drive_joints": ["slide", "slide", "nowhere"]}
+    with pytest.raises(ValueError, match=r"drive joint 'slide' listed twice.*unknown drive joint 'nowhere'"):
+        _model(data)
 
 
 def test_axis_inertia_adds_the_offset_mass() -> None:

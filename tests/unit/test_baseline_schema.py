@@ -40,6 +40,12 @@ def example() -> dict[str, Any]:
     return copy.deepcopy(_raw())
 
 
+def g3_entries() -> dict[str, Any]:
+    data = example()
+    data["entries"] = [item for item in data["entries"] if item["case"] == "G3"]
+    return data
+
+
 def entry(case: str, criterion: str, status: str = "not_run", **fields: Any) -> dict[str, Any]:
     item: dict[str, Any] = {"case": case, "criterion": criterion, "status": status, "limit": "peak < 1 m"}
     if status in ("pass", "fail"):
@@ -73,9 +79,12 @@ def accepted(data: Any) -> Baseline:
 def test_example_baseline_validates_and_matches_g3() -> None:
     assert validate_baseline_file(EXAMPLE) == []
     loaded = load_baseline(EXAMPLE)
-    assert {item.status for item in loaded.entries} == {"not_run"}
-    assert check_against_cases(loaded, [load_test_case(G3)]) == []
-    assert len(loaded.entries) == len(load_test_case(G3).criteria)
+    assert {item.status for item in loaded.entries} == {"pass"}
+    assert loaded.note is not None
+    assert loaded.note.startswith("placeholder-geometry")
+    cases = [load_test_case(G3.parent / f"{name}.yaml") for name in ("G1", "G2", "G3", "G4")]
+    assert check_against_cases(loaded, cases) == []
+    assert len(loaded.entries) == sum(len(case.criteria) for case in cases)
 
 
 @pytest.mark.req("SCO-009")
@@ -220,18 +229,18 @@ def test_duplicate_entry_rejected() -> None:
 @pytest.mark.req("SCO-009")
 def test_check_against_cases_reports_unknown_entries() -> None:
     case = load_test_case(G3)
-    data = example()
+    data = g3_entries()
     data["entries"].append(entry("G4", "a"))
     errors = check_against_cases(accepted(data), [case])
-    assert errors == ["entries[8].case: no case 'G4' in the suite"]
-    data = example()
+    assert errors == ["entries[9].case: no case 'G4' in the suite"]
+    data = g3_entries()
     data["entries"][0]["criterion"] = "final_w"
     data["entries"].sort(key=lambda item: item["criterion"])
     assert any("has no criterion 'final_w'" in error for error in check_against_cases(accepted(data), [case]))
-    data = example()
+    data = g3_entries()
     data["entries"][0]["limit"] = "final within 2 cm of ${target_x}"
     assert any("differs from the case's" in error for error in check_against_cases(accepted(data), [case]))
-    data = example()
+    data = g3_entries()
     data["design"]["version"] = "0.2.0"
     assert any("another design version" in error for error in check_against_cases(accepted(data), [case]))
 

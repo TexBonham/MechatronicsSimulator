@@ -68,8 +68,14 @@ class RopeTension:
 
 @dataclass(frozen=True, slots=True)
 class TransmissionState:
+    """`power_flow` is the C++ `PowerFlow` value: 0 static, 1 forward (shaft drives), 2 backward (back-driven)."""
+
     slip: float = 0.0
     slipping: bool = False
+    shaft_load_torque: float = 0.0
+    force: float = 0.0
+    stretch: float = 0.0
+    power_flow: int = 0
 
 
 @dataclass(frozen=True, slots=True)
@@ -103,6 +109,20 @@ class RecordedEvent:
     detail: str
 
 
+COUPLING_KINDS = ("none", "real", "integer", "flag", "payload")
+
+
+@dataclass(frozen=True, slots=True)
+class CouplingSample:
+    """One coupling variable at the row's sync point (KER-022). A scalar (`real`, `integer`, `flag`) carries its value;
+    an unset variable (`none`) and a typed payload carry NaN, the payload its content digest (`payload_digest`)."""
+
+    name: str
+    kind: str
+    value: float = float("nan")
+    digest: str = ""
+
+
 @dataclass(frozen=True, slots=True)
 class TickRecord:
     """One row per physics tick, simulated time first (REC-011)."""
@@ -114,3 +134,4 @@ class TickRecord:
     actuator_efforts: tuple[SeriesSample, ...] = ()
     controller_state: str = ""
     events: tuple[RecordedEvent, ...] = ()
+    coupling: tuple[CouplingSample, ...] = ()

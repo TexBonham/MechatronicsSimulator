@@ -316,6 +316,63 @@
       "title": "EventCriterion",
       "type": "object"
     },
+    "HoldBandCriterion": {
+      "additionalProperties": false,
+      "description": "Every listed joint stays within `band` of its first sample in the window (SCO-026): a hold that sags and rings\ninside the band is not motion.",
+      "properties": {
+        "band": {
+          "anyOf": [
+            {
+              "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s+\\S.*)?$",
+              "type": "string"
+            },
+            {
+              "pattern": "^\\$\\{[a-z][a-z0-9_]*\\}$",
+              "type": "string"
+            }
+          ],
+          "title": "Band"
+        },
+        "check": {
+          "const": "hold_band",
+          "title": "Check",
+          "type": "string"
+        },
+        "joints": {
+          "items": {
+            "pattern": "^[a-z][a-z0-9_]*$",
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Joints",
+          "type": "array"
+        },
+        "name": {
+          "pattern": "^[a-z][a-z0-9_]*$",
+          "title": "Name",
+          "type": "string"
+        },
+        "window": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Window"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "required": [
+        "name",
+        "check",
+        "joints",
+        "band"
+      ],
+      "title": "HoldBandCriterion",
+      "type": "object"
+    },
     "InitialState": {
       "additionalProperties": false,
       "properties": {
@@ -648,6 +705,25 @@
     "OpenParameter": {
       "additionalProperties": false,
       "properties": {
+        "default": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "additionalProperties": {
+                "type": "string"
+              },
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Value used when neither the case nor --set gives one (DES-044): a quantity string of the parameter's dimension, or a choice value",
+          "title": "Default"
+        },
         "dimension": {
           "description": "pint dimensionality string, or \"choice\" for a non-quantity",
           "minLength": 1,
@@ -1653,6 +1729,7 @@
         "discriminator": {
           "mapping": {
             "event": "#/$defs/EventCriterion",
+            "hold_band": "#/$defs/HoldBandCriterion",
             "interval": "#/$defs/IntervalCriterion",
             "no_motion": "#/$defs/NoMotionCriterion",
             "no_overlap": "#/$defs/NoOverlapCriterion",
@@ -1673,6 +1750,9 @@
           },
           {
             "$ref": "#/$defs/NoMotionCriterion"
+          },
+          {
+            "$ref": "#/$defs/HoldBandCriterion"
           },
           {
             "$ref": "#/$defs/NoOverlapCriterion"
@@ -1771,6 +1851,14 @@
       },
       "title": "Open Parameters",
       "type": "array"
+    },
+    "parameters": {
+      "additionalProperties": {
+        "type": "string"
+      },
+      "description": "Values for open parameters of the design or the case (DES-044); --set overrides them",
+      "title": "Parameters",
+      "type": "object"
     },
     "rates": {
       "anyOf": [

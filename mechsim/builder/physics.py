@@ -7,7 +7,7 @@ which parses back to the same float, and validates the whole model once.
 from __future__ import annotations
 
 import math
-from collections.abc import Collection, Sequence
+from collections.abc import Collection, Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -490,6 +490,66 @@ def _transmission(
     return entry
 
 
+def _rotor_inertias(design: Design, registry: Registry) -> dict[str, tuple[float, list[str]]]:
+    """Shaft joint name -> the rotor inertia of the actuator instances whose shaft mount binds it (kg m^2), and their
+    names.
+
+    Rotor inertia has one source, the motor instance's `rotor_inertia` (coordinator ruling 2026-11-04, BLD-034): the
+    shaft body's axial inertia is set to it and the signal layer reads the same value (SIG-037)."""
+    rotors: dict[str, tuple[float, list[str]]] = {}
+    for component in design.components:
+        if not registry.has_type(component.type):
+            continue
+        kind = registry.component_type(component.type)
+        if kind.category != "actuator":
+            continue
+        concrete = {key: value for key, value in component.overrides.items() if open_name(value) is None}
+        try:
+            values = registry.resolve_part(component.part, concrete).values
+        except RegistryError:
+            continue
+        inertia = values.get("rotor_inertia")
+        if not isinstance(inertia, float) or isinstance(inertia, bool):
+            continue
+        shafts = {mount.name for mount in kind.mechanical.mounts if mount.kind == "shaft"}
+        for binding in component.mechanical:
+            if binding.mount in shafts and isinstance(binding.joint, str):
+                total, motors = rotors.get(binding.joint, (0.0, []))
+                rotors[binding.joint] = (total + inertia, [*motors, component.name])
+    return rotors
+
+
+def _check_rotor_bodies(design: Design, rotors: Mapping[str, tuple[float, list[str]]], collector: Collector) -> None:
+    """A shaft body's axial inertia is its motor's rotor inertia (BLD-034); a declared one would be a second source."""
+    bodies = {body.name: body for body in design.bodies}
+    for joint in design.joints:
+        if joint.name not in rotors:
+            continue
+        body = bodies.get(joint.child)
+        if body is not None and isinstance(body.mass_properties, MassProperties):
+            motors = ", ".join(f"'{name}'" for name in rotors[joint.name][1])
+            collector.failures.append(
+                f"body '{body.name}': declares its own mass properties, but its axial inertia is the rotor inertia "
+                f"of motor {motors} on shaft joint '{joint.name}' (BLD-034)"
+            )
+
+
+def with_rotor(properties: mass.MassProperties, axis: Sequence[float], rotor: float) -> mass.MassProperties:
+    """`properties` with its axial inertia about the joint axis through the center of mass set to `rotor` (kg m^2):
+    I + (J - a^T I a) a a^T, so a^T I' a = J. The rotor turns about the shaft axis, which the design puts through the
+    shaft body's origin; a shaft body's center of mass on that axis makes the two the same."""
+    norm = math.sqrt(sum(value * value for value in axis))
+    a = [value / norm for value in axis]
+    i = properties.inertia
+    axial = sum(a[r] * i[r][c] * a[c] for r in range(3) for c in range(3))
+    added = rotor - axial
+
+    def row(r: int) -> mass.Vector:
+        return (i[r][0] + added * a[r] * a[0], i[r][1] + added * a[r] * a[1], i[r][2] + added * a[r] * a[2])
+
+    return mass.MassProperties(properties.mass, properties.com, (row(0), row(1), row(2)))
+
+
 def _load_torque_joints(design: Design, registry: Registry) -> list[str]:
     joints: list[str] = []
     for component in design.components:
@@ -551,6 +611,8 @@ def build_physics(
     _check_bindings(design, registry, collector)
     if not rigid_members:
         _check_supports(design, collector)
+    rotors = _rotor_inertias(design, registry)
+    _check_rotor_bodies(design, rotors, collector)
     if len(collector.pending) > 0 or len(collector.failures) > 0:
         return empty
     child_joints = {joint.child: joint for joint in design.joints}
@@ -573,6 +635,8 @@ def build_physics(
             raise TypeError(f"body '{body.name}' has neither declared mass properties nor primitives")
         if isinstance(geometry, StepGeometry):
             body_shapes = _step_body(body, geometry, properties, material.density.typ, step_importer, base, collector)
+        if joint.name in rotors and joint.axis is not None and not isinstance(joint.axis, OpenValue):
+            properties = with_rotor(properties, [float(value) for value in joint.axis], rotors[joint.name][0])
         shapes[body.name] = body_shapes
         bodies.append(
             {

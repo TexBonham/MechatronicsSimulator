@@ -221,6 +221,11 @@ class OpenParameter(_Strict):
     dimension: str = Field(min_length=1, description='pint dimensionality string, or "choice" for a non-quantity')
     owed_by: str = Field(min_length=1)
     note: str = Field(min_length=1)
+    default: str | dict[str, str] | None = Field(
+        default=None,
+        description="Value used when neither the case nor --set gives one (DES-044): a quantity string of the "
+        "parameter's dimension, or a choice value",
+    )
 
     @field_validator("dimension")
     @classmethod
@@ -232,6 +237,25 @@ class OpenParameter(_Strict):
         except Exception as error:
             raise ValueError(f"unknown dimension {value!r}") from error
         return value
+
+    @model_validator(mode="after")
+    def _default_fits(self) -> OpenParameter:
+        if self.default is None:
+            return self
+        if isinstance(self.default, dict):
+            if self.dimension != CHOICE:
+                raise ValueError(f"default of {self.name!r}: a mapping is only a choice value")
+            return self
+        if len(self.default) == 0:
+            raise ValueError(f"default of {self.name!r} is empty")
+        if open_name(self.default) is not None:
+            raise ValueError(f"default of {self.name!r} may not be an open value")
+        if self.dimension != CHOICE:
+            try:
+                parse_quantity(self.default, self.dimension)
+            except Exception as error:
+                raise ValueError(f"default of {self.name!r}: {error}") from error
+        return self
 
 
 # ===== Bodies ==========================================================
@@ -587,6 +611,23 @@ class SignalDeclaration(_Strict):
     direction: Literal["emits", "consumes"]
 
 
+class Senses(_Strict):
+    """What a sensor instance reads (DES-043): the joint coordinate, and per type the switch position along the joint
+    and its actuation side (limit_switch) or the count direction (incremental_encoder)."""
+
+    joint: OpenName
+    position: Length | None = None
+    actuate_above: bool | None = None
+    reversed: bool | None = None
+
+
+SENSES_FIELDS: dict[str, tuple[str, ...]] = {
+    "limit_switch": ("position", "actuate_above"),
+    "incremental_encoder": ("reversed",),
+}
+SENSES_REQUIRED: dict[str, tuple[str, ...]] = {"limit_switch": ("position", "actuate_above")}
+
+
 class ComponentInstance(_Strict):
     name: Name
     type: Name
@@ -594,6 +635,7 @@ class ComponentInstance(_Strict):
     overrides: dict[Name, str | bool] = Field(default_factory=dict)
     mechanical: list[MechanicalBinding] = Field(default_factory=list)
     signals: list[SignalDeclaration] = Field(default_factory=list)
+    senses: Senses | None = None
 
 
 class Wire(_Strict):
@@ -688,15 +730,43 @@ class Environment(_Strict):
         return self
 
 
+def _code_keys(value: Any) -> Any:
+    if isinstance(value, dict):
+        return {str(key): item for key, item in value.items()}
+    return value
+
+
+CodeNames = Annotated[dict[str, Name], BeforeValidator(_code_keys)]
+
+
 class Firmware(_Strict):
+    """`state_codes` and `fault_codes` name the firmware's reported `state_code` and `fault_code` values (DES-045);
+    the application target is `mechsim_fw_<design name>` in the firmware tree (DES-040)."""
+
     path: RepoPath
     chip: OpenName
     tick_rate: Frequency
+    state_codes: CodeNames = Field(default_factory=dict, description="state_code value (0..255) to state name")
+    fault_codes: CodeNames = Field(default_factory=dict, description="fault_code value (0..255) to fault name")
 
     @model_validator(mode="after")
     def _positive(self) -> Firmware:
         _require_positive(self.tick_rate, "tick_rate")
+        errors: list[str] = []
+        for what, table in (("state_codes", self.state_codes), ("fault_codes", self.fault_codes)):
+            for key in table:
+                if not key.isdigit() or int(key) > 255 or str(int(key)) != key:
+                    errors.append(f"{what}: code {key!r} is not an integer 0..255")
+            _duplicates(list(table.values()), f"{what} name", errors)
+        if len(errors) > 0:
+            raise ValueError("; ".join(errors))
         return self
+
+    def state_name(self, code: int) -> str | None:
+        return self.state_codes.get(str(code))
+
+    def fault_name(self, code: int) -> str | None:
+        return self.fault_codes.get(str(code))
 
 
 class MessageField(_Strict):
@@ -1007,6 +1077,7 @@ def _check_component(
             errors.append(f"{where}.body: unknown body {binding.body!r}")
         if isinstance(binding.joint, str) and binding.joint not in joints:
             errors.append(f"{where}.joint: unknown joint {binding.joint!r}")
+    _check_senses(path, component, kind.category, joints, errors)
     pins = {pin.name: pin for pin in kind.electrical.pins}
     used_pins: set[str] = set()
     for signal_index, signal in enumerate(component.signals):
@@ -1026,6 +1097,27 @@ def _check_component(
             errors.append(
                 f"{where}.direction: pin {signal.pin!r} is {pins[signal.pin].direction} and cannot {signal.direction}"
             )
+
+
+def _check_senses(path: str, component: ComponentInstance, category: str, joints: set[str], errors: list[str]) -> None:
+    senses = component.senses
+    if category != "sensor":
+        if senses is not None:
+            errors.append(f"{path}.senses: only sensor instances carry senses; {component.type!r} is a {category}")
+        return
+    if senses is None:
+        errors.append(f"{path}.senses: sensor instance {component.name!r} must name the joint it senses")
+        return
+    if isinstance(senses.joint, str) and senses.joint not in joints:
+        errors.append(f"{path}.senses.joint: unknown joint {senses.joint!r}")
+    allowed = SENSES_FIELDS.get(component.type, ())
+    for field in ("position", "actuate_above", "reversed"):
+        value = getattr(senses, field)
+        if value is not None and field not in allowed:
+            errors.append(f"{path}.senses.{field}: type {component.type!r} takes no {field}")
+    for field in SENSES_REQUIRED.get(component.type, ()):
+        if getattr(senses, field) is None:
+            errors.append(f"{path}.senses.{field}: required for type {component.type!r}")
 
 
 def _check_signals(design: Design, errors: list[str]) -> None:

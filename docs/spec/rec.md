@@ -61,6 +61,7 @@ proposed <value>)".
 | REC-025 | The run archive shall record how the run ended: end condition reached, or the run error report with its simulated time. | Architecture doc, Data flows, run step 4; Repository starting point, invariant 7 | M1 | unit | n/a |
 | REC-026 | The recorder shall record every rope tension on every physics tick. | Architecture doc, Modules: core, Physics engine row, Interface out | M3 | unit | n/a |
 | REC-027 | The recorder shall record the actuator torques and forces the signal layer applies to physics on every tick. | Architecture doc, Modules: core, Signal layer row, Interface out; Requirements doc, Outputs and acceptance criteria, Outputs per run | M1 | unit | n/a |
+| REC-028 | The recorder shall record every coupling variable at each row's sync point, a scalar by value and a typed payload by the SHA-256 digest of its canonical content, so that run-twice comparison covers the co-simulation traffic. | Architecture doc, Repository starting point, invariant 4; KER-022 | M1 | unit | n/a |
 
 ## Open parameters
 

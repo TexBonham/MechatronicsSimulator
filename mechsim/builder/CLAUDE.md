@@ -12,7 +12,7 @@ to source_hash, zeros when unset; `rigid_members` builds flexible bodies rigid, 
 |---|---|
 | `design`, `module_instances` | the Design; instances in KER-009 tick order (`build.module_order`, D1 seeding) |
 | `physics` | neutral `PhysicsModel`; None for a draft with open physics (run step stays the 1 ms default) |
-| `wiring` | instances (parameters, emits, consumes, mounts, rails), bindings (pin, mode, channel), rails, gating, operator_links |
+| `wiring` | instances (parameters, emits, consumes, mounts, rails, `senses` `Sensing(joint, position, actuate_above, reversed)`, `torque_speed` ((rad/s, N m), ...) from the part curve; BLD-035), bindings (pin, mode, channel), rails, gating, operator_links |
 | `chip` | name, placeholder, bindings, `channels_header` (`channels.h`) |
 | `members`, `lumped` | structural members; `LumpedRecord` (spans, masses, E I / l, calibration) |
 | `pending`, `notes` | open-value paths (sorted); non-fatal notes |

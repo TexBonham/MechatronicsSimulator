@@ -13,6 +13,7 @@
 #include "mechsim/kernel/physics_adapter.hpp"
 #include "mechsim/kernel/physics_types.hpp"
 #include "mechsim/kernel/tick_record.hpp"
+#include "mechsim/kernel/time.hpp"
 
 namespace mechsim::kernel {
 
@@ -70,6 +71,15 @@ void PhysicsParty::read_inputs(const CouplingReader& inputs) {
         }
         pending_.body_wrenches.insert(pending_.body_wrenches.end(), part.body_wrenches.begin(),
                                       part.body_wrenches.end());
+        for (const JointDrive& drive : part.joint_drives) {
+            for (const JointDrive& held : pending_.joint_drives) {
+                if (held.joint == drive.joint) {
+                    throw KernelConfigError("physics input '" + source + "': a second drive on joint " +
+                                            std::to_string(drive.joint) + " in one tick (KER-027)");
+                }
+            }
+            pending_.joint_drives.push_back(drive);
+        }
         has_pending_ = true;
     }
 }

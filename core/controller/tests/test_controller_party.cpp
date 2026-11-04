@@ -48,6 +48,7 @@ public:
         outputs_.joints.resize(1);
         outputs_.transmissions.resize(1);
         outputs_.transmissions[0].shaft_load_torque = load_torque;
+        outputs_.joint_positions = {0.0};
     }
     [[nodiscard]] std::span<const std::string> supported_elements() const override { return {}; }
     void load(const kernel::PreparedModel& /*model*/, const kernel::Rate& /*rate*/) override {}
@@ -58,6 +59,7 @@ public:
         ++outputs_.steps;
         const double angle = turn_per_step * static_cast<double>(outputs_.steps);
         outputs_.bodies[0].orientation = {std::cos(angle / 2.0), 0.0, 0.0, std::sin(angle / 2.0)};
+        outputs_.joint_positions[0] = angle;
     }
     [[nodiscard]] const kernel::PhysicsOutputs& outputs() const override { return outputs_; }
     [[nodiscard]] kernel::PhysicsHealth health() const override { return kernel::PhysicsHealth{}; }
@@ -119,7 +121,7 @@ std::unique_ptr<signals::SignalLayer> chain_layer() {
     config.rails = {RailSpec{"motor_power", "motor_supply.voltage", {}, {"x_driver.vmot"}},
                     RailSpec{"logic", "logic_supply.voltage", {}, {}}};
     config.controller_rail = "logic";
-    config.actuators = {ActuatorOutput{"x_motor.torque", 0, "N*m"}};
+    config.actuators = {ActuatorOutput{"x_motor.torque", 0, "N*m", false}};
     config.velocity_dofs = 1;
     auto layer = std::make_unique<SignalLayer>(std::move(config));
     layer->add_component(std::make_unique<PowerSupply>("motor_supply", 24.0), Stage::power);
@@ -145,7 +147,7 @@ std::unique_ptr<signals::SignalLayer> chain_layer() {
 // Physics -> signals -> controller -> signals -> physics with no setter call: every value below crossed the kernel's
 // coupling table (KER-008, KER-020, invariant 1).
 TEST_CASE("Physics, signal layer and controller parties exchange every crossing through the kernel",
-          "[KER-008][KER-009][KER-020][SIG-024][CTL-014]") {
+          "[KER-008][KER-009][KER-020][SIG-024][CTL-014][KER-027]") {
     auto seen = std::make_shared<Seen>();
     kernel::CoSimKernel kernel{kernel::RunConfig{}};
     kernel.register_party(
@@ -177,13 +179,21 @@ TEST_CASE("Physics, signal layer and controller parties exchange every crossing 
         CHECK(layer_view->signal_value("x_driver.full_steps") == 1.0);
         CHECK(layer_view->signal_value("x_motor.stalled") == 0.0);
     }
-    SECTION("physics party: the layer's actuator torque, demand = J alpha + load with J = 0") {
+    SECTION("physics party: the layer's stepper drive on the shaft joint, its torque never fed forward") {
         REQUIRE(seen->physics_inputs.size() == 5);
         CHECK(seen->physics_inputs[0].generalized_forces.empty());
-        // Tick 1 applies the layer's tick 0 output, before any pin output: driver disabled, no torque available.
-        // Tick 2 applies tick 1's, driven by the controller's tick 0 pulses: the stepper demands the load torque.
+        CHECK(seen->physics_inputs[0].joint_drives.empty());
+        // Tick 1 applies the layer's tick 0 output, before any pin output: driver disabled, the drive off. Tick 2
+        // applies tick 1's, driven by the controller's tick 0 pulses: the drive is on, one step past the shaft.
         CHECK(seen->physics_inputs[1].generalized_forces == std::vector<double>{0.0});
-        CHECK(seen->physics_inputs[2].generalized_forces == std::vector<double>{load_torque});
+        REQUIRE(seen->physics_inputs[1].joint_drives.size() == 1);
+        CHECK_FALSE(seen->physics_inputs[1].joint_drives[0].enabled);
+        CHECK(seen->physics_inputs[2].generalized_forces == std::vector<double>{0.0});
+        REQUIRE(seen->physics_inputs[2].joint_drives.size() == 1);
+        const kernel::JointDrive& hold = seen->physics_inputs[2].joint_drives[0];
+        CHECK(hold.enabled);
+        CHECK(hold.joint == 0);
+        CHECK(std::abs(hold.rest - (turn_per_step + (std::numbers::pi / 100.0))) < 1e-12);
     }
     SECTION("the coupling table holds every crossing, publisher by name") {
         const kernel::CouplingTable& table = kernel.coupling();

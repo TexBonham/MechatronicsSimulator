@@ -14,6 +14,7 @@ from mechsim.builder.result import (
     OperatorLink,
     PinAssignment,
     RailWiring,
+    Sensing,
     WiringTable,
 )
 from mechsim.design.chip import Chip
@@ -65,6 +66,9 @@ def _instance(
         mounts.append(
             MountBinding(mount=binding.mount, kind=mount_kinds.get(binding.mount, "unknown"), body=body, joint=joint)
         )
+    torque_speed: tuple[tuple[float, float], ...] = ()
+    if part.torque_speed_curve is not None:
+        torque_speed = tuple((float(point.speed), float(point.torque)) for point in part.torque_speed_curve)
     return InstanceWiring(
         name=component.name,
         type=component.type,
@@ -75,7 +79,24 @@ def _instance(
         consumes=tuple(signal.name for signal in component.signals if signal.direction == "consumes"),
         mounts=tuple(mounts),
         rails=tuple(rails.get(component.name, [])),
+        senses=_sensing(index, component, collector),
+        torque_speed=torque_speed,
     )
+
+
+def _sensing(index: int, component: ComponentInstance, collector: Collector) -> Sensing | None:
+    senses = component.senses
+    if senses is None:
+        return None
+    joint = senses.joint
+    position = senses.position
+    if isinstance(joint, OpenValue):
+        collector.pending.append(f"components[{index}].senses.joint")
+        return None
+    if isinstance(position, OpenValue):
+        collector.pending.append(f"components[{index}].senses.position")
+        return None
+    return Sensing(joint=joint, position=position, actuate_above=senses.actuate_above, reversed=senses.reversed is True)
 
 
 # ===== Pin bindings =====================================================

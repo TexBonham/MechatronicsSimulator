@@ -69,12 +69,16 @@ class EndSpec:
 
 @dataclass(frozen=True)
 class RunReport:
-    """How a run ended (KER RunReport plus the reason); `error` names the party and cause on a run error."""
+    """How a run ended (KER RunReport plus the reason); `error` names the party and cause on a run error;
+    `approximations` are the physics bridge's translation report lines (ADR 0003, invariant 7)."""
 
     reason: EndReason
     end_tick: int
     base_rate: Fraction
     error: str | None = None
+    sink_errors: tuple[str, ...] = ()
+    hook_errors: tuple[str, ...] = ()
+    approximations: tuple[str, ...] = ()
 
     @property
     def errored(self) -> bool:
@@ -155,7 +159,8 @@ class SimulationDriver(Protocol):
 
 @dataclass(frozen=True)
 class RunMetadata:
-    """What an archive records beside the rows (L8): identity of design, case, seed, mode, sweep value."""
+    """What an archive records beside the rows (L8): identity of design, case, seed, mode, sweep value, and the run
+    configuration's control rate (None without a controller: the archive records the base rate)."""
 
     run_id: str
     case_id: str
@@ -168,6 +173,7 @@ class RunMetadata:
     sweep: tuple[str, str] | None
     report: RunReport
     bindings: tuple[tuple[str, str], ...] = field(default_factory=tuple)
+    control_rate: Fraction | None = None
 
 
 class Archiver(Protocol):

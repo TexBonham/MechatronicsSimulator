@@ -157,6 +157,55 @@ TEST_CASE("Physics party refuses inputs of unequal sizes", "[KER-016]") {
     CHECK(report.end_time == SimTime(1));
 }
 
+TEST_CASE("Physics party passes joint drives through and refuses two drives on one joint in a tick", "[KER-027]") {
+    for (const bool clash : {false, true}) {
+        auto shared = std::make_shared<CountingAdapter::Shared>();
+        std::vector<std::string> log;
+        CoSimKernel kernel{RunConfig{}};
+        PhysicsPartyConfig config;
+        config.inputs = {"a.inputs", "b.inputs"};
+        kernel.register_party(std::make_unique<PhysicsParty>(std::make_unique<CountingAdapter>(shared), config));
+        auto a = std::make_unique<ScriptedParty>("a", Rate(1000), log);
+        a->published_names = {"a.inputs", "b.inputs"};
+        a->on_write = [clash](SimTime, CouplingWriter& out) {
+            PhysicsInputs first;
+            first.joint_drives.push_back(JointDrive{2, 0.5, 20.0, 1e-4, true});
+            PhysicsInputs second;
+            std::size_t joint = 4;
+            if (clash) {
+                joint = 2;
+            }
+            second.joint_drives.push_back(JointDrive{joint, -1.0, 3.0, 0.0, false});
+            out.set("a.inputs", make_payload(first, "PhysicsInputs"));
+            out.set("b.inputs", make_payload(second, "PhysicsInputs"));
+        };
+        kernel.register_party(std::move(a));
+        InMemoryRecorderSink sink;
+        const RunReport report = kernel.run(EndCondition{Seconds(2, 1000), {}}, sink);
+        if (clash) {
+            REQUIRE(report.outcome == RunOutcome::run_error);
+            const PartyFault fault = report.fault.value_or(PartyFault("none", SimTime(), ""));
+            CHECK(fault.party() == "physics");
+            CHECK(fault.cause().find("second drive on joint 2") != std::string::npos);
+            continue;
+        }
+        REQUIRE(report.outcome == RunOutcome::end_condition_met);
+        REQUIRE(shared->received.size() == 2);
+        CHECK(shared->received[0].joint_drives.empty());
+        const std::vector<JointDrive>& drives = shared->received[1].joint_drives;
+        REQUIRE(drives.size() == 2);
+        CHECK(drives[0].joint == 2);
+        CHECK(drives[0].rest == 0.5);
+        CHECK(drives[0].stiffness == 20.0);
+        CHECK(drives[0].damping == 1e-4);
+        CHECK(drives[0].enabled);
+        CHECK(drives[1].joint == 4);
+        CHECK(drives[1].rest == -1.0);
+        CHECK_FALSE(drives[1].enabled);
+        CHECK(shared->received[1].generalized_forces.empty());
+    }
+}
+
 TEST_CASE("A controller party consuming a physics party's output is a config error", "[KER-020]") {
     auto shared = std::make_shared<CountingAdapter::Shared>();
     std::vector<std::string> log;

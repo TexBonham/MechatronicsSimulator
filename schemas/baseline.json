@@ -77,7 +77,8 @@
         "worst_time": {
           "anyOf": [
             {
-              "type": "number"
+              "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?\\s+\\S.*$",
+              "type": "string"
             },
             {
               "type": "null"
@@ -146,6 +147,20 @@
       "minItems": 1,
       "title": "Entries",
       "type": "array"
+    },
+    "note": {
+      "anyOf": [
+        {
+          "minLength": 1,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "a flag on the whole baseline, e.g. placeholder-geometry (SCO-009)",
+      "title": "Note"
     },
     "suite": {
       "pattern": "^[a-z][a-z0-9_]*$",

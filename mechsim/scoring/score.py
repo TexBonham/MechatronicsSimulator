@@ -8,7 +8,7 @@ a run error is scored as errored, every criterion with it (SCO-007, TST-023). A 
 from __future__ import annotations
 
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any, Literal
 
 from mechsim.design.schema import OpenValue
@@ -19,6 +19,7 @@ from mechsim.testing.schema import (
     Case,
     DesignRef,
     EventCriterion,
+    HoldBandCriterion,
     IntervalCriterion,
     NoMotionCriterion,
     NoOverlapCriterion,
@@ -74,6 +75,7 @@ class CaseScore:
     error: str | None = None
     sweep: tuple[str, str] | None = None
     run: RunIdentity | None = None
+    approximations: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -132,6 +134,7 @@ def score_run(
         error=report.error,
         sweep=sweep,
         run=run,
+        approximations=report.approximations,
     )
 
 
@@ -145,6 +148,13 @@ def not_run(
         criteria = tuple(CriterionResult(item.name, "error", item.limit_text(), note=error) for item in case.criteria)
         mode = case.controller_mode
     return CaseScore(case_id, "error", criteria, design, seed, mode, ran=False, error=error, sweep=sweep)
+
+
+def run_failed(case: Case, error: str, sweep: tuple[str, str] | None = None) -> CaseScore:
+    """A run the driver could not carry out once asked (a typed driver error from `run`, invariant 7): errored with
+    end reason run_error and the message; no recording, so nothing is scored and no end time is stated."""
+    score = not_run(case, case.id, case.design, case.seed, f"run error: {error}", sweep)
+    return replace(score, end_reason="run_error")
 
 
 def _limit_text(criterion: Any, limits: dict[str, str] | None) -> str:
@@ -181,6 +191,8 @@ def _evaluate(criterion: Any, recording: RecordView, limit: str) -> CriterionRes
         return _settle(criterion, recording, limit)
     if isinstance(criterion, NoMotionCriterion):
         return _no_motion(criterion, recording, limit)
+    if isinstance(criterion, HoldBandCriterion):
+        return _hold_band(criterion, recording, limit)
     if isinstance(criterion, NoOverlapCriterion):
         raise _UnevaluableError("no_overlap needs actuator command records, not evaluated in milestone 1 (SCO-025)")
     raise _UnevaluableError(f"unknown criterion {criterion!r}")
@@ -340,6 +352,24 @@ def _no_motion(criterion: NoMotionCriterion, recording: RecordView, limit: str) 
     return CriterionResult(criterion.name, _status(measured <= threshold), limit, measured, unit, worst)
 
 
+def _hold_band(criterion: HoldBandCriterion, recording: RecordView, limit: str) -> CriterionResult:
+    """The largest excursion of any listed joint's position from its first sample in the window, against the band."""
+    band = _number(criterion.band, "band")
+    measured = 0.0
+    worst: float | None = None
+    unit = ""
+    for joint in criterion.joints:
+        series = recording.series(f"joint:{joint}.position")
+        times, values = _windowed(series, criterion.window)
+        for time, value in zip(times, values, strict=True):
+            excursion = abs(value - values[0])
+            if worst is None or excursion > measured:
+                measured = excursion
+                worst = time
+                unit = series.unit
+    return CriterionResult(criterion.name, _status(measured <= band), limit, measured, unit, worst)
+
+
 # ===== Suite, baseline and report =======================================
 
 
@@ -406,10 +436,14 @@ def _case_lines(case: CaseScore) -> list[str]:
     ]
     if case.ran and case.end_time is not None:
         lines.append(f"  ended: {case.end_reason} at {case.end_time:.12g} s")
+    elif case.end_reason == "run_error":
+        lines.append("  ended: run_error, no recording")
     else:
         lines.append("  not run")
     if case.error is not None:
         lines.append(f"  error: {case.error}")
+    for line in case.approximations:
+        lines.append(f"  approximation: {line}")
     for result in case.criteria:
         measured = result.measured_text()
         if measured is None:

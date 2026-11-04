@@ -1,9 +1,9 @@
 # Gantry reference design (DES-025), draft. Values the requirements doc gives are set: 1 cm position accuracy, 1 kHz
 # control tick (C4), rated load plus 15 percent design-load rule. Physics stand-ins are marked PLACEHOLDER; everything
-# else is a ${name} open parameter owed by the gantry team. Kinematic chain: frame on the world; rail_x fixed on
-# the frame; rail_y travels along x on rail_x; the trolley travels along y on rail_y; the lift carriage travels along z
-# on the trolley (lead screw); the hook hangs
-# from the lift carriage. Each axis motor drives a shaft body on a revolute joint. MCU pin names come from the
+# else is a ${name} open parameter owed by the gantry team. Every open parameter carries a default (DES-044), a
+# PLACEHOLDER UNTIL THE GANTRY TEAM RULES: the run uses it when neither the case nor --set gives a value. Kinematic
+# chain: frame on the world; rail_x fixed on the frame; rail_y travels along x on rail_x; the trolley travels along y
+# on rail_y; the lift carriage travels along z on the trolley (lead screw); the hook hangs from the lift carriage. Each axis motor drives a shaft body on a revolute joint. MCU pin names come from the
 # placeholder chip chips/stm32_placeholder until the STM32 part is selected. The controller heartbeat is a digital
 # output pin bound to the watchdog's heartbeat port; the watchdog and the E-stop relay both gate motor power.
 name: gantry
@@ -16,136 +16,173 @@ open_parameters:
     dimension: "[length]"
     owed_by: gantry team
     note: X travel of the rectangular workspace; requirements doc says not set.
+    default: "1 m"
   - name: workspace_y
     dimension: "[length]"
     owed_by: gantry team
     note: Y travel of the rectangular workspace; requirements doc says not set.
+    default: "0.8 m"
   - name: lift_travel
     dimension: "[length]"
     owed_by: gantry team
     note: Vertical travel of the hook lift.
+    default: "0.5 m"
   - name: rated_load
     dimension: "[mass]"
     owed_by: gantry team
     note: Requirements doc says a few pounds; the walkthrough used 3 kg; exact value not set.
+    default: "3 kg"
   - name: cad_model
     dimension: choice
     owed_by: gantry team
     note: Body geometry, mass properties, joint placements and motor shaft axes come from the Fusion 360 model (row 23).
+    default: "placeholder_primitives"
   - name: body_materials
     dimension: choice
     owed_by: gantry team
     note: Material and process of the frame, trolley, lift carriage, hook and motor shafts.
+    default: "aluminium_6063_t5_extrusion"
   - name: rail_section_area
     dimension: "[length] ** 2"
     owed_by: gantry team
     note: Rail extrusion section area (row 17 planning default, rails flexible with extrusion sections).
+    default: "1.5e-4 m**2"
   - name: rail_section_second_moment
     dimension: "[length] ** 4"
     owed_by: gantry team
     note: Rail extrusion section second moment of area.
+    default: "2e-8 m**4"
   - name: rail_calibration
     dimension: choice
     owed_by: gantry team
     note: Known deflection and first natural frequency each rail is calibrated to, from hand calculation or FEA.
+    default:
+      source: hand
+      load: 100 N
+      deflection: 1 mm
+      first_natural_frequency: 50 Hz
   - name: encoder_placement
     dimension: choice
     owed_by: gantry team
     note: Motor shaft or axis side (row 14); both supported.
+    default: "frame"
   - name: load_cell_type
     dimension: choice
     owed_by: gantry team
     note: Weight sensor slot; the shipped catalog has no load cell type yet, so no instance is declared.
+    default: "none"
   - name: deflection_target_mode
     dimension: choice
     owed_by: gantry team
     note: Whether the 1 cm deflection target is static or dynamic (row 17; planning default static, dynamic reported).
+    default: "static"
   - name: minimum_safety_factor
     dimension: dimensionless
     owed_by: gantry team
     note: Minimum structural safety factor (ADR 0009); whether it lives in the design or the test case is also open.
+    default: "2"
   - name: swing_limit_angle
     dimension: dimensionless
     owed_by: gantry team
     note: Limit for load swing angle.
+    default: "0.1"
   - name: swing_settle_time
     dimension: "[time]"
     owed_by: gantry team
     note: Limit for load swing settle time.
+    default: "5 s"
   - name: new_target_policy
     dimension: choice
     owed_by: gantry team
     note: New target during a move, cancel and replace or queue.
+    default: "reject"
   - name: lift_while_moving_policy
     dimension: choice
     owed_by: gantry team
     note: Whether lifting is allowed while moving.
+    default: "reject"
   - name: power_loss_hold
     dimension: choice
     owed_by: gantry team
     note: How the gantry holds its load when power is cut, brake or self-locking lead screw.
+    default: "self_locking_screw"
   - name: stm32_part
     dimension: choice
     owed_by: gantry team
     note: >-
       STM32 chip, not selected; firmware.chip names chips/stm32_placeholder meanwhile, and the selected part replaces
       it with its own chip definition.
+    default: "stm32_placeholder"
   - name: logic_supply
     dimension: choice
     owed_by: gantry team
     note: Supply of the controller's logic rail.
+    default: "logic_psu"
   - name: ambient_temperature
     dimension: "[temperature]"
     owed_by: gantry team
     note: Ambient temperature of the operating environment.
+    default: "298.15 K"
   - name: contact_stiffness
     dimension: "[mass] / [time] ** 2"
     owed_by: gantry team
     note: Default normal contact stiffness (DES-042, ADR 0002).
+    default: "100000 N/m"
   - name: contact_damping
     dimension: "[mass] / [time]"
     owed_by: gantry team
     note: Default normal contact damping.
+    default: "1000 N*s/m"
   - name: contact_friction
     dimension: dimensionless
     owed_by: gantry team
     note: Default Coulomb friction coefficient.
+    default: "0.5"
   - name: axis_friction
     dimension: "[mass] * [length] / [time] ** 2"
     owed_by: gantry team
     note: Friction force of each linear axis.
+    default: "0 N"
   - name: axis_damping
     dimension: "[mass] / [time]"
     owed_by: gantry team
     note: Viscous damping of each linear axis.
+    default: "0 N*s/m"
   - name: axis_backlash
     dimension: "[length]"
     owed_by: gantry team
     note: Backlash of each linear axis.
+    default: "0 m"
   - name: shaft_friction
     dimension: "[mass] * [length] ** 2 / [time] ** 2"
     owed_by: gantry team
     note: Friction torque of each motor shaft bearing.
+    default: "0 N*m"
   - name: shaft_damping
     dimension: "[mass] * [length] ** 2 / [time]"
     owed_by: gantry team
     note: Viscous damping of each motor shaft bearing.
+    default: "0 N*m*s"
   - name: shaft_backlash
     dimension: dimensionless
     owed_by: gantry team
     note: Angular backlash of each motor shaft.
+    default: "0"
   - name: hook_friction
     dimension: "[mass] * [length] ** 2 / [time] ** 2"
     owed_by: gantry team
     note: Friction torque of the hook suspension.
+    default: "0 N*m"
   - name: hook_damping
     dimension: "[mass] * [length] ** 2 / [time]"
     owed_by: gantry team
     note: Viscous damping of the hook suspension.
+    default: "0 N*m*s"
   - name: hook_backlash
     dimension: dimensionless
     owed_by: gantry team
     note: Angular backlash of the hook suspension.
+    default: "0"
 environment:
   gravity: [0 m/s**2, 0 m/s**2, -9.81 m/s**2]
   ambient_temperature: ${ambient_temperature}
@@ -471,6 +508,10 @@ components:
   - name: lift_screw
     type: lead_screw
     part: tr8x8_generic
+    # Milestone 1: the MuJoCo bridge refuses backlash until milestone 2 (PHY-006), so the design zeroes it here; the
+    # catalog part keeps its 0.1 mm.
+    overrides:
+      backlash: 0 mm
     mechanical:
       - mount: drive_end
         joint: lift_motor_spin
@@ -486,6 +527,10 @@ components:
       - name: x_min_switch.out
         pin: out
         direction: emits
+    senses:
+      joint: x_axis
+      position: 0 m
+      actuate_above: false
   - name: x_max_switch
     type: limit_switch
     part: microswitch_generic
@@ -496,6 +541,11 @@ components:
       - name: x_max_switch.out
         pin: out
         direction: emits
+    # PLACEHOLDER position: the axis travel of this draft (joint upper limit), until the gantry team's CAD.
+    senses:
+      joint: x_axis
+      position: 1 m
+      actuate_above: true
   - name: y_min_switch
     type: limit_switch
     part: microswitch_generic
@@ -506,6 +556,10 @@ components:
       - name: y_min_switch.out
         pin: out
         direction: emits
+    senses:
+      joint: y_axis
+      position: 0 m
+      actuate_above: false
   - name: y_max_switch
     type: limit_switch
     part: microswitch_generic
@@ -516,6 +570,11 @@ components:
       - name: y_max_switch.out
         pin: out
         direction: emits
+    # PLACEHOLDER position: the axis travel of this draft (joint upper limit), until the gantry team's CAD.
+    senses:
+      joint: y_axis
+      position: 0.8 m
+      actuate_above: true
   - name: lift_min_switch
     type: limit_switch
     part: microswitch_generic
@@ -526,6 +585,10 @@ components:
       - name: lift_min_switch.out
         pin: out
         direction: emits
+    senses:
+      joint: lift_axis
+      position: 0 m
+      actuate_above: false
   - name: lift_max_switch
     type: limit_switch
     part: microswitch_generic
@@ -536,6 +599,11 @@ components:
       - name: lift_max_switch.out
         pin: out
         direction: emits
+    # PLACEHOLDER position: the axis travel of this draft (joint upper limit), until the gantry team's CAD.
+    senses:
+      joint: lift_axis
+      position: 0.5 m
+      actuate_above: true
   - name: x_encoder
     type: incremental_encoder
     part: encoder_600ppr_generic
@@ -549,6 +617,8 @@ components:
       - name: x_encoder.channel_b
         pin: channel_b
         direction: emits
+    senses:
+      joint: x_motor_spin
   - name: y_encoder
     type: incremental_encoder
     part: encoder_600ppr_generic
@@ -562,6 +632,8 @@ components:
       - name: y_encoder.channel_b
         pin: channel_b
         direction: emits
+    senses:
+      joint: y_motor_spin
   - name: lift_encoder
     type: incremental_encoder
     part: encoder_600ppr_generic
@@ -575,9 +647,18 @@ components:
       - name: lift_encoder.channel_b
         pin: channel_b
         direction: emits
+    senses:
+      joint: lift_motor_spin
   - name: motor_supply
     type: power_supply
     part: psu_24v_10a_generic
+  # PLACEHOLDER logic supply (open parameter logic_supply): the generic supply part set to 3.3 V.
+  - name: logic_psu
+    type: power_supply
+    part: psu_24v_10a_generic
+    overrides:
+      output_voltage: 3.3 V
+      max_current: 1 A
   - name: estop
     type: estop_relay
     part: estop_relay_24v_generic
@@ -629,6 +710,18 @@ wiring:
     destination: lift_motor.coil_a
   - source: lift_driver.coil_b
     destination: lift_motor.coil_b
+  - source: logic_psu.v_out
+    destination: x_encoder.vcc
+  - source: logic_psu.gnd
+    destination: x_encoder.gnd
+  - source: logic_psu.v_out
+    destination: y_encoder.vcc
+  - source: logic_psu.gnd
+    destination: y_encoder.gnd
+  - source: logic_psu.v_out
+    destination: lift_encoder.vcc
+  - source: logic_psu.gnd
+    destination: lift_encoder.gnd
 pin_bindings:
   - signal: x_driver.step
     pin: PA0
@@ -713,9 +806,27 @@ power:
       consumers: [x_encoder, y_encoder, lift_encoder]
   controller_rail: logic
 firmware:
+  # Application target mechsim_fw_gantry in the firmware tree (DES-040). Codes: firmware/app/gantry/gantry_config.h.
   path: firmware
   chip: stm32_placeholder
   tick_rate: 1 kHz
+  state_codes:
+    1: not_homed
+    2: homing
+    3: ready
+    4: moving
+    5: fault
+  fault_codes:
+    0: none
+    1: not_homed
+    2: outside_workspace
+    3: busy
+    4: malformed
+    5: queue_full
+    6: in_fault
+    7: homing_failed
+    8: event_overflow
+    9: tx_overflow
 operator_messages:
   - name: target
     label: target (x, y)
@@ -739,10 +850,17 @@ operator_messages:
         dimension: "[length]"
       - name: y
         dimension: "[length]"
-  - name: ready_fault
+  # The controller's status after every state change, refusal and fault: its state and fault codes (firmware
+  # state_codes and fault_codes).
+  - name: status
     label: ready / fault
     source: controller
     destination: operator
+    fields:
+      - name: state
+        dimension: dimensionless
+      - name: fault
+        dimension: dimensionless
 structural:
   design_load:
     rated_load: ${rated_load}

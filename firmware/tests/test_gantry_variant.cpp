@@ -28,7 +28,7 @@ TEST_CASE("at 500 Hz the cruise step rate doubles per tick and the move still la
     plant.tick("target 0.4 0.2\n");
     REQUIRE(plant.run_until(
                 [&peak](const mechsim_board_outputs& o) {
-                    peak = std::max(peak, o.step_count[GANTRY_CH_X_STEP]);
+                    peak = std::max(peak, o.step_count[MECHSIM_CH_X_DRIVER_STEP]);
                     return ready(o);
                 },
                 100000)
@@ -59,7 +59,7 @@ TEST_CASE("queue policy holds one target during a move and refuses a second", "[
     out = plant.tick();
     peak_x = plant.position[0];
     REQUIRE(out.state_code == GANTRY_STATE_MOVING);
-    REQUIRE(out.digital_out[GANTRY_CH_X_DIR] == GANTRY_DIR_NEGATIVE_LEVEL);
+    REQUIRE(out.digital_out[MECHSIM_CH_X_DRIVER_DIR] == GANTRY_DIR_NEGATIVE_LEVEL);
     REQUIRE(plant.run_until(
                 [&plant, &peak_x](const mechsim_board_outputs& o) {
                     peak_x = std::max(peak_x, plant.position[0]);
@@ -72,7 +72,7 @@ TEST_CASE("queue policy holds one target during a move and refuses a second", "[
     REQUIRE(plant.position[0] == 1600);
     REQUIRE(plant.position[1] == 800);
     const std::vector<std::string> lines = plant.take_lines();
-    REQUIRE(std::count(lines.begin(), lines.end(), std::string("ready")) == 2);
+    REQUIRE(std::count(lines.begin(), lines.end(), std::string("status 3 0")) == 2);
 }
 
 TEST_CASE("a queued target starts on the tick after arrival, ahead of that tick's commands", "[FW-015][FW-030]")
@@ -97,10 +97,10 @@ TEST_CASE("a queued target starts on the tick after arrival, ahead of that tick'
 TEST_CASE("a transmit queue too small for the pending lines latches a fault", "[FW-029][FW-030]")
 {
     Plant plant(800, 800);
-    mechsim_board_outputs out = plant.tick("x\nx\nx\nx\nx\nx\nx\nx\n");
+    mechsim_board_outputs out = plant.tick("x\nx\nx\nx\nx\n");
     REQUIRE(out.state_code == GANTRY_STATE_NOT_HOMED);
-    REQUIRE(out.uart_tx_count == 64U);
-    out = plant.tick("x\nx\nx\nx\nx\nx\nx\nx\nx\n");
+    REQUIRE(out.uart_tx_count == 55U);
+    out = plant.tick("x\nx\nx\nx\nx\nx\n");
     REQUIRE(out.state_code == GANTRY_STATE_FAULT);
     REQUIRE(out.fault_code == GANTRY_FAULT_TX_OVERFLOW);
 }

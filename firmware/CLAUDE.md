@@ -19,8 +19,8 @@ Real firmware, the controller itself (Decisions log rows 3, 4; R-02). Rules per 
 | Path | Holds |
 |---|---|
 | `app/main_tick.c` | Reference stub: NOT_HOMED (1) to READY (2) after `MECHSIM_APP_READY_TICKS` (10); heartbeat toggles on digital_out[0]; UART echo; zero steps; one tick event per tick plus one per echoed byte, fault 1 on log overflow |
-| `app/gantry/gantry.c` | Gantry controller G1 to G4, library `mechsim_fw_gantry` |
-| `app/gantry/channels.h` | Channel macros `GANTRY_CH_*`, per mode in pin-table order; swapped for the builder's generated header at integration |
+| `app/gantry/gantry.c` | Gantry controller G1 to G4, library `mechsim_fw_gantry`; the simulator builds app target `mechsim_fw_<design name>` (DES-040). Status line `status <state> <fault>` (codes named in the design's `firmware.state_codes`/`fault_codes`, DES-045); lift driver held enabled |
+| `app/gantry/channels.h` | The builder's generated header for `designs/gantry` (`MECHSIM_CH_<SIGNAL>`, per mode in pin-table order); `tests/unit/test_fw_channels.py` asserts it equals the builder output (FW-031). Encoders: A + B edge counts per axis |
 | `app/gantry/gantry_config.h` | Placeholder parameters (`#ifndef`, overridable), state/fault/event codes; values in fw.md Open parameters |
 | `board/<chip>/` | Vendor HAL; STM32 part not set (gantry team) |
 | `tests/` | Catch2 via `core/cmake/Catch2.cmake`; `test_fw_reference`, `test_fw_variant` (READY after 1, 250 Hz); `test_gantry` and `test_gantry_variant` (queue policy, 500 Hz, 64-byte TX queue) over the plant in `test_gantry_plant.cpp` (included, not compiled alone); include-check fixtures |

@@ -1337,12 +1337,13 @@ def bus_registry(directory: Path) -> Registry:
 def test_gantry_wiring_connects_supply_safety_drivers_and_motors() -> None:
     design = accepted(gantry())
     pairs = [(item.source, item.destination) for item in design.wiring]
-    assert len(pairs) == 15
+    assert len(pairs) == 21
     assert ("motor_supply.v_out", "estop.contact_in") in pairs
     assert ("estop.contact_out", "watchdog.contact_in") in pairs
     for axis in ("x", "y", "lift"):
         assert ("watchdog.contact_out", f"{axis}_driver.vmot") in pairs
         assert (f"{axis}_driver.coil_a", f"{axis}_motor.coil_a") in pairs
+        assert ("logic_psu.v_out", f"{axis}_encoder.vcc") in pairs
         assert (f"{axis}_driver.coil_b", f"{axis}_motor.coil_b") in pairs
     assert design.power is not None
     assert design.power.rails[0].consumers == ["x_driver", "y_driver", "lift_driver"]
@@ -1419,14 +1420,14 @@ def test_signal_port_wired_twice_rejected() -> None:
     data = gantry()
     data["wiring"].append(wire("x_driver.coil_a", "y_motor.coil_b"))
     del data["wiring"][12]
-    rejected(data, "signal port 'x_driver.coil_a' is connected more than once (wiring[9], wiring[14])")
+    rejected(data, "signal port 'x_driver.coil_a' is connected more than once (wiring[9], wiring[20])")
 
 
 @pytest.mark.req("DES-041")
 def test_signal_port_driven_by_controller_and_wire_rejected() -> None:
     data = gantry()
     data["wiring"].append(wire("estop.status", "x_driver.step"))
-    rejected(data, "signal port 'x_driver.step' is connected more than once (signal 'x_driver.step', wiring[15])")
+    rejected(data, "signal port 'x_driver.step' is connected more than once (signal 'x_driver.step', wiring[21])")
 
 
 @pytest.mark.req("DES-041")
@@ -1441,7 +1442,7 @@ def test_power_ports_may_be_shared() -> None:
 def test_duplicate_wire_rejected() -> None:
     data = gantry()
     data["wiring"].append(wire("motor_supply.v_out", "estop.contact_in"))
-    rejected(data, "wiring[15]: duplicate wire 'motor_supply.v_out' to 'estop.contact_in'")
+    rejected(data, "wiring[21]: duplicate wire 'motor_supply.v_out' to 'estop.contact_in'")
 
 
 @pytest.mark.req("DES-041")

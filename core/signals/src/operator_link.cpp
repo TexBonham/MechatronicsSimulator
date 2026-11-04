@@ -184,7 +184,7 @@ std::size_t UartTransport::queued() const noexcept {
 }
 
 OperatorLink::OperatorLink(std::string instance, std::unique_ptr<LineCodec> codec, UartTransport transport)
-    : BuiltinComponent(std::move(instance), {"tx"}, {"rx"}, {}), codec_(std::move(codec)),
+    : BuiltinComponent(std::move(instance), {"uart_tx"}, {"uart_rx"}, {}), codec_(std::move(codec)),
       transport_(std::move(transport)) {
     if (codec_ == nullptr) {
         throw std::invalid_argument("operator link needs a codec");

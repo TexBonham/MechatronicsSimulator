@@ -40,6 +40,10 @@ from mechsim.physics.neutral import (
     Sphere,
 )
 
+# Placeholders of a drive's soft equality; the adapter sets both every step it is enabled (PHY-034).
+DRIVE_SOLREF = "-1 -1"
+DRIVE_SOLIMP = "0.0001 0.0001 0.001 0.5 2"
+
 SUPPORTED_ELEMENTS: tuple[str, ...] = (
     "body",
     "joint.revolute",
@@ -475,6 +479,40 @@ def _reflections(model: PhysicsModel, report: list[str]) -> dict[str, _Reflectio
     return reflected
 
 
+def _drives(model: PhysicsModel, reflected: dict[str, _Reflection], report: list[str]) -> list[tuple[str, str]]:
+    """(neutral joint, MuJoCo joint it moves) for every shaft joint and every listed drive joint, in body order."""
+    shafts = {r.shaft.joint.name: r for r in reflected.values() if r.shaft.joint is not None}
+    driven = {transmission.driven_joint for transmission in model.transmissions}
+    listed = set(model.signals.drive_joints)
+    drives: list[tuple[str, str]] = []
+    for body in model.bodies:
+        joint = body.joint
+        if joint is None:
+            continue
+        if joint.name in shafts:
+            reflection = shafts[joint.name]
+            drives.append((joint.name, reflection.driven_joint))
+            report.append(
+                f"joint '{joint.name}': drive as soft equality '{joint.name}.drive' on joint "
+                f"'{reflection.driven_joint}' (rest c q, stiffness K / c^2, damping D / c^2; c = "
+                f"{_num(reflection.coefficient)}), inactive at load (PHY-034)"
+            )
+            if joint.name in listed:
+                raise UnmappableElementError(f"joint '{joint.name}'", "listed as a drive joint; shafts always are")
+            continue
+        if joint.name not in listed:
+            continue
+        if joint.type not in ("revolute", "prismatic"):
+            raise UnmappableElementError(f"joint '{joint.name}'", f"a drive on a {joint.type} joint")
+        if joint.name in driven:
+            raise UnmappableElementError(
+                f"joint '{joint.name}'", "a drive on a transmission's driven joint; drive its shaft joint"
+            )
+        drives.append((joint.name, joint.name))
+        report.append(f"joint '{joint.name}': drive as soft equality '{joint.name}.drive', inactive at load (PHY-034)")
+    return drives
+
+
 def _reflect(worldbody: ET.Element, reflection: _Reflection) -> None:
     """Armature J / c^2 on the driven joint; the shaft's own damping D and friction f reflect as D / c^2, f / |c|."""
     driven = worldbody.find(f".//joint[@name='{reflection.driven_joint}']")
@@ -674,6 +712,21 @@ def translate_report(model: PhysicsModel, step: float | None = None) -> Translat
         kinds.add(reflection.kind)
         _reflect(worldbody, reflection)
 
+    drives = _drives(model, reflected, report)
+    for neutral_joint, mj_joint in drives:
+        ET.SubElement(
+            equality,
+            "joint",
+            {
+                "name": f"{neutral_joint}.drive",
+                "joint1": mj_joint,
+                "polycoef": "0 0 0 0 0",
+                "active": "false",
+                "solref": DRIVE_SOLREF,
+                "solimp": DRIVE_SOLIMP,
+            },
+        )
+
     if model.contacts is not None:
         kinds.add("contacts")
         masses = {body.name: body.mass for body in model.bodies}
@@ -700,6 +753,7 @@ def translate_report(model: PhysicsModel, step: float | None = None) -> Translat
         ("mechsim:joints", joints),
         ("mechsim:constraints", constraints),
         ("mechsim:members", members),
+        ("mechsim:drives", [neutral_joint for neutral_joint, _ in drives]),
         (
             "mechsim:transmissions",
             [

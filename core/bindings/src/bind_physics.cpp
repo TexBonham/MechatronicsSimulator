@@ -126,6 +126,21 @@ void bind_types(py::module_& m) {
         .def_readwrite("iterations", &kernel::PhysicsHealth::iterations)
         .def_readwrite("steps", &kernel::PhysicsHealth::steps)
         .def_readwrite("physics_rate", &kernel::PhysicsHealth::physics_rate);
+    py::class_<kernel::JointDriveTorque>(m, "JointDriveTorque")
+        .def(py::init<>())
+        .def_readwrite("joint", &kernel::JointDriveTorque::joint)
+        .def_readwrite("torque", &kernel::JointDriveTorque::torque);
+    py::class_<kernel::JointDrive>(m, "JointDrive", "Implicit spring-damper toward a moving rest (KER-027, PHY-034).")
+        .def(py::init([](std::size_t joint, double rest, double stiffness, double damping, bool enabled) {
+                 return kernel::JointDrive{joint, rest, stiffness, damping, enabled};
+             }),
+             py::arg("joint") = 0, py::arg("rest") = 0.0, py::arg("stiffness") = 0.0, py::arg("damping") = 0.0,
+             py::arg("enabled") = false)
+        .def_readwrite("joint", &kernel::JointDrive::joint)
+        .def_readwrite("rest", &kernel::JointDrive::rest)
+        .def_readwrite("stiffness", &kernel::JointDrive::stiffness)
+        .def_readwrite("damping", &kernel::JointDrive::damping)
+        .def_readwrite("enabled", &kernel::JointDrive::enabled);
     py::class_<kernel::PhysicsOutputs>(m, "PhysicsOutputs", "Published every tick (PHY-003, PHY-007); SI, world frame.")
         .def(py::init<>())
         .def_readwrite("steps", &kernel::PhysicsOutputs::steps)
@@ -135,7 +150,9 @@ void bind_types(py::module_& m) {
         .def_readwrite("contacts", &kernel::PhysicsOutputs::contacts)
         .def_readwrite("members", &kernel::PhysicsOutputs::members)
         .def_readwrite("ropes", &kernel::PhysicsOutputs::ropes)
-        .def_readwrite("transmissions", &kernel::PhysicsOutputs::transmissions);
+        .def_readwrite("transmissions", &kernel::PhysicsOutputs::transmissions)
+        .def_readwrite("joint_positions", &kernel::PhysicsOutputs::joint_positions)
+        .def_readwrite("joint_drive_torques", &kernel::PhysicsOutputs::joint_drive_torques);
     py::class_<kernel::BodyWrench>(m, "BodyWrench")
         .def(py::init<>())
         .def_readwrite("body", &kernel::BodyWrench::body)
@@ -143,7 +160,8 @@ void bind_types(py::module_& m) {
     py::class_<kernel::PhysicsInputs>(m, "PhysicsInputs", "Applied for the next step only (ENG-028, KER-010).")
         .def(py::init<>())
         .def_readwrite("generalized_forces", &kernel::PhysicsInputs::generalized_forces)
-        .def_readwrite("body_wrenches", &kernel::PhysicsInputs::body_wrenches);
+        .def_readwrite("body_wrenches", &kernel::PhysicsInputs::body_wrenches)
+        .def_readwrite("joint_drives", &kernel::PhysicsInputs::joint_drives);
     py::class_<kernel::PreparedModel>(m, "PreparedModel")
         .def(py::init([](std::string json, std::string artifact, std::string version) {
                  return kernel::PreparedModel{std::move(json), std::move(artifact), std::move(version)};

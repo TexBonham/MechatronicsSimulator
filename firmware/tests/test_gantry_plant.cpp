@@ -122,11 +122,11 @@ public:
 private:
     void apply(mechsim_board_inputs& inputs)
     {
-        static constexpr std::uint32_t step_channel[2] = {GANTRY_CH_X_STEP, GANTRY_CH_Y_STEP};
-        static constexpr std::uint32_t dir_channel[2] = {GANTRY_CH_X_DIR, GANTRY_CH_Y_DIR};
-        static constexpr std::uint32_t enc_channel[2] = {GANTRY_CH_X_ENC_A, GANTRY_CH_Y_ENC_A};
-        static constexpr std::uint32_t min_channel[2] = {GANTRY_CH_X_MIN, GANTRY_CH_Y_MIN};
-        static constexpr std::uint32_t max_channel[2] = {GANTRY_CH_X_MAX, GANTRY_CH_Y_MAX};
+        static constexpr std::uint32_t step_channel[2] = {MECHSIM_CH_X_DRIVER_STEP, MECHSIM_CH_Y_DRIVER_STEP};
+        static constexpr std::uint32_t dir_channel[2] = {MECHSIM_CH_X_DRIVER_DIR, MECHSIM_CH_Y_DRIVER_DIR};
+        static constexpr std::uint32_t enc_channel[2] = {MECHSIM_CH_X_ENCODER_CHANNEL_A, MECHSIM_CH_Y_ENCODER_CHANNEL_A};
+        static constexpr std::uint32_t min_channel[2] = {MECHSIM_CH_X_MIN_SWITCH_OUT, MECHSIM_CH_Y_MIN_SWITCH_OUT};
+        static constexpr std::uint32_t max_channel[2] = {MECHSIM_CH_X_MAX_SWITCH_OUT, MECHSIM_CH_Y_MAX_SWITCH_OUT};
         static constexpr std::int64_t workspace[2] = {workspace_x_steps, workspace_y_steps};
         for (std::uint32_t axis = 0U; axis < 2U; ++axis) {
             std::int64_t before = counts_of(position[axis]);
@@ -159,36 +159,39 @@ private:
             REQUIRE(outputs.event_log[index].code == 0U);
             REQUIRE(outputs.event_log[index].arg == 0U);
         }
-        if (outputs.step_count[GANTRY_CH_X_STEP] != 0U) {
-            REQUIRE(outputs.digital_out[GANTRY_CH_X_ENABLE] == GANTRY_ENABLE_ACTIVE_LEVEL);
+        if (outputs.step_count[MECHSIM_CH_X_DRIVER_STEP] != 0U) {
+            REQUIRE(outputs.digital_out[MECHSIM_CH_X_DRIVER_ENABLE] == GANTRY_ENABLE_ACTIVE_LEVEL);
         }
-        if (outputs.step_count[GANTRY_CH_Y_STEP] != 0U) {
-            REQUIRE(outputs.digital_out[GANTRY_CH_Y_ENABLE] == GANTRY_ENABLE_ACTIVE_LEVEL);
+        if (outputs.step_count[MECHSIM_CH_Y_DRIVER_STEP] != 0U) {
+            REQUIRE(outputs.digital_out[MECHSIM_CH_Y_DRIVER_ENABLE] == GANTRY_ENABLE_ACTIVE_LEVEL);
         }
         for (std::uint32_t axis = 0U; axis < MECHSIM_AXIS_COUNT; ++axis) {
             REQUIRE(outputs.direction[axis] == MECHSIM_LEVEL_LOW);
             REQUIRE(outputs.enable[axis] == MECHSIM_LEVEL_LOW);
-            if ((axis != GANTRY_CH_X_STEP) && (axis != GANTRY_CH_Y_STEP)) {
+            if ((axis != MECHSIM_CH_X_DRIVER_STEP) && (axis != MECHSIM_CH_Y_DRIVER_STEP)) {
                 REQUIRE(outputs.step_count[axis] == 0U);
             }
         }
         for (std::uint32_t pin = 0U; pin < MECHSIM_DIGITAL_OUT_COUNT; ++pin) {
-            if ((pin > GANTRY_CH_HEARTBEAT) || (pin == GANTRY_CH_LIFT_DIR) || (pin == GANTRY_CH_LIFT_ENABLE)) {
+            if ((pin > MECHSIM_CH_WATCHDOG_HEARTBEAT) || (pin == MECHSIM_CH_LIFT_DRIVER_DIR)) {
                 REQUIRE(outputs.digital_out[pin] == MECHSIM_LEVEL_LOW);
+            }
+            if (pin == MECHSIM_CH_LIFT_DRIVER_ENABLE) {
+                REQUIRE(outputs.digital_out[pin] == GANTRY_ENABLE_ACTIVE_LEVEL);
             }
         }
     }
 };
 
-// Parses "position x y" in metres into micrometres.
+// Parses "current_position x y" in metres into micrometres.
 bool parse_position(const std::string& line, std::int64_t& x_um, std::int64_t& y_um)
 {
-    if (line.rfind("position ", 0) != 0) {
+    if (line.rfind("current_position ", 0) != 0) {
         return false;
     }
     double x = 0.0;
     double y = 0.0;
-    if (std::sscanf(line.c_str(), "position %lf %lf", &x, &y) != 2) {
+    if (std::sscanf(line.c_str(), "current_position %lf %lf", &x, &y) != 2) {
         return false;
     }
     x_um = std::llround(x * 1e6);

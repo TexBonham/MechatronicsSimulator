@@ -501,6 +501,17 @@
           "title": "Part",
           "type": "string"
         },
+        "senses": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Senses"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
         "signals": {
           "items": {
             "$ref": "#/$defs/SignalDeclaration"
@@ -860,6 +871,7 @@
     },
     "Firmware": {
       "additionalProperties": false,
+      "description": "`state_codes` and `fault_codes` name the firmware's reported `state_code` and `fault_code` values (DES-045);\nthe application target is `mechsim_fw_<design name>` in the firmware tree (DES-040).",
       "properties": {
         "chip": {
           "anyOf": [
@@ -874,10 +886,28 @@
           ],
           "title": "Chip"
         },
+        "fault_codes": {
+          "additionalProperties": {
+            "pattern": "^[a-z][a-z0-9_]*$",
+            "type": "string"
+          },
+          "description": "fault_code value (0..255) to fault name",
+          "title": "Fault Codes",
+          "type": "object"
+        },
         "path": {
           "pattern": "^[A-Za-z0-9_.\\-]+(/[A-Za-z0-9_.\\-]+)*$",
           "title": "Path",
           "type": "string"
+        },
+        "state_codes": {
+          "additionalProperties": {
+            "pattern": "^[a-z][a-z0-9_]*$",
+            "type": "string"
+          },
+          "description": "state_code value (0..255) to state name",
+          "title": "State Codes",
+          "type": "object"
         },
         "tick_rate": {
           "anyOf": [
@@ -1484,6 +1514,25 @@
     "OpenParameter": {
       "additionalProperties": false,
       "properties": {
+        "default": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "additionalProperties": {
+                "type": "string"
+              },
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Value used when neither the case nor --set gives one (DES-044): a quantity string of the parameter's dimension, or a choice value",
+          "title": "Default"
+        },
         "dimension": {
           "description": "pint dimensionality string, or \"choice\" for a non-quantity",
           "minLength": 1,
@@ -1847,6 +1896,71 @@
         "length"
       ],
       "title": "Section",
+      "type": "object"
+    },
+    "Senses": {
+      "additionalProperties": false,
+      "description": "What a sensor instance reads (DES-043): the joint coordinate, and per type the switch position along the joint\nand its actuation side (limit_switch) or the count direction (incremental_encoder).",
+      "properties": {
+        "actuate_above": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Actuate Above"
+        },
+        "joint": {
+          "anyOf": [
+            {
+              "pattern": "^[a-z][a-z0-9_]*$",
+              "type": "string"
+            },
+            {
+              "pattern": "^\\$\\{[a-z][a-z0-9_]*\\}$",
+              "type": "string"
+            }
+          ],
+          "title": "Joint"
+        },
+        "position": {
+          "anyOf": [
+            {
+              "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s+\\S.*)?$",
+              "type": "string"
+            },
+            {
+              "pattern": "^\\$\\{[a-z][a-z0-9_]*\\}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Position"
+        },
+        "reversed": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Reversed"
+        }
+      },
+      "required": [
+        "joint"
+      ],
+      "title": "Senses",
       "type": "object"
     },
     "SignalDeclaration": {

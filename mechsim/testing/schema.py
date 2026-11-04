@@ -606,6 +606,29 @@ class NoMotionCriterion(_Actuators):
         return f"no motion above {self.threshold}"
 
 
+class HoldBandCriterion(_Criterion):
+    """Every listed joint stays within `band` of its first sample in the window (SCO-026): a hold that sags and rings
+    inside the band is not motion."""
+
+    check: Literal["hold_band"]
+    joints: list[Name] = Field(min_length=1)
+    band: Amount
+    window: Window | None = None
+
+    @model_validator(mode="after")
+    def _valid(self) -> HoldBandCriterion:
+        errors: list[str] = []
+        _duplicates(self.joints, "joint", errors)
+        magnitude = _magnitude(self.band)
+        if magnitude is not None and magnitude <= 0.0:
+            errors.append(f"band must be positive, got {self.band}")
+        _raise_if(errors)
+        return self
+
+    def limit_text(self) -> str:
+        return f"every joint within {self.band} of its first sample"
+
+
 class NoOverlapCriterion(_Actuators):
     """No two commands active at once on the same actuator (SCO-025)."""
 
@@ -651,7 +674,13 @@ def _text(value: Any, unit: str) -> str:
 
 
 Criterion = Annotated[
-    ValueCriterion | IntervalCriterion | EventCriterion | NoMotionCriterion | NoOverlapCriterion | SettleCriterion,
+    ValueCriterion
+    | IntervalCriterion
+    | EventCriterion
+    | NoMotionCriterion
+    | HoldBandCriterion
+    | NoOverlapCriterion
+    | SettleCriterion,
     Field(discriminator="check"),
 ]
 
@@ -718,6 +747,10 @@ class Case(StrictModel):
     seed: int = Field(ge=0, le=2**64 - 1)
     rates: Rates | None = None
     open_parameters: list[OpenParameter] = Field(default_factory=list)
+    parameters: dict[str, str] = Field(
+        default_factory=dict,
+        description="Values for open parameters of the design or the case (DES-044); --set overrides them",
+    )
     initial_state: InitialState
     commands: list[Command] = Field(default_factory=list)
     faults: list[Fault] = Field(default_factory=list)
@@ -783,6 +816,15 @@ def cross_check(case: Case, design: Design) -> list[str]:
             errors.append("initial_state.controller: the design has no controller")
     elif case.controller_mode is None:
         errors.append("controller_mode: the design has firmware; name native or emulated")
+    tables: dict[str, dict[str, str]] = {}
+    if design.firmware is not None:
+        tables = {"state": design.firmware.state_codes, "fault": design.firmware.fault_codes}
+    if len(tables) > 0 and (len(tables["state"]) > 0 or len(tables["fault"]) > 0):
+        for key, expected in case.initial_state.controller.items():
+            if key not in tables:
+                errors.append(f"initial_state.controller.{key}: the firmware reports only state and fault (DES-045)")
+            elif expected not in tables[key].values():
+                errors.append(f"initial_state.controller.{key}: {expected!r} is not in firmware.{key}_codes")
     for index, state in enumerate(case.initial_state.joints):
         path = f"initial_state.joints[{index}]"
         joint = joints.get(state.joint)
@@ -942,6 +984,10 @@ def _check_reference(
         errors.append(f"{path}: unknown operator message {rest!r}")
     if kind == "state" and design.firmware is None:
         errors.append(f"{path}: controller state {rest!r} needs a design with firmware")
+    elif kind == "state" and design.firmware is not None:
+        names = set(design.firmware.state_codes.values())
+        if len(names) > 0 and rest not in names:
+            errors.append(f"{path}: unknown controller state {rest!r} (firmware.state_codes)")
 
 
 def _joint_reference_dimension(reference: str, joints: dict[str, Any]) -> str | None:
@@ -988,6 +1034,20 @@ def _check_criterion(
             _check_reference(f"{path}.{what}", event, design, joints, bodies, messages, errors)
     elif isinstance(criterion, EventCriterion):
         _check_reference(f"{path}.event", criterion.event, design, joints, bodies, messages, errors)
+    elif isinstance(criterion, HoldBandCriterion):
+        dimensions: set[str] = set()
+        for joint in criterion.joints:
+            reference = f"joint:{joint}.position"
+            _check_reference(f"{path}.joints", reference, design, joints, bodies, messages, errors)
+            dimension = _joint_reference_dimension(reference, joints)
+            if joint in joints and dimension is None:
+                errors.append(f"{path}.joints: joint {joint!r} is not revolute or prismatic")
+            if dimension is not None:
+                dimensions.add(dimension)
+        if len(dimensions) > 1:
+            errors.append(f"{path}.joints: mixes linear and angular joints under one band")
+        for dimension in dimensions:
+            _check_value(criterion.band, dimension, f"{path}.band", declared, errors)
     else:
         for actuator in criterion.actuators:
             if actuator not in components:

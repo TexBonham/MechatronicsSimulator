@@ -20,6 +20,10 @@ EFFORTS = "signals/actuator_efforts"
 NAMED_GROUPS = (PINS, RAILS, EFFORTS)
 
 CONTROLLER_STATE = "controller/state"
+COUPLING = "coupling"
+COUPLING_VALUE = "coupling/value"
+COUPLING_DIGEST = "coupling/digest"
+DIGEST_LENGTH = 64
 CONTACT_ROW = "physics/contacts/row"
 JOINT_FORCE = "physics/joints/generalized_force"
 CONSTRAINT_FORCE = "physics/constraints/force"
@@ -59,6 +63,10 @@ FIXED_SERIES: tuple[tuple[str, str, str, str], ...] = (
     ("physics/ropes/slack", "1", TICK_AXIS, "bool"),
     ("physics/transmissions/slip", "m or rad", TICK_AXIS, "float64"),
     ("physics/transmissions/slipping", "1", TICK_AXIS, "bool"),
+    ("physics/transmissions/shaft_load_torque", "N m", TICK_AXIS, "float64"),
+    ("physics/transmissions/force", "N or N m", TICK_AXIS, "float64"),
+    ("physics/transmissions/stretch", "m or rad", TICK_AXIS, "float64"),
+    ("physics/transmissions/power_flow", "1", TICK_AXIS, "int64"),
 )
 
 
@@ -75,13 +83,15 @@ class Series:
 
 @dataclass(frozen=True)
 class Recording:
-    """Everything one run recorded, in canonical series order."""
+    """Everything one run recorded, in canonical series order. `coupling` lists (name, kind) of the coupling
+    variables in name order; their series are `coupling/value/<name>` and `coupling/digest/<name>` (KER-022)."""
 
     base_rate: Fraction
     series: dict[str, Series]
     named: dict[str, tuple[str, ...]]
     controller_states: tuple[str, ...]
     events: tuple[tuple[int, RecordedEvent], ...]
+    coupling: tuple[tuple[str, str], ...] = ()
 
 
 def seconds(ticks: NDArray[np.int64], base_rate: Fraction) -> NDArray[np.float64]:

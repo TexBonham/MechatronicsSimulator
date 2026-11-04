@@ -18,7 +18,7 @@ Names `^[a-z][a-z0-9_]*$` (catalog pattern); "world" reserved.
 | Constraints (`type`) | point, hinge; extend the `Constraint` union |
 | `LumpedMember` | `Section` (E, I, rho, A, L), clamped/pinned root, free/roller end, segments 4 (8 pinned-roller), roller 1e-3, node_damping |
 | Transmissions (`type`) | belt_pulley, lead_screw, gear_pair; shaft revolute, driven per `DRIVEN_JOINT_TYPES`; slip 0 |
-| `SignalInterface` | load_torque_joints, pose_bodies |
+| `SignalInterface` | load_torque_joints, pose_bodies, drive_joints (revolute/prismatic joints the signal layer may drive besides shaft joints, PHY-034) |
 | `StructuralMember` | section, material, supports (min 1, within L), fasteners (opaque) |
 | `from_yaml`, `to_yaml`, `schema_text` | load, deterministic dump, JSON Schema with `$schema`/`$id` |
 

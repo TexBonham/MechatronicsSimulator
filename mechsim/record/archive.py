@@ -6,9 +6,10 @@ object timestamps, fixed-length strings in datasets, and nothing taken from the 
 
 from __future__ import annotations
 
+import math
 import re
 import subprocess
-from collections.abc import Iterator
+from collections.abc import Iterator, Mapping
 from dataclasses import dataclass
 from fractions import Fraction
 from importlib import metadata
@@ -24,6 +25,9 @@ from mechsim.record.layout import (
     CONSTRAINT_FORCE,
     CONTACT_ROW,
     CONTROLLER_STATE,
+    COUPLING,
+    COUPLING_DIGEST,
+    COUPLING_VALUE,
     JOINT_FORCE,
     NAMED_GROUPS,
     Recording,
@@ -36,6 +40,7 @@ from mechsim.record.tick import (
     BodyState,
     ConstraintForce,
     ContactForce,
+    CouplingSample,
     JointForce,
     MemberEndLoads,
     PhysicsOutputs,
@@ -53,7 +58,7 @@ from mechsim.record.tick import (
 FORMAT = "mechsim-run-archive"
 FORMAT_VERSION = 1
 CHUNK_ROWS = 1024
-CONTROLLER_MODES = ("native", "emulated")
+CONTROLLER_MODES = ("native", "emulated", "none")
 END_CONDITION_MET = "end_condition_met"
 RUN_ERROR = "run_error"
 UNSET = "unset"
@@ -208,10 +213,20 @@ def _events_table(recording: Recording) -> NDArray[Any]:
     return table
 
 
-def write_archive(path: Path, identity: RunIdentity, end: RunEnd, recording: Recording) -> None:
-    """Write one run archive; an existing file at `path` is replaced."""
+META_PREFIX = "meta_"
+
+
+def write_archive(
+    path: Path, identity: RunIdentity, end: RunEnd, recording: Recording, extra: Mapping[str, str] | None = None
+) -> None:
+    """Write one run archive; an existing file at `path` is replaced. `extra` lands as root attrs `meta_<key>` in key
+    order: run metadata a caller keeps beside the identity (run id, end reason, bridge approximations)."""
     with h5py.File(path, "w", libver=("v110", "v110"), track_order=False) as h5:
         attrs = h5.attrs
+        for key in sorted(extra or {}):
+            value = (extra or {})[key]
+            check_text(value, f"metadata {key}")
+            attrs[f"{META_PREFIX}{key}"] = value
         attrs["format"] = FORMAT
         attrs["format_version"] = np.int64(FORMAT_VERSION)
         attrs["design_name"] = identity.design_name
@@ -244,6 +259,9 @@ def write_archive(path: Path, identity: RunIdentity, end: RunEnd, recording: Rec
                 dataset.attrs["counts"] = np.array(series.counts, dtype=np.int64)
         for group in NAMED_GROUPS:
             h5.require_group(group).attrs["names"] = np.array(recording.named[group], dtype=h5py.string_dtype())
+        coupling = h5.require_group(COUPLING)
+        coupling.attrs["names"] = np.array([name for name, _ in recording.coupling], dtype=h5py.string_dtype())
+        coupling.attrs["kinds"] = np.array([kind for _, kind in recording.coupling], dtype=h5py.string_dtype())
         _dataset(h5, _STATE_NAMES, _fixed(list(recording.controller_states)))
         _dataset(h5, _EVENTS, _events_table(recording))
 
@@ -305,6 +323,9 @@ class RunArchive:
         self.end = RunEnd(_text(attrs["end_outcome"]), int(attrs["end_time"]), int(attrs["end_ticks"]), fault)
         self.base_rate = _fraction(attrs["base_rate"])
         self._names = tuple(_text(name) for name in attrs["series"])
+        self.extra = {
+            _text(key)[len(META_PREFIX) :]: _text(attrs[key]) for key in sorted(attrs) if key.startswith(META_PREFIX)
+        }
 
     def __enter__(self) -> RunArchive:
         return self
@@ -348,6 +369,13 @@ class RunArchive:
             for item in table
         )
 
+    def coupling(self) -> tuple[tuple[str, str], ...]:
+        """(name, kind) of every recorded coupling variable, name order; empty for an archive without the group."""
+        if COUPLING not in self._file:
+            return ()
+        attrs = self._file[COUPLING].attrs
+        return tuple((_text(name), _text(kind)) for name, kind in zip(attrs["names"], attrs["kinds"], strict=True))
+
     def recording(self) -> Recording:
         return Recording(
             self.base_rate,
@@ -355,6 +383,7 @@ class RunArchive:
             {group: self.named(group) for group in NAMED_GROUPS},
             self.controller_states(),
             self.events(),
+            self.coupling(),
         )
 
     def records(self) -> Iterator[TickRecord]:
@@ -381,7 +410,22 @@ class RunArchive:
                         int(np.searchsorted(event_rows, index, side="right")),
                     )
                 ),
+                coupling=self._coupling(recording, values, index),
             )
+
+    @staticmethod
+    def _coupling(recording: Recording, values: dict[str, Any], index: int) -> tuple[CouplingSample, ...]:
+        samples: list[CouplingSample] = []
+        for name, kind in recording.coupling:
+            digest = _text(values[f"{COUPLING_DIGEST}/{name}"][index])
+            value = float(values[f"{COUPLING_VALUE}/{name}"][index])
+            sample_kind = kind
+            if kind == "payload" and digest == "":
+                sample_kind = "none"
+            if kind != "payload" and math.isnan(value):
+                sample_kind = "none"
+            samples.append(CouplingSample(name, sample_kind, value, digest))
+        return tuple(samples)
 
     @staticmethod
     def _samples(recording: Recording, values: dict[str, Any], group: str, index: int) -> tuple[SeriesSample, ...]:
@@ -455,9 +499,15 @@ class RunArchive:
             for tension, slack in zip(at("physics/ropes/tension"), at("physics/ropes/slack"), strict=True)
         )
         transmissions = tuple(
-            TransmissionState(slip, slipping)
-            for slip, slipping in zip(
-                at("physics/transmissions/slip"), at("physics/transmissions/slipping"), strict=True
+            TransmissionState(slip, slipping, load, force, stretch, flow)
+            for slip, slipping, load, force, stretch, flow in zip(
+                at("physics/transmissions/slip"),
+                at("physics/transmissions/slipping"),
+                at("physics/transmissions/shaft_load_torque"),
+                at("physics/transmissions/force"),
+                at("physics/transmissions/stretch"),
+                at("physics/transmissions/power_flow"),
+                strict=True,
             )
         )
         return PhysicsOutputs(at("physics/steps"), bodies, joints, constraints, contacts, members, ropes, transmissions)

@@ -557,23 +557,46 @@ TEST_CASE("MuJoCo lead screw lifting a load publishes the positive closed-form l
     CHECK(state.stretch == 0.0);
     CHECK(adapter->outputs().joints[0].generalized_force.at(0) == state.shaft_load_torque);
 
+}
+
+TEST_CASE("A stepper holds the lift through the MuJoCo drive within 1 mm over 2 s", "[SIG-033][PHY-034][reference]") {
+    // The behavioral stepper on lift_screw.xml (10 kg, 8 mm lead, J = 5.4e-6 kg m^2, h = 1 ms), zero steps commanded:
+    // its drive K_hold = pi 0.40 / (2 pi / 100) = 20 N m/rad holds tau_load = m g c = 0.1249 N m < 0.40 N m with the
+    // shaft sag tau_load / K_hold = 6.245e-3 rad, c times that = 7.95 um of lift; released from rest the swing about
+    // the sag never exceeds sag / sqrt(1 - s0 h^2 / 4) (the explicit loop at s0 h^2 = 0.925, the lift test above).
     mechsim::signals::BehavioralStepperParams params;
     params.step_angle = std::numbers::pi / 100.0;
     params.rotor_inertia = rotor_inertia;
-    params.torque_speed = {{0.0, 1.0}, {1000.0, 1.0}};
-    params.transmission = 0;
+    params.holding_torque = 0.40;
+    params.torque_speed = {{0.0, 0.40}, {31.4, 0.36}};
     mechsim::signals::BehavioralStepper motor("lift_motor", params);
     motor.start(mechsim::signals::ComponentClock{Rate(1000), mechsim::kernel::Duration(1), 1});
-    const std::vector<double> drive{2.0, 1.0, 1.0, 24.0};
-    double demand = 0.0;
-    for (int k = 0; k < 2; ++k) {
+    auto adapter = loaded("lift_screw.xml");
+    const std::vector<double> hold{0.0, 1.0, 1.0, 24.0};
+    const double c = 0.008 / (2.0 * std::numbers::pi);
+    const double sag = carriage_mass * gravity * c / 20.0;
+    double missed = 0.0;
+    double lowest = 0.0;
+    for (int k = 0; k < 2000; ++k) {
         motor.begin_tick(mechsim::kernel::SimTime(k));
         motor.sample(adapter->outputs());
-        motor.set_inputs(drive);
+        motor.set_inputs(hold);
         motor.latch_outputs();
-        demand = motor.output_values()[0];
+        missed += motor.output_values()[2];
+        PhysicsInputs inputs;
+        inputs.joint_drives.assign(motor.joint_drives().begin(), motor.joint_drives().end());
+        adapter->set_inputs(inputs);
+        adapter->step();
+        lowest = std::min(lowest, adapter->outputs().joint_positions[1]);
     }
-    CHECK(relative(demand, closed_form) < 1e-9);
+    const double lift = adapter->outputs().joint_positions[1];
+    std::cout << "stepper lift hold: closed-form sag " << -sag * c << " m, measured " << lift << " m, lowest " << lowest
+              << " m\n";
+    CHECK(missed == 0.0);
+    CHECK(lowest > -0.001);
+    CHECK(relative(lift, -sag * c) < 0.1);
+    const double s0h2 = (20.0 / (c * c)) * h * h / reflected_mass;
+    CHECK(lowest >= -(1.0 + (1.0 / std::sqrt(1.0 - (s0h2 / 4.0)))) * sag * c * (1.0 + 1e-6));
 }
 
 // Gear pair, ratio +4 and -4 (c = 1 / ratio = +-0.25): the reflection is symmetric under q_driven -> -q_driven with
@@ -617,4 +640,181 @@ TEST_CASE("MuJoCo reflected shaft refuses body-level changes", "[PHY-008]") {
     CHECK_THROWS_AS(adapter->set_spring_stiffness(0, 1.0), AdapterError);
     CHECK_THROWS_AS(adapter->set_payload_mass(0, 1.0), AdapterError);
     adapter->set_payload_mass(1, 20.0);
+}
+
+namespace {
+
+using mechsim::kernel::JointDrive;
+
+PhysicsInputs driven(const JointDrive& drive, double force = 0.0) {
+    PhysicsInputs inputs;
+    if (force != 0.0) {
+        inputs.generalized_forces = {force};
+    }
+    inputs.joint_drives = {drive};
+    return inputs;
+}
+
+struct DriveRun {
+    std::vector<double> x;       // joint coordinate after each step
+    std::vector<double> torque;  // the drive torque published for each step
+};
+
+// The 1 kg slider (slider.xml, no gravity) under a constant force F on its drivable joint and a drive toward 0.
+DriveRun run_slider(double stiffness, double drive_damping, double force, int steps, bool enabled = true) {
+    auto adapter = loaded("slider.xml");
+    DriveRun run;
+    for (int k = 0; k < steps; ++k) {
+        adapter->set_inputs(driven(JointDrive{0, 0.0, stiffness, drive_damping, enabled}, force));
+        adapter->step();
+        const PhysicsOutputs& out = adapter->outputs();
+        REQUIRE(out.joint_positions.size() == 1);
+        REQUIRE(out.joint_drive_torques.size() == 1);
+        CHECK(out.joint_drive_torques[0].joint == 0);
+        CHECK(out.joint_positions[0] == out.bodies[0].position[0]);
+        run.x.push_back(out.joint_positions[0]);
+        run.torque.push_back(out.joint_drive_torques[0].torque);
+    }
+    return run;
+}
+
+double max_deviation(const std::vector<double>& values, double about, std::size_t from, std::size_t to) {
+    double worst = 0.0;
+    for (std::size_t i = from; i < to; ++i) {
+        worst = std::max(worst, std::abs(values[i] - about));
+    }
+    return worst;
+}
+
+}  // namespace
+
+TEST_CASE("MuJoCo drive holds a load with the static sag F / K, stable past the explicit limit", "[PHY-034][reference]") {
+    // m = 1 kg, F = 10 N, h = 1 ms. Static equilibrium of the soft equality (PHY-034 formula): a1 = 0, v = 0 gives
+    // (1 - d) a0 = s0 r with a0 = F / m and s0 = (1 - d) K / m, so r = F / K for every impedance d: 1e-5 m at
+    // K = 1e6 N/m (omega h = 1, d at its floor) and 1e-7 m at K = 1e8 N/m (omega h = 10, d = 0.99, where an explicit
+    // spring would diverge: K h^2 / m = 100 > 4). Damping D = zeta 2 sqrt(K m_app), zeta = 0.5, m_app = m / (1 - d)
+    // (1e3 and 1e5 N s/m) settles it to e^(-zeta omega_c t) = e^(-1000) by 2 s. Without damping the semi-implicit
+    // loop keeps its modified energy, so the swing about F / K never exceeds (F / K) / sqrt(1 - s0 h^2 / 4), s0 h^2 = 1
+    // in both cases, and does not grow.
+    struct Case {
+        double stiffness;
+        double drive_damping;
+    };
+    for (const Case c : {Case{1e6, 1e3}, Case{1e8, 1e5}}) {
+        const double sag = 10.0 / c.stiffness;
+        const DriveRun damped = run_slider(c.stiffness, c.drive_damping, 10.0, 2000);
+        std::cout << "drive K " << c.stiffness << " N/m: closed-form sag " << sag << " m, measured " << damped.x.back()
+                  << " m, drive force " << damped.torque.back() << " N (closed form -10)\n";
+        CHECK(relative(-damped.x.back(), -sag) < 0.1);
+        CHECK(std::abs(damped.torque.back() + 10.0) < 1e-3);
+        const DriveRun free = run_slider(c.stiffness, 0.0, 10.0, 2000);
+        const double envelope = sag / std::sqrt(1.0 - 0.25);
+        const double early = max_deviation(free.x, sag, 0, 1000);
+        const double late = max_deviation(free.x, sag, 1000, 2000);
+        std::cout << "undamped swing about the sag: early " << early << " m, late " << late << " m, bound " << envelope
+                  << " m\n";
+        CHECK(early <= envelope * (1.0 + 1e-6));
+        CHECK(late <= envelope * (1.0 + 1e-6));
+        CHECK(early >= sag * (1.0 - 1e-6));
+    }
+}
+
+TEST_CASE("MuJoCo drive on a reflected lead screw holds the lift's gravity load at tau_load / K", "[PHY-034][reference]") {
+    // lift_screw.xml: J = 5.4e-6 kg m^2, 10 kg, lead 8 mm, c = 0.008 / (2 pi), gravity along the rail. Hold stiffness
+    // of the gantry lift: K = pi tau_hold / (2 step) = 0.40 * 50 = 20 N m/rad, D = 1e-4 N m s/rad. Load torque
+    // tau_load = m g c = 0.12490 N m, so the shaft sags theta = -tau_load / K = -6.245e-3 rad and the drive supplies
+    // +tau_load, the PHY-033 load torque at rest. K_d A0 h^2 = (K / c^2) h^2 / (m + J / c^2) = 0.925 < 1: d stays at its
+    // floor and the loop is the explicit spring, zeta = D_d / (2 sqrt(K_d m_eff)) = 2.4e-3, so the swing about the sag
+    // decays to e^(-zeta omega 2 s) = e^(-4.6) = 1 percent by 2 s and never exceeds sag / sqrt(1 - 0.925 / 4).
+    const double c = 0.008 / (2.0 * std::numbers::pi);
+    const double stiffness = 20.0;
+    const double tau_load = 10.0 * gravity * c;
+    const double sag = -tau_load / stiffness;
+    auto adapter = loaded("lift_screw.xml");
+    double worst = 0.0;
+    for (int k = 0; k < 2000; ++k) {
+        adapter->set_inputs(driven(JointDrive{0, 0.0, stiffness, 1e-4, true}));
+        adapter->step();
+        worst = std::max(worst, std::abs(adapter->outputs().joint_positions[0] - sag));
+    }
+    const PhysicsOutputs& out = adapter->outputs();
+    const double theta = out.joint_positions[0];
+    const double s0h2 = (stiffness / (c * c)) * h * h / (10.0 + 5.4e-6 / (c * c));
+    std::cout << "lift drive: closed-form sag " << sag << " rad, measured " << theta << " rad; drive torque "
+              << out.joint_drive_torques[0].torque << " N m, load torque " << out.transmissions[0].shaft_load_torque
+              << " N m (closed form " << tau_load << ")\n";
+    CHECK(relative(theta, sag) < 0.1);
+    CHECK(theta * c > -0.001);
+    CHECK(worst <= std::abs(sag) / std::sqrt(1.0 - s0h2 / 4.0) * (1.0 + 1e-6));
+    CHECK(relative(out.joint_drive_torques[0].torque, tau_load) < 0.1);
+    CHECK(relative(out.transmissions[0].shaft_load_torque, tau_load) < 0.1);
+    CHECK(out.joints[0].generalized_force[0] == out.transmissions[0].shaft_load_torque);
+    CHECK(out.joint_positions[1] == out.bodies[1].position[2]);
+}
+
+TEST_CASE("MuJoCo drive tracks a rest moving at constant rate with the lag D w / K", "[PHY-034][reference]") {
+    // m x'' + D x' + K (x - w t) = 0 has the steady solution x = w t - D w / K: the first-order lag of the
+    // spring-damper. With the soft equality evaluated at the start of each step, the discrete steady state x' = w,
+    // a1 = 0 gives s1 w + s0 (x_k - rest_k) = 0, the same lag against the rest of the next step. K = 1e6 N/m,
+    // D = 1e3 N s/m (zeta 0.5), w = 0.1 m/s: lag 1e-4 m; the transient is e^(-1000) by 2 s.
+    auto adapter = loaded("slider.xml");
+    const double rate = 0.1;
+    const double lag = 1e3 * rate / 1e6;
+    for (int k = 0; k < 2000; ++k) {
+        adapter->set_inputs(driven(JointDrive{0, rate * h * k, 1e6, 1e3, true}));
+        adapter->step();
+    }
+    const double measured = (rate * h * 2000.0) - adapter->outputs().joint_positions[0];
+    std::cout << "tracking lag: closed form " << lag << " m, measured " << measured << " m\n";
+    CHECK(relative(measured, lag) < 0.01);
+}
+
+TEST_CASE("MuJoCo disabled or zero drive applies no force", "[PHY-034]") {
+    // Free motion of the 1 kg slider under F = 10 N, semi-implicit Euler: x_n = (F / m) h^2 n (n + 1) / 2.
+    for (const bool enabled : {false, true}) {
+        double stiffness = 1e6;
+        if (enabled) {
+            stiffness = 0.0;
+        }
+        const DriveRun run = run_slider(stiffness, 0.0, 10.0, 100, enabled);
+        const double closed = 10.0 * h * h * 100.0 * 101.0 / 2.0;
+        CHECK(relative(run.x.back(), closed) < 1e-9);
+        CHECK(run.torque.back() == 0.0);
+    }
+}
+
+TEST_CASE("MuJoCo drive applies for its step only and publishes nothing without one", "[PHY-034][PHY-005]") {
+    auto adapter = loaded("slider.xml");
+    adapter->set_inputs(driven(JointDrive{0, 0.0, 1e6, 0.0, true}, 10.0));
+    adapter->step();
+    CHECK(adapter->outputs().joint_drive_torques.size() == 1);
+    adapter->set_inputs(torque(10.0));
+    adapter->step();
+    CHECK(adapter->outputs().joint_drive_torques.empty());
+    // Without the drive the step is free: v gains F / m h = 0.01 m/s on top of what it had.
+    const double before = adapter->outputs().bodies[0].linear_velocity[0];
+    adapter->set_inputs(torque(10.0));
+    adapter->step();
+    CHECK(std::abs(adapter->outputs().bodies[0].linear_velocity[0] - before - 0.01) < 1e-12);
+}
+
+TEST_CASE("MuJoCo adapter refuses drives it cannot apply", "[PHY-034][PHY-009]") {
+    auto screw = loaded("lead_screw.xml");
+    CHECK_NOTHROW(screw->set_inputs(driven(JointDrive{0, 0.0, 1.0, 0.0, true})));
+    CHECK_THROWS_AS(screw->set_inputs(driven(JointDrive{1, 0.0, 1.0, 0.0, true})), AdapterError);
+    CHECK_THROWS_AS(screw->set_inputs(driven(JointDrive{2, 0.0, 1.0, 0.0, true})), AdapterError);
+    CHECK_THROWS_AS(screw->set_inputs(driven(JointDrive{0, 0.0, -1.0, 0.0, true})), AdapterError);
+    CHECK_THROWS_AS(screw->set_inputs(driven(JointDrive{0, 0.0, 1.0, -1.0, true})), AdapterError);
+    CHECK_THROWS_AS(screw->set_inputs(driven(JointDrive{0, std::nan(""), 1.0, 0.0, true})), AdapterError);
+    PhysicsInputs twice = driven(JointDrive{0, 0.0, 1.0, 0.0, true});
+    twice.joint_drives.push_back(JointDrive{0, 0.1, 1.0, 0.0, false});
+    CHECK_THROWS_AS(screw->set_inputs(twice), AdapterError);
+    // At d = 0.99 the loop frequency is s0 = 0.01 K / m: K = 1e9 N/m on 1 kg gives s0 h^2 = 10 >= 4.
+    auto slider = loaded("slider.xml");
+    slider->set_inputs(driven(JointDrive{0, 0.0, 1e9, 0.0, true}));
+    CHECK_THROWS_AS(slider->step(), AdapterError);
+    std::string text = fixture("slider.xml");
+    replace(text, R"(<text name="mechsim:drives" data="slide" />)", R"(<text name="mechsim:drives" data="rail" />)");
+    MujocoAdapter unknown;
+    CHECK_THROWS_AS(unknown.load(PreparedModel{"", text, "0.1.0"}, Rate(1000)), AdapterError);
 }

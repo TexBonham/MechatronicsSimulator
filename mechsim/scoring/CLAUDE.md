@@ -6,7 +6,7 @@ nothing.
 | File | Holds |
 |---|---|
 | `statistics.py` | `statistic(name, times, values) -> (value, worst_time)` for final, minimum, maximum, peak_absolute, period; `upward_crossings`, `window_indices`, `compare`, `within`, `StatisticError` |
-| `score.py` | `score_run(case, recording, report, limits, sweep, run) -> CaseScore`, `not_run(...)`, `CriterionResult`, `CaseScore`, `SuiteScore.status`, `suite_baseline`, `report_text`, `ScoringError` |
+| `score.py` | `score_run(case, recording, report, limits, sweep, run) -> CaseScore`, `not_run(...)`, `run_failed(case, error, sweep)` (driver error from `run`: errored, end reason run_error, ran False), `CriterionResult`, `CaseScore` (`approximations` from the run report, printed one `approximation:` line each, SCO-013), `SuiteScore.status`, `suite_baseline`, `report_text`, `ScoringError` |
 
 ## Rules
 

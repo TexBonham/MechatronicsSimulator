@@ -42,7 +42,7 @@ proposed <value>)".
 | SCO-010 | The regression diff shall highlight every criterion and case that newly passes or newly fails. | Requirements doc, Test cases, Regression | M2 | unit | n/a |
 | SCO-011 | Scoring shall write each suite's scoring summary as YAML in the regression baseline format, so that it can be committed as the next baseline. | ADR 0012 (D4); Ruling D4 | M2 | unit | n/a |
 | SCO-012 | Scoring shall produce the pass/fail report as a shareable document. | Architecture doc, Modules: outputs, Exports row | M2 | unit | n/a |
-| SCO-013 | The report shall state, for each case, the seed, the design version and the controller mode of the run it scored. | ADR 0012 (L8, D3) | M1 | unit | n/a |
+| SCO-013 | The report shall state, for each case, the seed, the design version and the controller mode of the run it scored, and every approximation line of the physics bridge's translation report for that run. | ADR 0012 (L8, D3); ADR 0003 (approximations reported, invariant 7), brief M1-X7 coordinator ruling 2 (2026-11-04) | M1 | unit | n/a |
 | SCO-014 | Scoring shall read structural criteria (safety factor, deflection) from the integrity results, not recompute them. | Architecture doc, Modules: outputs, Scoring row, Reads | M3 | unit | n/a |
 | SCO-015 | Scoring shall fail a case for which integrity recorded a tier 1 limit crossing. | ADR 0010, Decision, Tier 1, On a limit crossing | M3 | unit | n/a |
 | SCO-016 | Scoring the same archive twice shall give an identical report. | Architecture doc, Repository starting point, invariant 4 | M1 | unit | n/a |
@@ -55,6 +55,7 @@ proposed <value>)".
 | SCO-023 | Scoring shall support a criterion requiring no actuator motion within a time window, measured against a motion threshold. | Requirements doc, Test cases, gantry suite table, Pass criteria column | M1 | unit | not set (owed by owner) |
 | SCO-024 | Scoring shall support a criterion comparing the settle time of a recorded series into a band with a limit. | Requirements doc, Test cases, gantry suite table, Pass criteria column; Architecture doc, Technology recommendation, Validation | M3 | unit | n/a |
 | SCO-025 | Scoring shall support a criterion requiring that no two recorded actuator commands are active at once on the same actuator. | Requirements doc, Test cases, gantry suite table, Pass criteria column | M2 | unit | n/a |
+| SCO-026 | Scoring shall support a criterion requiring every listed joint to stay within a band of its first position in a time window (a hold band), so that a hold's sag and ringing inside the band do not count as motion. | M1-X6 coordinator ruling 2 (2026-11-04), for owner confirmation | M1 | unit | n/a |
 
 ## Open parameters
 

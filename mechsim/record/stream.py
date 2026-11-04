@@ -15,6 +15,9 @@ from mechsim.record.archive import RunEnd, RunIdentity, write_archive
 from mechsim.record.layout import (
     CONSTRAINT_FORCE,
     CONTROLLER_STATE,
+    COUPLING_DIGEST,
+    COUPLING_VALUE,
+    DIGEST_LENGTH,
     FIXED_SERIES,
     JOINT_FORCE,
     NAMED_GROUPS,
@@ -26,7 +29,7 @@ from mechsim.record.layout import (
     check_text,
     seconds,
 )
-from mechsim.record.tick import RecordedEvent, RecordError, SeriesSample, TickRecord
+from mechsim.record.tick import COUPLING_KINDS, RecordedEvent, RecordError, SeriesSample, TickRecord
 
 TickCallback = Callable[[TickRecord], None]
 
@@ -65,6 +68,7 @@ class _Layout:
     ropes: int = 0
     transmissions: int = 0
     named: tuple[tuple[tuple[str, str], ...], ...] = ((), (), ())
+    coupling: tuple[str, ...] = ()
 
     def units(self) -> dict[str, str]:
         units: dict[str, str] = {}
@@ -84,6 +88,7 @@ def _layout(row: TickRecord) -> _Layout:
         ropes=len(physics.ropes),
         transmissions=len(physics.transmissions),
         named=tuple(tuple((sample.name, sample.unit) for sample in samples) for samples in _named(row)),
+        coupling=tuple(sample.name for sample in row.coupling),
     )
 
 
@@ -99,6 +104,10 @@ def _check_named(layout: _Layout) -> None:
             check_text(unit, f"{group} unit of {name!r}")
         if len(set(names)) != len(names):
             raise RecordError(f"{group}: duplicate series names in {names}")
+    for name in layout.coupling:
+        check_name(name, "coupling")
+    if list(layout.coupling) != sorted(set(layout.coupling)):
+        raise RecordError(f"coupling: names must be unique and in name order, got {list(layout.coupling)}")
 
 
 class Recorder:
@@ -112,6 +121,7 @@ class Recorder:
         self._buffers: dict[str, _Buffer] = {}
         self._states: dict[str, int] = {}
         self._events: list[tuple[int, RecordedEvent]] = []
+        self._coupling_kinds: dict[str, str] = {}
         self._last_time = -1
         self._rows = 0
         self._subscribers: dict[int, TickCallback] = {}
@@ -154,6 +164,8 @@ class Recorder:
 
     def _store(self, row: TickRecord) -> None:
         check_text(row.controller_state, "controller state")
+        for entry in row.coupling:
+            self._check_coupling(row.time, entry.name, entry.kind, entry.digest)
         for event in row.events:
             check_text(event.source, "event source")
             check_text(event.kind, "event kind")
@@ -189,6 +201,15 @@ class Recorder:
         buffers["physics/ropes/slack"].append([rope.slack for rope in physics.ropes])
         buffers["physics/transmissions/slip"].append([item.slip for item in physics.transmissions])
         buffers["physics/transmissions/slipping"].append([item.slipping for item in physics.transmissions])
+        buffers["physics/transmissions/shaft_load_torque"].append(
+            [item.shaft_load_torque for item in physics.transmissions]
+        )
+        buffers["physics/transmissions/force"].append([item.force for item in physics.transmissions])
+        buffers["physics/transmissions/stretch"].append([item.stretch for item in physics.transmissions])
+        buffers["physics/transmissions/power_flow"].append([item.power_flow for item in physics.transmissions])
+        for coupling in row.coupling:
+            buffers[f"{COUPLING_VALUE}/{coupling.name}"].append(coupling.value)
+            buffers[f"{COUPLING_DIGEST}/{coupling.name}"].append(coupling.digest.encode("ascii"))
         for group, samples in zip(NAMED_GROUPS, _named(row), strict=True):
             for sample in samples:
                 buffers[f"{group}/{sample.name}"].append(sample.value)
@@ -197,6 +218,22 @@ class Recorder:
         buffers[CONTROLLER_STATE].append(self._states[row.controller_state])
         for event in row.events:
             self._events.append((self._rows, event))
+
+    def _check_coupling(self, time: int, name: str, kind: str, digest: str) -> None:
+        """A variable keeps one kind; `none` (not yet published) may precede or stand in for any kind."""
+        if kind not in COUPLING_KINDS:
+            raise RecordError(f"tick {time}: coupling {name!r} has unknown kind {kind!r}")
+        if kind == "payload" and len(digest) != DIGEST_LENGTH:
+            raise RecordError(f"tick {time}: coupling {name!r} payload digest must be {DIGEST_LENGTH} hex characters")
+        if kind != "payload" and digest != "":
+            raise RecordError(f"tick {time}: coupling {name!r} of kind {kind!r} carries no digest")
+        known = self._coupling_kinds.get(name, "none")
+        if kind == "none":
+            self._coupling_kinds.setdefault(name, "none")
+            return
+        if known not in ("none", kind):
+            raise RecordError(f"tick {time}: coupling {name!r} changed kind from {known} to {kind}")
+        self._coupling_kinds[name] = kind
 
     def recording(self) -> Recording:
         """A snapshot of everything recorded so far, in canonical series order."""
@@ -222,11 +259,15 @@ class Recorder:
         for path, unit in layout.units().items():
             series[path] = Series(buffers[path].array(), unit, TICK_AXIS)
         series[CONTROLLER_STATE] = Series(buffers[CONTROLLER_STATE].array(), "1", TICK_AXIS)
+        for name in layout.coupling:
+            series[f"{COUPLING_VALUE}/{name}"] = Series(buffers[f"{COUPLING_VALUE}/{name}"].array(), "SI", TICK_AXIS)
+            series[f"{COUPLING_DIGEST}/{name}"] = Series(buffers[f"{COUPLING_DIGEST}/{name}"].array(), "1", TICK_AXIS)
         named = {
             group: tuple(entry[0] for entry in entries)
             for group, entries in zip(NAMED_GROUPS, layout.named, strict=True)
         }
-        return Recording(self._base_rate, series, named, tuple(self._states), tuple(self._events))
+        coupling = tuple((name, self._coupling_kinds.get(name, "none")) for name in layout.coupling)
+        return Recording(self._base_rate, series, named, tuple(self._states), tuple(self._events), coupling)
 
     def flush(self, path: Path, identity: RunIdentity, end: RunEnd) -> None:
         """Write everything recorded to one archive (REC-012)."""
@@ -263,6 +304,10 @@ def _make_buffers(layout: _Layout) -> dict[str, _Buffer]:
         "physics/ropes/slack": (layout.ropes,),
         "physics/transmissions/slip": (layout.transmissions,),
         "physics/transmissions/slipping": (layout.transmissions,),
+        "physics/transmissions/shaft_load_torque": (layout.transmissions,),
+        "physics/transmissions/force": (layout.transmissions,),
+        "physics/transmissions/stretch": (layout.transmissions,),
+        "physics/transmissions/power_flow": (layout.transmissions,),
         CONTROLLER_STATE: (),
     }
     dtypes = {path: dtype for path, _, _, dtype in FIXED_SERIES}
@@ -270,4 +315,7 @@ def _make_buffers(layout: _Layout) -> dict[str, _Buffer]:
     buffers = {path: _Buffer(tail, dtypes[path]) for path, tail in tails.items()}
     for path in layout.units():
         buffers[path] = _Buffer((), "float64")
+    for name in layout.coupling:
+        buffers[f"{COUPLING_VALUE}/{name}"] = _Buffer((), "float64")
+        buffers[f"{COUPLING_DIGEST}/{name}"] = _Buffer((), f"S{DIGEST_LENGTH}")
     return buffers

@@ -100,12 +100,33 @@ struct ConstraintMap {
     bool hinge = false;
 };
 
+// A neutral joint's coordinate (q - qpos0) / coefficient and, when drivable, its soft joint equality on the MuJoCo
+// DOF it moves (the driven joint for a reflected shaft, coefficient c; the joint itself otherwise, coefficient 1).
+struct CoordinateMap {
+    int qpos = -1;
+    int dof = -1;
+    double coefficient = 1.0;
+    int equality = -1;
+};
+
+struct ActiveDrive {
+    std::size_t joint = 0;
+    int equality = -1;
+};
+
 struct MemberMap {
     int parent = 0;
     int first = 0;
     int roller = -1;
     Vec3 position{};
 };
+
+// Impedance range of a joint drive's soft equality (PHY-034): MuJoCo's own floor mjMINIMP, and the stiff end 0.99,
+// where the drive stays stable up to K_d A0 h^2 = 400 (omega h = 20). Width 1e-3 with both ends equal keeps the
+// impedance constant over the violation.
+constexpr double drive_impedance_min = 1e-4;
+constexpr double drive_impedance_max = 0.99;
+constexpr double drive_impedance_width = 1e-3;
 
 constexpr std::array<int, 3> fatal_warnings{mjWARN_BADQPOS, mjWARN_BADQVEL, mjWARN_BADQACC};
 
@@ -256,6 +277,9 @@ struct MujocoAdapter::Engine {
     std::vector<ConstraintMap> constraints;
     std::vector<MemberMap> members;
     std::vector<ShaftMap> shafts;
+    std::vector<CoordinateMap> coordinates;
+    std::vector<ActiveDrive> drives;  // the step's drives, input order
+    std::vector<double> drive_shaft_torque;
     std::vector<int> shaft_of_body;
     std::vector<double> shaft_torque;
     std::vector<double> driven_velocity;
@@ -273,7 +297,9 @@ struct MujocoAdapter::Engine {
     void collect_kinematics();
     void collect_solver();
     void map_shafts(const std::vector<std::string>& body_names);
+    void map_drives(const std::vector<std::string>& joint_names);
     void apply_inputs();
+    void apply_drives();
     void shaft_state(std::size_t body, kernel::BodyState& out) const;
     void clear_inputs();
 };
@@ -310,11 +336,25 @@ void MujocoAdapter::Engine::map_elements() {
         throw AdapterError(0, "MJCF artifact lists " + std::to_string(joint_tokens.size()) + " joints for " +
                                   std::to_string(bodies.size()) + " bodies");
     }
+    std::vector<std::string> joint_names;
     for (std::size_t i = 0; i < joint_tokens.size(); ++i) {
         const std::vector<std::string> parts = split(joint_tokens[i], ':');
         if (parts.size() != 2) {
             throw AdapterError(0, "malformed mechsim:joints entry '" + joint_tokens[i] + "'");
         }
+        joint_names.push_back(parts[0]);
+        CoordinateMap coordinate;
+        if (shaft_of_body[i] >= 0) {
+            const ShaftMap& shaft = shafts[to_size(shaft_of_body[i])];
+            coordinate.qpos = shaft.driven_qpos;
+            coordinate.dof = shaft.driven_dof;
+            coordinate.coefficient = shaft.coefficient;
+        } else if (parts[1] == "revolute" || parts[1] == "prismatic") {
+            const int id = require_id(m, mjOBJ_JOINT, parts[0]);
+            coordinate.qpos = m.jnt_qposadr[id];
+            coordinate.dof = m.jnt_dofadr[id];
+        }
+        coordinates.push_back(coordinate);
         if (shaft_of_body[i] >= 0) {
             shafts[to_size(shaft_of_body[i])].joint = i;
             joints.push_back({-1, -1, 1, shaft_of_body[i]});
@@ -379,7 +419,28 @@ void MujocoAdapter::Engine::map_elements() {
         map.position = {values[1], values[2], values[3]};
         members.push_back(map);
     }
+    map_drives(joint_names);
+}
 
+// Every listed joint carries an inactive soft joint equality `<joint>.drive` on the DOF it moves (PHY-034).
+void MujocoAdapter::Engine::map_drives(const std::vector<std::string>& joint_names) {
+    const mjModel& m = *model;
+    for (const std::string& name : split(custom_text(m, "mechsim:drives"), ' ')) {
+        const auto found = std::find(joint_names.begin(), joint_names.end(), name);
+        if (found == joint_names.end()) {
+            throw AdapterError(0, "mechsim:drives names unknown joint '" + name + "'");
+        }
+        CoordinateMap& coordinate = coordinates[to_size(std::distance(joint_names.begin(), found))];
+        if (coordinate.dof < 0) {
+            throw AdapterError(0, "drive on joint '" + name + "': only revolute and prismatic joints are drivable");
+        }
+        coordinate.equality = require_id(m, mjOBJ_EQUALITY, name + ".drive");
+        const int eq = coordinate.equality;
+        if (m.eq_type[eq] != mjEQ_JOINT || m.eq_obj1id[eq] != m.dof_jntid[coordinate.dof] || m.eq_obj2id[eq] >= 0) {
+            throw AdapterError(0, "equality '" + name + ".drive' must be a one-joint equality on the driven DOF");
+        }
+    }
+    drive_shaft_torque.assign(shafts.size(), 0.0);
 }
 
 // ===== Shafts ============================================================
@@ -436,6 +497,25 @@ void MujocoAdapter::Engine::collect_forces() {
     mjData& d = *data;
     mj_rnePostConstraint(&m, &d);
 
+    std::fill(drive_shaft_torque.begin(), drive_shaft_torque.end(), 0.0);
+    outputs.joint_drive_torques.clear();
+    for (const ActiveDrive& drive : drives) {
+        double torque = 0.0;
+        if (drive.equality >= 0) {
+            const std::vector<double> rows = equality_rows(d, drive.equality);
+            if (!rows.empty()) {
+                // A one-joint equality has Jacobian +1 on the driven DOF: efc_force is the force on it, and the
+                // shaft feels it through driven = c * shaft as torque F c.
+                torque = rows[0] * coordinates[drive.joint].coefficient;
+            }
+        }
+        outputs.joint_drive_torques.push_back({drive.joint, torque});
+        const int shaft = joints[drive.joint].shaft;
+        if (shaft >= 0) {
+            drive_shaft_torque[to_size(shaft)] = torque;
+        }
+    }
+
     outputs.joints.assign(joints.size(), {});
     for (std::size_t i = 0; i < joints.size(); ++i) {
         const JointMap& joint = joints[i];
@@ -445,7 +525,8 @@ void MujocoAdapter::Engine::collect_forces() {
             const auto index = to_size(joint.shaft);
             const ShaftMap& shaft = shafts[index];
             const double acceleration = (d.qvel[shaft.driven_dof] - driven_velocity[index]) / m.opt.timestep;
-            out.generalized_force = {shaft_torque[index] - shaft.inertia * acceleration / shaft.coefficient};
+            out.generalized_force = {shaft_torque[index] + drive_shaft_torque[index] -
+                                     (shaft.inertia * acceleration / shaft.coefficient)};
             continue;
         }
         const mjtNum* spatial = d.cfrc_int + offset(joint.body, 6);
@@ -505,7 +586,8 @@ void MujocoAdapter::Engine::collect_forces() {
         const ShaftMap& shaft = shafts[i];
         const double acceleration = (d.qvel[shaft.driven_dof] - driven_velocity[i]) / m.opt.timestep;
         kernel::TransmissionState& out = outputs.transmissions[i];
-        out.shaft_load_torque = shaft_torque[i] - shaft.inertia * acceleration / shaft.coefficient;
+        out.shaft_load_torque =
+            shaft_torque[i] + drive_shaft_torque[i] - (shaft.inertia * acceleration / shaft.coefficient);
         out.force = shaft_gain[i] * out.shaft_load_torque / shaft.coefficient;
         out.power_flow = shaft_flow[i];
     }
@@ -515,6 +597,13 @@ void MujocoAdapter::Engine::collect_forces() {
 void MujocoAdapter::Engine::collect_kinematics() {
     const mjModel& m = *model;
     const mjData& d = *data;
+    outputs.joint_positions.assign(coordinates.size(), 0.0);
+    for (std::size_t i = 0; i < coordinates.size(); ++i) {
+        const CoordinateMap& coordinate = coordinates[i];
+        if (coordinate.qpos >= 0) {
+            outputs.joint_positions[i] = (d.qpos[coordinate.qpos] - m.qpos0[coordinate.qpos]) / coordinate.coefficient;
+        }
+    }
     outputs.bodies.assign(bodies.size(), {});
     for (std::size_t i = 0; i < bodies.size(); ++i) {
         const int body = bodies[i];
@@ -646,6 +735,64 @@ void MujocoAdapter::Engine::apply_inputs() {
             target[3 + k] += wrench.wrench.moment[k];
         }
     }
+    apply_drives();
+}
+
+// A drive (K, D, rest) on the driven DOF, with K_d = K / c^2, D_d = D / c^2, rest_d = rest c, is the soft one-joint
+// equality r = q - qpos0 - rest_d in MuJoCo's direct form (PHY-034). With impedance d and R = (1 - d) / d A0
+// (A0 = dof_invweight0, MuJoCo's diagApprox for the row), the solved constraint acceleration is
+// a1 = (1 - d) a0 - s1 v - s0 r for solref = (-s0, -s1); multiplied by m = 1 / A0 / (1 - d) that is
+// (m / (1 - d)) a1 = F - D_d v - K_d (q - rest_d) when s0 = (1 - d) K_d A0 and s1 = (1 - d) D_d A0. So stiffness,
+// damping and the static sag F / K_d are exact for any d, and the loop's explicit frequency is sqrt(s0): d is chosen
+// as 1 - 1 / (K_d A0 h^2), clamped to [drive_impedance_min, drive_impedance_max], which keeps s0 h^2 <= 1 and leaves
+// the dynamics exact (d at the minimum) whenever the explicit spring itself is stable. The price above that is an
+// apparent inertia m / (1 - d) under the drive; semi-implicit stability needs s0 h^2 + 2 s1 h < 4, else AdapterError.
+void MujocoAdapter::Engine::apply_drives() {
+    const mjModel& m = *model;
+    const mjData& d = *data;
+    for (const CoordinateMap& coordinate : coordinates) {
+        if (coordinate.equality >= 0) {
+            d.eq_active[coordinate.equality] = false;
+        }
+    }
+    drives.clear();
+    const double h = m.opt.timestep;
+    for (const kernel::JointDrive& drive : pending.joint_drives) {
+        const CoordinateMap& coordinate = coordinates[drive.joint];
+        drives.push_back({drive.joint, -1});
+        const double c = coordinate.coefficient;
+        const double stiffness = drive.stiffness / (c * c);
+        const double damping = drive.damping / (c * c);
+        if (!drive.enabled || (stiffness == 0.0 && damping == 0.0)) {
+            continue;
+        }
+        const double weight = m.dof_invweight0[coordinate.dof];
+        double impedance = drive_impedance_min;
+        if (stiffness > 0.0) {
+            impedance = std::clamp(1.0 - (1.0 / (stiffness * weight * h * h)), drive_impedance_min, drive_impedance_max);
+        }
+        const double s0 = (1.0 - impedance) * stiffness * weight;
+        const double s1 = (1.0 - impedance) * damping * weight;
+        if ((s0 * h * h) + (2.0 * s1 * h) >= 4.0) {
+            throw AdapterError(outputs.steps, "drive on joint " + std::to_string(drive.joint) + ": stiffness " +
+                                                  std::to_string(drive.stiffness) + " and damping " +
+                                                  std::to_string(drive.damping) +
+                                                  " are beyond the bridge's stable drive envelope at this step (PHY-034)");
+        }
+        const auto eq = to_size(coordinate.equality);
+        m.eq_solref[(mjNREF * eq) + 0] = -s0;
+        m.eq_solref[(mjNREF * eq) + 1] = -s1;
+        const std::array<double, mjNIMP> solimp{impedance, impedance, drive_impedance_width, 0.5, 2.0};
+        for (std::size_t k = 0; k < solimp.size(); ++k) {
+            m.eq_solimp[(mjNIMP * eq) + k] = solimp[k];
+        }
+        for (std::size_t k = 0; k < static_cast<std::size_t>(mjNEQDATA); ++k) {
+            m.eq_data[(mjNEQDATA * eq) + k] = 0.0;
+        }
+        m.eq_data[mjNEQDATA * eq] = drive.rest * c;
+        d.eq_active[coordinate.equality] = true;
+        drives.back().equality = coordinate.equality;
+    }
 }
 
 void MujocoAdapter::Engine::clear_inputs() {
@@ -761,6 +908,25 @@ void MujocoAdapter::set_inputs(const kernel::PhysicsInputs& inputs) {
     for (const double value : inputs.generalized_forces) {
         if (!std::isfinite(value)) {
             throw AdapterError(e.steps(), "set_inputs(): non-finite generalized force");
+        }
+    }
+    for (std::size_t i = 0; i < inputs.joint_drives.size(); ++i) {
+        const kernel::JointDrive& drive = inputs.joint_drives[i];
+        if (drive.joint >= e.coordinates.size() || e.coordinates[drive.joint].equality < 0) {
+            throw AdapterError(e.steps(), "joint " + std::to_string(drive.joint) +
+                                              " is not drivable: the translation emits drives on shaft joints and on "
+                                              "the signals' drive_joints (PHY-034)");
+        }
+        if (!std::isfinite(drive.rest) || !std::isfinite(drive.stiffness) || !std::isfinite(drive.damping) ||
+            drive.stiffness < 0.0 || drive.damping < 0.0) {
+            throw AdapterError(e.steps(), "drive on joint " + std::to_string(drive.joint) +
+                                              ": rest, stiffness and damping must be finite, stiffness and damping not "
+                                              "negative");
+        }
+        for (std::size_t k = 0; k < i; ++k) {
+            if (inputs.joint_drives[k].joint == drive.joint) {
+                throw AdapterError(e.steps(), "two drives on joint " + std::to_string(drive.joint) + " in one step");
+            }
         }
     }
     for (const kernel::BodyWrench& wrench : inputs.body_wrenches) {

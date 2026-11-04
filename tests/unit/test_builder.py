@@ -379,7 +379,8 @@ def test_belts_and_lead_screws_become_neutral_transmissions() -> None:
     assert (screw.shaft_joint, screw.driven_joint) == ("lift_motor_spin", "lift_axis")
     assert screw.lead == pytest.approx(0.008, rel=1e-15)
     assert screw.self_locking is False
-    assert screw.backlash == pytest.approx(1e-4, rel=1e-15)
+    # The design zeroes the catalog's 0.1 mm for milestone 1 (PHY-006, M1-X3 ruling 3).
+    assert screw.backlash == 0.0
 
 
 @pytest.mark.req("BLD-027")
@@ -555,6 +556,7 @@ def test_module_instances_follow_the_tick_order() -> None:
         "controller",
         "signals",
         "motor_supply",
+        "logic_psu",
         "estop",
         "watchdog",
         "x_driver",

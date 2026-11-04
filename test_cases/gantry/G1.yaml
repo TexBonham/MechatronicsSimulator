@@ -1,0 +1,86 @@
+# G1 (Requirements doc, Test cases, gantry suite): target (40, 25) sent at power on, before homing. Pass: no actuator
+# moves (ACC-001); the refusal is reported (ACC-002) on the "ready / fault" status message (fields state and fault,
+# DES-045 names; ACC-002's test reads fault = not_homed). Precondition: the firmware reports not_homed at power on. "No
+# actuator moves" (M1-X6 ruling 2): the controller commands no step pulse on any axis for the whole run, and no axis
+# leaves its power-on hold band (placeholder 1 mm, owed by the gantry team): hold sag and ringing are not motion.
+# Start position: open parameters with placeholder defaults (DES-044).
+id: G1
+title: Target (40, 25) before homing
+design:
+  name: gantry
+  version: 0.1.0
+controller_mode: native
+seed: 1
+open_parameters:
+  - name: start_x
+    dimension: "[length]"
+    owed_by: gantry team
+    note: Carriage x position at power on, before homing; not stated.
+    default: "0.1 m"
+  - name: start_y
+    dimension: "[length]"
+    owed_by: gantry team
+    note: Trolley y position at power on, before homing; not stated.
+    default: "0.1 m"
+  - name: start_lift
+    dimension: "[length]"
+    owed_by: gantry team
+    note: Lift carriage position at power on, before homing; not stated.
+    default: "0.1 m"
+  - name: hold_band
+    dimension: "[length]"
+    owed_by: gantry team
+    note: Band every axis stays in from its first sample in the window; hold sag and ringing are not motion; placeholder.
+    default: "1 mm"
+initial_state:
+  joints:
+    - joint: x_axis
+      position: ${start_x}
+      velocity: 0 m/s
+    - joint: y_axis
+      position: ${start_y}
+      velocity: 0 m/s
+    - joint: lift_axis
+      position: ${start_lift}
+      velocity: 0 m/s
+  controller:
+    state: not_homed
+  payload:
+    attached: false
+commands:
+  - at: 0 s
+    message: target
+    payload:
+      x: 40 cm
+      y: 25 cm
+end:
+  at: 2 s
+  max_duration: 2 s
+criteria:
+  - name: no_step_pulses_x
+    check: value
+    quantity: signal:x_driver.step
+    statistic: maximum
+    comparison: at_most
+    limit: "0"
+  - name: no_step_pulses_y
+    check: value
+    quantity: signal:y_driver.step
+    statistic: maximum
+    comparison: at_most
+    limit: "0"
+  - name: no_step_pulses_lift
+    check: value
+    quantity: signal:lift_driver.step
+    statistic: maximum
+    comparison: at_most
+    limit: "0"
+  - name: hold_band
+    check: hold_band
+    joints: [x_axis, y_axis, lift_axis]
+    band: ${hold_band}
+  - name: refusal_reported
+    check: event
+    event: message:status
+    expect: present
+baseline: baseline.yaml

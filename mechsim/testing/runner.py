@@ -26,13 +26,22 @@ from mechsim.design.schema import (
     CHOICE,
     Design,
     DesignError,
+    OpenParameter,
     blob_hash,
     iter_open_values,
     open_name,
     yaml_loader,
 )
 from mechsim.schema_base import format_errors
-from mechsim.scoring.score import CaseScore, ScoringError, SuiteScore, not_run, score_run, suite_baseline
+from mechsim.scoring.score import (
+    CaseScore,
+    ScoringError,
+    SuiteScore,
+    not_run,
+    run_failed,
+    score_run,
+    suite_baseline,
+)
 from mechsim.testing.baseline import Baseline, BaselineDiff, RunIdentity, diff_baselines, load_baseline
 from mechsim.testing.driver import (
     Archiver,
@@ -145,7 +154,7 @@ def _validate_design(data: Any, path: Path) -> Design:
         raise RunnerError("\n".join(f"{path}: {message}" for message in format_errors(error))) from error
 
 
-def _substitute(data: Any, values: Mapping[str, str], skip: frozenset[str]) -> Any:
+def _substitute(data: Any, values: Mapping[str, Any], skip: frozenset[str]) -> Any:
     if isinstance(data, dict):
         out: dict[str, Any] = {}
         for key, item in data.items():
@@ -185,6 +194,29 @@ def set_design_path(data: Any, parameter: str, value: str) -> Any:
     return data
 
 
+def resolve_open_values(
+    declared: Mapping[str, OpenParameter], case_values: Mapping[str, str], given: Mapping[str, str]
+) -> dict[str, str | dict[str, str]]:
+    """Each declared open parameter's value, in order (DES-044): `--set`, the case's `parameters`, the parameter's
+    `default`. A parameter with none of the three stays unresolved and is reported where it is referenced."""
+    values: dict[str, str | dict[str, str]] = {}
+    for name in sorted(declared):
+        default = declared[name].default
+        if name in given:
+            values[name] = given[name]
+        elif name in case_values:
+            values[name] = case_values[name]
+        elif default is not None:
+            values[name] = default
+    return values
+
+
+def _binding_text(value: str | dict[str, str]) -> str:
+    if isinstance(value, str):
+        return value
+    return json.dumps(value, sort_keys=True)
+
+
 def prepare(
     case_path: Path,
     bindings: Mapping[str, str] | None = None,
@@ -216,23 +248,29 @@ def prepare(
     for parameter in written.open_parameters:
         declared[parameter.name] = parameter
     problems: list[str] = []
-    for name in sorted(given):
-        if name not in declared:
-            problems.append(f"binding {name!r}: not an open parameter of the design or the case")
-            continue
-        parameter = declared[name]
-        if parameter.dimension != CHOICE:
-            try:
-                parse_quantity(given[name], parameter.dimension)
-            except UnitError as error:
-                problems.append(f"binding {name!r}: {error}")
+    for source, values in (("parameters", written.parameters), ("binding", given)):
+        for name in sorted(values):
+            if name not in declared:
+                problems.append(f"{source} {name!r}: not an open parameter of the design or the case")
+                continue
+            parameter = declared[name]
+            if parameter.dimension != CHOICE:
+                try:
+                    parse_quantity(values[name], parameter.dimension)
+                except UnitError as error:
+                    problems.append(f"{source} {name!r}: {error}")
     if len(problems) > 0:
         raise RunnerError("\n".join(f"{case_path}: {message}" for message in problems))
+    resolved = resolve_open_values(declared, written.parameters, given)
+    given = {name: _binding_text(value) for name, value in resolved.items()}
     for path, value in (design_values or {}).items():
         set_design_path(raw_design, path, value)
-    resolved_design_data = _substitute(raw_design, given, frozenset({"open_parameters"}))
-    resolved_case_data = _substitute(raw_case, given, frozenset({"open_parameters", "sweeps", "variations"}))
+    resolved_design_data = _substitute(raw_design, resolved, frozenset({"open_parameters"}))
+    resolved_case_data = _substitute(
+        raw_case, resolved, frozenset({"open_parameters", "parameters", "sweeps", "variations"})
+    )
     resolved_case_data["open_parameters"] = []
+    resolved_case_data["parameters"] = {}
     design = _validate_design(resolved_design_data, design_path)
     case = _validate_case(resolved_case_data, case_path)
     unresolved = [
@@ -451,8 +489,13 @@ def run_case(
     if dry:
         score = not_run(case, case.id, case.design, case.seed, "dry run: configured, not run", sweep)
         return RunResult(score, config=config, commands=tuple(commands), faults=tuple(faults))
-    report = driver.run(end)
-    recording = driver.recording()
+    try:
+        report = driver.run(end)
+        recording = driver.recording()
+    except RunnerError as error:
+        return RunResult(
+            run_failed(case, str(error), sweep), config=config, commands=tuple(commands), faults=tuple(faults)
+        )
     identifier = run_id(case, sweep_index)
     metadata = RunMetadata(
         run_id=identifier,
@@ -466,6 +509,7 @@ def run_case(
         sweep=sweep,
         report=report,
         bindings=prepared.bindings,
+        control_rate=config.control_rate,
     )
     archive: Path | None = None
     identity: RunIdentity | None = None

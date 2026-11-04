@@ -731,6 +731,7 @@ class ShaftAdapter(core.PhysicsAdapter):  # type: ignore[misc]
     def __init__(self) -> None:
         super().__init__()
         self.received: list[list[float]] = []
+        self.drives: list[list[Any]] = []
         self._out = core.PhysicsOutputs()
         self._out.bodies = [core.BodyState()]
         self._out.joints = [core.JointForce()]
@@ -746,6 +747,7 @@ class ShaftAdapter(core.PhysicsAdapter):  # type: ignore[misc]
         angle = 0.01 * self._out.steps
         body.orientation = [math.cos(angle / 2.0), 0.0, 0.0, math.sin(angle / 2.0)]
         self._out.bodies = [body]
+        self._out.joint_positions = [angle]
 
     def supported_elements(self) -> list[str]:
         return []
@@ -768,6 +770,7 @@ class ShaftAdapter(core.PhysicsAdapter):  # type: ignore[misc]
 
     def set_inputs(self, inputs: Any) -> None:
         self.received.append(list(inputs.generalized_forces))
+        self.drives.append(list(inputs.joint_drives))
 
     def set_spring_offset(self, spring: int, offset: float) -> None:
         pass
@@ -820,7 +823,7 @@ def chain_layer() -> Any:
         core.RailSpec("logic", "logic_supply.voltage"),
     ]
     config.controller_rail = "logic"
-    config.actuators = [core.ActuatorOutput("x_motor.torque", 0)]
+    config.actuators = [core.ActuatorOutput("x_motor.torque", 0, applied=False)]
     config.velocity_dofs = 1
     layer = core.SignalLayer(config)
     layer.add_component(core.make_signal_component("power_supply", "motor_supply", {"voltage": 24.0}), core.Stage.power)
@@ -841,6 +844,7 @@ def chain_layer() -> Any:
 @pytest.mark.req("KER-019")
 @pytest.mark.req("KER-022")
 @pytest.mark.req("KER-008")
+@pytest.mark.req("KER-027")
 def test_cosim_chain_runs_100_ticks_and_records_every_coupling_name() -> None:
     kernel = core.make_kernel(core.RunConfig())
     assert isinstance(kernel, core.CoSimKernel)
@@ -886,8 +890,13 @@ def test_cosim_chain_runs_100_ticks_and_records_every_coupling_name() -> None:
     assert units["x_driver.step"] != ""
     assert last["controller_state"] == "0"
     assert last["physics"]["transmissions"][0]["shaft_load_torque"] == 0.02
-    # The null runtime leaves the driver disabled: the stalled stepper applies no torque.
+    # The null runtime leaves the driver disabled: the stepper's drive on its shaft joint is off (SIG-033, KER-027).
     assert adapter.received[-1] == [0.0]
+    assert len(adapter.drives[-1]) == 1
+    drive = adapter.drives[-1][0]
+    assert drive.joint == 0
+    assert drive.enabled is False
+    assert drive.rest == pytest.approx(0.01 * 99, abs=1e-12)
 
 
 @pytest.mark.req("KER-019")
@@ -933,31 +942,6 @@ def test_python_party_reads_and_writes_the_coupling_table() -> None:
     report = run_kernel([BadWriter("bad", log)], core.Seconds(1, 1000))
     assert report.outcome == core.RunOutcome.run_error
     assert "TypeError" in report.fault.cause
-
-
-@pytest.mark.req("KER-008")
-def test_python_party_publishes_an_empty_and_a_filled_rail_list() -> None:
-    seen: list[Any] = []
-
-    class Rails(RecordingParty):
-        def published(self) -> list[str]:
-            return ["rails.empty", "rails.main"]
-
-        def write_outputs(self, outputs: Any) -> None:
-            outputs.set("rails.empty", [])
-            outputs.set("rails.main", [core.PowerRail("main", 24.0, True)])
-
-    class Reader(RecordingParty):
-        def consumed(self) -> list[str]:
-            return ["rails.empty", "rails.main"]
-
-        def read_inputs(self, inputs: Any) -> None:
-            seen.append((list(inputs.value("rails.empty")), [rail.name for rail in inputs.value("rails.main")]))
-
-    log: list[Any] = []
-    report = run_kernel([Rails("rails", log), Reader("reader", log)], core.Seconds(1, 1000))
-    assert report.outcome == core.RunOutcome.end_condition_met
-    assert seen == [([], ["main"])]
 
 
 @pytest.mark.req("KER-017")

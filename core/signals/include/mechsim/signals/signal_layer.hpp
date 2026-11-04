@@ -72,11 +72,13 @@ struct RailSpec {
     std::vector<std::string> consumers;
 };
 
-// A component output added to PhysicsInputs::generalized_forces[dof] (stepper shaft torque).
+// A component output recorded as an actuator effort and, when applied, added to PhysicsInputs::generalized_forces[dof].
+// A stepper's torque is a read-back of its joint drive (SIG-033), recorded only.
 struct ActuatorOutput {
     std::string signal;
     std::size_t dof = 0;
     std::string unit = "N*m";
+    bool applied = true;
 };
 
 // Coupling payloads the layer consumes from the test runner (KER-008): external input values by signal, and operator
@@ -95,6 +97,10 @@ struct SignalLayerConfig {
     std::string physics_outputs = "physics.outputs";         // PhysicsOutputs payload
     std::string pin_outputs = "controller.pin_outputs";      // PinOutputs payload
     kernel::Rate rate{1000};
+    // The controller's step rate (default: the layer's). Per-tick pin buffers cross once per controller step
+    // (SIG-038): pin inputs' counter deltas and UART bytes accumulate over the layer's steps until the controller
+    // has stepped, and pin outputs' step counts and UART bytes are taken only at the first layer step after it did.
+    std::optional<kernel::Rate> controller_rate;
     std::uint64_t seed = 0;
     PinBindingTable bindings;
     std::vector<ChannelSlot> slots;
@@ -109,7 +115,8 @@ struct SignalLayerConfig {
 // The signal layer party (KER-009, SIG-024). It owns the components, the pin tables and the rails. Per step: pin
 // outputs and external inputs onto the signal bus, power stage, rails, then sensor, driver and actuator stages, each
 // component begin_tick / set_inputs / sample / latch_outputs in registration order; then pin inputs from the bus
-// through the slots only, and actuator torques into PhysicsInputs.
+// through the slots only, and applied actuator torques and every component's joint drives (registration order) into
+// PhysicsInputs (KER-027).
 // Kernel coupling (KER-008, invariant 1): consumes config.physics_outputs, config.pin_outputs, `<name>.external_inputs`
 // (only with externals configured) and `<name>.operator_commands` (only with an operator link); publishes
 // `<name>.pin_inputs` (PinInputs), `.physics_inputs` (PhysicsInputs), `.rails` (PowerRails: std::vector<PowerRail>)
@@ -178,8 +185,9 @@ private:
     void resolve();
     void run_stage(Stage stage, kernel::SimTime t);
     void update_rails(kernel::SimTime t);
-    void read_pin_outputs();
-    void write_pin_inputs();
+    void read_pin_outputs(bool fresh);
+    void write_pin_inputs(bool consumed);
+    [[nodiscard]] bool controller_stepped_before(kernel::SimTime t) const;
     void event(kernel::SimTime t, std::string source, std::string kind, std::string detail);
 
     SignalLayerConfig config_;
@@ -195,6 +203,9 @@ private:
     std::vector<ResolvedRail> rail_wiring_;
     std::vector<PowerRail> rails_;
     std::vector<std::pair<std::size_t, std::size_t>> actuators_;  // bus, dof
+    std::vector<bool> applied_;
+    std::int64_t controller_period_ = 1;
+    std::optional<kernel::SimTime> last_step_;
     std::vector<std::size_t> stall_outputs_;
     std::vector<double> last_stall_;
     bool started_ = false;

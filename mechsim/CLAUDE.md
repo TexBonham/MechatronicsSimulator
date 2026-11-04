@@ -38,7 +38,11 @@ Checked by the invariant tier's import-boundary test.
 - Signal names dotted `instance.signal`, unique per design; operator messages use requirements doc labels verbatim (D2).
 - One integer seed per run; SeedSequence spawns one child generator per module instance in fixed order (D1).
 - HDF5 archives record design file, test case, seed, mode, git hashes (L8).
-- CLI: argparse, commands validate, run, suite, replay (L9).
+- CLI (`cli.py`, console script `mechsim` -> `cli:main_exit`): argparse, commands validate, run, suite, replay (L9);
+  `run`/`suite` take `--set name=value`, `--out`, `--design <designs>/<name>/design.yaml`. Exit 0 passed (or all
+  files valid), 1 a criterion failed (or a file invalid), 2 error: run error, case not run, unknown file kind, missing
+  path, usage error, or no driver wired. `default_services()` wires `testing.core_driver` (unwired if the extension is
+  not built).
 - Tests: `@pytest.mark.req("LIB-001")`; stubs are strict xfail.
 
 ## Contracts
@@ -49,5 +53,7 @@ Checked by the invariant tier's import-boundary test.
 | `materials/` | `materials/CLAUDE.md` |
 | `design/` | `design/CLAUDE.md` |
 | `physics/` | `physics/CLAUDE.md` |
-| `testing/` | `testing/CLAUDE.md` |
+| `testing/` | `testing/CLAUDE.md`; real driver `testing/core_driver.py`: `CoreDriver`, `RecordingView`, `RecordArchiver`, `RecordArchiveReader`, `core_builder`, `core_services`; core parties from a build `testing/core_wiring.py` |
+| `record/` | `record/CLAUDE.md` |
+| `scoring/` | `scoring/CLAUDE.md` |
 | `facade/` | `facade/CLAUDE.md` |

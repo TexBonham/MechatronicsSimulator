@@ -1,5 +1,7 @@
 # Behavioral stepper motor type and a NEMA 17 class part. Every numeric part value is a placeholder: the requirements
 # doc gives no datasheet values, and the datasheet curve source is owed by the owner (docs/spec/lib.md).
+# viscous_damping 2e-3 N m s/rad is a coordinator placeholder for a damping ratio near 0.1 on the gantry lift
+# (D = 2 zeta sqrt(K J), K about 20 N m/rad, J about 7.5e-6 kg m^2; sig.md open parameters, SIG-033).
 types:
   - name: stepper_behavioral
     version: 1.0.0
@@ -19,6 +21,9 @@ types:
       - name: rotor_inertia
         dimension: "[mass] * [length] ** 2"
         minimum: "0 kg*m**2"
+      - name: viscous_damping
+        dimension: "[mass] * [length] ** 2 / [time]"
+        minimum: "0 N*m*s"
       - name: rated_current
         dimension: "[current]"
         minimum: "0 A"
@@ -37,7 +42,7 @@ types:
         minimum: "0 N*m"
     tiers:
       - name: behavioral
-        parameters: [mass, step_angle, holding_torque, rotor_inertia, rated_current, max_voltage]
+        parameters: [mass, step_angle, holding_torque, rotor_inertia, viscous_damping, rated_current, max_voltage]
       - name: electrical
         parameters: [phase_resistance, phase_inductance, detent_torque]
     mechanical:
@@ -88,11 +93,13 @@ parts:
       step_angle: "1.8 deg"
       holding_torque: "0.40 N*m"
       rotor_inertia: "54 g*cm**2"
+      viscous_damping: "2e-3 N*m*s"
       rated_current: "1.5 A"
       max_voltage: "24 V"
       phase_resistance: "1.5 ohm"
       phase_inductance: "2.8 mH"
-    placeholders: [mass, holding_torque, rotor_inertia, rated_current, max_voltage, phase_resistance, phase_inductance]
+    placeholders: [mass, holding_torque, rotor_inertia, viscous_damping, rated_current, max_voltage, phase_resistance, 
+          phase_inductance]
     torque_speed_curve:
       - {speed: "0 rpm", torque: "0.40 N*m"}
       - {speed: "300 rpm", torque: "0.36 N*m"}

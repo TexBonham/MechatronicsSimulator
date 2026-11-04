@@ -9,7 +9,7 @@ from __future__ import annotations
 import argparse
 import sys
 from collections.abc import Callable, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import TextIO
 
@@ -48,7 +48,15 @@ class CliServices:
 
 
 def default_services() -> CliServices:
-    return CliServices()
+    """The real services over the core binding; unwired (runs refused, validate still works) when the extension is
+    not built."""
+    from mechsim._core import CoreNotBuiltError
+
+    try:
+        from mechsim.testing.core_driver import RecordArchiveReader, core_services
+    except CoreNotBuiltError:
+        return CliServices()
+    return CliServices(runner=core_services(), reader=RecordArchiveReader())
 
 
 # ===== validate ========================================================
@@ -149,14 +157,20 @@ def _bindings(pairs: Sequence[str]) -> dict[str, str]:
     return bindings
 
 
-def _runner(services: CliServices) -> Services:
+def _runner(services: CliServices, design: Path | None = None) -> Services:
+    """`--design <designs>/<name>/design.yaml` names the design folder root the case's design is looked up in."""
     if services.runner is None:
         raise CliError("no simulation driver is wired into this build")
-    return services.runner
+    if design is None:
+        return services.runner
+    if design.name != "design.yaml" or not design.is_file():
+        raise CliError(f"--design {design}: not a <designs>/<name>/design.yaml file")
+    return replace(services.runner, designs_root=design.resolve().parent.parent)
 
 
 def _run(arguments: argparse.Namespace, services: CliServices, out: TextIO) -> int:
-    result = run_case(arguments.case, _runner(services), _bindings(arguments.set), arguments.out, arguments.dry)
+    runner = _runner(services, arguments.design)
+    result = run_case(arguments.case, runner, _bindings(arguments.set), arguments.out, arguments.dry)
     if arguments.dry and result.config is not None:
         out.write(
             f"dry run {result.score.case_id}: base rate {result.config.base_rate} Hz, "
@@ -171,7 +185,7 @@ def _run(arguments: argparse.Namespace, services: CliServices, out: TextIO) -> i
 
 
 def _suite(arguments: argparse.Namespace, services: CliServices, out: TextIO, err: TextIO) -> int:
-    run = run_suite(arguments.directory, _runner(services), _bindings(arguments.set), arguments.out)
+    run = run_suite(arguments.directory, _runner(services, arguments.design), _bindings(arguments.set), arguments.out)
     text = report_text(run.score)
     out.write(text)
     if run.diff is not None:
@@ -239,11 +253,13 @@ def build_parser() -> argparse.ArgumentParser:
     run.add_argument("--set", action="append", default=[], metavar="NAME=VALUE", help="bind an open parameter")
     run.add_argument("--out", type=Path, default=Path("runs"), help="archive folder (default ./runs)")
     run.add_argument("--dry", action="store_true", help="configure and schedule without running")
+    run.add_argument("--design", type=Path, default=None, help="the case's design file, <designs>/<name>/design.yaml")
     suite = commands.add_parser("suite", help="run every case of a suite folder and write its report")
     suite.add_argument("directory", type=Path)
     suite.add_argument("--set", action="append", default=[], metavar="NAME=VALUE", help="bind an open parameter")
     suite.add_argument("--out", type=Path, default=Path("runs"), help="archive and report folder (default ./runs)")
     suite.add_argument("--write-baseline", type=Path, default=None, help="write the summary as a baseline file")
+    suite.add_argument("--design", type=Path, default=None, help="the cases' design file, <designs>/<name>/design.yaml")
     replay = commands.add_parser("replay", help="print a run's event timeline from its archive")
     replay.add_argument("archive", type=Path)
     return parser
@@ -277,5 +293,10 @@ def main(
         return EXIT_ERROR
 
 
-if __name__ == "__main__":
+def main_exit() -> None:
+    """Console-script entry `mechsim` (pyproject `[project.scripts]`): the exit status is `main`'s."""
     sys.exit(main())
+
+
+if __name__ == "__main__":
+    main_exit()
