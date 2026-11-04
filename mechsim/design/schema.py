@@ -86,8 +86,8 @@ DOF_COUNTS: dict[str, tuple[int, int]] = {
 AXIS_JOINTS = ("revolute", "prismatic", "planar")
 UNLIMITED_JOINTS = ("spherical", "free")
 
-READ_MODES = ("gpio_input", "timer_encoder", "adc", "uart", "spi", "i2c")
-WRITE_MODES = ("gpio_output", "timer_pwm", "dac", "uart", "spi", "i2c")
+READ_MODES: tuple[str, ...] = ("digital_input", "counter_input", "adc_input", "uart_rx")
+WRITE_MODES: tuple[str, ...] = ("digital_output", "pulse_output", "uart_tx")
 EMIT_PIN_DIRECTIONS = ("output", "bidirectional")
 CONSUME_PIN_DIRECTIONS = ("input", "bidirectional")
 POWER_PORT_DIRECTIONS = ("power_in", "power_out", "ground")

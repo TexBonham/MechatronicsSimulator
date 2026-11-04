@@ -25,7 +25,10 @@ CHIPS_DIR = Path(__file__).resolve().parents[2] / "chips"
 CHIP_FILE = "chip.yaml"
 PLACEHOLDER = "placeholder"
 
-PeripheralMode = Literal["gpio_input", "gpio_output", "timer_pwm", "timer_encoder", "adc", "dac", "uart", "spi", "i2c"]
+PeripheralMode = Literal[
+    "digital_input", "digital_output", "counter_input", "adc_input", "pulse_output", "uart_rx", "uart_tx"
+]
+"""The runtime's peripheral modes (`core/signals/CLAUDE.md`), one to one with the board interface channels."""
 
 Name = Annotated[str, Field(pattern=r"^[a-z][a-z0-9_]*$")]
 McuPin = Annotated[str, Field(pattern=r"^[A-Z][A-Z0-9_]*$")]

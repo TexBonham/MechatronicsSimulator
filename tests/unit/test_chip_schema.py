@@ -49,12 +49,16 @@ def test_shipped_placeholder_chip_lists_the_gantry_pins() -> None:
     assert chip.svd == "placeholder"
     modes = chip.pin_modes()
     for index in range(9):
-        assert "gpio_output" in modes[f"PA{index}"]
+        assert "digital_output" in modes[f"PA{index}"]
     for index in range(7):
-        assert "gpio_input" in modes[f"PB{index}"]
-    assert "gpio_output" in modes["PB6"]
+        assert "digital_input" in modes[f"PB{index}"]
+    assert "digital_output" in modes["PB6"]
+    for name in ("PA0", "PA3", "PA6"):
+        assert "pulse_output" in modes[name]
+    assert "uart_tx" in modes["PA9"]
+    assert "uart_rx" in modes["PA10"]
     for index in range(6):
-        assert "timer_encoder" in modes[f"PC{index}"]
+        assert "counter_input" in modes[f"PC{index}"]
     assert shipped_chips() == {"stm32_placeholder": chip}
 
 
@@ -84,12 +88,29 @@ def test_duplicate_pin_rejected() -> None:
 @pytest.mark.req("DES-029")
 def test_duplicate_mode_on_a_pin_rejected() -> None:
     data = shipped()
-    data["pins"][0]["modes"] = ["gpio_input", "gpio_input"]
-    rejected(data, "pin 'PA0' lists mode 'gpio_input' more than once")
+    data["pins"][0]["modes"] = ["digital_input", "digital_input"]
+    rejected(data, "pin 'PA0' lists mode 'digital_input' more than once")
 
 
 @pytest.mark.req("DES-029")
-@pytest.mark.parametrize("mode", ["digital_in", "bitbang", "", "GPIO_INPUT", 1])
+@pytest.mark.parametrize(
+    "mode",
+    [
+        "digital_in",
+        "bitbang",
+        "",
+        "DIGITAL_INPUT",
+        1,
+        "gpio_input",
+        "timer_encoder",
+        "timer_pwm",
+        "adc",
+        "uart",
+        "dac",
+        "spi",
+        "i2c",
+    ],
+)
 def test_unknown_mode_rejected(mode: Any) -> None:
     data = shipped()
     data["pins"][0]["modes"] = [mode]
@@ -98,7 +119,7 @@ def test_unknown_mode_rejected(mode: Any) -> None:
 
 @pytest.mark.req("DES-029")
 @pytest.mark.parametrize(
-    "mode", ["gpio_input", "gpio_output", "timer_pwm", "timer_encoder", "adc", "dac", "uart", "spi", "i2c"]
+    "mode", ["digital_input", "digital_output", "counter_input", "adc_input", "pulse_output", "uart_rx", "uart_tx"]
 )
 def test_every_peripheral_mode_accepted(mode: str) -> None:
     data = shipped()
@@ -109,7 +130,7 @@ def test_every_peripheral_mode_accepted(mode: str) -> None:
 @pytest.mark.req("DES-029")
 @pytest.mark.parametrize(
     ("field", "value"),
-    [("pins", []), ("modes", []), ("modes", "gpio_input")],
+    [("pins", []), ("modes", []), ("modes", "digital_input")],
 )
 def test_empty_or_wrong_type_collections_rejected(field: str, value: Any) -> None:
     data = shipped()

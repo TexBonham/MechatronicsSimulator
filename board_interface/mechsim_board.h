@@ -11,7 +11,7 @@
 #include <stdint.h>
 
 #define MECHSIM_BOARD_INTERFACE_VERSION_MAJOR 2u
-#define MECHSIM_BOARD_INTERFACE_VERSION_MINOR 0u
+#define MECHSIM_BOARD_INTERFACE_VERSION_MINOR 1u
 #define MECHSIM_BOARD_INTERFACE_VERSION \
     ((MECHSIM_BOARD_INTERFACE_VERSION_MAJOR * 65536u) + MECHSIM_BOARD_INTERFACE_VERSION_MINOR)
 
@@ -69,8 +69,6 @@ typedef struct mechsim_board_outputs {
     uint8_t uart_tx[MECHSIM_UART_TX_BYTES];
     /* Number of valid bytes in uart_tx, 0 to MECHSIM_UART_TX_BYTES. */
     uint16_t uart_tx_count;
-    /* Heartbeat level, held from the end of this tick until the next tick writes it. */
-    uint8_t heartbeat;
     /* Firmware-defined controller state at the end of this tick, published each tick (CTL-018). */
     uint8_t state_code;
     /* Firmware-defined fault at the end of this tick, 0 for none, published each tick (CTL-018). */

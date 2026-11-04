@@ -1,58 +1,58 @@
-# Placeholder STM32-family chip (Decisions log row 11). It lists the pin names and modes the gantry design binds,
-# in STM32 style, until a part is selected; a real part replaces it by dropping in its platform description, SVD and
-# pin map and setting status to verified.
+# STM32-family stand-in chip (Decisions log row 11): STM32-style pin names and the peripheral modes each supports,
+# until a part is selected. A real part replaces it by dropping in its platform description, SVD and pin map and
+# setting status to verified.
 name: stm32_placeholder
 family: STM32
 status: placeholder
-description: Stand-in for the unselected gantry controller chip; pin names and modes only.
+description: STM32-family stand-in; pin names and peripheral modes only, no platform description or SVD.
 platform_description: placeholder
 svd: placeholder
 pins:
   - name: PA0
-    modes: [gpio_input, gpio_output]
+    modes: [digital_input, digital_output, pulse_output]
   - name: PA1
-    modes: [gpio_input, gpio_output]
+    modes: [digital_input, digital_output]
   - name: PA2
-    modes: [gpio_input, gpio_output]
+    modes: [digital_input, digital_output]
   - name: PA3
-    modes: [gpio_input, gpio_output]
+    modes: [digital_input, digital_output, pulse_output]
   - name: PA4
-    modes: [gpio_input, gpio_output]
+    modes: [digital_input, digital_output]
   - name: PA5
-    modes: [gpio_input, gpio_output]
+    modes: [digital_input, digital_output]
   - name: PA6
-    modes: [gpio_input, gpio_output]
+    modes: [digital_input, digital_output, pulse_output]
   - name: PA7
-    modes: [gpio_input, gpio_output]
+    modes: [digital_input, digital_output]
   - name: PA8
-    modes: [gpio_input, gpio_output]
+    modes: [digital_input, digital_output]
   - name: PA9
-    modes: [gpio_output, uart]
+    modes: [digital_output, uart_tx]
   - name: PA10
-    modes: [gpio_input, uart]
+    modes: [digital_input, uart_rx]
   - name: PB0
-    modes: [gpio_input, gpio_output]
+    modes: [digital_input, digital_output]
   - name: PB1
-    modes: [gpio_input, gpio_output]
+    modes: [digital_input, digital_output]
   - name: PB2
-    modes: [gpio_input, gpio_output]
+    modes: [digital_input, digital_output]
   - name: PB3
-    modes: [gpio_input, gpio_output]
+    modes: [digital_input, digital_output]
   - name: PB4
-    modes: [gpio_input, gpio_output]
+    modes: [digital_input, digital_output]
   - name: PB5
-    modes: [gpio_input, gpio_output]
+    modes: [digital_input, digital_output]
   - name: PB6
-    modes: [gpio_input, gpio_output]
+    modes: [digital_input, digital_output]
   - name: PC0
-    modes: [gpio_input, gpio_output, timer_encoder]
+    modes: [digital_input, digital_output, counter_input]
   - name: PC1
-    modes: [gpio_input, gpio_output, timer_encoder]
+    modes: [digital_input, digital_output, counter_input]
   - name: PC2
-    modes: [gpio_input, gpio_output, timer_encoder]
+    modes: [digital_input, digital_output, counter_input]
   - name: PC3
-    modes: [gpio_input, gpio_output, timer_encoder]
+    modes: [digital_input, digital_output, counter_input]
   - name: PC4
-    modes: [gpio_input, gpio_output, timer_encoder]
+    modes: [digital_input, digital_output, counter_input]
   - name: PC5
-    modes: [gpio_input, gpio_output, timer_encoder]
+    modes: [digital_input, digital_output, counter_input]

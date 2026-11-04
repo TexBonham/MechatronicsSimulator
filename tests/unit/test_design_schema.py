@@ -1093,7 +1093,7 @@ def test_bad_signal_declaration_rejected(change: dict[str, str], message: str) -
 @pytest.mark.req("DES-005")
 def test_signal_bound_twice_rejected() -> None:
     data = gantry()
-    data["pin_bindings"].append({"signal": "x_driver.step", "pin": "PD0", "mode": "gpio_output"})
+    data["pin_bindings"].append({"signal": "x_driver.step", "pin": "PD0", "mode": "pulse_output"})
     rejected(data, "signal 'x_driver.step' is bound more than once, first at pin_bindings[0]")
 
 
@@ -1108,7 +1108,7 @@ def test_unbound_signal_rejected() -> None:
 @pytest.mark.req("DES-016")
 def test_binding_of_unknown_signal_rejected() -> None:
     data = gantry()
-    data["pin_bindings"].append({"signal": "ghost.out", "pin": "PD0", "mode": "gpio_input"})
+    data["pin_bindings"].append({"signal": "ghost.out", "pin": "PD0", "mode": "digital_input"})
     rejected(data, "unknown signal 'ghost.out'")
 
 
@@ -1121,7 +1121,16 @@ def test_duplicate_mcu_pin_rejected() -> None:
 
 @pytest.mark.req("DES-005")
 @pytest.mark.parametrize(
-    ("index", "mode"), [(0, "gpio_input"), (0, "timer_encoder"), (9, "gpio_output"), (9, "timer_pwm")]
+    ("index", "mode"),
+    [
+        (0, "digital_input"),
+        (0, "counter_input"),
+        (0, "adc_input"),
+        (0, "uart_rx"),
+        (9, "digital_output"),
+        (9, "pulse_output"),
+        (9, "uart_tx"),
+    ],
 )
 def test_peripheral_mode_must_suit_signal_direction(index: int, mode: str) -> None:
     data = gantry()
@@ -1130,7 +1139,10 @@ def test_peripheral_mode_must_suit_signal_direction(index: int, mode: str) -> No
 
 
 @pytest.mark.req("DES-005")
-@pytest.mark.parametrize(("field", "value"), [("pin", "pa0"), ("pin", ""), ("mode", "bitbang"), ("signal", "x")])
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [("pin", "pa0"), ("pin", ""), ("mode", "bitbang"), ("mode", "gpio_output"), ("mode", "spi"), ("signal", "x")],
+)
 def test_bad_pin_binding_fields_rejected(field: str, value: str) -> None:
     data = gantry()
     data["pin_bindings"][0][field] = value
@@ -1339,7 +1351,7 @@ def test_gantry_heartbeat_is_a_digital_output_pin_bound_to_the_watchdog() -> Non
     """Covers LIB-019's watchdog half only: the load cell, amplifier and IMU types remain owed (LIB-019 stub)."""
     design = accepted(gantry())
     bindings = {binding.signal: binding for binding in design.pin_bindings}
-    assert bindings["watchdog.heartbeat"].mode == "gpio_output"
+    assert bindings["watchdog.heartbeat"].mode == "digital_output"
     assert bindings["watchdog.heartbeat"].pin == "PB6"
     assert "heartbeat_wiring" not in [parameter.name for parameter in design.open_parameters]
 
@@ -1756,6 +1768,20 @@ def test_every_gantry_binding_uses_a_pin_and_mode_of_its_chip() -> None:
 
 
 @pytest.mark.req("DES-029")
+def test_gantry_pin_table_uses_the_runtime_mode_names() -> None:
+    modes = {binding.signal: binding.mode for binding in accepted(gantry()).pin_bindings}
+    for axis in ("x", "y", "lift"):
+        assert modes[f"{axis}_driver.step"] == "pulse_output"
+        assert modes[f"{axis}_driver.dir"] == "digital_output"
+        assert modes[f"{axis}_driver.enable"] == "digital_output"
+        assert modes[f"{axis}_min_switch.out"] == "digital_input"
+        assert modes[f"{axis}_max_switch.out"] == "digital_input"
+        assert modes[f"{axis}_encoder.channel_a"] == "counter_input"
+        assert modes[f"{axis}_encoder.channel_b"] == "counter_input"
+    assert modes["watchdog.heartbeat"] == "digital_output"
+
+
+@pytest.mark.req("DES-029")
 def test_binding_to_pin_missing_from_chip_rejected() -> None:
     data = gantry()
     data["pin_bindings"][0]["pin"] = "PD0"
@@ -1763,7 +1789,9 @@ def test_binding_to_pin_missing_from_chip_rejected() -> None:
 
 
 @pytest.mark.req("DES-029")
-@pytest.mark.parametrize(("index", "mode"), [(0, "timer_pwm"), (0, "dac"), (9, "adc"), (15, "adc")])
+@pytest.mark.parametrize(
+    ("index", "mode"), [(1, "pulse_output"), (0, "uart_tx"), (9, "adc_input"), (15, "adc_input"), (9, "uart_rx")]
+)
 def test_binding_in_mode_the_chip_pin_lacks_rejected(index: int, mode: str) -> None:
     data = gantry()
     data["pin_bindings"][index]["mode"] = mode
@@ -1795,7 +1823,7 @@ def test_chips_from_context_replace_the_shipped_set() -> None:
             "status": "placeholder",
             "platform_description": "placeholder",
             "svd": "placeholder",
-            "pins": [{"name": "PA0", "modes": ["gpio_output"]}],
+            "pins": [{"name": "PA0", "modes": ["digital_output"]}],
         }
     )
     with pytest.raises(ValidationError, match="chip 'stm32_placeholder' has no pin 'PB6'"):

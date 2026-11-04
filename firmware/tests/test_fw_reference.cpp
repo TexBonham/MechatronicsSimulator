@@ -8,6 +8,7 @@
 
 extern "C" {
 #include "mechsim_board.h"
+#define MECHSIM_REF_HEARTBEAT_CHANNEL 0u
 }
 
 namespace {
@@ -60,7 +61,6 @@ TEST_CASE("board header declares plain C structs of fixed-width fields", "[FW-00
     static_assert(std::is_same_v<decltype(mechsim_board_outputs::digital_out), std::uint8_t[32]>);
     static_assert(std::is_same_v<decltype(mechsim_board_outputs::uart_tx), std::uint8_t[64]>);
     static_assert(std::is_same_v<decltype(mechsim_board_outputs::uart_tx_count), std::uint16_t>);
-    static_assert(std::is_same_v<decltype(mechsim_board_outputs::heartbeat), std::uint8_t>);
     static_assert(std::is_same_v<decltype(mechsim_board_outputs::state_code), std::uint8_t>);
     static_assert(std::is_same_v<decltype(mechsim_board_outputs::fault_code), std::uint8_t>);
     static_assert(std::is_same_v<decltype(mechsim_board_outputs::event_log), mechsim_board_event[16]>);
@@ -72,7 +72,7 @@ TEST_CASE("board header declares plain C structs of fixed-width fields", "[FW-00
         std::is_same_v<decltype(&mechsim_app_tick), void (*)(const mechsim_board_inputs*, mechsim_board_outputs*)>);
     static_assert(std::is_same_v<decltype(&mechsim_app_tick_hz), std::uint32_t (*)()>);
 
-    REQUIRE(MECHSIM_BOARD_INTERFACE_VERSION == 2U * 65536U);
+    REQUIRE(MECHSIM_BOARD_INTERFACE_VERSION == 2U * 65536U + 1U);
     REQUIRE(MECHSIM_DIGITAL_IN_COUNT == 32U);
     REQUIRE(MECHSIM_COUNTER_COUNT == 8U);
     REQUIRE(MECHSIM_ADC_COUNT == 16U);
@@ -114,7 +114,7 @@ TEST_CASE("init after READY restarts from NOT_HOMED with the heartbeat low", "[F
     mechsim_app_init();
     const mechsim_board_outputs outputs = run_tick(inputs);
     REQUIRE(outputs.state_code == state_not_homed);
-    REQUIRE(outputs.heartbeat == MECHSIM_LEVEL_HIGH);
+    REQUIRE(outputs.digital_out[0] == MECHSIM_LEVEL_HIGH);
     REQUIRE(outputs.event_log[0].arg == 1U);
 }
 
@@ -124,7 +124,7 @@ TEST_CASE("heartbeat toggles every tick", "[FW-010][FW-011]")
     const mechsim_board_inputs inputs{};
     std::uint8_t expected = MECHSIM_LEVEL_HIGH;
     for (int tick = 0; tick < 25; ++tick) {
-        REQUIRE(run_tick(inputs).heartbeat == expected);
+        REQUIRE(run_tick(inputs).digital_out[0] == expected);
         if (expected == MECHSIM_LEVEL_HIGH) {
             expected = MECHSIM_LEVEL_LOW;
         } else {
@@ -153,7 +153,7 @@ TEST_CASE("every output field is written each tick and steps are zero", "[FW-010
         REQUIRE(outputs.event_log[index].arg == 0U);
     }
     REQUIRE(outputs.uart_tx_count == 0U);
-    REQUIRE(outputs.heartbeat == MECHSIM_LEVEL_HIGH);
+    REQUIRE(outputs.digital_out[0] == MECHSIM_LEVEL_HIGH);
     REQUIRE(outputs.state_code == state_not_homed);
     REQUIRE(outputs.fault_code == fault_none);
     REQUIRE(outputs.event_count == 1U);

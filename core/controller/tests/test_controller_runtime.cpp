@@ -41,7 +41,6 @@ static_assert(std::tuple_size_v<decltype(PinOutputs::enable)> == 8);
 static_assert(std::tuple_size_v<decltype(PinOutputs::digital_out)> == 32);
 static_assert(std::tuple_size_v<decltype(PinOutputs::uart_tx)> == 64);
 static_assert(std::is_same_v<decltype(PinOutputs::uart_tx_count), std::uint16_t>);
-static_assert(std::is_same_v<decltype(PinOutputs::heartbeat), std::uint8_t>);
 static_assert(std::is_same_v<decltype(PinOutputs::state_code), std::uint8_t>);
 static_assert(std::is_same_v<decltype(PinOutputs::fault_code), std::uint8_t>);
 static_assert(std::tuple_size_v<decltype(PinOutputs::event_log)> == 16);
@@ -75,14 +74,14 @@ TEST_CASE("The null runtime loads, resets with the rail up and ticks through the
     PinOutputs outputs;
     outputs.step_count[0] = 7;
     outputs.uart_tx_count = 1;
-    outputs.heartbeat = 1;
+    outputs.digital_out[0] = 1;
     outputs.event_count = 2;
     outputs.fault_code = 9;
     base.tick(inputs, outputs);
     CHECK(runtime->ticks_run() == 1);
     CHECK(outputs.step_count[0] == 0);
     CHECK(outputs.uart_tx_count == 0);
-    CHECK(outputs.heartbeat == 0);
+    CHECK(outputs.digital_out[0] == 0);
     CHECK(outputs.event_count == 0);
     CHECK(outputs.fault_code == 0);
 }
@@ -124,10 +123,10 @@ TEST_CASE("A frozen runtime runs no tick and outputs nothing until thawed", "[CT
     PinOutputs outputs;
     runtime->freeze(true);
     CHECK(runtime->frozen());
-    outputs.heartbeat = 1;
+    outputs.digital_out[0] = 1;
     runtime->tick(PinInputs{}, outputs);
     CHECK(runtime->ticks_run() == 0);
-    CHECK(outputs.heartbeat == 0);
+    CHECK(outputs.digital_out[0] == 0);
     runtime->freeze(false);
     runtime->tick(PinInputs{}, outputs);
     CHECK(runtime->ticks_run() == 1);

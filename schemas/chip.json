@@ -6,15 +6,13 @@
         "modes": {
           "items": {
             "enum": [
-              "gpio_input",
-              "gpio_output",
-              "timer_pwm",
-              "timer_encoder",
-              "adc",
-              "dac",
-              "uart",
-              "spi",
-              "i2c"
+              "digital_input",
+              "digital_output",
+              "counter_input",
+              "adc_input",
+              "pulse_output",
+              "uart_rx",
+              "uart_tx"
             ],
             "type": "string"
           },

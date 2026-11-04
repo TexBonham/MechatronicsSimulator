@@ -43,7 +43,6 @@ struct PinOutputs {
     std::array<std::uint8_t, digital_out_channels> digital_out{};
     std::array<std::uint8_t, uart_buffer_bytes> uart_tx{};
     std::uint16_t uart_tx_count = 0;
-    std::uint8_t heartbeat = 0;  // watchdog input (SIG-018)
     std::uint8_t state_code = 0;  // CTL-018 controller state
     std::uint8_t fault_code = 0;  // CTL-018 fault
     std::array<EventLogEntry, event_log_entries> event_log{};  // CTL-018 fault log

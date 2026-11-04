@@ -550,70 +550,70 @@ wiring:
 pin_bindings:
   - signal: x_driver.step
     pin: PA0
-    mode: gpio_output
+    mode: pulse_output
   - signal: x_driver.dir
     pin: PA1
-    mode: gpio_output
+    mode: digital_output
   - signal: x_driver.enable
     pin: PA2
-    mode: gpio_output
+    mode: digital_output
   - signal: y_driver.step
     pin: PA3
-    mode: gpio_output
+    mode: pulse_output
   - signal: y_driver.dir
     pin: PA4
-    mode: gpio_output
+    mode: digital_output
   - signal: y_driver.enable
     pin: PA5
-    mode: gpio_output
+    mode: digital_output
   - signal: lift_driver.step
     pin: PA6
-    mode: gpio_output
+    mode: pulse_output
   - signal: lift_driver.dir
     pin: PA7
-    mode: gpio_output
+    mode: digital_output
   - signal: lift_driver.enable
     pin: PA8
-    mode: gpio_output
+    mode: digital_output
   - signal: x_min_switch.out
     pin: PB0
-    mode: gpio_input
+    mode: digital_input
   - signal: x_max_switch.out
     pin: PB1
-    mode: gpio_input
+    mode: digital_input
   - signal: y_min_switch.out
     pin: PB2
-    mode: gpio_input
+    mode: digital_input
   - signal: y_max_switch.out
     pin: PB3
-    mode: gpio_input
+    mode: digital_input
   - signal: lift_min_switch.out
     pin: PB4
-    mode: gpio_input
+    mode: digital_input
   - signal: lift_max_switch.out
     pin: PB5
-    mode: gpio_input
+    mode: digital_input
   - signal: x_encoder.channel_a
     pin: PC0
-    mode: timer_encoder
+    mode: counter_input
   - signal: x_encoder.channel_b
     pin: PC1
-    mode: timer_encoder
+    mode: counter_input
   - signal: y_encoder.channel_a
     pin: PC2
-    mode: timer_encoder
+    mode: counter_input
   - signal: y_encoder.channel_b
     pin: PC3
-    mode: timer_encoder
+    mode: counter_input
   - signal: lift_encoder.channel_a
     pin: PC4
-    mode: timer_encoder
+    mode: counter_input
   - signal: lift_encoder.channel_b
     pin: PC5
-    mode: timer_encoder
+    mode: counter_input
   - signal: watchdog.heartbeat
     pin: PB6
-    mode: gpio_output
+    mode: digital_output
 power:
   rails:
     - name: motor_power

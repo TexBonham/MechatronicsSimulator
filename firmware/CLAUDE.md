@@ -18,7 +18,7 @@ Real firmware, the controller itself (Decisions log rows 3, 4; R-02). Rules per 
 
 | Path | Holds |
 |---|---|
-| `app/main_tick.c` | Reference stub: NOT_HOMED (1) to READY (2) after `MECHSIM_APP_READY_TICKS` (10); heartbeat toggles; UART echo; zero steps; one tick event per tick plus one per echoed byte, fault 1 on log overflow |
+| `app/main_tick.c` | Reference stub: NOT_HOMED (1) to READY (2) after `MECHSIM_APP_READY_TICKS` (10); heartbeat toggles on digital_out[0]; UART echo; zero steps; one tick event per tick plus one per echoed byte, fault 1 on log overflow |
 | `app/gantry/` | Gantry controller, milestone 1, beside the reference stub, built as its own app library (one set of entry points per library) |
 | `board/<chip>/` | Vendor HAL; STM32 part not set (gantry team) |
 | `tests/` | Catch2 via `core/cmake/Catch2.cmake`; `test_fw_reference`, `test_fw_variant` (READY after 1, 250 Hz); include-check fixtures |

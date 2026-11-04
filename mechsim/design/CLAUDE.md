@@ -30,6 +30,8 @@ Design files (DES). Schema `schemas/design.json` from `Design`; regenerate with
 
 name (folder name), family, `status` placeholder or verified, `platform_description` and `svd` (path in the chip
 folder or `placeholder`; verified needs both files), `pins` (MCU pin name, `modes` from `PeripheralMode`, no duplicates).
+`PeripheralMode` is the runtime vocabulary (`core/signals/CLAUDE.md`): digital_input, digital_output, counter_input,
+adc_input, pulse_output, uart_rx, uart_tx; READ_MODES and WRITE_MODES in `schema.py` split them by direction.
 
 ## Rules
 
@@ -48,9 +50,9 @@ folder or `placeholder`; verified needs both files), `pins` (MCU pin name, `mode
 Design 762, Cross-reference checks 807, Files and schema 1220.
 
 `tests/unit/test_design_schema.py`: Shipped examples 99, Header and version 187, Open parameters 298, Bodies 394,
-Joints 768, Components 944, Signals and pin bindings 1051, Power 1164, Environment, firmware, structural 1201,
-Wiring and rail consumers 1302, Contact environment 1502, Chip pin map 1747, Operator messages 1807, Errors 1887,
-CAD mass cross-check 1944. Chip file tests: `tests/unit/test_chip_schema.py`.
+Joints 768, Components 944, Signals and pin bindings 1051, Power 1176, Environment, firmware, structural 1213,
+Wiring and rail consumers 1314, Contact environment 1514, Chip pin map 1759, Operator messages 1835, Errors 1915,
+CAD mass cross-check 1972. Chip file tests: `tests/unit/test_chip_schema.py`.
 
 ## Open
 
