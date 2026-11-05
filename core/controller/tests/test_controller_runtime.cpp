@@ -7,7 +7,7 @@
 
 #include "mechsim/controller/controller_runtime.hpp"
 #include "mechsim/kernel/time.hpp"
-#include "mechsim/signals/power_rail.hpp"
+#include "mechsim/pins/pins.hpp"
 
 using mechsim::controller::ControllerConfigError;
 using mechsim::controller::ControllerError;
@@ -17,7 +17,7 @@ using mechsim::controller::NullControllerRuntime;
 using mechsim::controller::PinInputs;
 using mechsim::controller::PinOutputs;
 using mechsim::kernel::Rate;
-using mechsim::signals::PowerRail;
+using mechsim::pins::PowerRail;
 
 namespace controller = mechsim::controller;
 
@@ -41,7 +41,6 @@ static_assert(std::tuple_size_v<decltype(PinOutputs::enable)> == 8);
 static_assert(std::tuple_size_v<decltype(PinOutputs::digital_out)> == 32);
 static_assert(std::tuple_size_v<decltype(PinOutputs::uart_tx)> == 64);
 static_assert(std::is_same_v<decltype(PinOutputs::uart_tx_count), std::uint16_t>);
-static_assert(std::is_same_v<decltype(PinOutputs::heartbeat), std::uint8_t>);
 static_assert(std::is_same_v<decltype(PinOutputs::state_code), std::uint8_t>);
 static_assert(std::is_same_v<decltype(PinOutputs::fault_code), std::uint8_t>);
 static_assert(std::tuple_size_v<decltype(PinOutputs::event_log)> == 16);
@@ -75,14 +74,14 @@ TEST_CASE("The null runtime loads, resets with the rail up and ticks through the
     PinOutputs outputs;
     outputs.step_count[0] = 7;
     outputs.uart_tx_count = 1;
-    outputs.heartbeat = 1;
+    outputs.digital_out[0] = 1;
     outputs.event_count = 2;
     outputs.fault_code = 9;
     base.tick(inputs, outputs);
     CHECK(runtime->ticks_run() == 1);
     CHECK(outputs.step_count[0] == 0);
     CHECK(outputs.uart_tx_count == 0);
-    CHECK(outputs.heartbeat == 0);
+    CHECK(outputs.digital_out[0] == 0);
     CHECK(outputs.event_count == 0);
     CHECK(outputs.fault_code == 0);
 }
@@ -124,10 +123,10 @@ TEST_CASE("A frozen runtime runs no tick and outputs nothing until thawed", "[CT
     PinOutputs outputs;
     runtime->freeze(true);
     CHECK(runtime->frozen());
-    outputs.heartbeat = 1;
+    outputs.digital_out[0] = 1;
     runtime->tick(PinInputs{}, outputs);
     CHECK(runtime->ticks_run() == 0);
-    CHECK(outputs.heartbeat == 0);
+    CHECK(outputs.digital_out[0] == 0);
     runtime->freeze(false);
     runtime->tick(PinInputs{}, outputs);
     CHECK(runtime->ticks_run() == 1);
@@ -142,4 +141,36 @@ TEST_CASE("Brownout takes the supply voltage and rejects non-physical values", "
     CHECK_THROWS_AS(runtime->brownout(-0.1), std::invalid_argument);
     CHECK_THROWS_AS(runtime->brownout(std::numeric_limits<double>::quiet_NaN()), std::invalid_argument);
     CHECK(runtime->supply_voltage() == 0.0);
+}
+
+TEST_CASE("A frozen controller holds its levels and empties its per-tick buffers", "[CTL-011]") {
+    PinOutputs last;
+    last.step_count.fill(9);
+    last.direction.fill(1);
+    last.enable.fill(1);
+    last.digital_out.fill(1);
+    last.uart_tx.fill(0x55);
+    last.uart_tx_count = 64;
+    last.state_code = 3;
+    last.fault_code = 4;
+    last.event_log.fill({7, 8});
+    last.event_count = 16;
+    const PinOutputs held = controller::held_levels(last);
+    CHECK(held.direction == last.direction);
+    CHECK(held.enable == last.enable);
+    CHECK(held.digital_out == last.digital_out);
+    CHECK(held.state_code == 3U);
+    CHECK(held.fault_code == 4U);
+    CHECK(held.step_count == decltype(held.step_count){});
+    CHECK(held.uart_tx == decltype(held.uart_tx){});
+    CHECK(held.uart_tx_count == 0U);
+    CHECK(held.event_count == 0U);
+    CHECK(held.event_log.at(0).code == 0U);
+
+    auto runtime = ready_runtime();
+    runtime->freeze(true);
+    PinOutputs outputs = last;
+    runtime->tick(PinInputs{}, outputs);
+    CHECK(outputs.digital_out == controller::held_levels(PinOutputs{}).digital_out);
+    CHECK(outputs.uart_tx_count == 0U);
 }

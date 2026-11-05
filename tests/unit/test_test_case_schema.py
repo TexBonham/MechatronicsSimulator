@@ -141,7 +141,7 @@ def test_g3_holds_homing_then_target_and_si_values() -> None:
     assert case.seed == 3
     assert [command.message for command in case.commands] == ["home", "target"]
     assert case.commands[0].at == 0.0
-    assert case.initial_state.controller == {"homed": False}
+    assert case.initial_state.controller == {"state": "not_homed"}
     assert case.initial_state.payload is not None
     assert case.initial_state.payload.attached is False
     final_x = case.criteria[0]
@@ -569,8 +569,8 @@ def test_command_checked_against_design_messages() -> None:
     data["commands"][0]["message"] = "jump"
     cross_rejected(data, "unknown operator message 'jump'")
     data = gantry_case()
-    data["commands"][0]["message"] = "ready_fault"
-    cross_rejected(data, "'ready_fault' is sent by controller, not the operator")
+    data["commands"][0]["message"] = "status"
+    cross_rejected(data, "'status' is sent by controller, not the operator")
     data = gantry_case()
     del data["commands"][1]["payload"]["y"]
     cross_rejected(data, "'target' takes fields ['x', 'y'], got ['x']")
@@ -759,7 +759,7 @@ def test_controller_freeze_needs_firmware() -> None:
 @pytest.mark.req("TST-009")
 @pytest.mark.parametrize(
     "trigger",
-    [{"at": "5 s"}, {"message": "ready_fault"}, {"controller_state": "ready"}],
+    [{"at": "5 s"}, {"message": "status"}, {"controller_state": "ready"}],
     ids=["at", "message", "state"],
 )
 def test_end_condition_forms(trigger: dict[str, str]) -> None:
@@ -775,7 +775,7 @@ def test_end_condition_forms(trigger: dict[str, str]) -> None:
     [
         ({"at": "5 s"}, "max_duration"),
         ({"max_duration": "10 s"}, "exactly one of at, message and controller_state"),
-        ({"at": "5 s", "message": "ready_fault", "max_duration": "10 s"}, "exactly one of"),
+        ({"at": "5 s", "message": "status", "max_duration": "10 s"}, "exactly one of"),
         ({"at": "11 s", "max_duration": "10 s"}, "exceeds max_duration"),
         ({"at": "0 s", "max_duration": "10 s"}, "end time must be positive"),
         ({"at": "5 s", "max_duration": "0 s"}, "max_duration must be positive"),
@@ -853,7 +853,7 @@ def test_value_criterion_field_missing_rejected(field: str) -> None:
         {"quantity": "pose:hook.yaw", "limit": "5 deg"},
         {"quantity": "joint:x_axis.velocity", "limit": "1 m/s"},
         {"quantity": "signal:x_encoder.channel_a", "limit": "1"},
-        {"quantity": "count:message.ready_fault", "statistic": "final", "comparison": "at_most", "limit": "1"},
+        {"quantity": "count:message.status", "statistic": "final", "comparison": "at_most", "limit": "1"},
         {"quantity": "state:ready", "statistic": "final", "limit": "1"},
         {"quantity": "joint:x_axis.position", "statistic": "period", "limit": "2 s"},
         {"statistic": "peak_absolute", "window": {"start": "1 s", "end": "2 s"}},
@@ -941,10 +941,11 @@ def test_pendulum_criterion_joint_dimension_checked() -> None:
             "comparison": "below",
             "limit": "2 s",
         },
-        {"check": "event", "event": "message:ready_fault", "expect": "present"},
+        {"check": "event", "event": "message:status", "expect": "present"},
         {"check": "event", "event": "state:ready", "expect": "absent", "window": {"start": "1 s"}},
         {"check": "no_motion", "actuators": ["x_motor", "y_motor"], "threshold": "1 mm"},
         {"check": "no_overlap", "actuators": ["x_motor"]},
+        {"check": "hold_band", "joints": ["x_axis", "lift_axis"], "band": "1 mm", "window": {"start": "1 s"}},
         {
             "check": "settle_time",
             "quantity": "pose:hook.roll",
@@ -961,7 +962,7 @@ def test_pendulum_criterion_joint_dimension_checked() -> None:
             "limit": "3 s",
         },
     ],
-    ids=["interval", "present", "absent", "no_motion", "no_overlap", "settle", "settle_target"],
+    ids=["interval", "present", "absent", "no_motion", "no_overlap", "hold_band", "settle", "settle_target"],
 )
 def test_other_criterion_checks_accepted(item: dict[str, Any]) -> None:
     data = with_criterion({"name": "c", **item})
@@ -991,14 +992,18 @@ def test_other_criterion_checks_accepted(item: dict[str, Any]) -> None:
             {"check": "interval", "start_event": "message:home", "end_event": "state:ready", "comparison": "within"},
             "comparison",
         ),
-        ({"check": "event", "event": "message:ready_fault"}, "expect"),
-        ({"check": "event", "event": "message:ready_fault", "expect": "maybe"}, "expect"),
-        ({"check": "event", "event": "message:ready_fault", "expect": "present", "window": {}}, "start, end or both"),
+        ({"check": "event", "event": "message:status"}, "expect"),
+        ({"check": "event", "event": "message:status", "expect": "maybe"}, "expect"),
+        ({"check": "event", "event": "message:status", "expect": "present", "window": {}}, "start, end or both"),
         ({"check": "no_motion", "actuators": [], "threshold": "1 mm"}, "at least 1"),
         ({"check": "no_motion", "actuators": ["x_motor", "x_motor"], "threshold": "1 mm"}, "duplicate actuator"),
         ({"check": "no_motion", "actuators": ["x_motor"], "threshold": "0 mm"}, "threshold must be positive"),
         ({"check": "no_motion", "actuators": ["x_motor"]}, "threshold"),
         ({"check": "no_overlap", "actuators": []}, "at least 1"),
+        ({"check": "hold_band", "joints": [], "band": "1 mm"}, "at least 1"),
+        ({"check": "hold_band", "joints": ["x_axis", "x_axis"], "band": "1 mm"}, "duplicate joint"),
+        ({"check": "hold_band", "joints": ["x_axis"], "band": "0 mm"}, "band must be positive"),
+        ({"check": "hold_band", "joints": ["x_axis"]}, "band"),
         (
             {"check": "settle_time", "quantity": "pose:hook.x", "band": "0 cm", "comparison": "below", "limit": "3 s"},
             "band",
@@ -1213,3 +1218,17 @@ def test_any_dimension_quantity(text: str, value: float, dimension: str) -> None
 def test_any_dimension_quantity_rejected(text: Any) -> None:
     with pytest.raises(ValueError, match="quantity"):
         parse_any_quantity(text)
+
+
+@pytest.mark.req("SCO-026")
+@pytest.mark.parametrize(
+    ("joints", "band", "fragment"),
+    [
+        (["x_axis", "nowhere"], "1 mm", "unknown joint 'nowhere'"),
+        (["x_axis"], "1 deg", "band"),
+        (["x_axis", "hook_swing"], "1 mm", "not revolute or prismatic"),
+    ],
+)
+def test_hold_band_is_cross_checked_against_the_design_joints(joints: list[str], band: str, fragment: str) -> None:
+    data = with_criterion({"name": "h", "check": "hold_band", "joints": joints, "band": band})
+    assert any(fragment in error for error in check_errors(data))

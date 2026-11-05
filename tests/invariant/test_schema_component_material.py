@@ -94,3 +94,38 @@ def test_json_schema_rejects_bare_number_quantity() -> None:
     )
     data["density"]["typ"] = 1240
     assert list(validator(material_schema.SCHEMA_PATH).iter_errors(data)) != []
+
+
+@pytest.mark.req("LIB-019")
+@pytest.mark.req("LIB-010")
+def test_watchdog_type_ships_with_heartbeat_timeout_and_gated_contacts() -> None:
+    """Covers LIB-019's watchdog half only; the load cell, amplifier and IMU types remain owed (LIB-019 stub)."""
+    catalog = component_schema.load_catalog_file(component_schema.CATALOG_DIR / "watchdog.yaml")
+    watchdog = catalog.component_type("watchdog")
+    assert watchdog.category == "safety"
+    pins = {pin.name: pin for pin in watchdog.electrical.pins}
+    assert pins["heartbeat"].direction == "input"
+    assert pins["heartbeat"].signal_kind == "digital"
+    assert pins["contact_in"].direction == "power_in"
+    assert pins["contact_out"].direction == "power_out"
+    timeout = watchdog.parameter("timeout")
+    assert isinstance(timeout, component_schema.QuantityParameter)
+    assert component_schema.dimensions_equal(timeout.dimension, "[time]")
+    assert catalog.resolved_parts()[0].parameter_values()["timeout"] == pytest.approx(0.05)
+
+
+@pytest.mark.req("LIB-019")
+@pytest.mark.req("LIB-010")
+def test_estop_relay_has_no_heartbeat_port_the_watchdog_trips_it() -> None:
+    """Covers LIB-019's watchdog half only: the heartbeat goes to the watchdog, never to the E-stop relay; the
+    watchdog's trip output (and its contacts) act on the safety chain the relay's E-stop loop input belongs to."""
+    relay = component_schema.load_catalog_file(component_schema.CATALOG_DIR / "estop_relay.yaml").types[0]
+    relay_pins = {pin.name: pin for pin in relay.electrical.pins}
+    assert "heartbeat" not in relay_pins
+    assert relay_pins["estop_loop"].direction == "input"
+    assert relay_pins["estop_loop"].signal_kind == "digital"
+    watchdog = component_schema.load_catalog_file(component_schema.CATALOG_DIR / "watchdog.yaml").types[0]
+    watchdog_pins = {pin.name: pin for pin in watchdog.electrical.pins}
+    assert watchdog_pins["heartbeat"].direction == "input"
+    assert watchdog_pins["tripped"].direction == "output"
+    assert watchdog_pins["tripped"].signal_kind == "digital"

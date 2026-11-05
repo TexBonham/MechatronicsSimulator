@@ -1,3 +1,4 @@
+#define MECHSIM_REF_HEARTBEAT_CHANNEL 0u
 #include "mechsim_board.h"
 
 #if !defined(__STDC_VERSION__) || (__STDC_VERSION__ != 201112L)
@@ -120,11 +121,16 @@ void mechsim_app_tick(const mechsim_board_inputs *inputs, mechsim_board_outputs 
         log_event(outputs, APP_EVENT_UART_RX, inputs->uart_rx[index]);
     }
     outputs->uart_tx_count = length;
-    outputs->heartbeat = g_app.heartbeat;
+    outputs->digital_out[MECHSIM_REF_HEARTBEAT_CHANNEL] = g_app.heartbeat;
     outputs->state_code = g_app.mode;
 }
 
 uint32_t mechsim_app_tick_hz(void)
 {
     return (uint32_t)MECHSIM_APP_TICK_HZ;
+}
+
+uint32_t mechsim_app_board_interface_version(void)
+{
+    return (uint32_t)MECHSIM_BOARD_INTERFACE_VERSION;
 }

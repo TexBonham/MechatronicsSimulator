@@ -20,6 +20,7 @@ Component types and shipped catalog (LIB). Schema `schemas/component.json` from 
 | `FlagParameter` | `kind: flag`, bool default |
 | `Tier` | ordered lowest first; each parameter in exactly one tier; `tier_parameters(t)` is the additive union |
 | Facets | name parameters by reference (mass, pin voltage/current ratings, absolute maximums, holding torque) |
+| `Pin` | name, direction (input, output, bidirectional, power_in, power_out, ground), signal_kind; the pins are the ports design wiring connects (DES-041) |
 | `PartEntry` | a part as written: `values` unit strings or bools (file schema) |
 | `CatalogPart` | resolved part, SI floats; only via `CatalogPart.resolve(entry, type, overrides=None)` |
 | `CatalogFile.resolved_parts()` | every part resolved at file validation; `component_type(name)` lookup |
@@ -32,7 +33,7 @@ Component types and shipped catalog (LIB). Schema `schemas/component.json` from 
 | Facets | `mechsim/library/schema.py` | 166 |
 | ComponentType | `mechsim/library/schema.py` | 239 |
 | CatalogPart | `mechsim/library/schema.py` | 334 |
-| CatalogFile | `mechsim/library/schema.py` | 481 |
+| CatalogFile | `mechsim/library/schema.py` | 504 |
 
 ## Rules
 
@@ -41,3 +42,5 @@ Component types and shipped catalog (LIB). Schema `schemas/component.json` from 
 - Category `sensor` needs resolution, noise, delay, sample_rate and at least one failure mode.
 - `thermal.held_constant` must be true in v1; plugin needs `python` (`pkg.mod:Class`), `cpp`, or both.
 - `load_catalog_file` errors start with the file path.
+- Safety types `estop_relay` and `watchdog` both carry a `heartbeat` input port; `watchdog` has `timeout` and gates its
+  rail through `contact_in`/`contact_out` (LIB-019 watchdog half; load cell, amplifier, IMU still owed).

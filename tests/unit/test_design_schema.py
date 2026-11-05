@@ -5,6 +5,8 @@ from __future__ import annotations
 import copy
 import functools
 import io
+import re
+import shutil
 import subprocess
 from pathlib import Path
 from typing import Any
@@ -14,6 +16,7 @@ from pydantic import ValidationError
 from ruamel.yaml import YAML
 
 from mechsim.design import cad
+from mechsim.design.chip import Chip, shipped_chips
 from mechsim.design.schema import (
     Design,
     OpenValue,
@@ -24,6 +27,10 @@ from mechsim.design.schema import (
     validate_design_file,
     yaml_loader,
 )
+from mechsim.library.registry import Registry, load_registry
+from mechsim.library.schema import CATALOG_DIR
+from mechsim.physics.neutral import ContactModel as NeutralContactModel
+from mechsim.physics.neutral import ContactParameters as NeutralContactParameters
 
 ROOT = Path(__file__).resolve().parents[2]
 GANTRY = ROOT / "designs" / "gantry" / "design.yaml"
@@ -114,8 +121,11 @@ def test_gantry_is_a_draft_design_with_open_parameters() -> None:
     design = accepted(gantry())
     assert design.status == "draft"
     assert len(design.open_parameters) > 0
-    assert isinstance(design.bodies[0].geometry, OpenValue)
-    assert design.bodies[0].geometry.name == "cad_model"
+    assert "cad_model" in [parameter.name for parameter in design.open_parameters]
+    flexible = design.bodies[1].flexible
+    assert flexible is not None
+    assert isinstance(flexible.calibration, OpenValue)
+    assert flexible.calibration.name == "rail_calibration"
 
 
 @pytest.mark.req("DES-014")
@@ -1086,7 +1096,7 @@ def test_bad_signal_declaration_rejected(change: dict[str, str], message: str) -
 @pytest.mark.req("DES-005")
 def test_signal_bound_twice_rejected() -> None:
     data = gantry()
-    data["pin_bindings"].append({"signal": "x_driver.step", "pin": "PD0", "mode": "gpio_output"})
+    data["pin_bindings"].append({"signal": "x_driver.step", "pin": "PD0", "mode": "pulse_output"})
     rejected(data, "signal 'x_driver.step' is bound more than once, first at pin_bindings[0]")
 
 
@@ -1101,7 +1111,7 @@ def test_unbound_signal_rejected() -> None:
 @pytest.mark.req("DES-016")
 def test_binding_of_unknown_signal_rejected() -> None:
     data = gantry()
-    data["pin_bindings"].append({"signal": "ghost.out", "pin": "PD0", "mode": "gpio_input"})
+    data["pin_bindings"].append({"signal": "ghost.out", "pin": "PD0", "mode": "digital_input"})
     rejected(data, "unknown signal 'ghost.out'")
 
 
@@ -1114,7 +1124,16 @@ def test_duplicate_mcu_pin_rejected() -> None:
 
 @pytest.mark.req("DES-005")
 @pytest.mark.parametrize(
-    ("index", "mode"), [(0, "gpio_input"), (0, "timer_encoder"), (9, "gpio_output"), (9, "timer_pwm")]
+    ("index", "mode"),
+    [
+        (0, "digital_input"),
+        (0, "counter_input"),
+        (0, "adc_input"),
+        (0, "uart_rx"),
+        (9, "digital_output"),
+        (9, "pulse_output"),
+        (9, "uart_tx"),
+    ],
 )
 def test_peripheral_mode_must_suit_signal_direction(index: int, mode: str) -> None:
     data = gantry()
@@ -1123,7 +1142,10 @@ def test_peripheral_mode_must_suit_signal_direction(index: int, mode: str) -> No
 
 
 @pytest.mark.req("DES-005")
-@pytest.mark.parametrize(("field", "value"), [("pin", "pa0"), ("pin", ""), ("mode", "bitbang"), ("signal", "x")])
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [("pin", "pa0"), ("pin", ""), ("mode", "bitbang"), ("mode", "gpio_output"), ("mode", "spi"), ("signal", "x")],
+)
 def test_bad_pin_binding_fields_rejected(field: str, value: str) -> None:
     data = gantry()
     data["pin_bindings"][0][field] = value
@@ -1151,7 +1173,7 @@ def test_every_gantry_signal_bound_exactly_once() -> None:
     design = accepted(gantry())
     bound = sorted(binding.signal for binding in design.pin_bindings)
     assert bound == sorted(design.signal_names())
-    assert len(bound) == 21
+    assert len(bound) == 24
 
 
 # ===== Power ===========================================================
@@ -1188,7 +1210,7 @@ def test_power_structure_rules() -> None:
     rejected(data, "controller_rail")
     design = accepted(gantry())
     assert design.power is not None
-    assert design.power.rails[0].gated_by == ["estop"]
+    assert design.power.rails[0].gated_by == ["estop", "watchdog"]
 
 
 # ===== Environment, firmware, structural ===============================
@@ -1224,7 +1246,7 @@ def test_gantry_firmware_is_data() -> None:
     design = accepted(gantry())
     assert design.firmware is not None
     assert design.firmware.path == "firmware"
-    assert design.firmware.chip == OpenValue("stm32_part", "choice")
+    assert design.firmware.chip == "stm32_placeholder"
 
 
 @pytest.mark.req("DES-040")
@@ -1290,6 +1312,528 @@ def test_structural_field_missing(field: str) -> None:
     data = gantry()
     del data["structural"][field]
     rejected(data, field)
+
+
+# ===== Wiring and rail consumers =======================================
+
+
+def wire(source: str, destination: str) -> dict[str, str]:
+    return {"source": source, "destination": destination}
+
+
+def bus_registry(directory: Path) -> Registry:
+    """The shipped catalog plus a test-only type whose `bus` port is bidirectional."""
+    for path in CATALOG_DIR.glob("*.yaml"):
+        shutil.copy(path, directory / path.name)
+    text = (CATALOG_DIR / "watchdog.yaml").read_text(encoding="utf-8").replace("watchdog", "bus_node")
+    text = text.replace(
+        "- name: tripped\n          direction: output", "- name: bus\n          direction: bidirectional"
+    )
+    (directory / "bus_node.yaml").write_text(text, encoding="utf-8")
+    return load_registry(directory)
+
+
+@pytest.mark.req("DES-041")
+def test_gantry_wiring_connects_supply_safety_drivers_and_motors() -> None:
+    design = accepted(gantry())
+    pairs = [(item.source, item.destination) for item in design.wiring]
+    assert len(pairs) == 21
+    assert ("motor_supply.v_out", "estop.contact_in") in pairs
+    assert ("estop.contact_out", "watchdog.contact_in") in pairs
+    for axis in ("x", "y", "lift"):
+        assert ("watchdog.contact_out", f"{axis}_driver.vmot") in pairs
+        assert (f"{axis}_driver.coil_a", f"{axis}_motor.coil_a") in pairs
+        assert ("logic_psu.v_out", f"{axis}_encoder.vcc") in pairs
+        assert (f"{axis}_driver.coil_b", f"{axis}_motor.coil_b") in pairs
+    assert design.power is not None
+    assert design.power.rails[0].consumers == ["x_driver", "y_driver", "lift_driver"]
+
+
+@pytest.mark.req("DES-041")
+@pytest.mark.req("LIB-019")
+def test_gantry_heartbeat_is_a_digital_output_pin_bound_to_the_watchdog() -> None:
+    """Covers LIB-019's watchdog half only: the load cell, amplifier and IMU types remain owed (LIB-019 stub)."""
+    design = accepted(gantry())
+    bindings = {binding.signal: binding for binding in design.pin_bindings}
+    assert bindings["watchdog.heartbeat"].mode == "digital_output"
+    assert bindings["watchdog.heartbeat"].pin == "PB6"
+    assert "heartbeat_wiring" not in [parameter.name for parameter in design.open_parameters]
+
+
+@pytest.mark.req("DES-041")
+def test_pendulum_without_wiring_chip_or_contact_stays_legal() -> None:
+    design = accepted(pendulum())
+    assert design.wiring == []
+    assert design.firmware is None
+    assert design.environment.contact is None
+
+
+@pytest.mark.req("DES-041")
+def test_empty_wiring_and_consumers_accepted() -> None:
+    data = gantry()
+    data["wiring"] = []
+    for rail in data["power"]["rails"]:
+        rail["consumers"] = []
+    design = accepted(data)
+    assert design.wiring == []
+    del data["wiring"]
+    accepted(data)
+
+
+@pytest.mark.req("DES-041")
+@pytest.mark.parametrize("end", ["source", "destination"])
+def test_wire_to_unknown_instance_rejected(end: str) -> None:
+    data = gantry()
+    data["wiring"][0][end] = "ghost.v_out"
+    rejected(data, f"wiring[0].{end}: unknown component instance 'ghost'")
+
+
+@pytest.mark.req("DES-041")
+@pytest.mark.parametrize("end", ["source", "destination"])
+def test_wire_to_unknown_port_rejected(end: str) -> None:
+    data = gantry()
+    data["wiring"][0][end] = "estop.ghost"
+    rejected(data, f"wiring[0].{end}: type 'estop_relay' has no port 'ghost'")
+
+
+@pytest.mark.req("DES-041")
+@pytest.mark.parametrize(
+    ("source", "destination", "message"),
+    [
+        ("x_driver.vmot", "estop.contact_in", "cannot wire power_in port 'x_driver.vmot' to power_in"),
+        ("x_driver.coil_a", "y_driver.coil_a", "cannot wire output port 'x_driver.coil_a' to output"),
+        ("motor_supply.v_out", "estop.reset", "cannot wire power_out port 'motor_supply.v_out' to input"),
+        ("motor_supply.gnd", "estop.contact_in", "cannot wire ground port 'motor_supply.gnd' to power_in"),
+        ("estop.status", "x_driver.vmot", "cannot wire output port 'estop.status' to power_in"),
+        ("estop.reset", "watchdog.heartbeat", "cannot wire input port 'estop.reset' to input"),
+        ("motor_supply.v_out", "watchdog.gnd", "cannot wire power_out port 'motor_supply.v_out' to ground"),
+    ],
+)
+def test_wire_direction_clash_rejected(source: str, destination: str, message: str) -> None:
+    data = gantry()
+    data["wiring"].append(wire(source, destination))
+    rejected(data, message)
+
+
+@pytest.mark.req("DES-041")
+def test_signal_port_wired_twice_rejected() -> None:
+    data = gantry()
+    data["wiring"].append(wire("x_driver.coil_a", "y_motor.coil_b"))
+    del data["wiring"][12]
+    rejected(data, "signal port 'x_driver.coil_a' is connected more than once (wiring[9], wiring[20])")
+
+
+@pytest.mark.req("DES-041")
+def test_signal_port_driven_by_controller_and_wire_rejected() -> None:
+    data = gantry()
+    data["wiring"].append(wire("estop.status", "x_driver.step"))
+    rejected(data, "signal port 'x_driver.step' is connected more than once (signal 'x_driver.step', wiring[21])")
+
+
+@pytest.mark.req("DES-041")
+def test_power_ports_may_be_shared() -> None:
+    data = gantry()
+    data["wiring"].append(wire("motor_supply.v_out", "watchdog.contact_in"))
+    data["wiring"].append(wire("motor_supply.gnd", "x_encoder.gnd"))
+    accepted(data)
+
+
+@pytest.mark.req("DES-041")
+def test_duplicate_wire_rejected() -> None:
+    data = gantry()
+    data["wiring"].append(wire("motor_supply.v_out", "estop.contact_in"))
+    rejected(data, "wiring[21]: duplicate wire 'motor_supply.v_out' to 'estop.contact_in'")
+
+
+@pytest.mark.req("DES-041")
+@pytest.mark.parametrize(
+    ("source", "destination"),
+    [("output", "bidirectional"), ("bidirectional", "input"), ("bidirectional", "bidirectional")],
+)
+def test_bidirectional_ports_wire_to_inputs_and_each_other(tmp_path: Path, source: str, destination: str) -> None:
+    registry = bus_registry(tmp_path)
+    data = gantry()
+    data["components"].append({"name": "node_a", "type": "bus_node", "part": "bus_node_24v_generic"})
+    data["components"].append({"name": "node_b", "type": "bus_node", "part": "bus_node_24v_generic"})
+    ends = {"output": "estop.status", "input": "node_b.heartbeat", "bidirectional": "node_a.bus"}
+    target = ends[destination]
+    if source == destination:
+        target = "node_b.bus"
+    data["wiring"].append(wire(ends[source], target))
+    Design.model_validate(data, context={"registry": registry})
+
+
+@pytest.mark.req("DES-041")
+def test_bidirectional_port_cannot_drive_an_output(tmp_path: Path) -> None:
+    registry = bus_registry(tmp_path)
+    data = gantry()
+    data["components"].append({"name": "node_a", "type": "bus_node", "part": "bus_node_24v_generic"})
+    data["wiring"].append(wire("node_a.bus", "estop.status"))
+    with pytest.raises(ValidationError, match=re.escape("cannot wire bidirectional port 'node_a.bus' to output")):
+        Design.model_validate(data, context={"registry": registry})
+
+
+@pytest.mark.req("DES-041")
+@pytest.mark.parametrize(
+    ("change", "fragment"),
+    [
+        ({"source": "x_driver"}, "source"),
+        ({"destination": "X_motor.coil_a"}, "destination"),
+        ({"source": "x_driver.coil_a.extra"}, "source"),
+        ({"source": 1}, "source"),
+        ({"gauge": "1 mm"}, "gauge"),
+    ],
+)
+def test_bad_wire_fields_rejected(change: dict[str, Any], fragment: str) -> None:
+    data = gantry()
+    data["wiring"][0].update(change)
+    rejected(data, fragment)
+
+
+@pytest.mark.req("DES-041")
+@pytest.mark.parametrize("field", ["source", "destination"])
+def test_wire_field_missing(field: str) -> None:
+    data = gantry()
+    del data["wiring"][0][field]
+    rejected(data, field)
+
+
+@pytest.mark.req("DES-041")
+@pytest.mark.parametrize(
+    ("consumers", "message"),
+    [
+        (["ghost"], "power.rails[0].consumers[0]: unknown component instance 'ghost'"),
+        (["x_driver", "x_driver"], "power.rails[0].consumers: consumer 'x_driver'"),
+        (["X_driver"], "consumers"),
+        ("x_driver", "consumers"),
+        (["${logic_supply}"], "consumers"),
+    ],
+)
+def test_bad_rail_consumers_rejected(consumers: Any, message: str) -> None:
+    data = gantry()
+    data["power"]["rails"][0]["consumers"] = consumers
+    rejected(data, message)
+
+
+# ===== Contact environment =============================================
+
+
+def concrete_contact() -> dict[str, Any]:
+    return {
+        "default": {"stiffness": "1e5 N/m", "damping": "50 N*s/m", "friction": "0.5"},
+        "pairs": [
+            {
+                "materials": ["aluminium_6063_t5_extrusion", "pla_printed"],
+                "stiffness": "2e5 N/m",
+                "damping": "10 N*s/m",
+                "friction": "0.3",
+            }
+        ],
+        "exclusions": [["link", "world"]],
+        "floor": {"normal": [0.0, 1.0, 0.0], "offset": "-50 cm"},
+    }
+
+
+def with_contact(contact: dict[str, Any]) -> dict[str, Any]:
+    data = pendulum()
+    data["environment"]["contact"] = contact
+    return data
+
+
+@pytest.mark.req("DES-042")
+def test_contact_values_held_as_si_and_mirror_the_neutral_model() -> None:
+    contact = accepted(with_contact(concrete_contact())).environment.contact
+    assert contact is not None
+    assert contact.default.stiffness == pytest.approx(1e5)
+    assert contact.default.damping == pytest.approx(50.0)
+    assert contact.default.friction == pytest.approx(0.5)
+    assert contact.pairs[0].materials == ["aluminium_6063_t5_extrusion", "pla_printed"]
+    assert contact.pairs[0].friction == pytest.approx(0.3)
+    assert contact.exclusions == [["link", "world"]]
+    assert contact.floor is not None
+    assert contact.floor.body == "world"
+    assert contact.floor.offset == pytest.approx(-0.5)
+    default_fields = set(type(contact.default).model_fields)
+    assert default_fields == set(NeutralContactParameters.model_fields)
+    assert set(NeutralContactModel.model_fields) <= set(type(contact).model_fields)
+
+
+@pytest.mark.req("DES-042")
+def test_gantry_contact_defaults_are_placeholders_and_floor_is_the_world_plane() -> None:
+    contact = accepted(gantry()).environment.contact
+    assert contact is not None
+    assert contact.default.stiffness == pytest.approx(100000.0)
+    assert contact.floor is not None
+    assert contact.floor.normal == [0.0, 0.0, 1.0]
+    assert contact.floor.offset == pytest.approx(0.0)
+
+
+@pytest.mark.req("DES-042")
+def test_contact_minimal_accepted() -> None:
+    contact = accepted(with_contact({"default": concrete_contact()["default"]})).environment.contact
+    assert contact is not None
+    assert contact.pairs == []
+    assert contact.exclusions == []
+    assert contact.floor is None
+    accepted(with_contact({**concrete_contact(), "pairs": [], "exclusions": []}))
+
+
+@pytest.mark.req("DES-042")
+def test_contact_defaults_required() -> None:
+    contact = concrete_contact()
+    del contact["default"]
+    rejected(with_contact(contact), "default")
+
+
+@pytest.mark.req("DES-042")
+@pytest.mark.parametrize("field", ["stiffness", "damping", "friction"])
+def test_contact_default_field_missing(field: str) -> None:
+    contact = concrete_contact()
+    del contact["default"][field]
+    rejected(with_contact(contact), field)
+
+
+@pytest.mark.req("DES-042")
+@pytest.mark.parametrize("field", ["materials", "stiffness", "damping", "friction"])
+def test_contact_pair_field_missing(field: str) -> None:
+    contact = concrete_contact()
+    del contact["pairs"][0][field]
+    rejected(with_contact(contact), field)
+
+
+@pytest.mark.req("DES-042")
+@pytest.mark.parametrize(
+    ("field", "value", "ok"),
+    [
+        ("stiffness", "0 N/m", False),
+        ("stiffness", "-1 N/m", False),
+        ("stiffness", "1e-9 N/m", True),
+        ("damping", "-1 N*s/m", False),
+        ("damping", "0 N*s/m", True),
+        ("damping", "1e-9 N*s/m", True),
+        ("friction", "-0.1", False),
+        ("friction", "0", True),
+        ("friction", "1.5", True),
+    ],
+)
+def test_contact_parameter_bounds(field: str, value: str, ok: bool) -> None:
+    for where in ("default", "pair"):
+        contact = concrete_contact()
+        target = contact["default"]
+        if where == "pair":
+            target = contact["pairs"][0]
+        target[field] = value
+        if ok:
+            accepted(with_contact(contact))
+        else:
+            rejected(with_contact(contact), field)
+
+
+@pytest.mark.req("DES-042")
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("stiffness", "1 N"),
+        ("stiffness", 1e5),
+        ("stiffness", "1e5"),
+        ("damping", "1 N/m"),
+        ("damping", 50),
+        ("friction", "1 m"),
+        ("friction", 0.5),
+        ("friction", True),
+    ],
+)
+def test_contact_parameter_units_rejected(field: str, value: Any) -> None:
+    contact = concrete_contact()
+    contact["default"][field] = value
+    rejected(with_contact(contact), field)
+
+
+@pytest.mark.req("DES-042")
+def test_contact_pair_override_unknown_material_rejected() -> None:
+    contact = concrete_contact()
+    contact["pairs"][0]["materials"][1] = "unobtainium"
+    rejected(with_contact(contact), "environment.contact.pairs[0].materials: unknown material 'unobtainium'")
+
+
+@pytest.mark.req("DES-042")
+def test_contact_pair_listed_twice_rejected_in_either_order() -> None:
+    contact = concrete_contact()
+    pair = copy.deepcopy(contact["pairs"][0])
+    pair["materials"] = ["pla_printed", "aluminium_6063_t5_extrusion"]
+    contact["pairs"].append(pair)
+    rejected(with_contact(contact), "material pair aluminium_6063_t5_extrusion/pla_printed listed twice")
+
+
+@pytest.mark.req("DES-042")
+def test_contact_pair_of_one_material_with_itself_accepted() -> None:
+    contact = concrete_contact()
+    contact["pairs"][0]["materials"] = ["pla_printed", "pla_printed"]
+    accepted(with_contact(contact))
+
+
+@pytest.mark.req("DES-042")
+@pytest.mark.parametrize("materials", [[], ["pla_printed"], ["pla_printed", "abs_printed", "petg_printed"], "pla"])
+def test_contact_pair_must_name_two_materials(materials: Any) -> None:
+    contact = concrete_contact()
+    contact["pairs"][0]["materials"] = materials
+    rejected(with_contact(contact), "materials")
+
+
+@pytest.mark.req("DES-042")
+def test_contact_exclusion_unknown_body_rejected() -> None:
+    contact = concrete_contact()
+    contact["exclusions"][0][1] = "ghost"
+    rejected(with_contact(contact), "environment.contact.exclusions[0]: exclusion names unknown body 'ghost'")
+
+
+@pytest.mark.req("DES-042")
+def test_contact_exclusion_of_a_body_with_itself_rejected() -> None:
+    contact = concrete_contact()
+    contact["exclusions"][0] = ["link", "link"]
+    rejected(with_contact(contact), "exclusion pairs body 'link' with itself")
+
+
+@pytest.mark.req("DES-042")
+def test_contact_exclusion_listed_twice_rejected_in_either_order() -> None:
+    contact = concrete_contact()
+    contact["exclusions"].append(["world", "link"])
+    rejected(with_contact(contact), "exclusions[1]: exclusion link/world listed twice")
+
+
+@pytest.mark.req("DES-042")
+@pytest.mark.parametrize("exclusion", [[], ["link"], ["link", "world", "link"], "link"])
+def test_contact_exclusion_must_name_two_bodies(exclusion: Any) -> None:
+    contact = concrete_contact()
+    contact["exclusions"][0] = exclusion
+    rejected(with_contact(contact), "exclusions")
+
+
+@pytest.mark.req("DES-042")
+def test_floor_on_world_only() -> None:
+    contact = concrete_contact()
+    contact["floor"]["body"] = "link"
+    rejected(with_contact(contact), "the floor plane is allowed only on the world, not on 'link'")
+    contact["floor"]["body"] = "world"
+    accepted(with_contact(contact))
+
+
+@pytest.mark.req("DES-042")
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("normal", [0.0, 0.0, 2.0]),
+        ("normal", [0.0, 0.0, 0.0]),
+        ("normal", [0.0, 1.0]),
+        ("normal", [0.0, 0.0, 1.0, 0.0]),
+        ("normal", "up"),
+        ("offset", 0.0),
+        ("offset", "0"),
+        ("offset", "0 kg"),
+    ],
+)
+def test_bad_floor_rejected(field: str, value: Any) -> None:
+    contact = concrete_contact()
+    contact["floor"][field] = value
+    rejected(with_contact(contact), field)
+
+
+@pytest.mark.req("DES-042")
+@pytest.mark.parametrize("field", ["normal", "offset"])
+def test_floor_field_missing(field: str) -> None:
+    contact = concrete_contact()
+    del contact["floor"][field]
+    rejected(with_contact(contact), field)
+
+
+@pytest.mark.req("DES-042")
+@pytest.mark.parametrize("where", ["contact", "default", "pair", "floor"])
+def test_contact_unknown_key_rejected(where: str) -> None:
+    contact = concrete_contact()
+    targets = {
+        "contact": contact,
+        "default": contact["default"],
+        "pair": contact["pairs"][0],
+        "floor": contact["floor"],
+    }
+    targets[where]["restitution"] = "0.5"
+    rejected(with_contact(contact), "restitution")
+
+
+# ===== Chip pin map ====================================================
+
+
+@pytest.mark.req("DES-029")
+def test_every_gantry_binding_uses_a_pin_and_mode_of_its_chip() -> None:
+    design = accepted(gantry())
+    modes = shipped_chips()["stm32_placeholder"].pin_modes()
+    for binding in design.pin_bindings:
+        assert binding.mode in modes[binding.pin]
+
+
+@pytest.mark.req("DES-029")
+def test_gantry_pin_table_uses_the_runtime_mode_names() -> None:
+    modes = {binding.signal: binding.mode for binding in accepted(gantry()).pin_bindings}
+    for axis in ("x", "y", "lift"):
+        assert modes[f"{axis}_driver.step"] == "pulse_output"
+        assert modes[f"{axis}_driver.dir"] == "digital_output"
+        assert modes[f"{axis}_driver.enable"] == "digital_output"
+        assert modes[f"{axis}_min_switch.out"] == "digital_input"
+        assert modes[f"{axis}_max_switch.out"] == "digital_input"
+        assert modes[f"{axis}_encoder.channel_a"] == "counter_input"
+        assert modes[f"{axis}_encoder.channel_b"] == "counter_input"
+    assert modes["watchdog.heartbeat"] == "digital_output"
+
+
+@pytest.mark.req("DES-029")
+def test_binding_to_pin_missing_from_chip_rejected() -> None:
+    data = gantry()
+    data["pin_bindings"][0]["pin"] = "PD0"
+    rejected(data, "pin_bindings[0].pin: chip 'stm32_placeholder' has no pin 'PD0'")
+
+
+@pytest.mark.req("DES-029")
+@pytest.mark.parametrize(
+    ("index", "mode"), [(1, "pulse_output"), (0, "uart_tx"), (9, "adc_input"), (15, "adc_input"), (9, "uart_rx")]
+)
+def test_binding_in_mode_the_chip_pin_lacks_rejected(index: int, mode: str) -> None:
+    data = gantry()
+    data["pin_bindings"][index]["mode"] = mode
+    pin = data["pin_bindings"][index]["pin"]
+    rejected(data, f"pin_bindings[{index}].mode: chip 'stm32_placeholder' pin '{pin}' does not support mode '{mode}'")
+
+
+@pytest.mark.req("DES-029")
+def test_unknown_chip_rejected() -> None:
+    data = gantry()
+    data["firmware"]["chip"] = "ghost_chip"
+    rejected(data, "firmware.chip: unknown chip 'ghost_chip'")
+
+
+@pytest.mark.req("DES-029")
+def test_open_chip_skips_the_pin_map_check() -> None:
+    data = gantry()
+    data["firmware"]["chip"] = "${stm32_part}"
+    data["pin_bindings"][0]["pin"] = "PD0"
+    accepted(data)
+
+
+@pytest.mark.req("DES-029")
+def test_chips_from_context_replace_the_shipped_set() -> None:
+    chip = Chip.model_validate(
+        {
+            "name": "stm32_placeholder",
+            "family": "STM32",
+            "status": "placeholder",
+            "platform_description": "placeholder",
+            "svd": "placeholder",
+            "pins": [{"name": "PA0", "modes": ["digital_output"]}],
+        }
+    )
+    with pytest.raises(ValidationError, match="chip 'stm32_placeholder' has no pin 'PB6'"):
+        Design.model_validate(gantry(), context={"chips": {"stm32_placeholder": chip}})
+    with pytest.raises(ValidationError, match="unknown chip 'stm32_placeholder'"):
+        Design.model_validate(gantry(), context={"chips": {}})
 
 
 # ===== Operator messages ===============================================

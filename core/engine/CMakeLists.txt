@@ -17,6 +17,7 @@ add_library(mechsim_engine
     src/lumped_beam.cpp
     src/multibody_provider.cpp
     src/semi_implicit_euler.cpp
+    src/transmission.cpp
 )
 add_library(mechsim::engine ALIAS mechsim_engine)
 target_include_directories(mechsim_engine PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
@@ -31,6 +32,7 @@ add_executable(mechsim_engine_tests
     tests/test_multibody_errors.cpp
     tests/test_integrator.cpp
     tests/test_step_config.cpp
+    tests/test_transmissions.cpp
 )
 target_link_libraries(mechsim_engine_tests PRIVATE mechsim_engine mechsim_warnings Catch2::Catch2WithMain)
 catch_discover_tests(mechsim_engine_tests)

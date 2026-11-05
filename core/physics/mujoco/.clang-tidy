@@ -1,0 +1,5 @@
+---
+# Adds this directory to the root header filter; MuJoCo's headers are SYSTEM includes under build/_deps and stay out.
+InheritParentConfig: true
+HeaderFilterRegex: '.*/core/(engine|kernel|signals|controller|bindings|viewer_debug|physics/mujoco)/.*'
+...

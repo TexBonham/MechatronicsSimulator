@@ -57,7 +57,7 @@ proposed <value>)".
 | TST-020 | The test runner shall route a payload change to physics, which changes the payload mass or attachment at the scheduled time. | Architecture doc, Data flows, fault table, row 7 | M2 | unit | n/a |
 | TST-021 | The test runner shall run the kernel until the test case's end condition is met. | Architecture doc, Modules: core, Test runner row; Data flows, run step 4 | M1 | unit | n/a |
 | TST-022 | The test runner shall end the run on a solver failure, constraint drift beyond limit or emulator fault, and report the error with its simulated time; such a run is never reported as passed. | Architecture doc, Data flows, run step 4; Repository starting point, invariant 7 | M1 | unit | n/a |
-| TST-023 | The test runner shall hand every run to scoring with the reason it ended, including runs ended by a solver error or a fault. | Architecture doc, Modules: core, Test runner row; Data flows, run step 5; Architecture doc, Repository starting point, invariant 7 | M1 | unit | n/a |
+| TST-023 | The test runner shall hand every run to scoring with the reason it ended, including runs ended by a solver error or a fault, and a run the driver cannot carry out (a typed driver error from the run call, cause kept) as a run_error score with its message. | Architecture doc, Modules: core, Test runner row; Data flows, run step 5; Architecture doc, Repository starting point, invariant 7; brief M1-X7 coordinator ruling 1 (2026-11-04) | M1 | unit | n/a |
 | TST-024 | The test runner shall run every case of a suite in one batch invocation. | Requirements doc, Test cases, Batches and sweeps; Requirements doc, Outputs and acceptance criteria, criterion 2 | M1 | unit | n/a |
 | TST-025 | The test runner shall sweep any design or test case parameter over the values a sweep definition lists, one run per value, each run recorded with the value it used. | Requirements doc, Test cases, Batches and sweeps; Architecture doc, Modules: core, Test runner row | M3 | unit | n/a |
 | TST-026 | The test runner shall run seeded randomized variations of a case, each variation recorded with its own integer seed so that it can be rerun alone with an identical result. | Requirements doc, Test cases, Batches and sweeps; Architecture doc, Seams reserved for the roadmap, Monte Carlo row; ADR 0012 (D1) | M3 | unit | n/a |
@@ -72,24 +72,31 @@ proposed <value>)".
 | TST-035 | The CLI shall run with no display, so that every run CI performs is a headless CLI run. | ADR 0006, Consequences; Ruling R-15 | M1 | unit | n/a |
 | TST-036 | The test runner shall take the controller mode (native or emulated) as a run input and pass it to the kernel and controller runtime. | Architecture doc, Modules: core, Test runner row, Interface in | M1 | unit | n/a |
 | TST-037 | The fault timeline shall be able to inject a forced-level fault on a digital sensor, which the test runner routes to the signal layer for the fault window. | Requirements doc, Test cases (G11); Architecture doc, Data flows (fault fan-out, sensor stuck, generalized by SIG-036) | M2 | unit | n/a |
+| TST-038 | The record view shall read `joint:<name>.position` and `.velocity` of a revolute or prismatic joint from the recorded body poses as the coordinate that is zero at the joint's neutral placement, and `pose:<body>.<x,y,z,roll,pitch,yaw>` as the body frame's displacement and rotation (Z-Y-X angles, world axes) from its pose at the reference configuration where every joint coordinate is zero; a case's start joint position shall be placed exactly in the engine model, not approximated. | Owner ruling 2026-11-04 (G3 targets in the homed origin frame); ADR 0003 (no silent approximation) | M1 | unit | n/a |
+| TST-039 | The test runner shall resolve every open parameter of the design and the case in the order `--set`, the case's `parameters`, the parameter's default (DES-044), check each given value against the parameter's dimension, accept choice values from `--set` and `parameters`, and reject a value for an undeclared parameter. | M1-X3 coordinator ruling 2 (2026-11-04), for owner confirmation | M1 | unit | n/a |
 
 ## Open parameters
 
 | Parameter | Current value | Owed by |
 |---|---|---|
 | End condition form (time limit, event, both) | exactly one trigger (a time, an observed operator message, or a controller state) plus a required `max_duration` (`schemas/test_case.json`) | set in phase 1 C4 |
-| Delivery rule for a command or fault scheduled between ticks | not set | phase 1 contracts |
+| Delivery rule for a command or fault scheduled between ticks | a scheduled time is taken to 12 significant digits (removing unit-conversion float error from the decimal the file states); a command or fault edge between base ticks is delivered at the next base tick, the first n with n / base_rate >= t; a fault is active for start_tick <= n < end_tick and a window covering no tick is an error; `end.at` and `max_duration` must lie on a base tick (KER); base rate = lcm(physics rate, control rate), physics step 1 ms unless the case sets `rates`, control rate the case's else the firmware `tick_rate` | ruled form, `mechsim/testing/runner.py` (M1-I) |
 | Sweep parameter addressing syntax | `${name}` for a design open parameter, else `<bodies\|joints\|components>.<item name>.<field>[.<field>]` into the design file | set in phase 1 C4 |
 | Seed of each seeded variation (derived from the case seed or listed) | not set; the case stores only the count and a distribution per varied parameter | runner (TST-026) |
 | Drift limit that counts as constraint drift | not set | engine ADR, PHY spec |
 | Controller mode for a design without firmware | the case omits `controller_mode`; it is required when the design has firmware (TST-036) | set in phase 1 C4 |
 | Where the baseline path lives (TST-008 names a suite file; no suite file schema yet) | each case may name its suite's baseline file, relative to the case folder | phase 1 suite file schema |
-| Fault parameter forms | sensor noise as an absolute standard deviation in the signal's unit; motor stall as the available-torque fraction in [0, 1); slip as a fraction in (0, 1] | owner confirmation pending |
+| Open-parameter values at run time | `run`/`suite --set name=value` binds a design or case open parameter, parsed with its declared dimension; every `${}` in the case and the design must be bound before t = 0, else the run is an error naming each path; a sweep value binds its parameter for that run only | `mechsim/testing/runner.py` (M1-I) |
+| Sweep runs | each sweep of a case runs separately, one run per value beside the nominal run (no cross product); only nominal runs enter a baseline | `mechsim/testing/runner.py` (M1-I) |
+| Seed per module instance (TST-028) | `SeedSequence(seed).spawn(n)` over the builder's module instances in kernel registration order; each instance gets the child's first 64-bit state word | `mechsim/testing/runner.py` (M1-I) |
+| Base rate the runner schedules against | the runner computes lcm(physics rate, control rate); the kernel's base rate is the lcm over every party rate, so in milestone 1 the real driver registers no party at another rate, or converts the runner's ticks to the kernel's base tick | M1-I review; real driver at integration |
+| CLI through the facade (TST-034) | stays a stub until the facade service lands; for now `mechsim/cli.py` calls the runner directly | FAC |
+| Fault parameter forms | sensor noise as an absolute standard deviation in the signal's unit; motor stall as the available-torque fraction in [0, 1); slip as a fraction in (0, 1] | owner ruling 2026-11-04 |
 | Position criterion per axis or planar distance (G3) | per axis, x and y each within 1 cm (owner ruling 2026-11-04); a per-axis pass admits a 1.41 cm planar error | owner |
 | Initial joint state for multi-DOF joints | single-axis (prismatic, revolute) starting positions only | phase 1 contracts |
-| `initial_state.controller` | a precondition the runner checks before t = 0, not a state it sets | owner confirmation pending |
-| CLI exit status for failed, errored and passed suites | not set | phase 1 contracts |
-| Run archive output location | not set | phase 1 contracts |
+| `initial_state.controller` | a precondition the runner checks before t = 0 against the firmware's reported state, not a state it sets; a mismatch is an error. With DES-045 code tables the driver reports `{state: name, fault: name}` from a private runtime reset at the controller rail and ticked once with idle inputs, and the case names `state` and `fault` only | owner ruling 2026-11-04 |
+| CLI exit status for failed, errored and passed suites | 0 passed (every file valid for `validate`); 1 failed (a criterion failed, a file invalid); 2 error (a run error, a case that could not run, an unknown file kind, a missing path, a usage error, no driver or archive reader wired) | `mechsim/cli.py` (M1-I) |
+| Run archive output location | CLI `--out`, default `./runs`; one archive `<case id>-seed<seed>[-sweep<i>-<j>].h5` per run; the suite report `<suite>_report.txt` beside them | `mechsim/cli.py` (M1-I); owner may move it |
 
 ## Out of scope
 

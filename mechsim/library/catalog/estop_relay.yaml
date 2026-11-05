@@ -3,7 +3,9 @@ types:
   - name: estop_relay
     version: 1.0.0
     category: safety
-    description: Safety relay that opens its output contacts when the E-stop loop opens.
+    description: >-
+      Safety relay that opens its output contacts when the E-stop loop opens. It has no heartbeat input: a watchdog
+      watches the controller heartbeat and its contacts gate power in series with the relay's.
     parameters:
       - name: mass
         dimension: "[mass]"

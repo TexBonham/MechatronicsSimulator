@@ -455,7 +455,30 @@ def _resolve_values(
         raise ValueError(f"part {entry.name!r} of type {component.name!r} needs a torque_speed_curve")
     if component.ratings.torque_speed_curve == "none" and entry.torque_speed_curve is not None:
         raise ValueError(f"part {entry.name!r}: type {component.name!r} takes no torque_speed_curve")
+    _check_curve_start(entry, component, resolved)
     return resolved
+
+
+HOLDING_TORQUE_TOLERANCE = 1e-9
+
+
+def _check_curve_start(entry: PartEntry, component: ComponentType, resolved: dict[str, float | bool]) -> None:
+    """LIB-034: the torque-speed table starts at speed 0 with the holding torque."""
+    curve = entry.torque_speed_curve
+    holding_name = component.ratings.holding_torque
+    if curve is None or holding_name is None:
+        return
+    first = curve[0]
+    if first.speed != 0.0:
+        raise ValueError(f"part {entry.name!r}: torque_speed_curve must start at speed 0")
+    holding = resolved.get(holding_name)
+    if isinstance(holding, bool) or holding is None:
+        return
+    if abs(first.torque - holding) > HOLDING_TORQUE_TOLERANCE * max(abs(holding), 1.0):
+        raise ValueError(
+            f"part {entry.name!r}: torque_speed_curve starts at {first.torque} N*m, "
+            f"not the holding torque {holding} N*m"
+        )
 
 
 def _resolve_value(part: str, parameter: QuantityParameter | FlagParameter, raw: str | bool) -> float | bool:

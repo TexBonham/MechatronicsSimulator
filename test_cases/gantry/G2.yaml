@@ -1,0 +1,77 @@
+# G2 (Requirements doc, Test cases, gantry suite): home. Pass: each homed axis's origin lies within 1 cm of its true
+# origin (ACC-003): with the origin at the min switch, each joint coordinate when homing has finished is within 1 cm of
+# 0 m, the joint's neutral placement; the controller enters ready (ACC-004) and reports it on the "ready / fault"
+# status message. Start position and homing time: open parameters with placeholder defaults (DES-044).
+id: G2
+title: Homing
+design:
+  name: gantry
+  version: 0.1.0
+controller_mode: native
+seed: 2
+open_parameters:
+  - name: start_x
+    dimension: "[length]"
+    owed_by: gantry team
+    note: Carriage x position at power on, before homing; not stated.
+    default: "0.1 m"
+  - name: start_y
+    dimension: "[length]"
+    owed_by: gantry team
+    note: Trolley y position at power on, before homing; not stated.
+    default: "0.1 m"
+  - name: start_lift
+    dimension: "[length]"
+    owed_by: gantry team
+    note: Lift carriage position at power on, before homing; not stated.
+    default: "0.1 m"
+  - name: homing_time
+    dimension: "[time]"
+    owed_by: gantry team
+    note: Time allowed for homing before the next command; depends on workspace and axis speeds.
+    default: "15 s"
+initial_state:
+  joints:
+    - joint: x_axis
+      position: ${start_x}
+      velocity: 0 m/s
+    - joint: y_axis
+      position: ${start_y}
+      velocity: 0 m/s
+    - joint: lift_axis
+      position: ${start_lift}
+      velocity: 0 m/s
+  controller:
+    state: not_homed
+  payload:
+    attached: false
+commands:
+  - at: 0 s
+    message: home
+end:
+  at: ${homing_time}
+  max_duration: ${homing_time}
+criteria:
+  - name: origin_x
+    check: value
+    quantity: joint:x_axis.position
+    statistic: final
+    comparison: within
+    target: 0 m
+    limit: 1 cm
+  - name: origin_y
+    check: value
+    quantity: joint:y_axis.position
+    statistic: final
+    comparison: within
+    target: 0 m
+    limit: 1 cm
+  - name: status_reported
+    check: event
+    event: message:status
+    expect: present
+  - name: ready
+    check: event
+    event: state:ready
+    expect: present
+baseline: baseline.yaml

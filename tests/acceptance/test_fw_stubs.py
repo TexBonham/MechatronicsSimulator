@@ -3,42 +3,6 @@
 import pytest
 
 
-@pytest.mark.req("FW-013")
-@pytest.mark.xfail(strict=True, reason="stub")
-def test_fw_013() -> None:
-    """Reference design (gantry): the firmware shall start "not homed", refuse every target until homing finishes
-    against the limit switches, and report "not homed" with no actuator motion.
-    """
-    raise NotImplementedError
-
-
-@pytest.mark.req("FW-014")
-@pytest.mark.xfail(strict=True, reason="stub")
-def test_fw_014() -> None:
-    """Reference design (gantry): homing shall drive each axis to its limit switch, set the origin and report
-    "ready".
-    """
-    raise NotImplementedError
-
-
-@pytest.mark.req("FW-015")
-@pytest.mark.xfail(strict=True, reason="stub")
-def test_fw_015() -> None:
-    """Reference design (gantry): after homing, a target inside the workspace shall move the hook to the target
-    without exceeding any travel limit.
-    """
-    raise NotImplementedError
-
-
-@pytest.mark.req("FW-016")
-@pytest.mark.xfail(strict=True, reason="stub")
-def test_fw_016() -> None:
-    """Reference design (gantry): a target outside the workspace shall be rejected with a fault and no motion, never
-    clipped to the edge.
-    """
-    raise NotImplementedError
-
-
 @pytest.mark.req("FW-017")
 @pytest.mark.xfail(strict=True, reason="stub")
 def test_fw_017() -> None:
@@ -84,22 +48,6 @@ def test_fw_021() -> None:
     raise NotImplementedError
 
 
-@pytest.mark.req("FW-022")
-@pytest.mark.xfail(strict=True, reason="stub")
-def test_fw_022() -> None:
-    """Reference design (gantry): the firmware shall keep every commanded motion within its acceleration and
-    deceleration limits.
-    """
-    raise NotImplementedError
-
-
-@pytest.mark.req("FW-023")
-@pytest.mark.xfail(strict=True, reason="stub")
-def test_fw_023() -> None:
-    """Reference design (gantry): the firmware shall slow near targets and near travel limits."""
-    raise NotImplementedError
-
-
 @pytest.mark.req("FW-024")
 @pytest.mark.xfail(strict=True, reason="stub")
 def test_fw_024() -> None:
@@ -141,23 +89,5 @@ def test_fw_027() -> None:
 def test_fw_028() -> None:
     """Reference design (gantry): rapid-fire and conflicting commands shall never produce overlapping actuator
     commands.
-    """
-    raise NotImplementedError
-
-
-@pytest.mark.req("FW-029")
-@pytest.mark.xfail(strict=True, reason="stub")
-def test_fw_029() -> None:
-    """Reference design (gantry): the firmware shall accept the operator messages "target (x, y)" and "home" and
-    report "current position, ready / fault".
-    """
-    raise NotImplementedError
-
-
-@pytest.mark.req("FW-030")
-@pytest.mark.xfail(strict=True, reason="stub")
-def test_fw_030() -> None:
-    """Reference design (gantry): the firmware shall log every state change, command and fault through the runtime's
-    fault log.
     """
     raise NotImplementedError

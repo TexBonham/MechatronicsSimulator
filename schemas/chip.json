@@ -1,0 +1,101 @@
+{
+  "$defs": {
+    "ChipPin": {
+      "additionalProperties": false,
+      "properties": {
+        "modes": {
+          "items": {
+            "enum": [
+              "digital_input",
+              "digital_output",
+              "counter_input",
+              "adc_input",
+              "pulse_output",
+              "uart_rx",
+              "uart_tx"
+            ],
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Modes",
+          "type": "array"
+        },
+        "name": {
+          "pattern": "^[A-Z][A-Z0-9_]*$",
+          "title": "Name",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "modes"
+      ],
+      "title": "ChipPin",
+      "type": "object"
+    }
+  },
+  "$id": "chip.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "Root of `chips/<name>/chip.yaml`.",
+  "properties": {
+    "description": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Description"
+    },
+    "family": {
+      "minLength": 1,
+      "title": "Family",
+      "type": "string"
+    },
+    "name": {
+      "pattern": "^[a-z][a-z0-9_]*$",
+      "title": "Name",
+      "type": "string"
+    },
+    "pins": {
+      "items": {
+        "$ref": "#/$defs/ChipPin"
+      },
+      "minItems": 1,
+      "title": "Pins",
+      "type": "array"
+    },
+    "platform_description": {
+      "pattern": "^[A-Za-z0-9_.\\-]+(/[A-Za-z0-9_.\\-]+)*$",
+      "title": "Platform Description",
+      "type": "string"
+    },
+    "status": {
+      "enum": [
+        "placeholder",
+        "verified"
+      ],
+      "title": "Status",
+      "type": "string"
+    },
+    "svd": {
+      "pattern": "^[A-Za-z0-9_.\\-]+(/[A-Za-z0-9_.\\-]+)*$",
+      "title": "Svd",
+      "type": "string"
+    }
+  },
+  "required": [
+    "name",
+    "family",
+    "status",
+    "platform_description",
+    "svd",
+    "pins"
+  ],
+  "title": "ChipFile",
+  "type": "object"
+}

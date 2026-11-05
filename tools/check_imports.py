@@ -57,6 +57,12 @@ RULES: tuple[Rule, ...] = (
         reason="only the viewer and the tests depend on the viewer (invariant 9)",
     ),
     Rule(
+        modules=("mechsim._core_ext.engine", "mechsim._core.engine", "mechsim.physics.native._engine"),
+        allowed_under=("mechsim/physics/native/", "tests/"),
+        forbidden_under=(),
+        reason="the own engine stays behind the native adapter (invariant 5)",
+    ),
+    Rule(
         modules=("tests",),
         allowed_under=(),
         forbidden_under=("mechsim/",),

@@ -17,7 +17,7 @@ are the gantry suite; values the gantry team has not set are open parameters.
 | Module | This spec's requirements | Their requirements |
 |---|---|---|
 | TST | ACC-001 to ACC-045 | TST-024, TST-025, TST-026, TST-032 |
-| SCO | ACC-001 to ACC-036 | SCO-008, SCO-020 to SCO-025 |
+| SCO | ACC-001 to ACC-036 | SCO-008, SCO-020 to SCO-026 |
 | INT | ACC-029, ACC-030, ACC-040 to ACC-043 | INT-020, INT-021, INT-032 |
 | INV | ACC-035, ACC-044, ACC-045 | INV-002, INV-004, INV-014 |
 
@@ -31,13 +31,13 @@ proposed <value>)".
 
 | ID | Requirement | Source | Milestone | Tier | Tolerance |
 |---|---|---|---|---|---|
-| ACC-001 | Reference design (gantry), G1: when target (40, 25) is sent at power on before homing, no actuator shall move. | Requirements doc, Test cases, G1 | M1 | acceptance | not set (owed by gantry team) |
+| ACC-001 | Reference design (gantry), G1: when target (40, 25) is sent at power on before homing, no actuator shall move. | Requirements doc, Test cases, G1; M1-X6 coordinator ruling 2 (no step pulse on any axis for the whole run and every axis within its power-on hold band), for owner confirmation | M1 | acceptance | 1 mm hold band (placeholder, owed by gantry team) |
 | ACC-002 | Reference design (gantry), G1: the refusal shall be reported with status "not homed". | Requirements doc, Test cases, G1 | M1 | acceptance | not set (owed by gantry team) |
 | ACC-003 | Reference design (gantry), G2: after homing, each axis's origin shall lie within the tolerance of its true origin. | Requirements doc, Test cases, G2 | M1 | acceptance | 1 cm |
 | ACC-004 | Reference design (gantry), G2: after homing, the status shall be "ready". | Requirements doc, Test cases, G2 | M1 | acceptance | not set (owed by gantry team) |
 | ACC-005 | Reference design (gantry), G3: after target (40, 25) is sent following homing, the hook's final position shall lie within the tolerance of the target. | Requirements doc, Test cases, G3 | M1 | acceptance | 1 cm |
 | ACC-006 | Reference design (gantry), G3: no travel limit shall be exceeded during the move. | Requirements doc, Test cases, G3 | M1 | acceptance | not set (owed by gantry team) |
-| ACC-007 | Reference design (gantry), G4: for a target outside the workspace, no actuator shall move. | Requirements doc, Test cases, G4 | M1 | acceptance | not set (owed by gantry team) |
+| ACC-007 | Reference design (gantry), G4: for a target outside the workspace, no actuator shall move. | Requirements doc, Test cases, G4; M1-X6 coordinator ruling 2 (as ACC-001, from the target on), for owner confirmation | M1 | acceptance | 1 mm hold band (placeholder, owed by gantry team) |
 | ACC-008 | Reference design (gantry), G4: the target shall be rejected with a reported fault, not clipped. | Requirements doc, Test cases, G4 | M1 | acceptance | not set (owed by gantry team) |
 | ACC-009 | Reference design (gantry), G5: with a load over the limit attached before a move, a lift command shall be ignored. | Requirements doc, Test cases, G5 | M2 | acceptance | not set (owed by gantry team) |
 | ACC-010 | Reference design (gantry), G5: with a load over the limit attached, a lower command shall work. | Requirements doc, Test cases, G5 | M2 | acceptance | not set (owed by gantry team) |

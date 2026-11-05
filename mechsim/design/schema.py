@@ -1,8 +1,9 @@
 """Design files (DES). Generates `schemas/design.json`.
 
-A design file declares bodies, joints, component instances, the pin-binding table, power rails, environment, firmware
-and the operator message set. Quantities are unit strings held as SI floats. A draft design may leave values unset as
-`${name}` references to its declared open parameters; a release design may not.
+A design file declares bodies, joints, component instances, the wiring between them, the pin-binding table, power
+rails, environment (with its contact model), firmware and its chip, and the operator message set. Quantities are unit
+strings held as SI floats. A draft design may leave values unset as `${name}` references to its declared open
+parameters; a release design may not.
 """
 
 from __future__ import annotations
@@ -36,6 +37,7 @@ from pydantic.json_schema import JsonSchemaValue
 from pydantic_core import CoreSchema, core_schema
 from ruamel.yaml import YAML
 
+from mechsim.design.chip import Chip, PeripheralMode, shipped_chips
 from mechsim.library.registry import Registry, RegistryError, default_registry
 from mechsim.library.schema import QuantityParameter, dimensions_equal
 from mechsim.materials.schema import DATA_DIR, Material, load_material_file
@@ -61,6 +63,7 @@ Name = Annotated[str, Field(pattern=r"^[a-z][a-z0-9_]*$")]
 SignalName = Annotated[str, Field(pattern=r"^[a-z][a-z0-9_]*\.[a-z][a-z0-9_]*$")]
 SemVer = Annotated[str, Field(pattern=r"^\d+\.\d+\.\d+$")]
 McuPin = Annotated[str, Field(pattern=r"^[A-Z][A-Z0-9_]*$")]
+PortName = Annotated[str, Field(pattern=r"^[a-z][a-z0-9_]*\.[a-z][a-z0-9_]*$")]
 
 
 def _no_parent_segment(value: str) -> str:
@@ -83,11 +86,17 @@ DOF_COUNTS: dict[str, tuple[int, int]] = {
 AXIS_JOINTS = ("revolute", "prismatic", "planar")
 UNLIMITED_JOINTS = ("spherical", "free")
 
-PeripheralMode = Literal["gpio_input", "gpio_output", "timer_pwm", "timer_encoder", "adc", "dac", "uart", "spi", "i2c"]
-READ_MODES = ("gpio_input", "timer_encoder", "adc", "uart", "spi", "i2c")
-WRITE_MODES = ("gpio_output", "timer_pwm", "dac", "uart", "spi", "i2c")
+READ_MODES: tuple[str, ...] = ("digital_input", "counter_input", "adc_input", "uart_rx")
+WRITE_MODES: tuple[str, ...] = ("digital_output", "pulse_output", "uart_tx")
 EMIT_PIN_DIRECTIONS = ("output", "bidirectional")
 CONSUME_PIN_DIRECTIONS = ("input", "bidirectional")
+POWER_PORT_DIRECTIONS = ("power_in", "power_out", "ground")
+WIRE_DIRECTIONS: dict[str, tuple[str, ...]] = {
+    "output": ("input", "bidirectional"),
+    "bidirectional": ("input", "bidirectional"),
+    "power_out": ("power_in",),
+    "ground": ("ground",),
+}
 
 
 class DesignError(ValueError):
@@ -169,6 +178,7 @@ Fraction = Annotated[float | OpenValue, BeforeValidator(_quantity("dimensionless
 Force = Annotated[float | OpenValue, BeforeValidator(_quantity("[mass] * [length] / [time] ** 2")), _QS]
 Torque = Annotated[float | OpenValue, BeforeValidator(_quantity("[mass] * [length] ** 2 / [time] ** 2")), _QS]
 LinearDamping = Annotated[float | OpenValue, BeforeValidator(_quantity("[mass] / [time]")), _QS]
+Stiffness = Annotated[float | OpenValue, BeforeValidator(_quantity("[mass] / [time] ** 2")), _QS]
 AngularDamping = Annotated[float | OpenValue, BeforeValidator(_quantity("[mass] * [length] ** 2 / [time]")), _QS]
 Acceleration = Annotated[float | OpenValue, BeforeValidator(_quantity("[length] / [time] ** 2")), _QS]
 Frequency = Annotated[float | OpenValue, BeforeValidator(_quantity("1 / [time]")), _QS]
@@ -211,6 +221,11 @@ class OpenParameter(_Strict):
     dimension: str = Field(min_length=1, description='pint dimensionality string, or "choice" for a non-quantity')
     owed_by: str = Field(min_length=1)
     note: str = Field(min_length=1)
+    default: str | dict[str, str] | None = Field(
+        default=None,
+        description="Value used when neither the case nor --set gives one (DES-044): a quantity string of the "
+        "parameter's dimension, or a choice value",
+    )
 
     @field_validator("dimension")
     @classmethod
@@ -222,6 +237,25 @@ class OpenParameter(_Strict):
         except Exception as error:
             raise ValueError(f"unknown dimension {value!r}") from error
         return value
+
+    @model_validator(mode="after")
+    def _default_fits(self) -> OpenParameter:
+        if self.default is None:
+            return self
+        if isinstance(self.default, dict):
+            if self.dimension != CHOICE:
+                raise ValueError(f"default of {self.name!r}: a mapping is only a choice value")
+            return self
+        if len(self.default) == 0:
+            raise ValueError(f"default of {self.name!r} is empty")
+        if open_name(self.default) is not None:
+            raise ValueError(f"default of {self.name!r} may not be an open value")
+        if self.dimension != CHOICE:
+            try:
+                parse_quantity(self.default, self.dimension)
+            except Exception as error:
+                raise ValueError(f"default of {self.name!r}: {error}") from error
+        return self
 
 
 # ===== Bodies ==========================================================
@@ -577,6 +611,23 @@ class SignalDeclaration(_Strict):
     direction: Literal["emits", "consumes"]
 
 
+class Senses(_Strict):
+    """What a sensor instance reads (DES-043): the joint coordinate, and per type the switch position along the joint
+    and its actuation side (limit_switch) or the count direction (incremental_encoder)."""
+
+    joint: OpenName
+    position: Length | None = None
+    actuate_above: bool | None = None
+    reversed: bool | None = None
+
+
+SENSES_FIELDS: dict[str, tuple[str, ...]] = {
+    "limit_switch": ("position", "actuate_above"),
+    "incremental_encoder": ("reversed",),
+}
+SENSES_REQUIRED: dict[str, tuple[str, ...]] = {"limit_switch": ("position", "actuate_above")}
+
+
 class ComponentInstance(_Strict):
     name: Name
     type: Name
@@ -584,6 +635,18 @@ class ComponentInstance(_Strict):
     overrides: dict[Name, str | bool] = Field(default_factory=dict)
     mechanical: list[MechanicalBinding] = Field(default_factory=list)
     signals: list[SignalDeclaration] = Field(default_factory=list)
+    senses: Senses | None = None
+
+
+class Wire(_Strict):
+    """A connection from one instance port to another (DES-041); ports are the pins of each type's electrical facet.
+
+    Wires carry connectivity only in v1: no resistance, inductance, length or failure. Physical wire properties are a
+    later component type (a seam).
+    """
+
+    source: PortName
+    destination: PortName
 
 
 class PinBinding(_Strict):
@@ -599,6 +662,7 @@ class Rail(_Strict):
     name: Name
     supply: OpenName
     gated_by: list[OpenName] = Field(default_factory=list)
+    consumers: list[Name] = Field(default_factory=list)
 
 
 class Power(_Strict):
@@ -606,9 +670,59 @@ class Power(_Strict):
     controller_rail: Name
 
 
+class ContactParameters(_Strict):
+    """Soft contact (ADR 0002): normal stiffness and damping, Coulomb friction coefficient."""
+
+    stiffness: Stiffness
+    damping: LinearDamping
+    friction: Fraction
+
+    @model_validator(mode="after")
+    def _bounds(self) -> ContactParameters:
+        _require_positive(self.stiffness, "stiffness")
+        _require_non_negative(self.damping, "damping")
+        _require_non_negative(self.friction, "friction")
+        return self
+
+
+class MaterialPair(ContactParameters):
+    """Contact parameters overriding the default for one unordered pair of materials."""
+
+    materials: Annotated[list[Name], Field(min_length=2, max_length=2)]
+
+
+class Floor(_Strict):
+    """The floor plane on the world: points x with normal . x = offset; contact acts on the side the normal faces."""
+
+    body: Name = WORLD
+    normal: UnitVector
+    offset: Length
+
+    @field_validator("normal")
+    @classmethod
+    def _unit(cls, value: list[float]) -> list[float]:
+        return _unit_vector(value, "floor normal")
+
+    @model_validator(mode="after")
+    def _on_world(self) -> Floor:
+        if self.body != WORLD:
+            raise ValueError(f"the floor plane is allowed only on the world, not on {self.body!r}")
+        return self
+
+
+class Contact(_Strict):
+    """The neutral model's contacts element field for field (DES-042, ADR 0003), plus the floor plane."""
+
+    default: ContactParameters
+    pairs: list[MaterialPair] = Field(default_factory=list)
+    exclusions: list[Annotated[list[Name], Field(min_length=2, max_length=2)]] = Field(default_factory=list)
+    floor: Floor | None = None
+
+
 class Environment(_Strict):
     gravity: Annotated[list[Acceleration], Field(min_length=3, max_length=3)]
     ambient_temperature: Temperature
+    contact: Contact | None = None
 
     @model_validator(mode="after")
     def _above_zero(self) -> Environment:
@@ -616,15 +730,43 @@ class Environment(_Strict):
         return self
 
 
+def _code_keys(value: Any) -> Any:
+    if isinstance(value, dict):
+        return {str(key): item for key, item in value.items()}
+    return value
+
+
+CodeNames = Annotated[dict[str, Name], BeforeValidator(_code_keys)]
+
+
 class Firmware(_Strict):
+    """`state_codes` and `fault_codes` name the firmware's reported `state_code` and `fault_code` values (DES-045);
+    the application target is `mechsim_fw_<design name>` in the firmware tree (DES-040)."""
+
     path: RepoPath
     chip: OpenName
     tick_rate: Frequency
+    state_codes: CodeNames = Field(default_factory=dict, description="state_code value (0..255) to state name")
+    fault_codes: CodeNames = Field(default_factory=dict, description="fault_code value (0..255) to fault name")
 
     @model_validator(mode="after")
     def _positive(self) -> Firmware:
         _require_positive(self.tick_rate, "tick_rate")
+        errors: list[str] = []
+        for what, table in (("state_codes", self.state_codes), ("fault_codes", self.fault_codes)):
+            for key in table:
+                if not key.isdigit() or int(key) > 255 or str(int(key)) != key:
+                    errors.append(f"{what}: code {key!r} is not an integer 0..255")
+            _duplicates(list(table.values()), f"{what} name", errors)
+        if len(errors) > 0:
+            raise ValueError("; ".join(errors))
         return self
+
+    def state_name(self, code: int) -> str | None:
+        return self.state_codes.get(str(code))
+
+    def fault_name(self, code: int) -> str | None:
+        return self.fault_codes.get(str(code))
 
 
 class MessageField(_Strict):
@@ -705,6 +847,7 @@ class Design(_Strict):
     bodies: list[Body] = Field(min_length=1)
     joints: list[Joint] = Field(min_length=1)
     components: list[ComponentInstance] = Field(default_factory=list)
+    wiring: list[Wire] = Field(default_factory=list)
     pin_bindings: list[PinBinding] = Field(default_factory=list)
     power: Power | None = None
     firmware: Firmware | None = None
@@ -717,7 +860,10 @@ class Design(_Strict):
         context = info.context
         if isinstance(context, dict) and isinstance(context.get("registry"), Registry):
             registry = context["registry"]
-        errors = cross_check(self, registry, shipped_materials())
+        chips: dict[str, Chip] | None = None
+        if isinstance(context, dict) and isinstance(context.get("chips"), dict):
+            chips = context["chips"]
+        errors = cross_check(self, registry, shipped_materials(), chips)
         if isinstance(context, dict) and isinstance(context.get("base"), Path):
             errors.extend(check_files(self, context["base"]))
         if len(errors) > 0:
@@ -791,8 +937,13 @@ def _check_reference(
         errors.append(f"{path}: open parameter {name!r} has dimension {dimension}, expected {expected}")
 
 
-def cross_check(design: Design, registry: Registry, materials: dict[str, Material]) -> list[str]:
-    """Every reference and uniqueness error in `design`, each with its path (DES-016)."""
+def cross_check(
+    design: Design, registry: Registry, materials: dict[str, Material], chips: dict[str, Chip] | None = None
+) -> list[str]:
+    """Every reference and uniqueness error in `design`, each with its path (DES-016).
+
+    `chips` defaults to the shipped chip definitions under `chips/`.
+    """
     errors: list[str] = []
     declared = _check_open(design, errors)
     bodies = [body.name for body in design.bodies]
@@ -807,7 +958,10 @@ def cross_check(design: Design, registry: Registry, materials: dict[str, Materia
     for index, component in enumerate(design.components):
         _check_component(f"components[{index}]", component, design, registry, declared, errors)
     _check_signals(design, errors)
+    _check_wiring(design, registry, errors)
+    _check_chip(design, chips, errors)
     _check_power(design, registry, errors)
+    _check_contact(design, materials, errors)
     _check_messages(design, errors)
     return errors
 
@@ -923,6 +1077,7 @@ def _check_component(
             errors.append(f"{where}.body: unknown body {binding.body!r}")
         if isinstance(binding.joint, str) and binding.joint not in joints:
             errors.append(f"{where}.joint: unknown joint {binding.joint!r}")
+    _check_senses(path, component, kind.category, joints, errors)
     pins = {pin.name: pin for pin in kind.electrical.pins}
     used_pins: set[str] = set()
     for signal_index, signal in enumerate(component.signals):
@@ -942,6 +1097,27 @@ def _check_component(
             errors.append(
                 f"{where}.direction: pin {signal.pin!r} is {pins[signal.pin].direction} and cannot {signal.direction}"
             )
+
+
+def _check_senses(path: str, component: ComponentInstance, category: str, joints: set[str], errors: list[str]) -> None:
+    senses = component.senses
+    if category != "sensor":
+        if senses is not None:
+            errors.append(f"{path}.senses: only sensor instances carry senses; {component.type!r} is a {category}")
+        return
+    if senses is None:
+        errors.append(f"{path}.senses: sensor instance {component.name!r} must name the joint it senses")
+        return
+    if isinstance(senses.joint, str) and senses.joint not in joints:
+        errors.append(f"{path}.senses.joint: unknown joint {senses.joint!r}")
+    allowed = SENSES_FIELDS.get(component.type, ())
+    for field in ("position", "actuate_above", "reversed"):
+        value = getattr(senses, field)
+        if value is not None and field not in allowed:
+            errors.append(f"{path}.senses.{field}: type {component.type!r} takes no {field}")
+    for field in SENSES_REQUIRED.get(component.type, ()):
+        if getattr(senses, field) is None:
+            errors.append(f"{path}.senses.{field}: required for type {component.type!r}")
 
 
 def _check_signals(design: Design, errors: list[str]) -> None:
@@ -994,6 +1170,7 @@ def _check_power(design: Design, registry: Registry, errors: list[str]) -> None:
         if registry.has_type(component.type):
             categories[component.name] = registry.component_type(component.type).category
     rails = [rail.name for rail in design.power.rails]
+    instances = {component.name for component in design.components}
     _duplicates(rails, "rail", errors)
     for index, rail in enumerate(design.power.rails):
         where = f"power.rails[{index}]"
@@ -1009,8 +1186,116 @@ def _check_power(design: Design, registry: Registry, errors: list[str]) -> None:
                 errors.append(f"{where}.gated_by[{gate_index}]: unknown component instance {gate!r}")
             elif categories[gate] != "safety":
                 errors.append(f"{where}.gated_by[{gate_index}]: instance {gate!r} is not a safety component")
+        _duplicates(rail.consumers, f"{where}.consumers: consumer", errors)
+        for consumer_index, consumer in enumerate(rail.consumers):
+            if consumer not in instances:
+                errors.append(f"{where}.consumers[{consumer_index}]: unknown component instance {consumer!r}")
     if design.power.controller_rail not in rails:
         errors.append(f"power.controller_rail: unknown rail {design.power.controller_rail!r}")
+
+
+def _port(path: str, reference: str, design: Design, registry: Registry, errors: list[str]) -> tuple[str, str] | None:
+    """The (direction, signal kind) of the port `instance.port`, or None after recording why it does not resolve."""
+    instance, port = reference.split(".")
+    types = {component.name: component.type for component in design.components}
+    if instance not in types:
+        errors.append(f"{path}: unknown component instance {instance!r}")
+        return None
+    if not registry.has_type(types[instance]):
+        return None
+    for pin in registry.component_type(types[instance]).electrical.pins:
+        if pin.name == port:
+            return pin.direction, pin.signal_kind
+    errors.append(f"{path}: type {types[instance]!r} has no port {port!r}")
+    return None
+
+
+def _check_wiring(design: Design, registry: Registry, errors: list[str]) -> None:
+    """Both ends exist, directions are compatible, and a signal port carries one connection (DES-041).
+
+    A signal port's connections count its wires and any controller-facing signal it declares; power ports (power in,
+    power out, ground) may be shared.
+    """
+    uses: dict[str, list[str]] = {}
+    for component in design.components:
+        for signal in component.signals:
+            uses.setdefault(f"{component.name}.{signal.pin}", []).append(f"signal {signal.name!r}")
+    seen: set[tuple[str, str]] = set()
+    for index, wire in enumerate(design.wiring):
+        where = f"wiring[{index}]"
+        if (wire.source, wire.destination) in seen:
+            errors.append(f"{where}: duplicate wire {wire.source!r} to {wire.destination!r}")
+        seen.add((wire.source, wire.destination))
+        source = _port(f"{where}.source", wire.source, design, registry, errors)
+        destination = _port(f"{where}.destination", wire.destination, design, registry, errors)
+        if source is None or destination is None:
+            continue
+        if destination[0] not in WIRE_DIRECTIONS.get(source[0], ()):
+            errors.append(
+                f"{where}: cannot wire {source[0]} port {wire.source!r} to {destination[0]} port {wire.destination!r}"
+            )
+            continue
+        for end, direction in ((wire.source, source[0]), (wire.destination, destination[0])):
+            if direction not in POWER_PORT_DIRECTIONS:
+                uses.setdefault(end, []).append(where)
+    for port, connections in uses.items():
+        if len(connections) > 1:
+            errors.append(f"wiring: signal port {port!r} is connected more than once ({', '.join(connections)})")
+
+
+def _check_chip(design: Design, chips: dict[str, Chip] | None, errors: list[str]) -> None:
+    """Every pin-binding entry's pin and mode must exist in the chip's pin map (DES-029)."""
+    if design.firmware is None or not isinstance(design.firmware.chip, str):
+        return
+    known = chips
+    if known is None:
+        known = shipped_chips()
+    name = design.firmware.chip
+    if name not in known:
+        errors.append(f"firmware.chip: unknown chip {name!r}; no chips/{name}/chip.yaml")
+        return
+    modes = known[name].pin_modes()
+    for index, binding in enumerate(design.pin_bindings):
+        where = f"pin_bindings[{index}]"
+        if binding.pin not in modes:
+            errors.append(f"{where}.pin: chip {name!r} has no pin {binding.pin!r}")
+        elif binding.mode not in modes[binding.pin]:
+            errors.append(f"{where}.mode: chip {name!r} pin {binding.pin!r} does not support mode {binding.mode!r}")
+
+
+def _unordered(pair: list[str]) -> tuple[str, str]:
+    return (min(pair), max(pair))
+
+
+def _check_contact(design: Design, materials: dict[str, Material], errors: list[str]) -> None:
+    """The neutral model's contact rules, checked at load so the builder copies a valid section (DES-042)."""
+    contact = design.environment.contact
+    if contact is None:
+        return
+    pairs: set[tuple[str, str]] = set()
+    for index, pair in enumerate(contact.pairs):
+        where = f"environment.contact.pairs[{index}].materials"
+        for material in pair.materials:
+            if material not in materials:
+                errors.append(f"{where}: unknown material {material!r}")
+        key = _unordered(pair.materials)
+        if key in pairs:
+            errors.append(f"{where}: material pair {key[0]}/{key[1]} listed twice")
+        pairs.add(key)
+    bodies = {body.name for body in design.bodies}
+    bodies.add(WORLD)
+    exclusions: set[tuple[str, str]] = set()
+    for index, exclusion in enumerate(contact.exclusions):
+        where = f"environment.contact.exclusions[{index}]"
+        for body in exclusion:
+            if body not in bodies:
+                errors.append(f"{where}: exclusion names unknown body {body!r}")
+        if exclusion[0] == exclusion[1]:
+            errors.append(f"{where}: exclusion pairs body {exclusion[0]!r} with itself")
+        key = _unordered(exclusion)
+        if key in exclusions:
+            errors.append(f"{where}: exclusion {key[0]}/{key[1]} listed twice")
+        exclusions.add(key)
 
 
 def _check_messages(design: Design, errors: list[str]) -> None:

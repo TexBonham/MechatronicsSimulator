@@ -90,6 +90,7 @@ RunReport NullKernel::run(const EndCondition& end, RecorderSink& sink) {
                 fan_out(raised);
                 report.fault = raised;
                 report.outcome = RunOutcome::run_error;
+                report.end_reason = EndReason::run_error;
                 report.end_time = now_;
                 return report;
             }
@@ -102,6 +103,7 @@ RunReport NullKernel::run(const EndCondition& end, RecorderSink& sink) {
             sink.write_row(row);
         }
         if (end.stop && end.stop(now_)) {
+            report.end_reason = EndReason::stop_requested;
             break;
         }
     }

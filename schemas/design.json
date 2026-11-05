@@ -501,6 +501,17 @@
           "title": "Part",
           "type": "string"
         },
+        "senses": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Senses"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
         "signals": {
           "items": {
             "$ref": "#/$defs/SignalDeclaration"
@@ -520,6 +531,103 @@
         "part"
       ],
       "title": "ComponentInstance",
+      "type": "object"
+    },
+    "Contact": {
+      "additionalProperties": false,
+      "description": "The neutral model's contacts element field for field (DES-042, ADR 0003), plus the floor plane.",
+      "properties": {
+        "default": {
+          "$ref": "#/$defs/ContactParameters"
+        },
+        "exclusions": {
+          "items": {
+            "items": {
+              "pattern": "^[a-z][a-z0-9_]*$",
+              "type": "string"
+            },
+            "maxItems": 2,
+            "minItems": 2,
+            "type": "array"
+          },
+          "title": "Exclusions",
+          "type": "array"
+        },
+        "floor": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Floor"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "pairs": {
+          "items": {
+            "$ref": "#/$defs/MaterialPair"
+          },
+          "title": "Pairs",
+          "type": "array"
+        }
+      },
+      "required": [
+        "default"
+      ],
+      "title": "Contact",
+      "type": "object"
+    },
+    "ContactParameters": {
+      "additionalProperties": false,
+      "description": "Soft contact (ADR 0002): normal stiffness and damping, Coulomb friction coefficient.",
+      "properties": {
+        "damping": {
+          "anyOf": [
+            {
+              "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s+\\S.*)?$",
+              "type": "string"
+            },
+            {
+              "pattern": "^\\$\\{[a-z][a-z0-9_]*\\}$",
+              "type": "string"
+            }
+          ],
+          "title": "Damping"
+        },
+        "friction": {
+          "anyOf": [
+            {
+              "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s+\\S.*)?$",
+              "type": "string"
+            },
+            {
+              "pattern": "^\\$\\{[a-z][a-z0-9_]*\\}$",
+              "type": "string"
+            }
+          ],
+          "title": "Friction"
+        },
+        "stiffness": {
+          "anyOf": [
+            {
+              "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s+\\S.*)?$",
+              "type": "string"
+            },
+            {
+              "pattern": "^\\$\\{[a-z][a-z0-9_]*\\}$",
+              "type": "string"
+            }
+          ],
+          "title": "Stiffness"
+        }
+      },
+      "required": [
+        "stiffness",
+        "damping",
+        "friction"
+      ],
+      "title": "ContactParameters",
       "type": "object"
     },
     "Cylinder": {
@@ -660,6 +768,17 @@
           ],
           "title": "Ambient Temperature"
         },
+        "contact": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Contact"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
         "gravity": {
           "items": {
             "anyOf": [
@@ -752,6 +871,7 @@
     },
     "Firmware": {
       "additionalProperties": false,
+      "description": "`state_codes` and `fault_codes` name the firmware's reported `state_code` and `fault_code` values (DES-045);\nthe application target is `mechsim_fw_<design name>` in the firmware tree (DES-040).",
       "properties": {
         "chip": {
           "anyOf": [
@@ -766,10 +886,28 @@
           ],
           "title": "Chip"
         },
+        "fault_codes": {
+          "additionalProperties": {
+            "pattern": "^[a-z][a-z0-9_]*$",
+            "type": "string"
+          },
+          "description": "fault_code value (0..255) to fault name",
+          "title": "Fault Codes",
+          "type": "object"
+        },
         "path": {
           "pattern": "^[A-Za-z0-9_.\\-]+(/[A-Za-z0-9_.\\-]+)*$",
           "title": "Path",
           "type": "string"
+        },
+        "state_codes": {
+          "additionalProperties": {
+            "pattern": "^[a-z][a-z0-9_]*$",
+            "type": "string"
+          },
+          "description": "state_code value (0..255) to state name",
+          "title": "State Codes",
+          "type": "object"
         },
         "tick_rate": {
           "anyOf": [
@@ -840,6 +978,46 @@
         "supports"
       ],
       "title": "FlexibleMember",
+      "type": "object"
+    },
+    "Floor": {
+      "additionalProperties": false,
+      "description": "The floor plane on the world: points x with normal . x = offset; contact acts on the side the normal faces.",
+      "properties": {
+        "body": {
+          "default": "world",
+          "pattern": "^[a-z][a-z0-9_]*$",
+          "title": "Body",
+          "type": "string"
+        },
+        "normal": {
+          "items": {
+            "type": "number"
+          },
+          "maxItems": 3,
+          "minItems": 3,
+          "title": "Normal",
+          "type": "array"
+        },
+        "offset": {
+          "anyOf": [
+            {
+              "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s+\\S.*)?$",
+              "type": "string"
+            },
+            {
+              "pattern": "^\\$\\{[a-z][a-z0-9_]*\\}$",
+              "type": "string"
+            }
+          ],
+          "title": "Offset"
+        }
+      },
+      "required": [
+        "normal",
+        "offset"
+      ],
+      "title": "Floor",
       "type": "object"
     },
     "InertiaTensor": {
@@ -1184,6 +1362,69 @@
       "title": "MassProperties",
       "type": "object"
     },
+    "MaterialPair": {
+      "additionalProperties": false,
+      "description": "Contact parameters overriding the default for one unordered pair of materials.",
+      "properties": {
+        "damping": {
+          "anyOf": [
+            {
+              "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s+\\S.*)?$",
+              "type": "string"
+            },
+            {
+              "pattern": "^\\$\\{[a-z][a-z0-9_]*\\}$",
+              "type": "string"
+            }
+          ],
+          "title": "Damping"
+        },
+        "friction": {
+          "anyOf": [
+            {
+              "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s+\\S.*)?$",
+              "type": "string"
+            },
+            {
+              "pattern": "^\\$\\{[a-z][a-z0-9_]*\\}$",
+              "type": "string"
+            }
+          ],
+          "title": "Friction"
+        },
+        "materials": {
+          "items": {
+            "pattern": "^[a-z][a-z0-9_]*$",
+            "type": "string"
+          },
+          "maxItems": 2,
+          "minItems": 2,
+          "title": "Materials",
+          "type": "array"
+        },
+        "stiffness": {
+          "anyOf": [
+            {
+              "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s+\\S.*)?$",
+              "type": "string"
+            },
+            {
+              "pattern": "^\\$\\{[a-z][a-z0-9_]*\\}$",
+              "type": "string"
+            }
+          ],
+          "title": "Stiffness"
+        }
+      },
+      "required": [
+        "stiffness",
+        "damping",
+        "friction",
+        "materials"
+      ],
+      "title": "MaterialPair",
+      "type": "object"
+    },
     "MechanicalBinding": {
       "additionalProperties": false,
       "description": "A mount of the instance's type bound to a body (housing, face) or a joint (shaft).",
@@ -1273,6 +1514,25 @@
     "OpenParameter": {
       "additionalProperties": false,
       "properties": {
+        "default": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "additionalProperties": {
+                "type": "string"
+              },
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Value used when neither the case nor --set gives one (DES-044): a quantity string of the parameter's dimension, or a choice value",
+          "title": "Default"
+        },
         "dimension": {
           "description": "pint dimensionality string, or \"choice\" for a non-quantity",
           "minLength": 1,
@@ -1349,15 +1609,13 @@
       "properties": {
         "mode": {
           "enum": [
-            "gpio_input",
-            "gpio_output",
-            "timer_pwm",
-            "timer_encoder",
-            "adc",
-            "dac",
-            "uart",
-            "spi",
-            "i2c"
+            "digital_input",
+            "digital_output",
+            "counter_input",
+            "adc_input",
+            "pulse_output",
+            "uart_rx",
+            "uart_tx"
           ],
           "title": "Mode",
           "type": "string"
@@ -1538,6 +1796,14 @@
     "Rail": {
       "additionalProperties": false,
       "properties": {
+        "consumers": {
+          "items": {
+            "pattern": "^[a-z][a-z0-9_]*$",
+            "type": "string"
+          },
+          "title": "Consumers",
+          "type": "array"
+        },
         "gated_by": {
           "items": {
             "anyOf": [
@@ -1630,6 +1896,71 @@
         "length"
       ],
       "title": "Section",
+      "type": "object"
+    },
+    "Senses": {
+      "additionalProperties": false,
+      "description": "What a sensor instance reads (DES-043): the joint coordinate, and per type the switch position along the joint\nand its actuation side (limit_switch) or the count direction (incremental_encoder).",
+      "properties": {
+        "actuate_above": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Actuate Above"
+        },
+        "joint": {
+          "anyOf": [
+            {
+              "pattern": "^[a-z][a-z0-9_]*$",
+              "type": "string"
+            },
+            {
+              "pattern": "^\\$\\{[a-z][a-z0-9_]*\\}$",
+              "type": "string"
+            }
+          ],
+          "title": "Joint"
+        },
+        "position": {
+          "anyOf": [
+            {
+              "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s+\\S.*)?$",
+              "type": "string"
+            },
+            {
+              "pattern": "^\\$\\{[a-z][a-z0-9_]*\\}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Position"
+        },
+        "reversed": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Reversed"
+        }
+      },
+      "required": [
+        "joint"
+      ],
+      "title": "Senses",
       "type": "object"
     },
     "SignalDeclaration": {
@@ -1816,6 +2147,28 @@
       ],
       "title": "Structural",
       "type": "object"
+    },
+    "Wire": {
+      "additionalProperties": false,
+      "description": "A connection from one instance port to another (DES-041); ports are the pins of each type's electrical facet.\n\nWires carry connectivity only in v1: no resistance, inductance, length or failure. Physical wire properties are a\nlater component type (a seam).",
+      "properties": {
+        "destination": {
+          "pattern": "^[a-z][a-z0-9_]*\\.[a-z][a-z0-9_]*$",
+          "title": "Destination",
+          "type": "string"
+        },
+        "source": {
+          "pattern": "^[a-z][a-z0-9_]*\\.[a-z][a-z0-9_]*$",
+          "title": "Source",
+          "type": "string"
+        }
+      },
+      "required": [
+        "source",
+        "destination"
+      ],
+      "title": "Wire",
+      "type": "object"
     }
   },
   "$id": "design.json",
@@ -1937,6 +2290,13 @@
       "pattern": "^\\d+\\.\\d+\\.\\d+$",
       "title": "Version",
       "type": "string"
+    },
+    "wiring": {
+      "items": {
+        "$ref": "#/$defs/Wire"
+      },
+      "title": "Wiring",
+      "type": "array"
     }
   },
   "required": [

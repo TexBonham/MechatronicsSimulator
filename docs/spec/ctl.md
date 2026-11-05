@@ -39,9 +39,9 @@ proposed <value>)".
 | CTL-008 | The emulated runtime shall run the firmware's compiled .elf on Renode in lockstep: for each kernel tick, apply pin inputs, run the emulator for the tick's virtual time, then read pin outputs. | Architecture doc, Technology recommendation ("MCU emulation"); Architecture doc, Data flows (within one physics tick, step 3) | M4 | unit | n/a |
 | CTL-009 | The emulated runtime shall wire the signal layer to the emulated peripherals: GPIO, timer encoder and PWM channels, ADC and USART. | Architecture doc, Modules: core (Controller runtime row) | M4 | unit | n/a |
 | CTL-010 | Interrupt semantics shall exist only in emulated mode. | ADR 0011, C3; C3 | M4 | unit | n/a |
-| CTL-011 | A freeze operation shall stop the controller in both modes: in native mode the tick entry point is not called, in emulated mode the core is halted. | Architecture doc, Data flows (fault fan-out, controller freeze); Architecture doc, Modules: core (Controller runtime row) | M2 | unit | n/a |
+| CTL-011 | A freeze operation shall stop the controller in both modes: in native mode the tick entry point is not called, in emulated mode the core is halted; in both, levels hold and per-tick buffers are empty. | Architecture doc, Data flows (fault fan-out, controller freeze); Architecture doc, Modules: core (Controller runtime row) | M2 | unit | n/a |
 | CTL-012 | A reset operation shall restart the firmware from its reset state in both modes, with the power rail up at run start. | Architecture doc, Data flows (one run, step 2); Architecture doc, Modules: core (Controller runtime row) | M1 | unit | n/a |
-| CTL-013 | When rail voltage falls below the chip's brownout threshold, the runtime shall hold the controller in reset until the voltage recovers, in both modes. | Architecture doc, Data flows (fault fan-out, power loss and restore); Architecture doc, Modules: core (Controller runtime row) | M2 | unit | n/a |
+| CTL-013 | When rail voltage falls below the chip's brownout threshold, the runtime shall hold the controller in reset, with its pin outputs at zero, until the voltage recovers, and then restart it from its reset state, in both modes. | Architecture doc, Data flows (fault fan-out, power loss and restore); Architecture doc, Modules: core (Controller runtime row) | M2 | unit | n/a |
 | CTL-014 | The controller runtime shall receive only pin inputs and power rail state, never true physical state, in either mode. | Architecture doc, Repository starting point (invariant 1); Requirements doc, Controller requirements (realistic separation) | M1 | invariant | n/a |
 | CTL-015 | The same firmware run in native and emulated mode shall agree on the G1 to G4 pass criteria and on recorded pin outputs within the cross-mode tolerance. | Architecture doc, Repository starting point (How to extend: a controller mode) | M4 | acceptance | not set (owed by owner) |
 | CTL-016 | The emulated runtime shall reach Renode through the transport ruled by the milestone 4 ADR, from the core runtime directly. | ADR 0011, C6; C6 | M4 | unit | n/a |
@@ -63,6 +63,14 @@ proposed <value>)".
 | STM32 part | not set | gantry team, after the peripheral smoke test |
 | Latency granularity (CTL-020) | not set | owner |
 | Slow-down mechanism (CTL-021): skipped ticks or stretched virtual time | not set | owner |
+| Step pulses while frozen (CTL-011) | none: bit-banged pulses stop on a hang (M1); timer-driven pulses that continue are a milestone 2 option | owner, M2 |
+| Native work-dir layout (CTL-007) | build in `<work_dir>/native-firmware/host`; per-load copies in `<work_dir>/native-controller/<pid>-<n>/` | owner |
+| Private library copy (CTL-002, CTL-012) | every load, reset and brownout recovery opens a fresh copy, so no firmware static survives a reset | owner |
+| Version entry point (CTL-003) | `mechsim_app_board_interface_version()` returns the header macro the app was compiled against (header 2.2); mismatch rejects the load | owner, with FW |
+| Native build configuration (CTL-007) | `app_target` default `mechsim_fw_app` (runtime builds `<app_target>_native`); `cmake_command` default `cmake` | owner |
+| Brownout threshold default (CTL-013) | placeholder 2.7 V until chips/ gives the chip's value; an unset threshold is a configuration error, never "no brownout" | owner, with chips/ |
+
+Owner note: CTL-011 (levels hold, per-tick buffers empty) and CTL-013 (outputs zero while held, restart from reset state on recovery) were reworded in milestone 1 brief M1-E.
 
 ## Out of scope
 

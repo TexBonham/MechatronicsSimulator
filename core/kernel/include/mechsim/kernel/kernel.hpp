@@ -14,16 +14,54 @@
 
 namespace mechsim::kernel {
 
-// The run ends at end_time, or earlier when stop returns true at a sync point (KER-017). stop sees the time at the
+// The run ends at end_time, or earlier when stop returns true at a sync point (KER-017). CoSimKernel checks stop
+// and EndTriggers at physics-step boundaries only, so a run never ends between rows. stop sees the time at the
 // end of the base tick just completed. end_time must be a whole number of base ticks, else run() throws.
 struct EndCondition {
     Seconds end_time;
     std::function<bool(SimTime)> stop;
 };
 
+// Further end conditions (KER-017), set on the kernel before run() so EndCondition keeps its two-field shape. The run
+// ends at the first physics-step boundary where on_signal (a published boolean) is true, party_state names a party
+// whose finished() is true, stop returns true, or at_time is reached, checked in that order; end_time stays the maximum
+// duration. at_time must be a whole number of physics steps and after t = 0, on_signal published, party_state
+// registered, else run() throws KernelConfigError before t = 0.
+struct EndTriggers {
+    std::optional<Seconds> at_time = std::nullopt;
+    std::string on_signal;
+    std::string party_state;
+};
+
 enum class RunOutcome : std::uint8_t {
     end_condition_met,
     run_error,
+};
+
+enum class EndReason : std::uint8_t {
+    max_duration,
+    at_time,
+    stop_requested,
+    signal,
+    party_state,
+    run_error,
+};
+
+enum class RateSource : std::uint8_t {
+    nominal,       // Party::nominal_rate()
+    control_rate,  // RunConfig::control_rate, for a controller-role party
+    override,      // RunConfig::party_rates, which wins over both
+};
+
+struct PartyRate {
+    std::string party;
+    Rate rate;
+    RateSource source = RateSource::nominal;
+};
+
+struct PartyStepCount {
+    std::string party;
+    std::int64_t steps = 0;
 };
 
 // How the run ended (KER-015, KER-017, REC-025).
@@ -33,6 +71,10 @@ struct RunReport {
     SimTime end_time;        // ticks reached: the failing step's start time on a run error
     std::int64_t ticks = 0;  // completed base ticks
     std::optional<PartyFault> fault;
+    EndReason end_reason = EndReason::max_duration;
+    std::vector<PartyStepCount> step_counts;  // completed steps per party, registration order
+    std::vector<PartyRate> party_rates;       // effective rate and its source per party, registration order
+    std::vector<std::string> sink_errors;     // RecorderSink::subscriber_errors() at the end of the run
 };
 
 // Owns simulated time (KER-001) and steps registered parties (KER-018).
@@ -71,6 +113,9 @@ public:
     [[nodiscard]] virtual RunReport run(const EndCondition& end, RecorderSink& sink) = 0;
     [[nodiscard]] virtual SimTime now() const = 0;
     [[nodiscard]] virtual const RunConfig& config() const = 0;
+
+    // Defaulted in milestone 1: a kernel without trigger support throws KernelConfigError if any trigger is set.
+    virtual void set_end_triggers(const EndTriggers& triggers);
 };
 
 // Steps registered parties in order at their rates and writes one row per physics step holding only the time. No

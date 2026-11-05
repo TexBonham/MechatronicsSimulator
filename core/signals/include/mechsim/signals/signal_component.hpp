@@ -19,6 +19,8 @@ enum class FailureMode : std::uint8_t {
     noisy,         // apply the fault's noise (SIG-007)
     dropped,       // deliver no new samples (SIG-008)
     forced_level,  // present forced_level whatever the physical input (SIG-036)
+    stall,         // actuator: available torque scaled to `fraction` of nominal (SIG-034)
+    slip,          // actuator: `fraction` of the commanded steps missed (SIG-034)
 };
 
 // Active for start <= t < end. Noise draws come from the component's child generator (SIG-005); the noise
@@ -29,10 +31,19 @@ struct FailureInjection {
     kernel::SimTime end;
     double noise_magnitude = 0.0;  // in the signal's unit
     double forced_level = 0.0;
+    double fraction = 0.0;  // stall: available-torque fraction kept; slip: fraction of steps missed; in [0, 1]
 };
 
-// Throws std::invalid_argument unless end > start, noise_magnitude >= 0 and both values are finite.
+// Throws std::invalid_argument unless end > start, noise_magnitude >= 0, fraction in [0, 1] and all values finite.
 void validate_injection(const FailureInjection& injection);
+
+// What the signal layer hands each component once before t = 0: the run's base rate, the layer's period in base
+// ticks, and the component's child seed derived from the run seed (SIG-005).
+struct ComponentClock {
+    kernel::Rate base_rate;
+    kernel::Duration period{1};
+    std::uint64_t seed = 0;
+};
 
 // One interface for every signal-layer component, built-in C++ and Python slow path alike (ADR 0005, SIG-030).
 // Per tick: sample() reads the physics state just published, set_inputs() receives pin outputs routed to this
@@ -58,6 +69,13 @@ public:
     [[nodiscard]] virtual std::span<const double> output_values() const = 0;
 
     virtual void inject(const FailureInjection& injection) = 0;
+
+    // Defaulted so a component needing no clock (the null component, a Python slow-path component) overrides
+    // nothing: start() once before t = 0, begin_tick(t) at the start of every layer step before sample().
+    virtual void start(const ComponentClock& /*clock*/) {}
+    virtual void begin_tick(kernel::SimTime /*t*/) {}
+    // Joint drives this component asks physics to apply in the next step, read after latch_outputs() (KER-027).
+    [[nodiscard]] virtual std::span<const kernel::JointDrive> joint_drives() const { return {}; }
 };
 
 // The Python tier's surface: the binding derives its trampoline from this, so a slow-path component is a

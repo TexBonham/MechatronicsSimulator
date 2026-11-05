@@ -24,6 +24,9 @@ void validate_injection(const FailureInjection& injection) {
     if (!std::isfinite(injection.forced_level)) {
         throw std::invalid_argument("forced level must be finite");
     }
+    if (!std::isfinite(injection.fraction) || injection.fraction < 0.0 || injection.fraction > 1.0) {
+        throw std::invalid_argument("fault fraction must lie in [0, 1]");
+    }
 }
 
 namespace {

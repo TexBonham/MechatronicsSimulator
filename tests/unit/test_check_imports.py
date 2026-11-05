@@ -29,9 +29,12 @@ def violations_for(tmp_path: Path, relative: str, source: str) -> list[Violation
     return check_paths([tmp_path], tmp_path)
 
 
+ENGINE_MODULES = ("mechsim._core_ext.engine", "mechsim._core.engine", "mechsim.physics.native._engine")
+
+
 def test_rule_table_covers_every_boundary() -> None:
     covered = {module for rule in RULES for module in rule.modules}
-    assert covered == {"mujoco", "mechsim.viewer", "tests", *QT_MODULES, *ORACLE_MODULES}
+    assert covered == {"mujoco", "mechsim.viewer", "tests", *QT_MODULES, *ORACLE_MODULES, *ENGINE_MODULES}
 
 
 # ===== mujoco =========================================================================================================

@@ -10,6 +10,7 @@
 #include "mechsim/engine/spatial.hpp"
 #include "mechsim/engine/state.hpp"
 #include "mechsim/engine/step_health.hpp"
+#include "mechsim/engine/transmission.hpp"
 
 namespace mechsim::engine {
 
@@ -46,6 +47,7 @@ struct MultibodyOutputs {
     std::vector<JointOutput> joints;  // one per body, the joint to its parent
     std::vector<ConstraintOutput> constraints;
     std::vector<ContactOutput> contacts;
+    std::vector<TransmissionOutput> transmissions;  // at the end state, slip offset advanced by the step
     double time = 0.0;  // end of the step, s
 };
 
@@ -82,6 +84,14 @@ public:
     void set_generalized_forces(const Eigen::VectorXd& tau);  // size nv, N or N m
     void apply_body_wrench(Eigen::Index body, const Eigen::Vector3d& torque, const Eigen::Vector3d& force);
     void clear_inputs();
+    // Motor shaft torque on a transmission's input shaft for the next step, N m (ENG-048); adds to the shaft DOF.
+    void set_shaft_torque(Eigen::Index transmission, double torque);
+    // Persistent until changed; takes effect at the next step (ENG-046). Range [0, 1].
+    void set_slip(Eigen::Index transmission, double slip);
+    [[nodiscard]] double slip(Eigen::Index transmission) const;
+    // Transmission state at (q, v) with the current slip, slip offsets and pending inputs.
+    [[nodiscard]] std::vector<TransmissionOutput> transmission_states(const Eigen::VectorXd& q,
+                                                                      const Eigen::VectorXd& v) const;
 
     StepHealth step(Integrator& integrator, State& state);
     [[nodiscard]] const MultibodyOutputs& outputs() const noexcept;
@@ -102,6 +112,9 @@ private:
     [[nodiscard]] ConstraintRows constraint_rows(const Kinematics& kin, Eigen::Index constraint) const;
     [[nodiscard]] std::vector<ConstraintRows> all_rows(const Kinematics& kin) const;
     void record_outputs(const State& before, const State& after, double h);
+    [[nodiscard]] TransmissionCoupling coupling(Eigen::Index transmission, const Eigen::VectorXd& q,
+                                                const Eigen::VectorXd& v) const;
+    void add_transmission_terms(const Eigen::VectorXd& q, const Eigen::VectorXd& v, DynamicsTerms& terms) const;
 
     MultibodyModel model_;
     MultibodyConfig config_;
@@ -116,6 +129,9 @@ private:
     Eigen::Index nv_ = 0;
     Eigen::VectorXd tau_;
     std::vector<spatial::Vector6d> wrench_;  // world-aligned [torque; force] at the center of mass
+    std::vector<double> shaft_torque_;       // per transmission, cleared each step
+    std::vector<double> slip_;               // per transmission, persistent
+    std::vector<double> slip_offset_;        // s per transmission, advanced by step()
     MultibodyOutputs outputs_;
     // Written by the const step hooks for step(); single-threaded by ENG-023.
     mutable std::vector<Eigen::VectorXd> impulse_;

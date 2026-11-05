@@ -37,6 +37,9 @@ struct ConstraintForce {
     double rotational_error = 0.0;     // rad
 };
 
+// Body index standing for the world, or a body outside the neutral body list, in ContactForce::body_a and body_b.
+inline constexpr std::size_t kWorldBody = static_cast<std::size_t>(-1);
+
 struct ContactForce {
     std::size_t body_a = 0;
     std::size_t body_b = 0;
@@ -56,10 +59,18 @@ struct RopeTension {
     bool slack = false;
 };
 
-// Transmission slip state after the step (PHY-006): accumulated slip between input and output side.
+// Direction of power through a transmission at the step (ENG-044): Static at zero shaft speed, Forward when the shaft
+// drives the load, Backward when the load drives the shaft, Locked for a self-locking screw holding.
+enum class PowerFlow : std::uint8_t { Static, Forward, Backward, Locked };
+
+// Transmission state after the step, one per neutral transmission in file order (PHY-006, ENG-048, PHY-033).
 struct TransmissionState {
     double slip = 0.0;  // m or rad, output side
     bool slipping = false;
+    double shaft_load_torque = 0.0;  // torque the shaft must supply along its + axis, N m (PHY-033)
+    double force = 0.0;              // on the driven joint: N (belt, screw) or N m (gear)
+    double stretch = 0.0;            // m or rad at the output; 0 for a rigid coupling
+    PowerFlow power_flow = PowerFlow::Static;
 };
 
 // Field for field with mechsim::engine::StepHealth (ENG-026); time and step are carried as the completed step count
@@ -72,6 +83,13 @@ struct PhysicsHealth {
     Rate physics_rate;
 };
 
+// Torque or force a joint drive applied in the step, one per PhysicsInputs::joint_drives entry in its order (PHY-034):
+// on the drive's joint along its + axis, N m or N (a reflected shaft: the torque on the shaft).
+struct JointDriveTorque {
+    std::size_t joint = 0;
+    double torque = 0.0;
+};
+
 // Published every tick (PHY-003, PHY-007). The sensor models sample this; the controller never sees it (KER-020).
 struct PhysicsOutputs {
     std::int64_t steps = 0;  // completed steps; time = steps / physics rate
@@ -82,6 +100,10 @@ struct PhysicsOutputs {
     std::vector<MemberEndLoads> members;
     std::vector<RopeTension> ropes;
     std::vector<TransmissionState> transmissions;
+    // Per neutral joint: the coordinate of a revolute or prismatic joint relative to its neutral placement (rad or m;
+    // a reflected shaft: q_driven / c), 0 for other joint types (PHY-034).
+    std::vector<double> joint_positions;
+    std::vector<JointDriveTorque> joint_drive_torques;
 };
 
 struct BodyWrench {
@@ -89,10 +111,21 @@ struct BodyWrench {
     Wrench wrench{};  // world-aligned, at the body's centre of mass
 };
 
+// A spring-damper on one revolute or prismatic joint toward a rest coordinate that may move every step, applied by
+// physics implicitly (KER-027, PHY-034): force -stiffness (q - rest) - damping qd. A disabled drive applies nothing.
+struct JointDrive {
+    std::size_t joint = 0;   // neutral joint index (the body's joint, file order)
+    double rest = 0.0;       // rad or m, the joint coordinate of joint_positions
+    double stiffness = 0.0;  // N m/rad or N/m, >= 0
+    double damping = 0.0;    // N m s/rad or N s/m, >= 0
+    bool enabled = false;
+};
+
 // Applied for the next step only, then cleared by the adapter (ENG-028, KER-010).
 struct PhysicsInputs {
     std::vector<double> generalized_forces;  // one per velocity DOF, N or N m
     std::vector<BodyWrench> body_wrenches;
+    std::vector<JointDrive> joint_drives;  // at most one per joint; empty: none (KER-027)
 };
 
 }  // namespace mechsim::kernel

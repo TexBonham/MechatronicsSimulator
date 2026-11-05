@@ -59,11 +59,13 @@ proposed <value>)".
 | LIB-031 | The library shall model rigid payloads with mass and attach point, and end effectors with capacity and attach and release events. | Requirements doc, Component library requirements, Loads and End effectors rows | M2 | unit | n/a |
 | LIB-032 | The flexible beam type shall reproduce cantilever and simply supported beam deflection and first natural frequency against their closed-form results. | Architecture doc, Technology recommendation, Validation paragraph; Requirements doc, Dynamics | M3 | reference | not set (owed by owner) |
 | LIB-033 | No pint quantity or unit string shall be reachable from a loaded component type's parameter values. | Ruling L5; ADR 0012, Consequences | phase 1 | unit | n/a |
+| LIB-034 | A part of a type whose ratings require a torque-speed curve shall carry one that starts at speed 0 with the part's holding torque, speeds strictly increasing; above the last speed no torque is available. | Queue, rulings during milestone 1 wave 1 (catalog alignment: holding torque alone stalls any motion above zero speed) | M1 | unit | n/a |
 
 ## Open parameters
 
 | Parameter | Current value | Owed by |
 |---|---|---|
+| Operator link component type | `uart_link` (catalog `uart_link.yaml`, pins uart_tx and uart_rx, parameter baud) ships in milestone 1 under SIG-029; LIB-018's milestone 1 type list should name it; no LIB row yet | owner |
 | Stepper pull-out torque tolerance against the published curve (LIB-022); proposed 10% of the curve value per speed point | not set | owner |
 | Flexible beam deflection and first-mode tolerance (LIB-032) | not set | owner |
 | Fidelity tier names per component type | set per type in `mechsim/library/catalog/*.yaml` (phase 1 C2); new types name their own | library briefs, per type |

@@ -1,0 +1,103 @@
+# G4 (Requirements doc, Test cases, gantry suite): a target outside the workspace after homing. Pass: no actuator
+# moves (ACC-007); the target is rejected with a reported fault, not clipped (ACC-008). The target is 150 cm, 25 cm:
+# x beyond the design's workspace_x. "No actuator moves" from the target on, as in G1: no step pulse and every axis
+# within its hold band (placeholder 1 mm) of its position when the target arrives; the rejection
+# is the "ready / fault" status message after the target (ACC-008's test reads fault = outside_workspace). Start
+# position and homing time: open parameters with placeholder defaults (DES-044).
+id: G4
+title: Target outside the workspace
+design:
+  name: gantry
+  version: 0.1.0
+controller_mode: native
+seed: 4
+open_parameters:
+  - name: start_x
+    dimension: "[length]"
+    owed_by: gantry team
+    note: Carriage x position at power on, before homing; not stated.
+    default: "0.1 m"
+  - name: start_y
+    dimension: "[length]"
+    owed_by: gantry team
+    note: Trolley y position at power on, before homing; not stated.
+    default: "0.1 m"
+  - name: start_lift
+    dimension: "[length]"
+    owed_by: gantry team
+    note: Lift carriage position at power on, before homing; not stated.
+    default: "0.1 m"
+  - name: homing_time
+    dimension: "[time]"
+    owed_by: gantry team
+    note: Time allowed for homing before the next command; depends on workspace and axis speeds.
+    default: "15 s"
+  - name: hold_band
+    dimension: "[length]"
+    owed_by: gantry team
+    note: Band every axis stays in from its first sample in the window; hold sag and ringing are not motion; placeholder.
+    default: "1 mm"
+initial_state:
+  joints:
+    - joint: x_axis
+      position: ${start_x}
+      velocity: 0 m/s
+    - joint: y_axis
+      position: ${start_y}
+      velocity: 0 m/s
+    - joint: lift_axis
+      position: ${start_lift}
+      velocity: 0 m/s
+  controller:
+    state: not_homed
+  payload:
+    attached: false
+commands:
+  - at: 0 s
+    message: home
+  - at: ${homing_time}
+    message: target
+    payload:
+      x: 150 cm
+      y: 25 cm
+end:
+  at: 20 s
+  max_duration: 20 s
+criteria:
+  - name: no_step_pulses_x
+    check: value
+    quantity: signal:x_driver.step
+    statistic: maximum
+    comparison: at_most
+    limit: "0"
+    window:
+      start: ${homing_time}
+  - name: no_step_pulses_y
+    check: value
+    quantity: signal:y_driver.step
+    statistic: maximum
+    comparison: at_most
+    limit: "0"
+    window:
+      start: ${homing_time}
+  - name: no_step_pulses_lift
+    check: value
+    quantity: signal:lift_driver.step
+    statistic: maximum
+    comparison: at_most
+    limit: "0"
+    window:
+      start: ${homing_time}
+  - name: hold_band
+    check: hold_band
+    joints: [x_axis, y_axis, lift_axis]
+    band: ${hold_band}
+    window:
+      start: ${homing_time}
+  - name: rejection_reported
+    check: event
+    event: message:status
+    expect: present
+    window:
+      start: ${homing_time}
+baseline: baseline.yaml

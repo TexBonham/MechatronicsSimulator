@@ -33,7 +33,10 @@ def test_schema_is_current_and_well_formed(module: Any) -> None:
 @pytest.mark.req("TST-009")
 def test_reference_cases_ship() -> None:
     assert [str(path.relative_to(ROOT)) for path in CASES] == [
+        "test_cases/gantry/G1.yaml",
+        "test_cases/gantry/G2.yaml",
         "test_cases/gantry/G3.yaml",
+        "test_cases/gantry/G4.yaml",
         "test_cases/pendulum/P1_period.yaml",
     ]
 

@@ -31,9 +31,7 @@ add_custom_target(firmware_include_check ALL
     COMMENT "Checking firmware/app/ includes (invariant 8)"
     VERBATIM)
 
-# The reference firmware; the gantry controller replaces it in milestone 1 (firmware/CLAUDE.md).
-function(mechsim_fw_add_app name)
-    add_library(${name} STATIC ${MECHSIM_FW_APP_ROOT}/main_tick.c)
+function(mechsim_fw_configure_app name)
     set_target_properties(${name} PROPERTIES
         C_STANDARD 11 C_STANDARD_REQUIRED ON C_EXTENSIONS OFF)
     target_include_directories(${name} PUBLIC ${MECHSIM_BOARD_INTERFACE_DIR})
@@ -44,7 +42,25 @@ function(mechsim_fw_add_app name)
     add_dependencies(${name} firmware_include_check)
 endfunction()
 
+# One app per set of entry points: the reference stub (default) or the sources passed after the name. A host build
+# also gets <name>_native, the shared library the native controller runtime loads (CTL-007).
+function(mechsim_fw_add_app name)
+    set(sources ${ARGN})
+    if(NOT sources)
+        set(sources ${MECHSIM_FW_APP_ROOT}/main_tick.c)
+    endif()
+    add_library(${name} STATIC ${sources})
+    mechsim_fw_configure_app(${name})
+    if(NOT CMAKE_CROSSCOMPILING)
+        add_library(${name}_native SHARED ${sources})
+        mechsim_fw_configure_app(${name}_native)
+    endif()
+endfunction()
+
 mechsim_fw_add_app(mechsim_fw_app)
+
+set(MECHSIM_FW_GANTRY_SOURCES ${MECHSIM_FW_APP_ROOT}/gantry/gantry.c)
+mechsim_fw_add_app(mechsim_fw_gantry ${MECHSIM_FW_GANTRY_SOURCES})
 
 if(MECHSIM_FW_BUILD_TESTS)
     enable_language(CXX)

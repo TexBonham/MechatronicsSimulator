@@ -1,0 +1,58 @@
+# STM32-family stand-in chip (Decisions log row 11): STM32-style pin names and the peripheral modes each supports,
+# until a part is selected. A real part replaces it by dropping in its platform description, SVD and pin map and
+# setting status to verified.
+name: stm32_placeholder
+family: STM32
+status: placeholder
+description: STM32-family stand-in; pin names and peripheral modes only, no platform description or SVD.
+platform_description: placeholder
+svd: placeholder
+pins:
+  - name: PA0
+    modes: [digital_input, digital_output, pulse_output]
+  - name: PA1
+    modes: [digital_input, digital_output]
+  - name: PA2
+    modes: [digital_input, digital_output]
+  - name: PA3
+    modes: [digital_input, digital_output, pulse_output]
+  - name: PA4
+    modes: [digital_input, digital_output]
+  - name: PA5
+    modes: [digital_input, digital_output]
+  - name: PA6
+    modes: [digital_input, digital_output, pulse_output]
+  - name: PA7
+    modes: [digital_input, digital_output]
+  - name: PA8
+    modes: [digital_input, digital_output]
+  - name: PA9
+    modes: [digital_output, uart_tx]
+  - name: PA10
+    modes: [digital_input, uart_rx]
+  - name: PB0
+    modes: [digital_input, digital_output]
+  - name: PB1
+    modes: [digital_input, digital_output]
+  - name: PB2
+    modes: [digital_input, digital_output]
+  - name: PB3
+    modes: [digital_input, digital_output]
+  - name: PB4
+    modes: [digital_input, digital_output]
+  - name: PB5
+    modes: [digital_input, digital_output]
+  - name: PB6
+    modes: [digital_input, digital_output]
+  - name: PC0
+    modes: [digital_input, digital_output, counter_input]
+  - name: PC1
+    modes: [digital_input, digital_output, counter_input]
+  - name: PC2
+    modes: [digital_input, digital_output, counter_input]
+  - name: PC3
+    modes: [digital_input, digital_output, counter_input]
+  - name: PC4
+    modes: [digital_input, digital_output, counter_input]
+  - name: PC5
+    modes: [digital_input, digital_output, counter_input]

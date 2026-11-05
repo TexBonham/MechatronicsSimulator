@@ -1,0 +1,49 @@
+# builder/: contract
+
+Model builder (BLD, ADR 0003). Failures raise `BuildError(failures)` listing all; nothing partial (BLD-025).
+
+`build(design, registry, materials, *, chips=None, supported_elements=None, adapter="any", step_importer=None,
+base=None, blob=None, rigid_members=False) -> BuildResult`. `supported_elements` None accepts all; `blob` defaults
+to source_hash, zeros when unset; `rigid_members` builds flexible bodies rigid, member list kept (BLD-033).
+
+## BuildResult (`result.py`)
+
+| Field | Holds |
+|---|---|
+| `design`, `module_instances` | the Design; instances in KER-009 tick order (`build.module_order`, D1 seeding) |
+| `physics` | neutral `PhysicsModel`; None for a draft with open physics (run step stays the 1 ms default) |
+| `wiring` | instances (parameters, emits, consumes, mounts, rails, `senses` `Sensing(joint, position, actuate_above, reversed)`, `torque_speed` ((rad/s, N m), ...) from the part curve; BLD-035), bindings (pin, mode, channel), rails, gating, operator_links |
+| `chip` | name, placeholder, bindings, `channels_header` (`channels.h`) |
+| `members`, `lumped` | structural members; `LumpedRecord` (spans, masses, E I / l, calibration) |
+| `pending`, `notes` | open-value paths (sorted); non-fatal notes |
+
+`to_json()` is canonical: run-twice byte equality (BLD-026).
+
+## Build order
+
+1. `physics.build_physics`: pending scan, topology (DFS from world), materials, bindings, supports (not rigid);
+   stop on pending; bodies (declared mass, else closed forms in `mass.py`), joints, members, contacts, floor,
+   transmissions, overlap; validate; supported elements.
+2. `wiring.build_wiring`: rails (power_out wires through safety instances), instances, bindings (channel per mode in
+   binding order), operator links, chip checks, `channels.h`.
+
+## Files
+
+`build.py` (`build`, `module_order`); `physics.py` (`build_physics`, `primitive_mass`, `lumped_record`,
+`element_kinds`); `mass.py` (closed forms, frames, `z_to`); `wiring.py`; `result.py`.
+
+`physics.py` sections: Checks 80, Bodies and joints 191, Overlap 317, Lumped members 373, Transmissions and
+signals 444, Physics model 568.
+
+`tests/unit/test_builder.py` sections: Pendulum and the neutral model 69, Mass properties 174, Shapes and contacts
+197, Lumped and structural members 269, Transmissions 361, STEP bodies 409, Shipped gantry, rigid members, module order 476, Loud failures 578. Filled gantry: `test_builder_support.py`.
+
+## Rules
+
+Neutral quantities are written `repr(value) unit` in SI, validated once. Element kinds: `body`, `joint.<type>`,
+`shape.<shape>`, `contacts`, `constraint.<type>`, `lumped_member`, `transmission.<type>`.
+
+## Milestone 2 and later
+
+Loops as constraints (BLD-004), fasteners as constraints (BLD-031), ropes (BLD-032), lumped calibration (BLD-015
+to 019), mounts in the member list (BLD-008), clamped-clamped beams.
