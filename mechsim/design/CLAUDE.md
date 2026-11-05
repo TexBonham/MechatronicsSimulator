@@ -46,13 +46,13 @@ adc_input, pulse_output, uart_rx, uart_tx; READ_MODES and WRITE_MODES in `schema
 
 ## Section index
 
-`schema.py`: Open values 110, Bodies 237, Joints 476, Components 567, Power, environment, firmware, messages 616,
-Design 762, Cross-reference checks 807, Files and schema 1220.
+`schema.py`: Open values 110, Bodies 261, Joints 500, Components 591, Power, environment, firmware, messages 658,
+Design 832, Cross-reference checks 877, Files and schema 1312.
 
-`tests/unit/test_design_schema.py`: Shipped examples 99, Header and version 187, Open parameters 298, Bodies 394,
-Joints 768, Components 944, Signals and pin bindings 1051, Power 1176, Environment, firmware, structural 1213,
-Wiring and rail consumers 1314, Contact environment 1514, Chip pin map 1759, Operator messages 1835, Errors 1915,
-CAD mass cross-check 1972. Chip file tests: `tests/unit/test_chip_schema.py`.
+`tests/unit/test_design_schema.py`: Shipped examples 99, Header and version 190, Open parameters 301, Bodies 397,
+Joints 771, Components 947, Signals and pin bindings 1054, Power 1179, Environment, firmware, structural 1216,
+Wiring and rail consumers 1317, Contact environment 1518, Chip pin map 1763, Operator messages 1839, Errors 1919,
+CAD mass cross-check 1976. Chip file tests: `tests/unit/test_chip_schema.py`.
 
 ## Open
 

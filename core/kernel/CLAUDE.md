@@ -69,4 +69,4 @@ boundaries (`tests/test_physics_party.cpp`, 1 kHz physics with a 500 Hz controll
 
 ## Open
 
-KER-023 rule awaits owner confirmation.
+KER-023 rule confirmed by the owner 2026-11-05.

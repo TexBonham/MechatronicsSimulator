@@ -105,13 +105,13 @@ Measured on the spike and phase 1 (2026-11-03). Supersedes the global dispatch d
 
 | Agent | Model | Purpose | Reference run (tokens / calls) |
 |---|---|---|---|
-| module-writer | Opus | Engine or module package against spec IDs | 110K-220K / 21-50; fix round on resume ~15K / 7-14 |
+| module-writer | Opus | Engine or module package against spec IDs | 110K-220K / 21-50; fix round on resume ~15K-70K / 7-50; integration brief spanning packages 300K-350K / 110-166, cut at 150 calls and hand off |
 | schema-author | Opus | Models, schemas, examples, tests | 123K-210K / 26-42; fix round ~3K-30K |
 | invariant-auditor | Sonnet; Opus at gates | Audits invariants beside stage review | 25K-36K / 5-7 |
 | reference-validator | Sonnet | Reference tier, reports numbers | 30K / 8 |
 | firmware-builder | Sonnet; Opus for first shim | Firmware, native shim | 118K / 27 (Opus); fix round ~29K |
 | docs-indexer | Haiku | Docs and `CLAUDE.md` upkeep | 57K / 15 |
-| Fable stage review (general-purpose) | Fable | Review from spec and diff | 108K-182K / 12-24; re-review on resume ~11K |
+| Fable stage review (general-purpose) | Fable | Review from spec and diff | 108K-182K / 12-24 per brief; paired briefs 160K-240K; a grouped wave 330K / 35; re-review on resume ~11K-35K |
 | docs writer (general-purpose) | Opus | ADRs, specs, scaffolding | 93K-143K / 17-29 |
 
 Per engine package all in: ~290K small, ~430K large, one fix round each; per schema brief ~350K with review. One
@@ -128,8 +128,9 @@ Detail: `docs/milestones.md`.
 |---|---|
 | 0a, 0c, 0b | Rulings and ADRs; scaffolding, agents, hooks, CI; specs and stubs: done |
 | Spike | Engine packages 1, 2a, 2b: done |
-| 1 | Contracts, schemas, facade protocol: done, at owner gate |
-| M1-M5 | Requirements doc milestone plan |
+| 1 | Contracts, schemas, facade protocol: done |
+| M1 | Gantry G1-G4 and pendulum P1 on the real stack, MuJoCo bridge, native firmware: done, gate passed 2026-11-05 |
+| M2-M5 | Requirements doc milestone plan; M2 planned after the pause |
 
 ## Decisions
 

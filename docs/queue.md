@@ -4,12 +4,25 @@ State for the coordinating session. A new session reads this, then `docs/rulings
 
 ## Current checkpoint
 
-Milestone 1 in flight on `round/03-milestone-1`. Wave 0 landed (3f316b9, 2eb0a2e). Wave 1 landed as ten stage
-commits through d4c7459 (recorder, runner, firmware, builder, kernel, signals, native runtime, MuJoCo bridge, engine
-package 7, bindings), each Fable-reviewed from spec and diff with one fix round where required and re-reviewed where
-the fix changed physics or contracts. Wave 2 dispatched: M1-X1 core wiring in `../MechatronicsSimulator-m1-x1`
-(`wip/m1-x1`); M1-X2 driver and acceptance follows it; invariant audit of wave 1 running. Owner returns at the
-milestone 1 gate.
+Paused (W-03) after the milestone 1 gate, 2026-11-05, until the weekly token reset. Round 3 closed on
+`round/03-milestone-1`: G1 to G4 and P1 pass on the real stack, the G3 archive is byte-identical on a second run,
+reference tier clean, CI green; PR to main open (merge commit). No worktree or brief is in flight. Owner rulings at
+the gate: transmission loss on the rotor side (bridge reading stands; own engine aligned at PHY-020); BLD-010 at
+1e-12 relative and SIG-011 exact count (T4 rows set); G4 criteria window from `${homing_time}` confirmed;
+placeholders stay owed by the gantry team; every coordinator ruling in the sections below confirmed.
+
+## Next
+
+1. Resume: cut `round/04-milestone-2` from main after the PR merges; plan milestone 2 for sign-off
+   (`docs/milestones.md`): fault fan-out (G5 to G8), slip and payload faults (PHY-006), controller freeze and brownout
+   cases, facade service and browser viewer (ADR 0015, invariant 9), chip definitions beyond the placeholder,
+   stepper sinusoidal detent, recorded joint positions and drive torques.
+2. Owner ruling 2026-11-05: the implicit joint drive stays while the MuJoCo bridge is the physics carrier; the
+   question of how the stepper hold is applied (drive input versus the own engine's implicit springs, ADR 0013) is
+   re-decided when the native adapter replaces the bridge (PHY-020, ADR 0004 retirement).
+3. Contract files over 4 500 characters after the sweep (core/bindings 6.7K, mechsim/testing 6.4K, core/kernel 6.2K, firmware 4.9K, core/physics/mujoco 4.8K, core/signals 4.7K, core/engine 4.6K): current contract text, split or accept at the milestone 2 close.
+4. Owed from reviews: two actuators on one shaft (builder sums rotor inertias, SIG-037 then refuses); PHY-020 native
+   adapter and PHY-021 differential tolerance; mypy lambda note at tests/acceptance/test_acc_stubs.py:30.
 
 ## Milestone 1 rulings (owner, 2026-11-04)
 
@@ -20,15 +33,7 @@ connectivity only, physical wires a later component type; ASCII line operator co
 as data with an STM32-family placeholder, real parts drop in by file. MVP: milestone 2 for the gantry team, milestone
 3 plus CLI and replay for the standalone product.
 
-## Next
-
-1. (dispatched) M1-X1 core wiring: coupling-table crossings, pins target, one load-torque convention (PHY-033),
-   catalog alignment, bindings for the kernel and signal names, KER-023 rule.
-2. M1-X2 driver and acceptance: CoreDriver over the bindings, builder and recorder follow-ups, generated channels
-   header, CLI entry, G1 to G4 and P1 converted, run-twice determinism, placeholder baselines.
-3. Reference-validator over the reference tier, Fable review of X1 and X2, audit; owner gate at the first green run.
-
-## Rulings made during milestone 1 wave 1 (coordinator, 2026-11-04), for owner confirmation
+## Rulings made during milestone 1 waves 1 and 2 (coordinator, 2026-11-04), confirmed by the owner 2026-11-05
 
 - Direction and enable: the pin-table-bound digital outputs are the single source; the native shim derives the
   stepper arrays from them; firmware holds the stepper arrays low.
@@ -89,8 +94,8 @@ as data with an STM32-family placeholder, real parts drop in by file. MVP: miles
   omega h 2.3): `PhysicsInputs.joint_drives` {joint, rest, stiffness, damping, enabled} applied implicitly by the
   adapter (MuJoCo: soft joint equality with direct solref; own engine: ADR 0013 implicit spring); the stepper
   publishes its commanded angle as the drive rest with the linearized detent stiffness and reads the drive torque back
-  for pull-out and stall. Alternative on the table for the gate: a 0.25 ms physics step (holds, 4x slower, and exposed
-  a UART byte-loss defect at unequal rates that is owed regardless).
+  for pull-out and stall. Owner 2026-11-05: keep the drive on the bridge; re-decide with the native adapter (PHY-020). The 0.25 ms
+  alternative (holds, 4x slower) stays recorded; the UART byte-loss defect it exposed is fixed (SIG-038).
 - No-motion criterion (ACC-001, ACC-007): no step pulse commanded on any axis for the whole run and no axis leaving
   the power-on hold band, placeholder 1 mm (hold sag plus ringing; the gantry team owes the number). Hold ringing of
   a few milliradians is physical, not motion. Stepper damping placeholder 2e-3 N m s/rad (damping ratio near 0.1 at

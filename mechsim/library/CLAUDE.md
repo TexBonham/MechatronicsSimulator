@@ -33,7 +33,7 @@ Component types and shipped catalog (LIB). Schema `schemas/component.json` from 
 | Facets | `mechsim/library/schema.py` | 166 |
 | ComponentType | `mechsim/library/schema.py` | 239 |
 | CatalogPart | `mechsim/library/schema.py` | 334 |
-| CatalogFile | `mechsim/library/schema.py` | 481 |
+| CatalogFile | `mechsim/library/schema.py` | 504 |
 
 ## Rules
 

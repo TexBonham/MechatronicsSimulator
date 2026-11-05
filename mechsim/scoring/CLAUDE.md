@@ -19,5 +19,5 @@ nothing.
 
 ## Section index
 
-`score.py`: Criteria 97, Suite, baseline and report 344.
-`tests/unit/test_scoring.py`: Statistics 71, Criteria 171, Cases and errored runs 365, Suites, report, baselines 401.
+`score.py`: Criteria 98, Suite, baseline and report 373.
+`tests/unit/test_scoring.py`: Statistics 70, Criteria 170, Cases and errored runs 390, Suites, report, baselines 426.

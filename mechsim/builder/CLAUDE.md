@@ -33,11 +33,10 @@ to source_hash, zeros when unset; `rigid_members` builds flexible bodies rigid, 
 `element_kinds`); `mass.py` (closed forms, frames, `z_to`); `wiring.py`; `result.py`.
 
 `physics.py` sections: Checks 80, Bodies and joints 191, Overlap 317, Lumped members 373, Transmissions and
-signals 444, Physics model 508.
+signals 444, Physics model 568.
 
 `tests/unit/test_builder.py` sections: Pendulum and the neutral model 69, Mass properties 174, Shapes and contacts
-197, Lumped and structural members 269, Transmissions 361, STEP bodies 408, Shipped gantry, rigid members, module
-order 475, Loud failures 576. Filled gantry: `test_builder_support.py`.
+197, Lumped and structural members 269, Transmissions 361, STEP bodies 409, Shipped gantry, rigid members, module order 476, Loud failures 578. Filled gantry: `test_builder_support.py`.
 
 ## Rules
 

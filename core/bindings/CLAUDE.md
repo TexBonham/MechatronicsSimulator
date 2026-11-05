@@ -60,7 +60,7 @@ cause reads `"ValueError: boom"`; a Python `PartyFault` or `AdapterError` keeps 
   `model.bodies = [...]` or `state.q = array`; `model.bodies.append(b)` and `state.q[0] = 1.0` change nothing.
 - Quaternions cross as `[w, x, y, z]`; Eigen vectors and matrices as numpy arrays.
 - Coupling values reach Python through `TickRecord.to_dict()["coupling"]` (name -> value); `drain_dicts` and
-  `drain_arrays` carry no coupling column by ruling (M1-X1 fix round).
+  `drain_arrays` carry no coupling column by ruling.
 - `BufferedRecorderSink.drain_arrays()` needs a constant body and rope count; series columns are NaN where missing.
 
 ## Extending

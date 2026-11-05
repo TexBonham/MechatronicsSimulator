@@ -28,8 +28,7 @@ Examples: `test_cases/gantry/G1.yaml` to `G4.yaml` (draft design), `test_cases/p
 | suites | `case_files` (YAML with `criteria`, natural order), nominal run plus each sweep value; one baseline named by the cases, diffed |
 
 `RecordView.series(ref)` takes case refs plus `actuator:<name>.position`; operator messages are events of kind
-`operator_message` with the message name as detail. The real driver, builder, archiver and reader are wired at
-integration; tests use `tests/unit/test_runner_fakes.py` (`InMemoryFakeDriver`).
+`operator_message` with the message name as detail. Tests use `tests/unit/test_runner_fakes.py` (`InMemoryFakeDriver`).
 
 ## Case (`extra="forbid"`, strict)
 
@@ -52,11 +51,11 @@ integration; tests use `tests/unit/test_runner_fakes.py` (`InMemoryFakeDriver`).
 ## Section index
 
 `schema.py`: Quantities of any dimension 92, Header 183, Initial state 207, Commands and faults 281, End condition 418,
-Pass criteria 450, Sweeps and variations 659, Test case 705, Cross-check against the design 764, Files and schema 1018.
-`baseline.py`: Diff 114, Files and schema 166.
-`runner.py`: Timing 82, Loading and resolution 110, Timelines 251, Runs 378, Suites 522.
+Pass criteria 450, Sweeps and variations 688, Test case 734, Cross-check against the design 797, Files and schema 1078.
+`baseline.py`: Diff 130, Files and schema 182.
+`runner.py`: Timing 91, Loading and resolution 119, Timelines 289, Runs 416, Suites 566.
 
 `tests/unit/test_test_case_schema.py`: Shipped examples 113, Header 175, Open parameters 325, Initial state 386,
-Commands 521, Faults 592, End condition 756, Pass criteria 806, Sweeps, variations, baseline 1066, Files 1159.
+Commands 521, Faults 592, End condition 756, Pass criteria 806, Sweeps, variations, baseline 1071, Files 1164.
 `tests/unit/test_runner.py`: Loading 82, Initial state and precondition 146, Command timeline 189, Fault timeline 244,
 End conditions 360, Configuration 436, Suites and sweeps 512.

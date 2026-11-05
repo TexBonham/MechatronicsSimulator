@@ -40,5 +40,5 @@ Regenerate after any model change: `uv run python -m mechsim.physics.neutral --w
 | Lumped members | 474 |
 | Transmissions | 518 |
 | Signals and structural members | 562 |
-| Physics model | 602 |
-| Files and schema | 724 |
+| Physics model | 605 |
+| Files and schema | 732 |

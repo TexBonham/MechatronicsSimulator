@@ -56,8 +56,8 @@ Firmware owns `step_count[]`.
 
 | Section index (`Read(file, offset=N, limit=80)`) | Lines |
 |---|---|
-| `app/gantry/gantry.c` | State 30, Fixed point 80, Queues 142, Status lines 177, State machine 255, Command parsing 343, Motion 543, Outputs 677, Entry points 735 |
-| `tests/test_gantry.cpp` | Helpers 11, G1 not homed 74, G2 homing 130, G3 moves 233, G4 workspace 389, Operator link 436, Queues and event log 509, Heartbeat, status, outputs 570 |
+| `app/gantry/gantry.c` | State 30, Fixed point 80, Queues 142, Status lines 177, State machine 251, Command parsing 339, Motion 539, Outputs 676, Entry points 735 |
+| `tests/test_gantry.cpp` | Helpers 11, G1 not homed 74, G2 homing 130, G3 moves 233, G4 workspace 389, Operator link 436, Queues and event log 509, Heartbeat, status, outputs 573 |
 
 Both: `-std=c11`, no extensions, `MECHSIM_FW_WARNINGS` from `cmake/FirmwareWarnings.cmake` (FW-008).
 

@@ -39,5 +39,5 @@ element; counter channels may sum several signals (A + B).
 
 ## `src/signal_layer.cpp` sections
 
-Helpers 25, Construction 111, Resolve 190, Start 310, ReadPinOutputs 330, RunStage 365, UpdateRails 386,
-WritePinInputs 413, Step 450, Coupling 542, Record 601.
+Helpers 25, Construction 111, Resolve 190, Start 310, ReadPinOutputs 342, RunStage 384, UpdateRails 405,
+WritePinInputs 432, Step 481, Coupling 575, Record 634.

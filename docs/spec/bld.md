@@ -39,7 +39,7 @@ proposed <value>)".
 | BLD-007 | The builder shall emit the chip and pin configuration from the design's pin-binding table. | Architecture doc, Modules: core, Model builder row | M1 | unit | n/a |
 | BLD-008 | The builder shall emit a structural member list naming every structural member and mount of the design. | Architecture doc, Modules: core, Model builder row; Requirements doc, Structural checks | M3 | unit | n/a |
 | BLD-009 | Every entry of the structural member list shall record the member's section, material and support conditions. | Requirements doc, Structural checks; Decisions log row 17 | M3 | unit | n/a |
-| BLD-010 | The builder shall compute mass, center of mass and inertia from a body's geometry and its material's density, matching closed-form values for primitive solids. | Architecture doc, Modules: core, Model builder row | M1 | reference | not set (owed by owner) |
+| BLD-010 | The builder shall compute mass, center of mass and inertia from a body's geometry and its material's density, matching closed-form values for primitive solids. | Architecture doc, Modules: core, Model builder row | M1 | reference | 1e-12 relative (owner ruling 2026-11-05) |
 | BLD-011 | Where a design declares mass properties, the builder shall use the declared values; it shall compute them only where none are declared. | Decisions log row 22 | M1 | unit | n/a |
 | BLD-012 | Every collision shape the builder emits shall be a primitive or a convex hull. | ADR 0002; rulings R-05, R-06 | M1 | unit | n/a |
 | BLD-013 | The contacts element shall express floor contact, a body catching an obstacle and a carriage hitting a hard stop using primitives and convex hulls only. | ADR 0002, Consequences | M1 | unit | n/a |
