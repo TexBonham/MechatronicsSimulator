@@ -44,27 +44,64 @@ docs/                 architecture and requirements docs
 
 ## Setup
 
-Python 3.12 and [uv](https://docs.astral.sh/uv/):
+The stack builds and runs on Linux x86_64 today: MuJoCo 3.9.0 is pinned to its Linux x86_64 release archive and the
+extension loads `libmujoco.so` beside itself (`core/cmake/MuJoCo.cmake`). On Windows use WSL2 with Ubuntu 24.04 and
+keep the clone inside the Linux filesystem; native Windows and macOS builds are the milestone 2 CI item (R1). The
+versions below are the ones milestone 1 was gated on.
+
+| Dependency | Version used | Install (Ubuntu 24.04, WSL2 included) |
+|---|---|---|
+| Git | any recent | `sudo apt install git` |
+| C++20 compiler | GCC 13.3 | `sudo apt install build-essential` |
+| CMake | 3.28.3 (3.28 minimum) | `sudo apt install cmake` |
+| Ninja | 1.11.1 | `sudo apt install ninja-build` |
+| clang-tidy | 18 (Ubuntu 24.04 default) | `sudo apt install clang-tidy` |
+| Python | 3.12 or newer (3.13 in CI) | `sudo apt install python3 python3-venv` or let uv manage it |
+| uv | 0.11 or newer | `curl -LsSf https://astral.sh/uv/install.sh \| sh` |
+| arm-none-eabi GCC (optional, cross preset only) | any 12+ | `sudo apt install gcc-arm-none-eabi` |
+
+Fetched at configure time, so the first build needs network access to github.com and PyPI: pybind11 v3.0.1, Eigen
+3.4.0, Catch2 v3.7.1, MuJoCo 3.9.0 (SHA-256 pinned), and the Python packages in `uv.lock` (numpy, scipy, pydantic 2,
+ruamel.yaml, pint, h5py, jsonschema, ruff, mypy, pytest). Nothing is installed system-wide by the build.
+
+First run, in order:
 
 ```sh
-uv sync                        # create .venv from uv.lock
-uv run ruff check .            # lint
-uv run ruff format --check .   # format check
-uv run mypy                    # strict type check of mechsim/ and tools/check_imports.py
-uv run pytest                  # Python tests
-python3 tools/check_imports.py # import-boundary check (invariants 5 and 9)
+git clone https://github.com/TexBonham/MechatronicsSimulator.git
+cd MechatronicsSimulator
+uv sync                                  # .venv from uv.lock, then builds mechsim._core_ext (about 5 min cold)
+cmake --preset debug-sanitize            # Debug, ASan, UBSan, clang-tidy, warnings as errors
+cmake --build --preset debug-sanitize -j2
+ctest --preset debug-sanitize -j2        # 257 cases at the milestone 1 gate
+cd firmware && cmake --preset host && cmake --build --preset host && ctest --preset host && cd ..   # 62 tests
+uv run pytest -q                         # 2909 passed, 282 strict-xfail stubs at the gate
 ```
 
-C++ core (CMake 3.28+, Ninja, a C++20 compiler, clang-tidy):
+`uv sync` compiles the C++ extension through scikit-build-core, so the toolchain above must exist before it runs;
+it rebuilds on its own when C++ sources or CMake files change (`[tool.uv] cache-keys`), and
+`uv sync --reinstall-package mechsim` forces one. Use `-j2` on a shared or small machine: clang-tidy is
+memory-hungry and a parallel build has been killed at four jobs on a 15 GB host.
+
+Everyday commands:
 
 ```sh
-cmake --preset debug-sanitize          # Debug, address and undefined-behavior sanitizers, clang-tidy
-cmake --build --preset debug-sanitize
-ctest --preset debug-sanitize
+uv run ruff check . && uv run ruff format --check .   # lint and format
+uv run mypy                                           # strict types, mechsim/ and tools/check_imports.py
+python3 tools/check_imports.py                        # import boundaries (invariants 5 and 9)
+python3 tools/traceability.py --write                 # regenerate docs/spec/traceability.md after spec or test edits
+uv run mechsim run test_cases/gantry/G3.yaml --design designs/gantry/design.yaml
+uv run mechsim suite test_cases/gantry --design designs/gantry/design.yaml
 cmake --preset release && cmake --build --preset release
 ```
 
-Build trees go to `build/<preset>/`. Catch2 v3 is fetched at configure time.
+Build trees go to `build/<preset>/`; the Python extension builds under `build/python/`; the native runtime builds
+the design's firmware for the host once per process under the system temp directory
+(`mechsim-native-build/<target>-<hz>-<tree hash>`). Run archives (`*.h5`) are never committed.
+
+Working with Claude Code on this repository: the project's agents, commands and hooks are in `.claude/` and come
+with the clone; the global workflow rules live in the `claude-config` repository (its `CLAUDE.md` is the user-level
+`~/.claude/CLAUDE.md`). Agent worktrees are created beside the clone as `../MechatronicsSimulator-<brief id>`, so
+clone into a folder of its own.
 
 ## Tests
 
