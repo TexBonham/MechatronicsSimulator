@@ -250,8 +250,9 @@ def test_acc_011(gantry: dict[str, RunResult]) -> None:
     """Reference design (gantry), G6: when the load becomes overweight mid-lift, the lift shall stop.
 
     The payload becomes 5.5 kg 2 s into the lift (TST-020 routes the change to physics). Bound from the gantry team's
-    limits of 2026-11-11 (G6 header): 0.1 m risen at the change, at most 0.5 cm more during detection (under 50 ms at
-    0.1 m/s), v^2 / 2a = 0.1 m to stop at 0.05 m/s^2: the lift stays under 20.5 cm, short of the 45 cm commanded.
+    limits of 2026-11-11 and ruling 35 (G6 header): 0.1 m risen at the change, at most 1.12 cm more during detection
+    (12.5 ms cell sample, 97.3 ms for the 2 Hz amplifier to cross 5.216 kg, 2 ms filter, at 0.1 m/s), v^2 / 2a = 0.1 m
+    to stop at 0.05 m/s^2: the lift stays under 21.1 cm, short of the 45 cm commanded.
     """
     _passes(gantry["G6"], "lift_stopped")
 
