@@ -225,6 +225,105 @@ TEST_CASE("Encoder stuck and dropped lose counts, forced presents its count, noi
 
 namespace {
 
+// Ruling 32: a linear encoder on the carriage, 60000 quadrature counts per metre, so resolution = 1 / 60000 m.
+constexpr double linear_resolution = 1.0 / 60000.0;
+
+EncoderParams linear_params() {
+    EncoderParams params;
+    params.coordinate = JointCoordinate{CoordinateKind::linear, 0, {}, {1.0, 0.0, 0.0}};
+    params.resolution = linear_resolution;
+    params.linear = true;
+    return params;
+}
+
+struct EdgeTotals {
+    std::int64_t a = 0;
+    std::int64_t b = 0;
+};
+
+// The carriage starts half a count into cell 0 and travels `travel` m in 1000 equal ticks.
+EdgeTotals travel_counts(IncrementalEncoder& encoder, double travel) {
+    Stepper run(encoder);
+    const double start = 0.5 * linear_resolution;
+    run.step(state_at(0.0, start));
+    EdgeTotals totals;
+    for (int k = 1; k <= 1000; ++k) {
+        const std::span<const double> out = run.step(state_at(0.0, start + (travel * k / 1000.0)));
+        totals.a += std::llround(out[0]);
+        totals.b += std::llround(out[1]);
+    }
+    return totals;
+}
+
+std::string config_error(const EncoderParams& params) {
+    try {
+        const IncrementalEncoder encoder("y_encoder", params);
+    } catch (const SignalConfigError& error) {
+        return error.what();
+    }
+    return {};
+}
+
+}  // namespace
+
+TEST_CASE("A linear encoder counts quadrature edges of a prismatic coordinate at its counts per metre",
+          "[SIG-011][LIB-025]") {
+    // 0.1 m at 60000 counts per metre is 6000 counts: n = floor((0.5 r + 0.1) / r) - floor(0.5) = 6000 (the half
+    // count keeps every sample 0.5 count away from a cell boundary, far beyond the ~1e-12 count rounding of x / r).
+    // Each tick moves exactly 6 counts from an even n = 6(k - 1), so it crosses 3 A edges (2j -> 2j + 1) and 3 B
+    // edges (2j + 1 -> 2j + 2): 3000 each over 1000 ticks, the split the angular case gives.
+    IncrementalEncoder forward("y_encoder", linear_params());
+    const EdgeTotals ahead = travel_counts(forward, 0.1);
+    CHECK(ahead.a == 3000);
+    CHECK(ahead.b == 3000);
+
+    // Reversed counts the same travel down: every edge negated.
+    EncoderParams flipped = linear_params();
+    flipped.reversed = true;
+    IncrementalEncoder reversed("y_encoder", flipped);
+    const EdgeTotals back = travel_counts(reversed, 0.1);
+    CHECK(back.a == -3000);
+    CHECK(back.b == -3000);
+
+    // Travel the other way counts down without reversed: n(0.5 r - 0.1) = floor(0.5 - 6000) = -6000.
+    IncrementalEncoder retreat("y_encoder", linear_params());
+    const EdgeTotals down = travel_counts(retreat, -0.1);
+    CHECK(down.a + down.b == -6000);
+}
+
+TEST_CASE("A linear encoder's stuck and dropped faults lose counts as the angular one does", "[SIG-006][SIG-036]") {
+    // A window over ticks 1 .. 100 delivers no edges while n moves on: the first 100 ticks' 6 x 100 = 600 counts are
+    // lost, so 6000 - 600 = 5400 arrive, split 2700 A and 2700 B (each later tick still moves 6 counts from an even n).
+    for (const FailureMode mode : {FailureMode::stuck, FailureMode::dropped}) {
+        IncrementalEncoder encoder("y_encoder", linear_params());
+        encoder.inject(FailureInjection{mode, SimTime(1), SimTime(101), 0.0, 0.0});
+        const EdgeTotals totals = travel_counts(encoder, 0.1);
+        CHECK(totals.a == 2700);
+        CHECK(totals.b == 2700);
+    }
+}
+
+TEST_CASE("An encoder whose resolution kind disagrees with its coordinate is a configuration error naming it",
+          "[SIG-011][LIB-025]") {
+    // Angular resolution (linear false) on a prismatic coordinate, and a linear one on an angular coordinate.
+    EncoderParams angular_on_prismatic = linear_params();
+    angular_on_prismatic.linear = false;
+    const std::string mixed = config_error(angular_on_prismatic);
+    CHECK(mixed.find("y_encoder") != std::string::npos);
+    CHECK(mixed.find("prismatic") != std::string::npos);
+
+    EncoderParams linear_on_angular = encoder_params();
+    linear_on_angular.linear = true;
+    CHECK(config_error(linear_on_angular).find("y_encoder") != std::string::npos);
+
+    CHECK(config_error(linear_params()).empty());
+    EncoderParams zero = linear_params();
+    zero.resolution = 0.0;
+    CHECK(config_error(zero).find("y_encoder") != std::string::npos);
+}
+
+namespace {
+
 // An analog SampledSensor reading the body's x as is: the base pipeline (noise, sample rate, delay, faults) seen
 // without any sensor-specific conversion.
 class ProbeSensor final : public SampledSensor {

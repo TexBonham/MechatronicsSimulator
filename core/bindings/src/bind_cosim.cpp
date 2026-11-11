@@ -207,11 +207,13 @@ std::unique_ptr<signals::SignalComponent> make_signal_component(const std::strin
         return std::make_unique<signals::LimitSwitch>(instance, p);
     }
     if (type == "incremental_encoder") {
-        check_known(type, params, {"coordinate", "resolution", "reversed", "noise", "delay", "sample_rate"});
+        check_known(type, params,
+                    {"coordinate", "resolution", "reversed", "linear", "noise", "delay", "sample_rate"});
         signals::EncoderParams p;
         p.coordinate = coordinate(params);
         p.resolution = number(params, "resolution", p.resolution);
         p.reversed = flag(params, "reversed", p.reversed);
+        p.linear = flag(params, "linear", p.linear);
         p.fidelity = fidelity(params);
         return std::make_unique<signals::IncrementalEncoder>(instance, p);
     }

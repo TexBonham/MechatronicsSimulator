@@ -12,7 +12,7 @@ directory); tests `mechsim_signals_tests`.
 | `power_rail.hpp` | `PowerRail{name, voltage, on}` (controller-safe) |
 | `signal_component.hpp` | `SignalComponent` (+ defaulted `start(ComponentClock{base_rate, period, seed})`, `begin_tick(t)`, `joint_drives()`, `take_notes()`); `FailureMode` stuck, noisy, dropped, forced_level, stall, slip, power_loss; `FailureInjection{mode, start, end, noise_magnitude, forced_level, fraction}`; `SignalTable`; `NullSignalComponent` |
 | `component_base.hpp` | `BuiltinComponent` (+ `generator()`, protected `injections()`, `note(line)`); `SignalRng` (+ `state()`); `derive_child_seed`; `periods_floor/ceil`; `JointCoordinate`, `CoordinateReader`; `SignalConfigError`, `SignalRunError` |
-| `sensors.hpp` | `SampledSensor` base (`SensorFidelity{noise, delay, sample_rate}`, `SensorOutputKind` digital/analog/counter; override `measure`, `convert`, opt. `present`, `part_noise(q)`); `LimitSwitch(inst, LimitSwitchParams)` out; `IncrementalEncoder(inst, EncoderParams)` channel_a, channel_b; `LoadCell(inst, LoadCellParams)` signal; `Imu(inst, ImuParams)` accel_x/y/z, gyro_x/y/z |
+| `sensors.hpp` | `SampledSensor` base (`SensorFidelity{noise, delay, sample_rate}`, `SensorOutputKind` digital/analog/counter; override `measure`, `convert`, opt. `present`, `part_noise(q)`); `LimitSwitch(inst, LimitSwitchParams)` out; `IncrementalEncoder(inst, EncoderParams)` channel_a, channel_b (`linear` true: prismatic coordinate, m per count; must match the coordinate kind); `LoadCell(inst, LoadCellParams)` signal; `Imu(inst, ImuParams)` accel_x/y/z, gyro_x/y/z |
 | `front_end.hpp` | `AdcParams{bits, reference}`; `LoadCellAmplifier(inst, AmplifierParams)` signal_in -> out (counts), `voltage()` |
 | `stepper.hpp` | `StepDirDriver` step, dir, enable, vmot -> full_steps, direction, enabled, supply; `TorqueSpeedTable`; `detent_tangent`; `BehavioralStepper` -> torque, stalled, missed_steps, `joint_drives()` |
 | `safety.hpp` | `PowerSupply` voltage (power_loss); `EStopRelay` estop_loop, reset -> status, contact_closed; `Watchdog` heartbeat -> tripped, contact_closed; `Brake(inst, BrakeParams)` release, vcc -> engaged, torque, `joint_drives()`, `stiffness()` |
@@ -48,7 +48,7 @@ element; counter channels may sum several signals (A + B).
 
 | Type (category, stage) | Class | Model |
 |---|---|---|
-| `load_cell` (sensor) | `LoadCell` | payload weld-force magnitude, joint generalized_force[0] (signed) or `joint_reaction` (a fixed joint's reaction.force magnitude, ruling 24); noise in N; round to resolution, or past +-overload_limit hold at the limit (no error, one `approximation` note per run); V = S E F / C + nonlinearity (F / C)^2 S E |
+| `load_cell` (sensor) | `LoadCell` | at most one target (none: 0 N, noise and rounding still apply); payload weld-force magnitude, joint generalized_force[0] (signed) or `joint_reaction` (a fixed joint's reaction.force magnitude, ruling 24); noise in N; round to resolution, or past +-overload_limit hold at the limit (no error, one `approximation` note per run); V = S E F / C + nonlinearity (F / C)^2 S E |
 | `load_cell_amplifier` (front_end) | `LoadCellAmplifier` | x = clamp(gain V + offset, 0, FS); y += (1 - exp(-2 pi f h))(x - y) from the first x; counts = round(y / ref (2^bits - 1)) clamped |
 | `imu` (sensor) | `Imu` | f = R^T (a - g), a backward difference of world velocity (0 at first step); gyro R^T omega; `gyro_noise` separate; clamp, round; outputs are SI values (ruling 2) |
 | `brake` (safety, power stage in the wiring) | `Brake` | see the brake drive bound below |
