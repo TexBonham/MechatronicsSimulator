@@ -27,6 +27,8 @@ function(mechsim_controller_mirror_app name)
     target_include_directories(${name} SYSTEM PRIVATE ${MECHSIM_BOARD_INTERFACE_DIR})
     target_link_libraries(${name} PRIVATE mechsim_warnings)
     target_compile_definitions(${name} PRIVATE ${ARGN})
+    # MSVC exports nothing from a DLL by default; the fixture's extern "C" entry points must be visible as on ELF.
+    set_target_properties(${name} PROPERTIES WINDOWS_EXPORT_ALL_SYMBOLS ON)
 endfunction()
 mechsim_controller_mirror_app(mechsim_controller_mirror_app)
 mechsim_controller_mirror_app(mechsim_controller_mirror_bad_version MIRROR_VERSION_OFFSET=1U)

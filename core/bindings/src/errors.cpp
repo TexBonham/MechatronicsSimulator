@@ -1,5 +1,6 @@
-#include <Python.h>
+// pybind11 first: it includes Python.h with _DEBUG hidden, so an MSVC Debug build links the release CPython.
 #include <pybind11/pybind11.h>
+#include <Python.h>
 
 #include <cstdint>
 #include <exception>

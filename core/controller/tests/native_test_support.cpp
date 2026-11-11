@@ -26,7 +26,7 @@ std::filesystem::path reference_work_dir() {
 
 std::filesystem::path reference_library() {
     std::filesystem::path library =
-        reference_work_dir() / "native-firmware" / "host" / "libmechsim_fw_app_native.so";
+        reference_work_dir() / "native-firmware" / "host" / mechsim::controller::native_library_name("mechsim_fw_app");
     if (std::filesystem::is_regular_file(library)) {
         return library;
     }

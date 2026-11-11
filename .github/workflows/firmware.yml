@@ -28,3 +28,23 @@ jobs:
         run: cmake --preset arm-none-eabi
       - name: Build arm-none-eabi
         run: cmake --build --preset arm-none-eabi
+
+  firmware-windows:
+    # Host preset under MSVC (open ruling 3); the arm-none-eabi cross build stays on the Linux job.
+    runs-on: windows-2022
+    defaults:
+      run:
+        working-directory: firmware
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+      - name: Configure host
+        run: cmake --preset host
+      - name: Build host
+        run: cmake --build --preset host
+      - name: Include check
+        run: cmake --build --preset host --target firmware_include_check
+      - name: Test host
+        run: ctest --preset host

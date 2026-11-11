@@ -1,5 +1,9 @@
 #include "mechsim/kernel/time.hpp"
 
+#if defined(_MSC_VER)
+#include <intrin.h>
+#endif
+
 #include <cstdint>
 #include <numeric>
 #include <string>
@@ -10,9 +14,19 @@ namespace {
 
 std::int64_t checked_multiply(std::int64_t a, std::int64_t b) {
     std::int64_t result = 0;
+#if defined(_MSC_VER)
+    // MSVC has no __builtin_mul_overflow: the full 128-bit product fits int64 exactly when its high half is the sign
+    // extension of its low half.
+    std::int64_t high = 0;
+    result = _mul128(a, b, &high);
+    if (high != (result >> 63)) {
+        throw KernelConfigError("rate arithmetic overflows int64");
+    }
+#else
     if (__builtin_mul_overflow(a, b, &result)) {
         throw KernelConfigError("rate arithmetic overflows int64");
     }
+#endif
     return result;
 }
 

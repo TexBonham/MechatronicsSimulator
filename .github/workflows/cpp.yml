@@ -42,3 +42,29 @@ jobs:
         run: cmake --build --preset release
       - name: Test release
         run: ctest --preset release
+
+  cpp-windows:
+    # MSVC through the VS developer environment (cl, Ninja and CMake on PATH); clang-tidy and the include-boundary
+    # grep stay on the Linux job, which already covers every source file.
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+      - name: Toolchain versions
+        run: |
+          cmake --version
+          ninja --version
+      - name: Configure windows-debug
+        run: cmake --preset windows-debug
+      - name: Build windows-debug
+        run: cmake --build --preset windows-debug -- -k 0
+      - name: Test windows-debug
+        run: ctest --preset windows-debug
+      - name: Configure windows-release
+        run: cmake --preset windows-release
+      - name: Build windows-release
+        run: cmake --build --preset windows-release -- -k 0
+      - name: Test windows-release
+        run: ctest --preset windows-release

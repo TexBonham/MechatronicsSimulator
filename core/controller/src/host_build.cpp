@@ -1,6 +1,16 @@
+#if defined(_WIN32)
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+#else
 #include <spawn.h>
 #include <sys/wait.h>
 #include <unistd.h>
+#endif
 
 #include <array>
 #include <cerrno>
@@ -36,6 +46,135 @@ std::string command_line(const std::vector<std::string>& arguments) {
     return line;
 }
 
+#if defined(_WIN32)
+std::wstring widen(const std::string& text) {
+    if (text.empty()) {
+        return {};
+    }
+    const int size = ::MultiByteToWideChar(CP_UTF8, 0, text.data(), static_cast<int>(text.size()), nullptr, 0);
+    std::wstring wide(static_cast<std::size_t>(size), L'\0');
+    ::MultiByteToWideChar(CP_UTF8, 0, text.data(), static_cast<int>(text.size()), wide.data(), size);
+    return wide;
+}
+
+std::string narrow(const std::wstring& wide) {
+    if (wide.empty()) {
+        return {};
+    }
+    const int size =
+        ::WideCharToMultiByte(CP_UTF8, 0, wide.data(), static_cast<int>(wide.size()), nullptr, 0, nullptr, nullptr);
+    std::string text(static_cast<std::size_t>(size), '\0');
+    ::WideCharToMultiByte(CP_UTF8, 0, wide.data(), static_cast<int>(wide.size()), text.data(), size, nullptr,
+                          nullptr);
+    return text;
+}
+
+std::string error_text(DWORD code) {
+    LPWSTR buffer = nullptr;
+    const DWORD length = ::FormatMessageW(
+        FORMAT_MESSAGE_ALLOCATE_BUFFER | FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS, nullptr, code, 0,
+        reinterpret_cast<LPWSTR>(&buffer), 0, nullptr);
+    std::string text = "error " + std::to_string(code);
+    if (length > 0 && buffer != nullptr) {
+        std::wstring message(buffer, length);
+        while (!message.empty() && (message.back() == L'\n' || message.back() == L'\r' || message.back() == L' ')) {
+            message.pop_back();
+        }
+        text = narrow(message);
+    }
+    if (buffer != nullptr) {
+        ::LocalFree(buffer);
+    }
+    return text;
+}
+
+// CommandLineToArgvW quoting: backslashes double only before a quote or the closing quote.
+std::wstring quote_argument(const std::wstring& argument) {
+    if (!argument.empty() && argument.find_first_of(L" \t\n\v\"") == std::wstring::npos) {
+        return argument;
+    }
+    std::wstring quoted = L"\"";
+    std::size_t backslashes = 0;
+    for (const wchar_t character : argument) {
+        if (character == L'\\') {
+            ++backslashes;
+        } else if (character == L'"') {
+            quoted.append((backslashes * 2) + 1, L'\\');
+            quoted += character;
+            backslashes = 0;
+        } else {
+            quoted.append(backslashes, L'\\');
+            quoted += character;
+            backslashes = 0;
+        }
+    }
+    quoted.append(backslashes * 2, L'\\');
+    quoted += L'"';
+    return quoted;
+}
+
+// Runs a tool to completion with stdout and stderr captured together; synchronous, no threads (determinism).
+ProcessResult run_process(const std::vector<std::string>& arguments) {
+    ProcessResult result;
+    SECURITY_ATTRIBUTES inherit{};
+    inherit.nLength = sizeof(inherit);
+    inherit.bInheritHandle = TRUE;
+    HANDLE read_end = nullptr;
+    HANDLE write_end = nullptr;
+    if (::CreatePipe(&read_end, &write_end, &inherit, 0) == 0) {
+        result.output = "pipe failed: " + error_text(::GetLastError());
+        return result;
+    }
+    ::SetHandleInformation(read_end, HANDLE_FLAG_INHERIT, 0);
+
+    std::wstring line;
+    for (const std::string& argument : arguments) {
+        if (!line.empty()) {
+            line += L' ';
+        }
+        line += quote_argument(widen(argument));
+    }
+
+    STARTUPINFOW startup{};
+    startup.cb = sizeof(startup);
+    startup.dwFlags = STARTF_USESTDHANDLES;
+    startup.hStdInput = ::GetStdHandle(STD_INPUT_HANDLE);
+    startup.hStdOutput = write_end;
+    startup.hStdError = write_end;
+    PROCESS_INFORMATION process{};
+    const BOOL spawned = ::CreateProcessW(nullptr, line.data(), nullptr, nullptr, TRUE, CREATE_NO_WINDOW, nullptr,
+                                          nullptr, &startup, &process);
+    const DWORD spawn_error = ::GetLastError();
+    ::CloseHandle(write_end);
+    if (spawned == 0) {
+        ::CloseHandle(read_end);
+        result.output = "cannot start " + arguments.front() + ": " + error_text(spawn_error);
+        return result;
+    }
+
+    std::array<char, 4096> buffer{};
+    while (true) {
+        DWORD count = 0;
+        const BOOL read = ::ReadFile(read_end, buffer.data(), static_cast<DWORD>(buffer.size()), &count, nullptr);
+        if (read == 0 || count == 0) {
+            break;
+        }
+        result.output.append(buffer.data(), static_cast<std::size_t>(count));
+    }
+    ::CloseHandle(read_end);
+
+    ::WaitForSingleObject(process.hProcess, INFINITE);
+    DWORD exit_code = 1;
+    if (::GetExitCodeProcess(process.hProcess, &exit_code) == 0) {
+        result.output += "GetExitCodeProcess failed: " + error_text(::GetLastError());
+        exit_code = 1;
+    }
+    ::CloseHandle(process.hThread);
+    ::CloseHandle(process.hProcess);
+    result.succeeded = exit_code == 0;
+    return result;
+}
+#else
 // Runs a tool to completion with stdout and stderr captured together; synchronous, no threads (determinism).
 ProcessResult run_process(std::vector<std::string> arguments) {
     ProcessResult result;
@@ -89,6 +228,7 @@ ProcessResult run_process(std::vector<std::string> arguments) {
     result.succeeded = WIFEXITED(status) && WEXITSTATUS(status) == 0;
     return result;
 }
+#endif
 
 void run_step(const std::vector<std::string>& arguments, std::string& log) {
     const std::string line = command_line(arguments);
@@ -100,7 +240,11 @@ void run_step(const std::vector<std::string>& arguments, std::string& log) {
 }
 
 fs::path find_library(const fs::path& build_dir, const std::string& target) {
+#if defined(_WIN32)
+    const std::string name = target + ".dll";
+#else
     const std::string name = "lib" + target + ".so";
+#endif
     std::vector<fs::path> found;
     for (const fs::directory_entry& entry : fs::recursive_directory_iterator(build_dir)) {
         if (entry.is_regular_file() && entry.path().filename() == name) {
@@ -115,6 +259,14 @@ fs::path find_library(const fs::path& build_dir, const std::string& target) {
 }
 
 }  // namespace
+
+std::string native_library_name(const std::string& app_target) {
+#if defined(_WIN32)
+    return app_target + "_native.dll";
+#else
+    return "lib" + app_target + "_native.so";
+#endif
+}
 
 HostBuildResult build_host_firmware(const HostBuildRequest& request) {
     if (request.tick_hz == 0) {
