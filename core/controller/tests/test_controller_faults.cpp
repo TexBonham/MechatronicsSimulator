@@ -281,7 +281,7 @@ TEST_CASE("A slow-down window ticks the firmware once per factor control periods
         const std::size_t t = 9 + i;
         CHECK(h.seen->at(t).state_code == codes[i]);
         CHECK(h.seen->at(t).digital_out.at(0) == 1);
-        bool ticked = t < 10 || t >= 22 || (t - 10) % 3 == 0;
+        const bool ticked = t < 10 || t >= 22 || (t - 10) % 3 == 0;
         if (ticked) {
             CHECK(h.seen->at(t).uart_tx_count == 3);
             CHECK(h.seen->at(t).event_count == 16);

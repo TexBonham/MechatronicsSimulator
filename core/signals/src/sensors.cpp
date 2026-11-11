@@ -360,6 +360,9 @@ void LoadCell::measure(const PhysicalState& state, std::span<double> quantities)
         quantities[0] = std::sqrt((f[0] * f[0]) + (f[1] * f[1]) + (f[2] * f[2]));
         return;
     }
+    if (!params_.joint.has_value()) {
+        throw SignalRunError("load cell '" + std::string(instance_name()) + "': senses neither a payload nor a joint");
+    }
     const std::size_t index = *params_.joint;
     if (index >= state.joints.size() || state.joints[index].generalized_force.empty()) {
         throw SignalRunError("load cell '" + std::string(instance_name()) + "': joint index " + std::to_string(index) +

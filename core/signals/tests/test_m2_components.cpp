@@ -142,7 +142,7 @@ TEST_CASE("A load cell senses exactly one of a payload and a joint, with paramet
     LoadCellParams zero_overload = cell_on_joint();
     zero_overload.overload_limit = 0.0;
     CHECK_THROWS_AS(LoadCell("cell", zero_overload), SignalConfigError);
-    LoadCellParams negative_resolution = cell_on_joint(-0.01);
+    const LoadCellParams negative_resolution = cell_on_joint(-0.01);
     CHECK_THROWS_AS(LoadCell("cell", negative_resolution), SignalConfigError);
     LoadCellParams nonlinear = cell_on_joint();
     nonlinear.nonlinearity = 1.5;
@@ -238,6 +238,7 @@ TEST_CASE("A load cell takes its delay and sample rate from the shared fidelity"
     LoadCell cell("cell", p);
     Stepper run(cell);
     std::vector<double> out;
+    out.reserve(30);
     for (int k = 0; k < 30; ++k) {
         out.push_back(run.step(joint_force(static_cast<double>(k)))[0]);
     }
@@ -247,7 +248,8 @@ TEST_CASE("A load cell takes its delay and sample rate from the shared fidelity"
         const int seen = k - 3;
         double expected_force = 0.0;
         if (seen >= 0) {
-            expected_force = static_cast<double>((seen / 12) * 12);
+            const int held = (seen / 12) * 12;
+            expected_force = static_cast<double>(held);
         }
         CHECK(out[static_cast<std::size_t>(k)] == full_scale_output * (expected_force / capacity));
     }
@@ -397,12 +399,12 @@ TEST_CASE("Brake stiffness follows the envelope with A0, else brake torque over 
     // With A0 = 1000 /(kg m^2) and h = 1 ms: K_b = 100 / (1000 x 1e-6) = 1e5, so K_b A0 h^2 = 100 < 400.
     // Without: K_b = 0.5 / 0.01 = 50 N m/rad.
     Brake fallback("brake", brake_params());
-    Stepper fallback_run(fallback);
+    const Stepper fallback_run(fallback);
     CHECK(fallback.stiffness() == 50.0);
     BrakeParams p = brake_params();
     p.inverse_inertia = 1000.0;
     Brake envelope("brake", p);
-    Stepper envelope_run(envelope);
+    const Stepper envelope_run(envelope);
     CHECK(std::fabs(envelope.stiffness() - 1e5) < 1e-6);
     CHECK(envelope.stiffness() * 1000.0 * 1e-6 < 400.0);
 }

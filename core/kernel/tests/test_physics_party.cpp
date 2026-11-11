@@ -345,6 +345,7 @@ std::string event_text(const RecordedEvent& event) {
 
 std::vector<std::string> event_texts(const FaultRun& run) {
     std::vector<std::string> texts;
+    texts.reserve(run.events.size());
     for (const RecordedEvent& event : run.events) {
         texts.push_back(event_text(event));
     }
