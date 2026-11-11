@@ -107,6 +107,29 @@ def test_load_cell_amplifier_turns_the_bridge_output_into_an_adc_count() -> None
     assert run_component(amp, [core.PhysicsOutputs()], [[volts]]) == [[635.0]]
 
 
+@pytest.mark.req("SIG-014")
+def test_load_cell_on_a_fixed_joint_reads_the_reaction_through_the_binding() -> None:
+    # Ruling 24: a payload attached at t = 0 is a fixed child of the hook; `joint_reaction` reads the magnitude of that
+    # joint's parent-on-child reaction force. A 2 kg child at rest is held by 2 x 9.81 = 19.62 N, so the bridge output
+    # is 2e-3 x 5 x 19.62 / 49.05 = 4.000e-3 V, the same reading as the weld-force and joint modes.
+    params: dict[str, Any] = {
+        "joint_reaction": 0,
+        "capacity": CAPACITY,
+        "sensitivity": 2e-3,
+        "excitation_voltage": 5.0,
+        "overload_limit": 73.575,
+    }
+    cell = core.make_signal_component("load_cell", "cell", params)
+    state = core.PhysicsOutputs()
+    joint = core.JointForce()
+    wrench = core.Wrench()
+    wrench.force = [0.0, 0.0, 2.0 * 9.81]
+    joint.reaction = wrench
+    state.joints = [joint]
+    volts = run_component(cell, [state])[0][0]
+    assert math.isclose(volts, FULL_SCALE * 19.62 / CAPACITY, rel_tol=1e-12)
+
+
 @pytest.mark.req("SIG-020")
 @pytest.mark.req("LIB-027")
 def test_brake_publishes_a_joint_drive_while_engaged() -> None:

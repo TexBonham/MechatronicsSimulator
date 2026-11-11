@@ -271,11 +271,13 @@ std::unique_ptr<signals::SignalComponent> make_signal_component(const std::strin
         return std::make_unique<signals::Watchdog>(instance, p);
     }
     if (type == "load_cell") {
-        check_known(type, params, {"payload", "joint", "capacity", "sensitivity", "excitation_voltage", "resolution",
-                                   "overload_limit", "nonlinearity", "noise", "delay", "sample_rate"});
+        check_known(type, params, {"payload", "joint", "joint_reaction", "capacity", "sensitivity",
+                                   "excitation_voltage", "resolution", "overload_limit", "nonlinearity", "noise",
+                                   "delay", "sample_rate"});
         signals::LoadCellParams p;
         p.payload = index(params, "payload");
         p.joint = index(params, "joint");
+        p.joint_reaction = index(params, "joint_reaction");
         p.capacity = number(params, "capacity", p.capacity);
         p.sensitivity = number(params, "sensitivity", p.sensitivity);
         p.excitation_voltage = number(params, "excitation_voltage", p.excitation_voltage);

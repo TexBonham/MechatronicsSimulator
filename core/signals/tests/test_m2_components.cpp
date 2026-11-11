@@ -152,6 +152,52 @@ TEST_CASE("A load cell senses exactly one of a payload and a joint, with paramet
     LoadCellParams noisy = cell_on_joint();
     noisy.fidelity.noise = -1.0;
     CHECK_THROWS_AS(LoadCell("cell", noisy), SignalConfigError);
+    LoadCellParams joint_and_reaction = cell_on_joint();
+    joint_and_reaction.joint_reaction = 0;
+    CHECK_THROWS_AS(LoadCell("cell", joint_and_reaction), SignalConfigError);
+    LoadCellParams payload_and_reaction = cell_on_joint();
+    payload_and_reaction.joint.reset();
+    payload_and_reaction.payload = 0;
+    payload_and_reaction.joint_reaction = 0;
+    CHECK_THROWS_AS(LoadCell("cell", payload_and_reaction), SignalConfigError);
+    LoadCellParams reaction_only = cell_on_joint();
+    reaction_only.joint.reset();
+    reaction_only.joint_reaction = 0;
+    CHECK_NOTHROW(LoadCell("cell", reaction_only));
+}
+
+namespace {
+
+PhysicalState joint_reaction(const mechsim::kernel::Vec3& force) {
+    PhysicalState state;
+    state.bodies.emplace_back();
+    mechsim::kernel::JointForce joint;
+    joint.reaction.force = force;
+    joint.reaction.moment = {5.0, -7.0, 11.0};
+    state.joints.push_back(joint);
+    return state;
+}
+
+}  // namespace
+
+TEST_CASE("A load cell on a fixed joint reads the reaction force magnitude", "[SIG-014][LIB-019]") {
+    // Ruling 24: a payload attached at t = 0 is a fixed child of the hook, so the cell reads the fixed joint's reaction,
+    // parent on child. A 2 kg child at rest under g = 9.81 m/s^2 is held by m g = 19.62 N straight up; the moment the
+    // bridge also publishes is ignored. A tilted reaction reads its magnitude: |(3, -4, 12)| = 13 N exactly.
+    LoadCellParams p = cell_on_joint();
+    p.joint.reset();
+    p.joint_reaction = 0;
+    LoadCell cell("cell", p);
+    Stepper run(cell);
+    const std::span<const double> hanging = run.step(joint_reaction({0.0, 0.0, 2.0 * 9.81}));
+    CHECK(std::fabs(hanging[0] - (full_scale_output * 19.62 / capacity)) < 1e-15);
+    const std::span<const double> tilted = run.step(joint_reaction({3.0, -4.0, 12.0}));
+    CHECK(std::fabs(tilted[0] - (full_scale_output * 13.0 / capacity)) < 1e-15);
+    LoadCellParams q = p;
+    q.joint_reaction = 1;
+    LoadCell outside("cell", q);
+    Stepper outside_run(outside);
+    CHECK_THROWS_AS(outside_run.step(joint_reaction({0.0, 0.0, 1.0})), SignalRunError);
 }
 
 TEST_CASE("A load cell on a joint reads its signed generalized force", "[SIG-014][LIB-019]") {

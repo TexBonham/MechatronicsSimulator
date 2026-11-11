@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <memory>
 #include <numbers>
+#include <optional>
 #include <span>
 #include <stdexcept>
 #include <string>
@@ -489,4 +490,170 @@ TEST_CASE("Enabled drives with no stiffness add their damping and keep the first
     CHECK(out[0].rest == 0.2);
     CHECK(out[0].stiffness == 0.0);
     CHECK(out[0].damping == 4.0);
+}
+
+// ===== Layer: the combined drive's torque apportioned (ruling 23, SIG-039) =========================================
+
+namespace {
+
+// Publishes fixed drives and remembers the drive torque it read back on joint 0.
+class ReadBack final : public SignalComponent {
+public:
+    ReadBack(std::string instance, std::vector<mechsim::kernel::JointDrive> drives)
+        : instance_(std::move(instance)), drives_(std::move(drives)) {}
+
+    [[nodiscard]] std::string_view instance_name() const override { return instance_; }
+    [[nodiscard]] std::span<const std::string> inputs() const override { return {}; }
+    [[nodiscard]] std::span<const std::string> outputs() const override { return {}; }
+    void sample(const PhysicalState& state) override {
+        seen_.reset();
+        for (const mechsim::kernel::JointDriveTorque& applied : state.joint_drive_torques) {
+            if (applied.joint == 0) {
+                seen_ = applied.torque;
+            }
+        }
+    }
+    void set_inputs(std::span<const double> /*values*/) override {}
+    void latch_outputs() override {}
+    [[nodiscard]] std::span<const double> output_values() const override { return {}; }
+    void inject(const FailureInjection& /*injection*/) override {}
+    [[nodiscard]] std::span<const mechsim::kernel::JointDrive> joint_drives() const override { return drives_; }
+    [[nodiscard]] std::optional<double> seen() const { return seen_; }
+
+private:
+    std::string instance_;
+    std::vector<mechsim::kernel::JointDrive> drives_;
+    std::optional<double> seen_;
+};
+
+struct Shares {
+    std::optional<double> first;
+    std::optional<double> second;
+};
+
+// Step 0 at joint coordinate theta0 publishes both components' drives; step 1 at theta1 reads back torque on joint 0.
+Shares apportion(const mechsim::kernel::JointDrive& a, const mechsim::kernel::JointDrive& b, double theta0,
+                 double theta1, double torque) {
+    SignalLayer layer(SignalLayerConfig{});
+    auto first = std::make_unique<ReadBack>("a", std::vector<mechsim::kernel::JointDrive>{a});
+    auto second = std::make_unique<ReadBack>("b", std::vector<mechsim::kernel::JointDrive>{b});
+    const ReadBack* first_view = first.get();
+    const ReadBack* second_view = second.get();
+    layer.add_component(std::move(first), Stage::actuator);
+    layer.add_component(std::move(second), Stage::actuator);
+    layer.start(Rate(1000));
+    layer.set_physical_state(state_at(theta0, 0.0, 0.0));
+    layer.step(SimTime(0), Duration(1));
+    PhysicalState state = state_at(theta1, 0.0, 0.0);
+    state.joint_drive_torques.push_back(mechsim::kernel::JointDriveTorque{0, torque});
+    layer.set_physical_state(state);
+    layer.step(SimTime(1), Duration(1));
+    return Shares{first_view->seen(), second_view->seen()};
+}
+
+}  // namespace
+
+TEST_CASE("A stepper and a brake on one joint each read their own share of the combined drive torque",
+          "[SIG-039][SIG-033][SIG-020][KER-027]") {
+    // Tick 0 at theta = 0: the stepper holds at its commanded angle 0 with K_m = K_hold = pi 0.40 / (2 pi / 100)
+    // = 20 N m/rad, D_m = 1e-4; the brake engages at 0 with K_b = brake_torque / 0.01 rad = 200 N m/rad, D_b = 0.01.
+    // Tick 1 reads theta = 1e-3 rad, so omega = 1e-3 / 1e-3 = 1 rad/s (the backward difference both components use),
+    // and a combined torque T = -0.25 N m. Spring laws: tau_m = 20 (0 - 1e-3) - 1e-4 = -0.0201 N m, tau_b = 200
+    // (0 - 1e-3) - 0.01 = -0.21 N m, both one sign, so the shares are tau_i T / (tau_m + tau_b); they sum to T up to the
+    // rounding of a handful of operations on 0.25 N m (1e-16 each), far inside 1e-12. Released (tick 2, delay 0), the
+    // brake publishes a disabled drive, so at tick 3 the stepper, the joint's only enabled drive, reads T exactly and
+    // the brake 0.
+    SignalLayerConfig config;
+    config.externals = {{"m.full_steps", 0.0}, {"m.direction", 1.0}, {"m.enabled", 1.0}, {"m.supply", 24.0},
+                        {"b.release", 0.0},    {"b.vcc", 24.0}};
+    SignalLayer layer(std::move(config));
+    BrakeParams brake;
+    brake.joint = 0;
+    brake.brake_torque = 2.0;
+    brake.damping = 0.01;
+    layer.add_component(std::make_unique<Brake>("b", brake), Stage::power);
+    BehavioralStepperParams motor;
+    motor.step_angle = std::numbers::pi / 100.0;
+    motor.holding_torque = 0.40;
+    motor.joint = 0;
+    motor.torque_speed = {{0.0, 0.40}, {300.0 * std::numbers::pi / 30.0, 0.36}};
+    layer.add_component(std::make_unique<BehavioralStepper>("m", motor), Stage::actuator);
+    layer.start(Rate(1000));
+    layer.set_physical_state(state_at(0.0, 0.0, 0.0));
+    layer.step(SimTime(0), Duration(1));
+    REQUIRE(layer.physics_inputs().joint_drives.size() == 1);
+    CHECK(std::fabs(layer.physics_inputs().joint_drives[0].stiffness - 220.0) < 1e-12);
+
+    const double combined = -0.25;
+    PhysicalState state = state_at(1e-3, 0.0, 0.0);
+    state.joint_drive_torques.push_back(mechsim::kernel::JointDriveTorque{0, combined});
+    layer.set_physical_state(state);
+    layer.step(SimTime(1), Duration(1));
+    const double tau_m = (20.0 * -1e-3) - 1e-4;
+    const double tau_b = (200.0 * -1e-3) - 0.01;
+    const double motor_share = layer.signal_value("m.torque");
+    const double brake_share = layer.signal_value("b.torque");
+    INFO("stepper " << motor_share << " N m, brake " << brake_share << " N m, combined " << combined << " N m");
+    CHECK(std::fabs(motor_share - (tau_m * combined / (tau_m + tau_b))) < 1e-12);
+    CHECK(std::fabs(brake_share - (tau_b * combined / (tau_m + tau_b))) < 1e-12);
+    CHECK(std::fabs((motor_share + brake_share) - combined) < 1e-12);
+
+    layer.set_external_input("b.release", 1.0);
+    layer.set_physical_state(state);
+    layer.step(SimTime(2), Duration(1));
+    CHECK(layer.signal_value("b.engaged") == 0.0);
+    PhysicalState released = state_at(1e-3, 0.0, 0.0);
+    released.joint_drive_torques.push_back(mechsim::kernel::JointDriveTorque{0, 0.1});
+    layer.set_physical_state(released);
+    layer.step(SimTime(3), Duration(1));
+    CHECK(layer.signal_value("m.torque") == 0.1);
+    CHECK(layer.signal_value("b.torque") == 0.0);
+}
+
+TEST_CASE("Apportioning corrects by magnitude share and falls back to stiffness, damping, then equal parts",
+          "[SIG-039][KER-027]") {
+    // Opposed springs, K = 10 at +-0.1 rad, theta = 0 still: tau = +1 and -1 N m, sum 0, sum |tau| = 2. T = 0.3 N m
+    // leaves a residual 0.3 split by |tau_i| / 2: 1.15 and -0.85 (no division by the vanishing sum).
+    const Shares opposed = apportion(drive(0, 0.1, 10.0, 0.0, true), drive(0, -0.1, 10.0, 0.0, true), 0.0, 0.0, 0.3);
+    REQUIRE(opposed.first.has_value());
+    REQUIRE(opposed.second.has_value());
+    CHECK(std::fabs(*opposed.first - 1.15) < 1e-12);
+    CHECK(std::fabs(*opposed.second + 0.85) < 1e-12);
+    // Both springs at rest at the shaft (every tau_i 0): T = 0.4 by stiffness, 10 : 30.
+    const Shares stiff = apportion(drive(0, 0.0, 10.0, 0.0, true), drive(0, 0.0, 30.0, 0.0, true), 0.0, 0.0, 0.4);
+    CHECK(std::fabs(*stiff.first - 0.1) < 1e-12);
+    CHECK(std::fabs(*stiff.second - 0.3) < 1e-12);
+    // No stiffness, shaft still: by damping, 1 : 3.
+    const Shares damped = apportion(drive(0, 0.5, 0.0, 1.0, true), drive(0, 0.7, 0.0, 3.0, true), 0.0, 0.0, 0.4);
+    CHECK(std::fabs(*damped.first - 0.1) < 1e-12);
+    CHECK(std::fabs(*damped.second - 0.3) < 1e-12);
+    // Neither: equal halves.
+    const Shares equal = apportion(drive(0, 0.5, 0.0, 0.0, true), drive(0, 0.7, 0.0, 0.0, true), 0.0, 0.0, 0.4);
+    CHECK(*equal.first == 0.2);
+    CHECK(*equal.second == 0.2);
+    // Moving shaft, damping only: omega = 2e-3 / 1e-3 = 2 rad/s, tau = -2 D_i: -2 and -6, T = -4 scales by 1/2.
+    const Shares moving = apportion(drive(0, 0.0, 0.0, 1.0, true), drive(0, 0.0, 0.0, 3.0, true), 0.0, 2e-3, -4.0);
+    CHECK(std::fabs(*moving.first + 1.0) < 1e-12);
+    CHECK(std::fabs(*moving.second + 3.0) < 1e-12);
+    // A disabled drive reads 0; the joint's only enabled drive reads the whole torque unchanged.
+    const Shares lone = apportion(drive(0, 0.2, 50.0, 0.0, false), drive(0, 0.1, 10.0, 0.0, true), 0.0, 0.0, 0.123);
+    CHECK(*lone.first == 0.0);
+    CHECK(*lone.second == 0.123);
+}
+
+TEST_CASE("Combined drives on a joint outside the published coordinates end the run", "[SIG-039]") {
+    SignalLayer layer(SignalLayerConfig{});
+    layer.add_component(std::make_unique<ReadBack>("a", std::vector<mechsim::kernel::JointDrive>{drive(3, 0.0, 1.0,
+                                                                                                         0.0, true)}),
+                        Stage::actuator);
+    layer.add_component(std::make_unique<ReadBack>("b", std::vector<mechsim::kernel::JointDrive>{drive(3, 0.0, 1.0,
+                                                                                                         0.0, true)}),
+                        Stage::actuator);
+    layer.start(Rate(1000));
+    layer.set_physical_state(state_at(0.0, 0.0, 0.0));
+    layer.step(SimTime(0), Duration(1));
+    PhysicalState state = state_at(0.0, 0.0, 0.0);
+    state.joint_drive_torques.push_back(mechsim::kernel::JointDriveTorque{3, 1.0});
+    layer.set_physical_state(state);
+    CHECK_THROWS_AS(layer.step(SimTime(1), Duration(1)), SignalRunError);
 }

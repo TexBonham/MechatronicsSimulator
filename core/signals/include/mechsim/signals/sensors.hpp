@@ -144,11 +144,13 @@ private:
 };
 
 // Catalog type load_cell. Senses exactly one of a payload (the magnitude of physics_outputs.payloads[payload].force,
-// the weld force on it) or a joint (generalized_force[0] of physics_outputs.joints[joint], signed along its axis).
-// Forces in N; fidelity.noise in N.
+// the weld force on it), a joint (generalized_force[0] of physics_outputs.joints[joint], signed along its axis) or a
+// fixed joint's reaction (the magnitude of physics_outputs.joints[joint_reaction].reaction.force, the parent-on-child
+// force, for a payload built as a fixed child of its carrier; ruling 24). Forces in N; fidelity.noise in N.
 struct LoadCellParams {
     std::optional<std::size_t> payload;
     std::optional<std::size_t> joint;
+    std::optional<std::size_t> joint_reaction;
     double capacity = 0.0;            // N, > 0
     double sensitivity = 0.0;         // V/V at capacity, > 0
     double excitation_voltage = 0.0;  // V, > 0
@@ -164,7 +166,8 @@ struct LoadCellParams {
 // sample of a run is noted once as an approximation line (take_notes).
 class LoadCell final : public SampledSensor {
 public:
-    // Throws SignalConfigError unless exactly one of payload and joint is set and the parameters are in range.
+    // Throws SignalConfigError unless exactly one of payload, joint and joint_reaction is set and the parameters are in
+    // range.
     LoadCell(std::string instance, LoadCellParams params);
 
 private:

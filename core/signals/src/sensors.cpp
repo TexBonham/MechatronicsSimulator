@@ -331,8 +331,10 @@ LoadCell::LoadCell(std::string instance, LoadCellParams params)
     : SampledSensor(std::move(instance), {"signal"}, SensorOutputKind::analog, 1, 1, params.fidelity),
       params_(params) {
     const std::string name = "load cell '" + std::string(instance_name()) + "' ";
-    if (params_.payload.has_value() == params_.joint.has_value()) {
-        throw SignalConfigError(name + "senses exactly one of a payload and a joint");
+    const int targets = static_cast<int>(params_.payload.has_value()) + static_cast<int>(params_.joint.has_value()) +
+                        static_cast<int>(params_.joint_reaction.has_value());
+    if (targets != 1) {
+        throw SignalConfigError(name + "senses exactly one of a payload, a joint and a joint reaction");
     }
     require_positive(params_.capacity, name + "capacity");
     require_positive(params_.sensitivity, name + "sensitivity");
@@ -357,6 +359,16 @@ void LoadCell::measure(const PhysicalState& state, std::span<double> quantities)
                                  std::to_string(index) + " is outside the published state");
         }
         const kernel::Vec3& f = state.payloads[index].force;
+        quantities[0] = std::sqrt((f[0] * f[0]) + (f[1] * f[1]) + (f[2] * f[2]));
+        return;
+    }
+    if (params_.joint_reaction.has_value()) {
+        const std::size_t index = *params_.joint_reaction;
+        if (index >= state.joints.size()) {
+            throw SignalRunError("load cell '" + std::string(instance_name()) + "': reaction joint index " +
+                                 std::to_string(index) + " is outside the published state");
+        }
+        const kernel::Vec3& f = state.joints[index].reaction.force;
         quantities[0] = std::sqrt((f[0] * f[0]) + (f[1] * f[1]) + (f[2] * f[2]));
         return;
     }

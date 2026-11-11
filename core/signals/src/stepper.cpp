@@ -163,6 +163,7 @@ void BehavioralStepper::latch_outputs() {
     set_output(0, drive_torque_);
     if (!level(input(2)) || !(input(3) > 0.0)) {
         theta_cmd_ = theta_;
+        last_steps_ = 0.0;
         drive = kernel::JointDrive{params_.joint, theta_cmd_, 0.0, 0.0, false};
         set_output(1, static_cast<double>(steps != 0.0));
         set_output(2, missed + std::fabs(steps));
@@ -170,9 +171,24 @@ void BehavioralStepper::latch_outputs() {
     }
     theta_cmd_ += steps * step;
     const double predicted = theta_ + (omega * dt);
-    const double delta = theta_cmd_ - predicted;
     const double available = scale * table_.available(omega);
     bool stalled = false;
+    const double slip = (omega * dt) - (last_steps_ * step);
+    last_steps_ = steps;
+    if (std::fabs(slip) > step * (1.0 + slip_rounding)) {
+        // Loss of synchronism: a detent tangent at the predicted angle would move its rest with the shaft and keep it
+        // spinning, so the drive brakes instead, one step behind the predicted angle with the curve's torque there.
+        const double lost = std::round((theta_cmd_ - predicted) / step);
+        theta_cmd_ -= lost * step;
+        missed += std::fabs(lost);
+        stalled = lost != 0.0 && steps == 0.0;
+        drive = kernel::JointDrive{params_.joint, predicted - std::copysign(step, slip), available / step,
+                                   params_.damping, true};
+        set_output(1, static_cast<double>(stalled));
+        set_output(2, missed);
+        return;
+    }
+    const double delta = theta_cmd_ - predicted;
     const bool above_curve = std::fabs(drive_torque_) > available;
     if (std::fabs(delta) > pull_out_steps * step || above_curve) {
         double lost = std::round(delta / step);

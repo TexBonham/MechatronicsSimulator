@@ -204,7 +204,7 @@ void SignalLayer::add_component(std::unique_ptr<SignalComponent> component, Stag
         table.add(*entry.component);
     }
     table.add(*component);
-    Entry entry{std::move(component), stage, {}, {}, {}};
+    Entry entry{std::move(component), stage, {}, {}, {}, {}, {}};
     for (const std::string& output : entry.component->outputs()) {
         entry.output_bus.push_back(intern(output));
     }
@@ -375,6 +375,7 @@ void SignalLayer::start(const kernel::Rate& base_rate) {
         entry.component->start(clock);
     }
     physics_inputs_.generalized_forces.assign(config_.velocity_dofs, 0.0);
+    period_seconds_ = kernel::to_seconds(period, base_rate);
     controller_period_ = kernel::period_in_ticks(config_.controller_rate.value_or(config_.rate), base_rate).count();
 }
 
@@ -435,6 +436,89 @@ void SignalLayer::read_pin_outputs(bool fresh) {
     }
 }
 
+// ===== ApportionDriveTorques =====================================================================================
+void SignalLayer::apportion_drive_torques() {
+    read_back_ = state_.joint_drive_torques;
+    for (Entry& entry : entries_) {
+        entry.shares.clear();
+    }
+    struct Part {
+        std::size_t entry = 0;
+        double spring = 0.0;
+        double stiffness = 0.0;
+        double damping = 0.0;
+    };
+    const auto add_share = [this](std::size_t e, std::size_t joint, double torque) {
+        for (kernel::JointDriveTorque& share : entries_[e].shares) {
+            if (share.joint == joint) {
+                share.torque += torque;
+                return;
+            }
+        }
+        entries_[e].shares.push_back(kernel::JointDriveTorque{joint, torque});
+    };
+    for (const kernel::JointDriveTorque& applied : read_back_) {
+        const std::size_t joint = applied.joint;
+        std::vector<std::size_t> idle;
+        std::vector<Part> parts;
+        std::vector<const kernel::JointDrive*> drives;
+        for (std::size_t e = 0; e < entries_.size(); ++e) {
+            for (const kernel::JointDrive& drive : entries_[e].published) {
+                if (drive.joint != joint) {
+                    continue;
+                }
+                if (drive.enabled) {
+                    parts.push_back(Part{e, 0.0, drive.stiffness, drive.damping});
+                    drives.push_back(&drive);
+                } else {
+                    idle.push_back(e);
+                }
+            }
+        }
+        for (const std::size_t e : idle) {
+            add_share(e, joint, 0.0);
+        }
+        if (parts.size() == 1) {
+            add_share(parts[0].entry, joint, applied.torque);
+        }
+        if (parts.size() <= 1) {
+            continue;
+        }
+        if (joint >= state_.joint_positions.size()) {
+            throw SignalRunError("signal layer: drives on joint " + std::to_string(joint) +
+                                 " outside the published joint positions");
+        }
+        const double theta = state_.joint_positions[joint];
+        double omega = 0.0;
+        if (positions_primed_ && joint < last_positions_.size() && period_seconds_ > 0.0) {
+            omega = (theta - last_positions_[joint]) / period_seconds_;
+        }
+        double sum = 0.0;
+        double magnitude = 0.0;
+        double stiffness = 0.0;
+        double damping = 0.0;
+        for (std::size_t i = 0; i < parts.size(); ++i) {
+            parts[i].spring = (drives[i]->stiffness * (drives[i]->rest - theta)) - (drives[i]->damping * omega);
+            sum += parts[i].spring;
+            magnitude += std::fabs(parts[i].spring);
+            stiffness += parts[i].stiffness;
+            damping += parts[i].damping;
+        }
+        const double residual = applied.torque - sum;
+        for (const Part& part : parts) {
+            double weight = 1.0 / static_cast<double>(parts.size());
+            if (magnitude > 0.0) {
+                weight = std::fabs(part.spring) / magnitude;
+            } else if (stiffness > 0.0) {
+                weight = part.stiffness / stiffness;
+            } else if (damping > 0.0) {
+                weight = part.damping / damping;
+            }
+            add_share(part.entry, joint, part.spring + (residual * weight));
+        }
+    }
+}
+
 // ===== RunStage ====================================================================================================
 void SignalLayer::run_stage(Stage stage, kernel::SimTime t) {
     for (Entry& entry : entries_) {
@@ -447,7 +531,19 @@ void SignalLayer::run_stage(Stage stage, kernel::SimTime t) {
             entry.input_values[i] = bus_[entry.input_sources[i]];
         }
         component.set_inputs(entry.input_values);
-        component.sample(state_);
+        if (entry.shares.empty()) {
+            component.sample(state_);
+        } else {
+            for (kernel::JointDriveTorque& applied : state_.joint_drive_torques) {
+                for (const kernel::JointDriveTorque& share : entry.shares) {
+                    if (share.joint == applied.joint) {
+                        applied.torque = share.torque;
+                    }
+                }
+            }
+            component.sample(state_);
+            state_.joint_drive_torques = read_back_;
+        }
         component.latch_outputs();
         for (std::string& line : component.take_notes()) {
             event(t, std::string(component.instance_name()), "approximation", std::move(line));
@@ -565,6 +661,7 @@ void SignalLayer::step(kernel::SimTime t, kernel::Duration /*dt*/) {
             event(t, std::string(link_->instance_name()), "operator_command", std::move(detail));
         }
     }
+    apportion_drive_torques();
     run_stage(Stage::power, t);
     update_rails(t);
     run_stage(Stage::sensor, t);
@@ -579,11 +676,14 @@ void SignalLayer::step(kernel::SimTime t, kernel::Duration /*dt*/) {
         }
     }
     std::vector<kernel::JointDrive> published;
-    for (const Entry& entry : entries_) {
+    for (Entry& entry : entries_) {
         const std::span<const kernel::JointDrive> drives = entry.component->joint_drives();
+        entry.published.assign(drives.begin(), drives.end());
         published.insert(published.end(), drives.begin(), drives.end());
     }
     physics_inputs_.joint_drives = combine_drives(published);
+    last_positions_ = state_.joint_positions;
+    positions_primed_ = true;
     for (std::size_t i = 0; i < stall_outputs_.size(); ++i) {
         const double stalled = bus_[stall_outputs_[i]];
         if (level(stalled) && !level(last_stall_[i])) {

@@ -540,3 +540,162 @@ TEST_CASE("The stepper refuses a shaft body whose axial inertia is not its rotor
     CHECK_THROWS_AS(BehavioralStepper("m", bad), mechsim::signals::SignalConfigError);
     CHECK_NOTHROW(BehavioralStepper("m", motor_params(rotor)));
 }
+
+// ===== Loss of synchronism (SIG-033, brief M2-A3) ====================================================================
+
+TEST_CASE("A free shaft spinning 50 steps per tick past an enabled idle stepper brakes to rest, never gaining energy",
+          "[SIG-033][SIG-032]") {
+    // Out of synchronism (|omega h| > one step, nothing commanded) the drive is rest r = theta + omega h - s step
+    // (s = sign omega), K = tau_avail(|omega|) / step, damping D. In the stub's implicit step from theta, omega:
+    //   omega' = omega + h tau / J,  theta' = theta + h omega',  tau = K (r - theta') - D omega'
+    // so r - theta' = h (omega - omega') - s step = -h^2 tau / J - s step and
+    //   tau (1 + K h^2 / J) = -s K step - D omega' = -s tau_avail - D omega'.
+    // With omega > step / h: omega' (1 + h D / (J + K h^2)) = omega - h K step / (J + K h^2) > 0, because
+    // step / h >= h K step / (J + K h^2) whenever J >= 0. So omega' keeps the sign of omega, tau opposes it, the kinetic
+    // energy J omega^2 / 2 falls strictly every tick, and J |omega - omega'| / h = |tau| <= tau_avail(|omega|) +
+    // D |omega'|: the torque-speed table's envelope plus the motor's own damper. Above the table's last speed
+    // (1800 rpm = 188.5 rad/s) tau_avail is 0 and the damper alone brakes (omega' = omega / (1 + h D / J)). Once
+    // |omega h| <= one step the detent tangent catches the shaft. The catch at about one step per tick is not
+    // energy-exact (the tangent's error is second order in the change of shaft speed over a tick, and here K_hold h^2 /
+    // J = 3.7), so the shaft may ring once past a step per tick and brake again; it never outruns its starting speed.
+    // At rest on the detent, the linear hold's amplitude decays at least as exp(-D t / (2 J)) = exp(-9.26 t): exp(-26)
+    // of a step per tick after 2.8 s, so the asserted 1e-3 step per tick is loose against that decay. The command
+    // follows the shaft forward step by step, so the missed steps equal its displacement in steps, and it rests on a
+    // step of the grid the command started on.
+    const double step = pi / 100.0;
+    const double h = 0.001;
+    const double damping = 1e-4;
+    const double inertia = 5.4e-6;
+    const TorqueSpeedTable table(nema17_curve());
+    BehavioralStepper motor("x_motor", holding_params(inertia));
+    Stepper run(motor);
+    Shaft shaft{inertia, 0.0};
+    shaft.omega = 50.0 * step / h;
+    const double start = shaft.omega;
+    const double origin = shaft.theta;
+    run.step(shaft.state(), drive(0.0, 1.0, 0.0));
+    shaft.advance(motor.joint_drives());
+    bool caught = false;
+    int braking_ticks = 0;
+    double missed = 0.0;
+    for (int k = 1; k < 3000; ++k) {
+        const double before = shaft.omega;
+        const std::span<const double> out = run.step(shaft.state(), drive(0.0));
+        missed += out[2];
+        REQUIRE(motor.joint_drives()[0].enabled);
+        shaft.advance(motor.joint_drives());
+        INFO("tick " << k << " omega " << before << " -> " << shaft.omega << " rad/s");
+        CHECK(std::fabs(shaft.omega) < start);
+        if (std::fabs(before * h) > step) {
+            CHECK(shaft.omega >= 0.0);
+            CHECK(shaft.omega < before);
+            const double envelope = table.available(before) + (damping * std::fabs(shaft.omega));
+            CHECK(inertia * (before - shaft.omega) / h <= envelope * (1.0 + 1e-9));
+            ++braking_ticks;
+        } else {
+            caught = true;
+        }
+    }
+    INFO("braking ticks " << braking_ticks << ", final omega " << shaft.omega << " rad/s");
+    CHECK(braking_ticks > 0);
+    CHECK(caught);
+    CHECK(std::fabs(shaft.omega) * h < 1e-3 * step);
+    CHECK(std::fabs(motor.joint_drives()[0].rest - shaft.theta) < step);
+    const double displacement = (shaft.theta - origin) / step;
+    CHECK(missed == std::round(displacement));
+    CHECK(std::fabs(displacement - std::round(displacement)) < 1e-3);
+}
+
+TEST_CASE("A shaft released from a brake hold with the command at the held position stays within one step",
+          "[SIG-033][SIG-020]") {
+    // The brake is a second linear drive on the shaft (K_b = 200 N m/rad at the held angle 0, the brake_torque / 0.01
+    // rad default for 2 N m); the stub applies the parallel sum implicitly and hands the stepper its own spring law at
+    // the step's end, K_s (r_s - theta') - D omega', which is its exact share (ruling 23, SIG-039). A 0.2 N m load
+    // (half the holding torque) hangs on the shaft; after 300 ticks the brake releases. From any lag between 0 and the
+    // static sag the swing past the sag is bounded by the sinusoid's energy, swing_bound(0.2) = 0.0222 rad, under one
+    // step (0.0314 rad), and the stepper's share never exceeds the curve, so no step is missed.
+    const double step = pi / 100.0;
+    const double h = 0.001;
+    const double inertia = 2.54e-5;
+    const double load = 0.2;
+    BehavioralStepper motor("x_motor", holding_params(5.4e-6));
+    Stepper run(motor);
+    double theta = 0.0;
+    double omega = 0.0;
+    double own = 0.0;
+    bool driven = false;
+    double missed = 0.0;
+    double worst = 0.0;
+    for (int k = 0; k < 1500; ++k) {
+        const bool held = k < 300;
+        PhysicalState state = state_at(theta, 0.0, load);
+        if (driven) {
+            state.joint_drive_torques.push_back(JointDriveTorque{0, own});
+        }
+        const std::span<const double> out = run.step(state, drive(0.0));
+        missed += out[2];
+        const JointDrive motor_drive = motor.joint_drives()[0];
+        REQUIRE(motor_drive.enabled);
+        double k_sum = motor_drive.stiffness;
+        double weighted = motor_drive.stiffness * motor_drive.rest;
+        if (held) {
+            k_sum += 200.0;
+        }
+        omega = (omega + (h / inertia) * (weighted - (k_sum * theta) - load)) /
+                (1.0 + (h * motor_drive.damping / inertia) + (h * h * k_sum / inertia));
+        theta += omega * h;
+        own = (motor_drive.stiffness * (motor_drive.rest - theta)) - (motor_drive.damping * omega);
+        driven = true;
+        worst = std::max(worst, std::fabs(theta));
+    }
+    INFO("largest excursion " << worst << " rad, swing bound " << swing_bound(load) << " rad");
+    CHECK(worst <= swing_bound(load) * (1.0 + 1e-9));
+    CHECK(worst < step);
+    CHECK(missed == 0.0);
+}
+
+TEST_CASE("Re-enabled after a power cut mid-move, the stepper re-synchronizes, settles and misses the coasted steps",
+          "[SIG-033][SIG-016]") {
+    // The command ramps to 3 full steps per tick (94.2 rad/s, 900 rpm, tau_avail 0.24 N m) over 300 ticks and holds;
+    // at tick 500 the supply drops for 50 ticks and the command freezes (zero steps from then on). The free shaft
+    // (J = 2.54e-5 kg m^2, no load) coasts on undriven at about 3 steps per tick, so on re-enable the slip is 3 steps:
+    // out of synchronism, the drive brakes at the curve's torque (about 9.4e3 rad/s^2, under 10 ticks to one step per
+    // tick), the command re-synchronizes each tick to the step nearest the predicted shaft angle, and once the slip is
+    // under a step the detent catches the shaft and holds it at a step of the grid the command started on at the last
+    // disabled tick (theta_cmd = theta there). Every re-synchronization moves the command forward with the shaft, so
+    // the steps counted missed after re-enable equal the shaft's displacement from that angle, rounded to steps.
+    const double step = pi / 100.0;
+    BehavioralStepper motor("x_motor", holding_params(5.4e-6));
+    Stepper run(motor);
+    Shaft shaft{2.54e-5, 0.0};
+    double reference = 0.0;
+    double missed_after = 0.0;
+    double missed_before = 0.0;
+    for (int k = 0; k < 3000; ++k) {
+        double n = std::min(3.0, static_cast<double>(k) / 100.0);
+        double supply = 24.0;
+        if (k >= 500) {
+            n = 0.0;
+        }
+        if (k >= 500 && k < 550) {
+            supply = 0.0;
+        }
+        if (k == 549) {
+            reference = shaft.theta;
+        }
+        const std::span<const double> out = run.step(shaft.state(), drive(n, 1.0, 1.0, supply));
+        if (k >= 550) {
+            missed_after += out[2];
+        } else {
+            missed_before += out[2];
+        }
+        shaft.advance(motor.joint_drives());
+    }
+    const double displacement = shaft.theta - reference;
+    INFO("coasted displacement " << displacement / step << " steps, missed " << missed_after << ", final omega "
+                                 << shaft.omega << " rad/s");
+    CHECK(missed_before == 0.0);
+    CHECK(displacement > 0.0);
+    CHECK(missed_after == std::round(displacement / step));
+    CHECK(std::fabs(shaft.omega) * 0.001 < 1e-3 * step);
+}
