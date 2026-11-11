@@ -40,6 +40,29 @@ std::int64_t wrap_index(std::int64_t index, std::int64_t depth) noexcept {
     return ((index % depth) + depth) % depth;
 }
 
+void require_positive(double value, const std::string& what) {
+    if (!std::isfinite(value) || value <= 0.0) {
+        throw SignalConfigError(what + " must be finite and positive");
+    }
+}
+
+double quantize(double value, double resolution) {
+    if (resolution > 0.0) {
+        return resolution * std::round(value / resolution);
+    }
+    return value;
+}
+
+// v in the body frame: R^T v with R the unit body-to-world quaternion (w first).
+kernel::Vec3 to_body(const kernel::Quat& q, const kernel::Vec3& v) noexcept {
+    const double w = q[0];
+    const kernel::Vec3 u{-q[1], -q[2], -q[3]};
+    const kernel::Vec3 uv{u[1] * v[2] - u[2] * v[1], u[2] * v[0] - u[0] * v[2], u[0] * v[1] - u[1] * v[0]};
+    const kernel::Vec3 t{2.0 * uv[0], 2.0 * uv[1], 2.0 * uv[2]};
+    const kernel::Vec3 ut{u[1] * t[2] - u[2] * t[1], u[2] * t[0] - u[0] * t[2], u[0] * t[1] - u[1] * t[0]};
+    return {v[0] + w * t[0] + ut[0], v[1] + w * t[1] + ut[1], v[2] + w * t[2] + ut[2]};
+}
+
 std::vector<FailureMode> sensor_modes(SensorOutputKind kind) {
     if (kind == SensorOutputKind::analog) {
         return {FailureMode::stuck, FailureMode::noisy, FailureMode::dropped};
@@ -115,9 +138,11 @@ void SampledSensor::sample(const PhysicalState& state) {
         due = false;
     }
     if (due) {
-        for (double& quantity : quantities_) {
-            if (fidelity_.noise > 0.0) {
-                quantity += fidelity_.noise * rng().gaussian();
+        for (std::size_t q = 0; q < quantities_.size(); ++q) {
+            double& quantity = quantities_[q];
+            const double sd = part_noise(q);
+            if (sd > 0.0) {
+                quantity += sd * rng().gaussian();
             }
             if (fault.has_value() && fault->mode == FailureMode::noisy && fault->noise_magnitude > 0.0) {
                 quantity += fault->noise_magnitude * rng().gaussian();
@@ -158,6 +183,14 @@ void SampledSensor::present(std::span<const double> delivered, const std::option
     for (std::size_t i = 0; i < delivered.size(); ++i) {
         set_output(i, delivered[i]);
     }
+}
+
+double SampledSensor::part_noise(std::size_t /*quantity*/) const {
+    return fidelity_.noise;
+}
+
+const SensorFidelity& SampledSensor::fidelity() const noexcept {
+    return fidelity_;
 }
 
 bool SampledSensor::holds(const std::optional<FailureInjection>& fault) noexcept {
@@ -292,6 +325,125 @@ void IncrementalEncoder::present(std::span<const double> delivered, const std::o
     }
     set_output(0, static_cast<double>(a_edges));
     set_output(1, static_cast<double>(b_edges));
+}
+
+LoadCell::LoadCell(std::string instance, LoadCellParams params)
+    : SampledSensor(std::move(instance), {"signal"}, SensorOutputKind::analog, 1, 1, params.fidelity),
+      params_(params) {
+    const std::string name = "load cell '" + std::string(instance_name()) + "' ";
+    if (params_.payload.has_value() == params_.joint.has_value()) {
+        throw SignalConfigError(name + "senses exactly one of a payload and a joint");
+    }
+    require_positive(params_.capacity, name + "capacity");
+    require_positive(params_.sensitivity, name + "sensitivity");
+    require_positive(params_.excitation_voltage, name + "excitation voltage");
+    require_positive(params_.overload_limit, name + "overload limit");
+    require_non_negative(params_.resolution, name + "resolution");
+    require_non_negative(params_.nonlinearity, name + "nonlinearity");
+    if (params_.nonlinearity > 1.0) {
+        throw SignalConfigError(name + "nonlinearity must be at most 1");
+    }
+}
+
+void LoadCell::on_sensor_start() {
+    noted_ = false;
+}
+
+void LoadCell::measure(const PhysicalState& state, std::span<double> quantities) {
+    if (params_.payload.has_value()) {
+        const std::size_t index = *params_.payload;
+        if (index >= state.payloads.size()) {
+            throw SignalRunError("load cell '" + std::string(instance_name()) + "': payload index " +
+                                 std::to_string(index) + " is outside the published state");
+        }
+        const kernel::Vec3& f = state.payloads[index].force;
+        quantities[0] = std::sqrt((f[0] * f[0]) + (f[1] * f[1]) + (f[2] * f[2]));
+        return;
+    }
+    const std::size_t index = *params_.joint;
+    if (index >= state.joints.size() || state.joints[index].generalized_force.empty()) {
+        throw SignalRunError("load cell '" + std::string(instance_name()) + "': joint index " + std::to_string(index) +
+                             " has no published generalized force");
+    }
+    quantities[0] = state.joints[index].generalized_force[0];
+}
+
+void LoadCell::convert(std::span<const double> quantities, std::int64_t step, std::span<double> frame) {
+    double force = quantize(quantities[0], params_.resolution);
+    if (std::fabs(quantities[0]) > params_.overload_limit) {
+        force = std::copysign(params_.overload_limit, quantities[0]);
+        if (!noted_) {
+            noted_ = true;
+            note("load cell '" + std::string(instance_name()) + "' saturated at its overload limit " +
+                 std::to_string(params_.overload_limit) + " N (first at layer step " + std::to_string(step) +
+                 "); the output is held at the limit, not modelled beyond it");
+        }
+    }
+    const double full_scale = params_.sensitivity * params_.excitation_voltage;
+    const double ratio = force / params_.capacity;
+    frame[0] = (full_scale * ratio) + (params_.nonlinearity * ratio * ratio * full_scale);
+}
+
+Imu::Imu(std::string instance, ImuParams params)
+    : SampledSensor(std::move(instance), {"accel_x", "accel_y", "accel_z", "gyro_x", "gyro_y", "gyro_z"},
+                    SensorOutputKind::analog, 6, 6, params.fidelity),
+      params_(params) {
+    const std::string name = "imu '" + std::string(instance_name()) + "' ";
+    require_positive(params_.accel_range, name + "accel range");
+    require_positive(params_.gyro_range, name + "gyro range");
+    require_non_negative(params_.resolution, name + "resolution");
+    require_non_negative(params_.gyro_resolution, name + "gyro resolution");
+    require_non_negative(params_.gyro_noise, name + "gyro noise");
+    for (const double g : params_.gravity) {
+        if (!std::isfinite(g)) {
+            throw SignalConfigError(name + "gravity must be finite");
+        }
+    }
+}
+
+void Imu::on_sensor_start() {
+    primed_ = false;
+    last_velocity_ = {};
+}
+
+double Imu::part_noise(std::size_t quantity) const {
+    if (quantity < 3) {
+        return fidelity().noise;
+    }
+    return params_.gyro_noise;
+}
+
+void Imu::measure(const PhysicalState& state, std::span<double> quantities) {
+    if (params_.body >= state.bodies.size()) {
+        throw SignalRunError("imu '" + std::string(instance_name()) + "': body index " + std::to_string(params_.body) +
+                             " is outside the published state");
+    }
+    const kernel::BodyState& body = state.bodies[params_.body];
+    if (!primed_) {
+        primed_ = true;
+        last_velocity_ = body.linear_velocity;
+    }
+    const double h = period_seconds();
+    kernel::Vec3 relative{};
+    for (std::size_t i = 0; i < 3; ++i) {
+        const double a = (body.linear_velocity[i] - last_velocity_[i]) / h;
+        relative[i] = a - params_.gravity[i];
+    }
+    last_velocity_ = body.linear_velocity;
+    const kernel::Vec3 specific = to_body(body.orientation, relative);
+    const kernel::Vec3 rate = to_body(body.orientation, body.angular_velocity);
+    for (std::size_t i = 0; i < 3; ++i) {
+        quantities[i] = specific[i];
+        quantities[i + 3] = rate[i];
+    }
+}
+
+void Imu::convert(std::span<const double> quantities, std::int64_t /*step*/, std::span<double> frame) {
+    for (std::size_t i = 0; i < 3; ++i) {
+        frame[i] = quantize(std::clamp(quantities[i], -params_.accel_range, params_.accel_range), params_.resolution);
+        frame[i + 3] = quantize(std::clamp(quantities[i + 3], -params_.gyro_range, params_.gyro_range),
+                                params_.gyro_resolution);
+    }
 }
 
 }  // namespace mechsim::signals

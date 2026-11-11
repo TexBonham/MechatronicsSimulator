@@ -395,6 +395,9 @@ void SignalLayer::run_stage(Stage stage, kernel::SimTime t) {
         component.set_inputs(entry.input_values);
         component.sample(state_);
         component.latch_outputs();
+        for (std::string& line : component.take_notes()) {
+            event(t, std::string(component.instance_name()), "approximation", std::move(line));
+        }
         const std::span<const double> values = component.output_values();
         for (std::size_t i = 0; i < entry.output_bus.size(); ++i) {
             bus_[entry.output_bus[i]] = values[i];
@@ -511,6 +514,7 @@ void SignalLayer::step(kernel::SimTime t, kernel::Duration /*dt*/) {
     run_stage(Stage::power, t);
     update_rails(t);
     run_stage(Stage::sensor, t);
+    run_stage(Stage::front_end, t);
     run_stage(Stage::driver, t);
     run_stage(Stage::actuator, t);
     write_pin_inputs(controller_stepped);
