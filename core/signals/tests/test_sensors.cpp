@@ -274,6 +274,7 @@ Moments output_moments(SampledSensor& sensor, int n, double x) {
 std::vector<double> ramp_outputs(SampledSensor& sensor, int n) {
     Stepper run(sensor);
     std::vector<double> out;
+    out.reserve(static_cast<std::size_t>(n));
     for (int k = 0; k < n; ++k) {
         out.push_back(run.step(state_at(0.0, static_cast<double>(k)))[0]);
     }
@@ -346,7 +347,8 @@ TEST_CASE("Sensor sample rate holds the output between samples on the layer cloc
     const std::vector<double> out = ramp_outputs(slow, 12);
     CHECK(slow.sample_period() == 4);
     for (int k = 0; k < 12; ++k) {
-        CHECK(out[static_cast<std::size_t>(k)] == static_cast<double>(4 * (k / 4)));
+        const int held = 4 * (k / 4);
+        CHECK(out[static_cast<std::size_t>(k)] == static_cast<double>(held));
     }
     // 300 Hz: floor(3.33) = 3 periods. 1000 Hz equals the layer rate: every step.
     ProbeSensor odd("probe", fidelity(0.0, 0.0, 300.0));
@@ -363,7 +365,8 @@ TEST_CASE("Sensor sample rate holds the output between samples on the layer cloc
     for (int k = 0; k < 12; ++k) {
         double expected = 0.0;
         if (k >= 2) {
-            expected = static_cast<double>(4 * ((k - 2) / 4));
+            const int held = 4 * ((k - 2) / 4);
+            expected = static_cast<double>(held);
         }
         CHECK(held[static_cast<std::size_t>(k)] == expected);
     }
@@ -582,6 +585,7 @@ TEST_CASE("Child generators: names give different streams, one name and seed rep
                                                 derive_child_seed(run_seed, name)};
         Stepper run(probe, clock);
         std::vector<double> out;
+        out.reserve(51);
         for (int k = 0; k < 50; ++k) {
             out.push_back(run.step(state_at(0.0, 0.0))[0]);
         }

@@ -73,3 +73,9 @@ the emulated rows stay stubs. Update the three `CLAUDE.md` files.
 ## Report
 
 Under 250 words: files, commands with counts, binding lines, stubs converted, Open issues.
+
+## 5. From the W review (small)
+
+`core/controller/src/native_controller_runtime.cpp` (around line 88) duplicates `host_build.cpp`'s Windows `error_text`
+and UTF-8 narrowing; move them to one internal header under `core/controller/src/` and use it from both. No
+behaviour change; the POSIX path stays byte-identical.
