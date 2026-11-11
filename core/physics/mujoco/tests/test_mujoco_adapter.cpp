@@ -1316,14 +1316,14 @@ TEST_CASE("A brake catches a falling lift through the MuJoCo drive at the Coulom
     REQUIRE(stuck);
     std::cout << "brake catch through MuJoCo: closed-form deceleration " << coulomb << " m/s^2, measured "
               << decelerations[1] << " m/s^2\n";
-    for (double rate : decelerations) {
+    for (const double rate : decelerations) {
         CHECK(std::abs(rate - coulomb) <= 0.01 * coulomb);
     }
     const double k_b = brake.stiffness();
     const double sag = lift * gravity * c / k_b;
     const double centre = rest_stuck - sag;
     const double radius = std::sqrt((inertia * (coulomb / c) * (coulomb / c) * h * h / k_b) + (sag * sag));
-    for (double angle : held) {
+    for (const double angle : held) {
         CHECK(std::abs(angle - centre) <= radius * (1.0 + 1e-6));
     }
     CHECK(std::abs(velocity) < 1e-6);

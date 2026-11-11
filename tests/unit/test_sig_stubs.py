@@ -1,6 +1,6 @@
 """SIG stubs, unit tier (T3); Catch2 tests replace them with the C++ code. Converted here: the fidelity parameters
-through the binding (SIG-002, SIG-003, SIG-004), the milestone 2 built-ins (SIG-014, SIG-020), the linear encoder key (SIG-011) and the rail through
-the kernel (SIG-018, SIG-019, SIG-022)."""
+through the binding (SIG-002, SIG-003, SIG-004), the milestone 2 built-ins (SIG-014, SIG-020), the linear encoder key
+(SIG-011) and the rail through the kernel (SIG-018, SIG-019, SIG-022)."""
 
 import math
 from typing import Any

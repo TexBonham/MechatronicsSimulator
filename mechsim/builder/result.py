@@ -62,6 +62,8 @@ class InstanceWiring(_Out):
     senses: Sensing | None = None
     acts_on: str | None = None
     torque_speed: tuple[tuple[float, float], ...] = ()
+    core_type: str | None = None
+    length_parameters: tuple[str, ...] = ()
 
 
 class PinAssignment(_Out):

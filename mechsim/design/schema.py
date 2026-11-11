@@ -784,7 +784,9 @@ class Firmware(_Strict):
     fault_codes: CodeNames = Field(default_factory=dict, description="fault_code value (0..255) to fault name")
     event_codes: EventCodes = Field(
         default_factory=dict,
-        description="event_log code (0..255) to the event's name and its argument kind (axis, fault, state, number, none)",
+        description=(
+            "event_log code (0..255) to the event's name and its argument kind (axis, fault, state, number, none)"
+        ),
     )
 
     @model_validator(mode="after")

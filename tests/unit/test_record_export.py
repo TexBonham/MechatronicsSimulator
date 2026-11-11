@@ -256,8 +256,7 @@ LABELS = Columns(("trolley", "hoist"), ("m", "rad"))
 
 def _labelled(tmp_path: Path, columns: dict[str, Columns]) -> Path:
     rows = [
-        TickRecord(time=tick, physics=PhysicsOutputs(joint_positions=(0.5 * tick, 0.25 * tick)))
-        for tick in range(3)
+        TickRecord(time=tick, physics=PhysicsOutputs(joint_positions=(0.5 * tick, 0.25 * tick))) for tick in range(3)
     ]
     recorder = Recorder(BASE_RATE, columns)
     for row in rows:

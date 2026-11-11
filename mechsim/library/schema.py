@@ -61,7 +61,17 @@ SpeedText = Annotated[float, BeforeValidator(_parser("1 / [time]")), WithJsonSch
 TemperatureText = Annotated[float, BeforeValidator(_parser("[temperature]")), WithJsonSchema(_QUANTITY_SCHEMA)]
 
 Category = Literal[
-    "actuator", "driver", "sensor", "front_end", "transmission", "power", "safety", "body", "joint", "payload", "end_effector"
+    "actuator",
+    "driver",
+    "sensor",
+    "front_end",
+    "transmission",
+    "power",
+    "safety",
+    "body",
+    "joint",
+    "payload",
+    "end_effector",
 ]
 EndEffectorEvent = Literal["attach", "release"]
 FailureMode = Literal["stuck", "noisy", "dropped", "forced_level"]
@@ -327,9 +337,8 @@ class ComponentType(StrictModel):
             if required not in names:
                 raise ValueError(f"{self.category} type {self.name!r} must carry parameter {required!r}")
         _unique(list(self.events), f"type {self.name!r} event")
-        if self.category in ATTACH_CATEGORIES:
-            if ATTACH_MOUNT not in [mount.name for mount in self.mechanical.mounts]:
-                raise ValueError(f"{self.category} type {self.name!r} must carry an {ATTACH_MOUNT!r} mount (LIB-031)")
+        if self.category in ATTACH_CATEGORIES and ATTACH_MOUNT not in [m.name for m in self.mechanical.mounts]:
+            raise ValueError(f"{self.category} type {self.name!r} must carry an {ATTACH_MOUNT!r} mount (LIB-031)")
         if self.category == "end_effector":
             missing = [event for event in END_EFFECTOR_EVENTS if event not in self.events]
             if len(missing) > 0:

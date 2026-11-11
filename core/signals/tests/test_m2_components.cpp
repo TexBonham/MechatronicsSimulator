@@ -233,7 +233,7 @@ TEST_CASE("A load cell with no target reads the zero-force conversion every samp
     for (int k = 0; k < 5; ++k) {
         CHECK(run.step(state)[0] == 0.0);
     }
-    PhysicalState empty;
+    const PhysicalState empty;
     CHECK(run.step(empty)[0] == 0.0);
 
     // Quantization still applies to the noisy zero: each reading back-converts to a whole number of 0.01 N steps
@@ -688,7 +688,7 @@ TEST_CASE("A brake catching a falling lift decelerates it at the Coulomb rate an
     const double coulomb = (p.brake_torque + load) / inertia;
     REQUIRE(rates.size() > 3);
     REQUIRE(held);
-    for (double rate : rates) {
+    for (const double rate : rates) {
         CHECK(std::fabs(rate - coulomb) <= 0.01 * coulomb);
     }
     const double linear = ((p.brake_torque / c) - (m * g)) / (m + (rotor / (c * c)));
@@ -696,7 +696,7 @@ TEST_CASE("A brake catching a falling lift decelerates it at the Coulomb rate an
     const double k_b = brake.stiffness();
     const double centre = theta_stuck + (load / k_b);
     const double radius = std::sqrt((inertia * coulomb * coulomb * h * h / k_b) + ((load / k_b) * (load / k_b)));
-    for (double angle : after) {
+    for (const double angle : after) {
         CHECK(std::fabs(angle - centre) <= radius * (1.0 + 1e-9));
     }
 }

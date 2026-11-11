@@ -83,7 +83,8 @@ def test_example_baseline_validates_and_matches_g3() -> None:
     assert loaded.note.startswith("placeholder-geometry")
     suite = load_suite_file(G3.parent / "suite.yaml")
     cases = [load_test_case(G3.parent / name) for name in suite.cases]
-    assert [case.id for case in cases] == ["G1", "G2", "G3", "G4", "G5", "G6", "G7", "G8", "G9", "G10", "G11", "G13", "G14"]
+    shipped = (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 13, 14)
+    assert [case.id for case in cases] == [f"G{index}" for index in shipped]
     assert check_against_cases(loaded, cases) == []
     assert len(loaded.entries) == sum(len(case.criteria) for case in cases)
     milestone_1 = {item.status for item in loaded.entries if item.case in ("G1", "G2", "G3", "G4")}

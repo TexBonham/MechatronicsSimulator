@@ -1030,9 +1030,8 @@ def _check_reference(
             errors.append(f"{path}: unknown controller state {rest!r} (firmware.state_codes)")
     if kind == "fault" and design.firmware is None:
         errors.append(f"{path}: controller fault {rest!r} needs a design with firmware")
-    elif kind == "fault" and design.firmware is not None:
-        if rest not in set(design.firmware.fault_codes.values()):
-            errors.append(f"{path}: unknown controller fault {rest!r} (firmware.fault_codes)")
+    elif kind == "fault" and design.firmware is not None and rest not in set(design.firmware.fault_codes.values()):
+        errors.append(f"{path}: unknown controller fault {rest!r} (firmware.fault_codes)")
 
 
 def _joint_reference_dimension(reference: str, joints: dict[str, Any]) -> str | None:

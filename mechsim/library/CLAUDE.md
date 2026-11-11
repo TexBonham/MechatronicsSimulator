@@ -43,8 +43,8 @@ Component types and shipped catalog (LIB). Schema `schemas/component.json` from 
 - Category `sensor` needs resolution, noise, delay, sample_rate and at least one failure mode.
 - Categories `payload` (needs `mass`) and `end_effector` (needs `capacity` [mass], `events: [attach, release]`) both
   need an `attach` mount; only an end_effector lists `events` (LIB-031).
-- `linear_encoder`: the incremental encoder with length `resolution`/`noise` (ruling 32); the wiring builds it as the
-  core's `incremental_encoder` with `linear: true`.
+- `linear_encoder`: the incremental encoder with length `resolution`/`noise` (ruling 32); the wiring builds it from its
+  `plugin.cpp` with `linear: true` from the length dimension.
 - `thermal.held_constant` must be true in v1; plugin needs `python` (`pkg.mod:Class`), `cpp`, or both.
 - `load_catalog_file` errors start with the file path.
 - Safety types `estop_relay` and `watchdog` both carry a `heartbeat` input port; `watchdog` has `timeout` and gates its

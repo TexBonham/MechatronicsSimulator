@@ -1,5 +1,6 @@
 #include <catch2/catch_test_macros.hpp>
 #include <cmath>
+#include <limits>
 #include <cstddef>
 #include <cstdint>
 #include <memory>
@@ -612,33 +613,44 @@ TEST_CASE("A stepper and a brake on one joint each read their own share of the c
 
 TEST_CASE("Apportioning corrects by magnitude share and falls back to stiffness, damping, then equal parts",
           "[SIG-039][KER-027]") {
+    const double kMissing = std::numeric_limits<double>::quiet_NaN();
     // Opposed springs, K = 10 at +-0.1 rad, theta = 0 still: tau = +1 and -1 N m, sum 0, sum |tau| = 2. T = 0.3 N m
     // leaves a residual 0.3 split by |tau_i| / 2: 1.15 and -0.85 (no division by the vanishing sum).
     const Shares opposed = apportion(drive(0, 0.1, 10.0, 0.0, true), drive(0, -0.1, 10.0, 0.0, true), 0.0, 0.0, 0.3);
     REQUIRE(opposed.first.has_value());
     REQUIRE(opposed.second.has_value());
-    CHECK(std::fabs(*opposed.first - 1.15) < 1e-12);
-    CHECK(std::fabs(*opposed.second + 0.85) < 1e-12);
+    CHECK(std::fabs(opposed.first.value_or(kMissing) - 1.15) < 1e-12);
+    CHECK(std::fabs(opposed.second.value_or(kMissing) + 0.85) < 1e-12);
     // Both springs at rest at the shaft (every tau_i 0): T = 0.4 by stiffness, 10 : 30.
     const Shares stiff = apportion(drive(0, 0.0, 10.0, 0.0, true), drive(0, 0.0, 30.0, 0.0, true), 0.0, 0.0, 0.4);
-    CHECK(std::fabs(*stiff.first - 0.1) < 1e-12);
-    CHECK(std::fabs(*stiff.second - 0.3) < 1e-12);
+    REQUIRE(stiff.first.has_value());
+    REQUIRE(stiff.second.has_value());
+    CHECK(std::fabs(stiff.first.value_or(kMissing) - 0.1) < 1e-12);
+    CHECK(std::fabs(stiff.second.value_or(kMissing) - 0.3) < 1e-12);
     // No stiffness, shaft still: by damping, 1 : 3.
     const Shares damped = apportion(drive(0, 0.5, 0.0, 1.0, true), drive(0, 0.7, 0.0, 3.0, true), 0.0, 0.0, 0.4);
-    CHECK(std::fabs(*damped.first - 0.1) < 1e-12);
-    CHECK(std::fabs(*damped.second - 0.3) < 1e-12);
+    REQUIRE(damped.first.has_value());
+    REQUIRE(damped.second.has_value());
+    CHECK(std::fabs(damped.first.value_or(kMissing) - 0.1) < 1e-12);
+    CHECK(std::fabs(damped.second.value_or(kMissing) - 0.3) < 1e-12);
     // Neither: equal halves.
     const Shares equal = apportion(drive(0, 0.5, 0.0, 0.0, true), drive(0, 0.7, 0.0, 0.0, true), 0.0, 0.0, 0.4);
-    CHECK(*equal.first == 0.2);
-    CHECK(*equal.second == 0.2);
+    REQUIRE(equal.first.has_value());
+    REQUIRE(equal.second.has_value());
+    CHECK(equal.first.value_or(kMissing) == 0.2);
+    CHECK(equal.second.value_or(kMissing) == 0.2);
     // Moving shaft, damping only: omega = 2e-3 / 1e-3 = 2 rad/s, tau = -2 D_i: -2 and -6, T = -4 scales by 1/2.
     const Shares moving = apportion(drive(0, 0.0, 0.0, 1.0, true), drive(0, 0.0, 0.0, 3.0, true), 0.0, 2e-3, -4.0);
-    CHECK(std::fabs(*moving.first + 1.0) < 1e-12);
-    CHECK(std::fabs(*moving.second + 3.0) < 1e-12);
+    REQUIRE(moving.first.has_value());
+    REQUIRE(moving.second.has_value());
+    CHECK(std::fabs(moving.first.value_or(kMissing) + 1.0) < 1e-12);
+    CHECK(std::fabs(moving.second.value_or(kMissing) + 3.0) < 1e-12);
     // A disabled drive reads 0; the joint's only enabled drive reads the whole torque unchanged.
     const Shares lone = apportion(drive(0, 0.2, 50.0, 0.0, false), drive(0, 0.1, 10.0, 0.0, true), 0.0, 0.0, 0.123);
-    CHECK(*lone.first == 0.0);
-    CHECK(*lone.second == 0.123);
+    REQUIRE(lone.first.has_value());
+    REQUIRE(lone.second.has_value());
+    CHECK(lone.first.value_or(kMissing) == 0.0);
+    CHECK(lone.second.value_or(kMissing) == 0.123);
 }
 
 TEST_CASE("Combined drives on a joint outside the published coordinates end the run", "[SIG-039]") {

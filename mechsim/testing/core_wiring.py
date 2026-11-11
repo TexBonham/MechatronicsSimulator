@@ -20,9 +20,9 @@ child body and every body below it (a payload fixed to the carrier included, rul
 per radian (lead / 2 pi for a lead screw, the pulley radius for a belt): the shaft's inverse inertia at the reference
 configuration with the driven mass reflected rigidly onto it. The layer combines the brake's drive with the motor's on
 that joint as parallel springs (SIG-020, ruling 23) and the bridge applies it through its shaft reflection. On a
-prismatic joint driven by a transmission the holding force is brake_torque / c and A0 = 1 / (m + sum J / c^2) over its
-driving shafts (the bridge refuses a drive there; kept for an engine that takes one). On any other revolute joint the
-brake torque applies as given and A0 is not set. A payload welded to a carrier (mid-run attach or release) is a
+revolute joint driven by no transmission the brake torque applies as given and A0 is not set. A brake on any other
+joint (a transmission's driven joint, which the bridge cannot hold, or any prismatic joint) is a WiringError naming
+the brake and the joint (ruling 29). A payload welded to a carrier (mid-run attach or release) is a
 separate free body and enters no m.
 
 Firmware event-log entries whose code the design names in `firmware.event_codes` are collected by the runner party
@@ -93,12 +93,11 @@ WIRED_FAULTS: tuple[str, ...] = (*LAYER_FAULTS, "estop_press")
 DRIVER_TO_MOTOR = ("full_steps", "direction", "enabled", "supply")
 RAIL_INPUTS = {"step_dir_driver": "vmot", "brake": "vcc"}
 TYPE_STAGES: dict[str, Any] = {"brake": core.Stage.actuator}
-CORE_TYPES: dict[str, str] = {"linear_encoder": "incremental_encoder"}
-LINEAR_ENCODER_TYPES: tuple[str, ...] = ("linear_encoder",)
 SIGNAL_PORT_KINDS = ("power", "ground")
 CONTROLLER_OUTPUTS = "controller.pin_outputs"
 ESTOP_TYPE = "estop_relay"
 OPERATOR_LINK_TYPE = "uart_link"
+NO_FAULT = 0
 NATIVE_BUILD_DIR = Path(tempfile.gettempdir()) / "mechsim-native-build"
 _LIBRARIES: dict[tuple[str, int, str], str] = {}
 
@@ -209,14 +208,16 @@ class RunnerParty(core.Party):  # type: ignore[misc]
         if state.tick == 0 or state.tick % state.control_period != 0:
             return
         stamp = state.tick - state.control_period
+        if state.track_faults and state.fault_code is not None and state.reported_fault is None:
+            state.reported_fault = NO_FAULT
         if state.track_faults and state.fault_code is not None and state.fault_code != state.reported_fault:
             state.reported_fault = state.fault_code
             name = state.fault_names.get(state.fault_code, str(state.fault_code))
             state.events.append((stamp, FAULT_KIND, name))
         for code, arg in state.pending:
-            name = state.event_names.get(code)
-            if name is not None:
-                state.events.append((stamp, name, state.decode(code, arg)))
+            event_name = state.event_names.get(code)
+            if event_name is not None:
+                state.events.append((stamp, event_name, state.decode(code, arg)))
 
     def write_outputs(self, outputs: Any) -> None:
         state = self._state
@@ -348,7 +349,7 @@ def _metres_per_radian(transmission: Any) -> float:
 
 
 def brake_parameters(instance: InstanceWiring, places: Mapping[str, JointPlace], model: PhysicsModel) -> dict[str, Any]:
-    """Brake on its `acts_on` joint (module docstring): holding limit and A0 on a driven prismatic joint."""
+    """Brake on its `acts_on` revolute joint (module docstring); any other joint is a build error (ruling 29)."""
     values = instance.parameters
     joint = instance.acts_on
     if joint is None or joint not in places:
@@ -374,28 +375,13 @@ def brake_parameters(instance: InstanceWiring, places: Mapping[str, JointPlace],
         )
         params["inverse_inertia"] = 1.0 / (axial_inertia(shaft) + _subtree_mass(model, driven_child) * c * c)
         return params
-    if place.kind != "prismatic":
-        raise WiringError(f"brake '{instance.name}': acts on a {place.kind} joint; only revolute and prismatic")
-    drives = [item for item in model.transmissions if item.driven_joint == joint]
-    if len(drives) == 0:
-        raise WiringError(f"brake '{instance.name}': prismatic joint '{joint}' has no transmission shaft to brake")
-    if len(drives) > 1:
-        names = ", ".join(f"'{drive.name}'" for drive in drives)
-        raise WiringError(
-            f"brake '{instance.name}': prismatic joint '{joint}' is driven by {len(drives)} transmissions ({names}); "
-            "the holding force brake_torque / c needs one shaft, so the brake belongs on a shaft joint"
-        )
-    shaft_bodies = {
-        body.joint.name: body for body in model.bodies if body.joint is not None and body.joint.type == "revolute"
-    }
-    child = model.bodies[place.body].name
-    effective = _subtree_mass(model, child)
-    for drive in drives:
-        c = _metres_per_radian(drive)
-        effective += axial_inertia(shaft_bodies[drive.shaft_joint]) / (c * c)
-    params["brake_torque"] = float(values["brake_torque"]) / _metres_per_radian(drives[0])
-    params["inverse_inertia"] = 1.0 / effective
-    return params
+    line = undrivable_brake(instance, model)
+    if line is not None:
+        raise WiringError(line)
+    raise WiringError(
+        f"brake '{instance.name}': acts on {place.kind} joint '{joint}'; a brake acts on a revolute (shaft) joint "
+        "(ruling 29)"
+    )
 
 
 def component_parameters(
@@ -404,10 +390,13 @@ def component_parameters(
     model: PhysicsModel,
     payloads: Sequence[str] = (),
     chip: Chip | None = None,
+    case_payload: str | None = None,
 ) -> dict[str, Any]:
     """The `make_signal_component` parameters of one instance from its part values and placement (BLD-035);
-    `payloads` are the model's payload bodies in body order, `chip` the design's chip (ADC of an
-    amplifier)."""
+    `payloads` are the model's welded payload bodies in body order, `chip` the design's chip (ADC of an
+    amplifier), `case_payload` the name of the run's payload body if the case attaches one. A load cell whose target
+    does not resolve reads zero only when the run has no payload at all (BLD-036); with one, it is a WiringError
+    naming the cell and the target (invariant 7)."""
     values = instance.parameters
     if instance.type == "load_cell":
         senses = instance.senses
@@ -437,11 +426,19 @@ def component_parameters(
                 return cell
             if reaction in payloads:
                 cell["payload"] = list(payloads).index(reaction)
-            return cell
+                return cell
+            if case_payload is None:
+                return cell
+            raise WiringError(f"load cell '{instance.name}': senses '{reaction}', no joint or payload of the run")
         if senses.payload is not None:
             if senses.payload in payloads:
                 cell["payload"] = list(payloads).index(senses.payload)
-            return cell
+                return cell
+            if case_payload is None:
+                return cell
+            raise WiringError(
+                f"load cell '{instance.name}': senses payload '{senses.payload}', not a payload of the run"
+            )
         if senses.joint is None or senses.joint not in places:
             raise WiringError(f"load cell '{instance.name}': senses unknown joint '{senses.joint}'")
         cell["joint"] = places[senses.joint].body
@@ -490,7 +487,7 @@ def component_parameters(
         else:
             params["resolution"] = values["resolution"]
             params["reversed"] = senses.reversed
-            if instance.type in LINEAR_ENCODER_TYPES:
+            if "resolution" in instance.length_parameters:
                 params["linear"] = True
         return params
     if instance.type == "step_dir_driver":
@@ -702,6 +699,7 @@ def signal_layer(
     base_rate: Fraction,
     control_rate: Fraction | None = None,
     payloads: Sequence[str] = (),
+    case_payload: str | None = None,
 ) -> tuple[Any, dict[str, float], dict[str, str], int]:
     """A brake the bridge cannot carry (on a transmission's driven joint: the translation emits no drive there,
     PHY-034) ends the build with an error naming the brake and the joint (invariant 7, ruling 29)."""
@@ -789,13 +787,21 @@ def signal_layer(
         if instance.category not in STAGES:
             continue
         component = core.make_signal_component(
-            CORE_TYPES.get(instance.type, instance.type),
-            instance.name, component_parameters(instance, places, model, payloads, chip)
+            core_type(instance),
+            instance.name,
+            component_parameters(instance, places, model, payloads, chip, case_payload),
         )
         for fault in by_instance.get(instance.name, []):
             component.inject(_injection(fault, base_rate))
         layer.add_component(component, TYPE_STAGES.get(instance.type, STAGES[instance.category]))
     return layer, externals, labels, dofs
+
+
+def core_type(instance: InstanceWiring) -> str:
+    """The core built-in a catalog type runs as: its `plugin.cpp`, else the type name."""
+    if instance.core_type is not None:
+        return instance.core_type
+    return instance.type
 
 
 def undrivable_brake(instance: InstanceWiring, model: PhysicsModel) -> str | None:

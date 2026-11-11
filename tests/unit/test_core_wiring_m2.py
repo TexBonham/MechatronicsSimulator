@@ -138,38 +138,28 @@ def test_brake_on_the_lift_motor_shaft_reflects_the_lifted_mass(built: object) -
 
 
 @pytest.mark.req("BLD-035")
-def test_brake_on_a_driven_prismatic_joint_reflects_the_rotor_and_is_reported(built: object) -> None:
+@pytest.mark.req("SIG-020")
+def test_a_brake_off_a_revolute_shaft_joint_is_a_wiring_error(built: object) -> None:
+    """Ruling 29: a brake on a transmission's driven joint (the bridge holds no second drive there) or on any other
+    non-revolute joint ends the build with an error naming the brake and the joint."""
     model = built.physics  # type: ignore[attr-defined]
     places, _ = core_wiring.joint_places(model)
     brake = _instances(built)["lift_brake"].model_copy(update={"acts_on": "lift_axis"})  # type: ignore[attr-defined]
-    params = core_wiring.brake_parameters(brake, places, model)
-    screw = next(item for item in model.transmissions if item.name == "lift_screw")
-    c = screw.lead / (2.0 * math.pi)
-    names = [body.name for body in model.bodies]
-    mass = sum(model.bodies[names.index(name)].mass for name in ("lift_carriage", "hook"))
-    shaft = model.bodies[names.index("lift_motor_shaft")]
-    assert params["joint"] == places["lift_axis"].body
-    assert params["brake_torque"] == pytest.approx(0.5 / c, rel=1e-12)
-    assert params["inverse_inertia"] == pytest.approx(1.0 / (mass + core_wiring.axial_inertia(shaft) / c**2), rel=1e-12)
+    with pytest.raises(core_wiring.WiringError, match="brake 'lift_brake': cannot be applied on joint 'lift_axis'"):
+        core_wiring.brake_parameters(brake, places, model)
     line = core_wiring.undrivable_brake(brake, model)
     assert line is not None
-    assert "brake 'lift_brake': cannot be applied on joint 'lift_axis'" in line
     assert "lift_screw" in line
     assert "the lift" not in line
     assert core_wiring.undrivable_brake(_instances(built)["x_motor"], model) is None  # type: ignore[arg-type]
-
-
-@pytest.mark.req("BLD-035")
-def test_brake_on_a_prismatic_joint_driven_by_several_shafts_is_refused(built: object) -> None:
-    """brake_torque / c has one c; a joint with two driving shafts has no single holding force (audit minor)."""
-    model = built.physics  # type: ignore[attr-defined]
-    places, _ = core_wiring.joint_places(model)
-    screw = next(item for item in model.transmissions if item.name == "lift_screw")
-    second = screw.model_copy(update={"name": "lift_screw_2"})
-    doubled = model.model_copy(update={"transmissions": (*model.transmissions, second)})
-    brake = _instances(built)["lift_brake"].model_copy(update={"acts_on": "lift_axis"})  # type: ignore[attr-defined]
-    with pytest.raises(core_wiring.WiringError, match="driven by 2 transmissions \\('lift_screw', 'lift_screw_2'\\)"):
-        core_wiring.brake_parameters(brake, places, doubled)
+    undriven = model.model_copy(update={"transmissions": ()})
+    with pytest.raises(core_wiring.WiringError, match="acts on prismatic joint 'lift_axis'; a brake acts on"):
+        core_wiring.brake_parameters(brake, places, undriven)
+    swing = brake.model_copy(update={"acts_on": "hook_swing"})
+    with pytest.raises(core_wiring.WiringError, match="acts on spherical joint 'hook_swing'; a brake acts on"):
+        core_wiring.brake_parameters(swing, places, model)
+    hinge = brake.model_copy(update={"acts_on": "x_motor_spin"})
+    assert "inverse_inertia" not in core_wiring.brake_parameters(hinge, places, undriven)
 
 
 @pytest.mark.req("BLD-035")
@@ -188,6 +178,14 @@ def test_load_cell_reads_its_payload_and_the_amplifier_the_chip_adc(built: objec
     )
     found = core_wiring.component_parameters(reaction, places, model, [], chip)
     assert found["joint_reaction"] == places["hook_swing"].body
+    typo = original.model_copy(update={"senses": original.senses.model_copy(update={"joint_reaction": "hook_swnig"})})
+    with pytest.raises(core_wiring.WiringError, match="senses 'hook_swnig', no joint or payload"):
+        core_wiring.component_parameters(typo, places, model, ["payload"], chip, "payload")
+    by_name = original.model_copy(
+        update={"senses": original.senses.model_copy(update={"joint_reaction": None, "payload": "crate"})}
+    )
+    with pytest.raises(core_wiring.WiringError, match="load cell 'load_cell': senses payload 'crate'"):
+        core_wiring.component_parameters(by_name, places, model, ["payload"], chip, "payload")
     with pytest.raises(core_wiring.WiringError, match="no chip"):
         core_wiring.component_parameters(_instances(built)["load_amp"], places, model, [], None)  # type: ignore[arg-type]
 
@@ -217,8 +215,8 @@ def test_load_cell_without_a_payload_in_the_run_has_no_target(built: object) -> 
 @pytest.mark.req("SIG-011")
 @pytest.mark.req("LIB-025")
 def test_frame_side_encoders_are_linear_on_the_axis_joints(built: object) -> None:
-    """Ruling 32: each gantry encoder is a linear_encoder on its axis joint, m per count, the core's
-    incremental_encoder with linear true; 1 / 60000 m matches the firmware's 60000 counts per metre."""
+    """Ruling 32: each gantry encoder is a linear_encoder on its axis joint, m per count; the core type comes from the
+    catalog's plugin.cpp and `linear` from the resolution's length dimension, no type name in code."""
     model = built.physics  # type: ignore[attr-defined]
     places, _ = core_wiring.joint_places(model)
     for axis in ("x", "y", "lift"):
@@ -229,9 +227,12 @@ def test_frame_side_encoders_are_linear_on_the_axis_joints(built: object) -> Non
         assert params["resolution"] == pytest.approx(1.0 / 60000.0, rel=1e-15)
         assert params["coordinate"].kind == core.CoordinateKind.linear
         assert params["coordinate"].body == places[f"{axis}_axis"].body
-        assert core_wiring.CORE_TYPES[instance.type] == "incremental_encoder"
+        assert core_wiring.core_type(instance) == "incremental_encoder"
+        assert instance.length_parameters == ("resolution", "noise")
         assert core.make_signal_component("incremental_encoder", instance.name, params) is not None
-    rotary = _instances(built)["x_encoder"].model_copy(update={"type": "incremental_encoder"})  # type: ignore[attr-defined]
+    rotary = _instances(built)["x_encoder"].model_copy(  # type: ignore[attr-defined]
+        update={"type": "incremental_encoder", "length_parameters": ()}
+    )
     assert "linear" not in core_wiring.component_parameters(rotary, places, model)
 
 
@@ -284,7 +285,8 @@ def test_g3_run_records_joints_payload_and_motion_events(tmp_path: Path) -> None
     assert starts[0].time < 0.01
     assert ("state_change", "not_homed>homing") in kinds
     assert ("state_change", "homing>ready") in kinds
-    assert kinds.count(("controller_fault", "none")) == 1
+    # SCO-022: a controller_fault event only on a change; the first sample's "none" is no change.
+    assert kinds.count(("controller_fault", "none")) == 0
 
 
 @pytest.mark.req("DES-045", "FW-028")
@@ -304,7 +306,8 @@ def test_g3_run_records_joints_payload_and_motion_events(tmp_path: Path) -> None
     ],
 )
 def test_event_arguments_decode_by_their_kind(code: int, arg: int, detail: str) -> None:
-    """Round 4 ruling 28: axis, fault, state (a packed from-to pair above 255), number, none; unknown kinds as number."""
+    """Round 4 ruling 28: axis, fault, state (a packed from-to pair above 255), number, none; unknown kinds as
+    number."""
     state = core_wiring.RunnerState(
         event_arguments={6: "axis", 3: "fault", 1: "state", 2: "number", 8: "none"},
         axes={0: "x_driver"},
