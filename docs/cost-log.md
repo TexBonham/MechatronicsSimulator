@@ -52,3 +52,4 @@ type live in the root `CLAUDE.md` dispatch table once measured.
 | 2026-11-11 | M2-A3: stepper loss-of-synchronism rule (SIG-039), drive torque apportioning, load cell joint_reaction; G7 no longer diverges (wip/04-a3 fa102dc) | module-writer (opus), worktree from X2 WIP | ~198K | 70 calls, 20 min |
 | 2026-11-11 | M2-X3: payload as fixed child, joint_reaction senses, rail ref, G5 to G11 cases, suite and baseline to G11, 20 ACC/FW/TST stubs converted; G1 to G9 and G11 pass, G10 one criterion (wip/04-x1 db7e1de) | module-writer (opus), fresh in the X1 worktree | ~293K | 145 calls, 43 min; cap reached |
 | 2026-11-11 | Gate audit: integration wave (X1, X2, A3, X3) | invariant-auditor (opus) | ~60K | 2 major (stand-in payload body, event argument kinds), 2 minor; to X4 |
+| 2026-11-11 | M2 review: integration wave (X1, X2, A3, X3) | general-purpose (fable) | ~120K | 18 calls; accept with fixes (1 high: hold criteria by construction; 5 medium; rulings 28 to 31) |
