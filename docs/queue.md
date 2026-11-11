@@ -5,9 +5,14 @@ State for the coordinating session. A new session reads this, then `docs/rulings
 ## Current checkpoint
 
 Round 4 (milestone 2) in flight on `round/04-milestone-2`, cut from main at 46cbfe6 on 2026-11-10. Plan of record:
-`docs/briefs/round-04/plan.md` (signed off 2026-11-10). Wave 0 done inline: `debug` preset without clang-tidy,
-`jobs: 2` on every preset, `tools/locked_build.sh` (one build at a time), README `python3-dev` row. Briefs of record
-in `docs/briefs/round-04/`. Worktrees `../MechatronicsSimulator-04-<letter>` on `wip/04-<letter>`.
+`docs/briefs/round-04/plan.md` (signed off 2026-11-10). Wave 0 and wave 1 landed as stage commits: prep (8aa11f3),
+G chip data and catalog types (b99aba9), D suites and regression (7b98dda), C and A1 bridge faults and sensor
+fidelity (fea1b9c), W Windows CI and native runtime on Windows (e0d817e). E (gantry firmware G5 to G14, accepted at
+review, `wip/04-e` 5bf3179) is held for the integration wave: its new E-stop status channel is unbound in the design
+and faults the firmware end to end. Wave 2 in flight: A2 (`wip/04-a2`), F1 (`wip/04-f1`), B (`wip/04-b`), all from
+e0d817e. Briefs of record in `docs/briefs/round-04/`. Worktrees `../MechatronicsSimulator-04-<letter>`. The round
+branch is not pushed: the session's permission classifier refuses `git push`; the owner pushes (`! git push -u
+origin round/04-milestone-2`) or adds a rule for `round/*` and `wip/*`.
 
 ## Round 4 open rulings (owner answers when available; the planned default applies until then)
 
@@ -30,7 +35,9 @@ in `docs/briefs/round-04/`. Worktrees `../MechatronicsSimulator-04-<letter>` on 
 
 ## Next
 
-1. Wave 0 dispatch: G (schema-author) and W (Windows CI) in parallel. Then wave 1: A1, C, D, E.
+1. Wave 2 reviews (A2 with B, F1 alone), merge-backs, then wave 3: F2 (after F1) and X1 (merges `wip/04-e`, binds the
+   load cell, amplifier, E-stop status, brake and heartbeat channels, event-code table, payload in the neutral model,
+   fault routing through B's scheduling; G5 to G8). Then X2, X3, the gate.
 2. Owner ruling 2026-11-05: the implicit joint drive stays while the MuJoCo bridge is the physics carrier; the
    question of how the stepper hold is applied (drive input versus the own engine's implicit springs, ADR 0013) is
    re-decided when the native adapter replaces the bridge (PHY-020, ADR 0004 retirement).
