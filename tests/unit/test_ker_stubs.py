@@ -21,13 +21,6 @@ def test_ker_019() -> None:
     raise NotImplementedError
 
 
-@pytest.mark.req("KER-021")
-@pytest.mark.xfail(strict=True, reason="stub")
-def test_ker_021() -> None:
-    """While the controller runtime is frozen, the kernel shall keep stepping physics and the signal layer."""
-    raise NotImplementedError
-
-
 @pytest.mark.req("KER-023")
 @pytest.mark.xfail(strict=True, reason="stub")
 def test_ker_023() -> None:

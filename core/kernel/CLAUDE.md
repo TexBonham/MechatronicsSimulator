@@ -14,10 +14,10 @@ EventLogEntry, channel constants, PowerRail, payload kinds) that signals and con
 | `run_config.hpp` | `RunConfig{physics_rate, control_rate, party_rates, base_rate (kernel-written), seed, controller_mode, solver, drift}` |
 | `kernel.hpp` | `Kernel`: `register_party`, `set_end_triggers(EndTriggers{at_time, on_signal, party_state})`, `run(EndCondition{end_time, stop}, sink) -> RunReport{outcome, base_rate, end_time, ticks, fault, end_reason, step_counts}`, `now`, `config`; `NullKernel` |
 | `cosim_kernel.hpp` | `CoSimKernel(RunConfig)`, `coupling()`; `splitmix64_next`, `derive_child_seeds` |
-| `physics_party.hpp` | `PhysicsPartyConfig{name, rate, inputs, drift}`; `PhysicsParty(unique_ptr<PhysicsAdapter>, config)`: role physics, publishes `<name>.outputs`, sums the `inputs` PhysicsInputs payloads (forces summed, wrenches and joint drives concatenated; two drives on one joint in a tick: KernelConfigError, KER-027), faults on non-convergence or drift > max(thresholds) (KER-016), `record` fills `row.physics` |
+| `physics_party.hpp` | `PhysicsPartyConfig{name, rate, inputs, drift}`; `PayloadMass{kg}`, `PayloadCarrier{body}`; `PhysicsParty(unique_ptr<PhysicsAdapter>, config)`: role physics, publishes `<name>.outputs`, sums the `inputs` PhysicsInputs payloads (forces summed, wrenches and joint drives concatenated; two drives on one joint in a tick: KernelConfigError, KER-027), faults on non-convergence or drift > max(thresholds) (KER-016); `schedule_slip(transmission, start, end, fraction)`, `schedule_payload_change(payload, tick, PayloadMass or PayloadCarrier)`; `record` fills `row.physics` and the fault events |
 | `null_party.hpp` | `NullParty(name, rate)`: tier 1 integrity slot until M3 |
-| `physics_types.hpp` | `kWorldBody` (contact body index of the world); `PhysicsOutputs{steps, bodies, joints, constraints, contacts, members, ropes, transmissions, joint_positions, joint_drive_torques}`, `PhysicsInputs{generalized_forces, body_wrenches, joint_drives}`, `JointDrive{joint, rest, stiffness, damping, enabled}`, `JointDriveTorque{joint, torque}`, `PhysicsHealth{drift, converged, iterations, steps, physics_rate}` |
-| `physics_adapter.hpp` | `PhysicsAdapter`: `supported_elements()`, `load(PreparedModel{json, engine_artifact, design_version}, physics_rate)`, `reset()`, `step()`, `outputs()`, `health()`, `set_inputs()`, mid-run `set_spring_offset/_stiffness`, `disable_constraint`, `release_load`, `set_payload_mass`, `set_payload_attachment`; `AdapterError(step, cause)` |
+| `physics_types.hpp` | `kWorldBody` (contact body index of the world; payload carrier once released); `PhysicsOutputs{steps, bodies, joints, constraints, contacts, members, ropes, transmissions (+ `slip`), joint_positions, joint_drive_torques, payloads}`, `PayloadState{body, carrier, attached, force}`, `PhysicsInputs{generalized_forces, body_wrenches, joint_drives}`, `JointDrive{joint, rest, stiffness, damping, enabled}`, `JointDriveTorque{joint, torque}`, `PhysicsHealth{drift, converged, iterations, steps, physics_rate}` |
+| `physics_adapter.hpp` | `PhysicsAdapter`: `supported_elements()`, `load(PreparedModel{json, engine_artifact, design_version}, physics_rate)`, `reset()`, `step()`, `outputs()`, `health()`, `set_inputs()`, mid-run `set_spring_offset/_stiffness`, `disable_constraint`, `release_load`, `set_payload_mass`, `set_payload_attachment` (release: `set_payload_attachment(p, kWorldBody)`, index based), `set_transmission_slip(transmission, fraction)` (default refuses: no slip model); `AdapterError(step, cause)` |
 | `tick_record.hpp` | `TickRecord{time, physics, pin_signals, rails, actuator_efforts, controller_state, events, coupling}` |
 | `recorder_sink.hpp` | `RecorderSink`: `write_row`, `subscribe`, `unsubscribe`, defaulted `subscriber_errors`; `NullRecorderSink` |
 | `memory_recorder_sink.hpp` | `InMemoryRecorderSink`: `rows`, `drain`, `drained`, `subscriber_count`, `subscriber_errors` |
@@ -61,6 +61,19 @@ physics step, last, stamped at the step's end.
 
 Ordering and rates 108; coupling 325; end conditions 449; config errors 550; faults 589; seeds and
 determinism 714; streaming and triggers 822.
+
+## Scheduled physics faults (KER-023, `PhysicsParty`)
+
+Known before t = 0, in kernel ticks. Slip: `set_transmission_slip(t, fraction)` before the first step at or after
+`start`, `set_transmission_slip(t, 0)` before the first at or after `end` (adjacent windows on one transmission: one
+call at the boundary); fraction in (0, 1]. Payload change: `set_payload_mass` (finite, > 0 kg) or
+`set_payload_attachment` before the first step at or after its tick. Malformed: `KernelConfigError` at the call;
+overlapping slip windows on one transmission or two changes to one payload at one tick: `KernelConfigError` at
+`start()`, as is a slip window holding no step at the party's rate; after `start()`: `KernelConfigError`; with slip
+windows, a step period other than the nominal one faults the first step. Each start, end
+and change: `RecordedEvent{t, "kernel", "fault", detail}` (`slip start transmission i fraction f`, `slip end
+transmission i`, `payload i mass m` / `carrier b` / `released`) on the first row after the step. Tests:
+`tests/test_physics_party.cpp`, section "Scheduled faults"; controller-side windows in `core/controller/CLAUDE.md`.
 
 ## Scheduling (KER-023)
 

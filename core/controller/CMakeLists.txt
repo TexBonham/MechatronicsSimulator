@@ -38,6 +38,7 @@ mechsim_controller_mirror_app(mechsim_controller_mirror_250hz MIRROR_TICK_HZ=250
 set(MECHSIM_CONTROLLER_NATIVE_WORK ${CMAKE_CURRENT_BINARY_DIR}/native_work)
 add_executable(mechsim_controller_native_tests
     tests/native_test_support.cpp
+    tests/test_controller_faults.cpp
     tests/test_native_build.cpp
     tests/test_native_shim.cpp
 )

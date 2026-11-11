@@ -7,6 +7,7 @@ every comparison is exact equality.
 from __future__ import annotations
 
 import csv
+import dataclasses
 import json
 import math
 from pathlib import Path
@@ -181,16 +182,7 @@ def test_rec_022_one_value_change_is_named(tmp_path: Path) -> None:
     bodies = (old.physics.bodies[0], BodyState((9.0, 9.0, 9.0), *(_rest(old.physics.bodies[1]))))
     changed[17] = TickRecord(
         old.time,
-        PhysicsOutputs(
-            old.physics.steps,
-            bodies,
-            old.physics.joints,
-            old.physics.constraints,
-            old.physics.contacts,
-            old.physics.members,
-            old.physics.ropes,
-            old.physics.transmissions,
-        ),
+        dataclasses.replace(old.physics, bodies=bodies),
         old.pin_signals,
         old.rails,
         old.actuator_efforts,

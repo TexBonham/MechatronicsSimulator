@@ -3,6 +3,7 @@
 #include <pybind11/stl.h>
 #include <pybind11/stl/filesystem.h>
 
+#include <cstddef>
 #include <cstdint>
 #include <memory>
 #include <optional>
@@ -390,7 +391,34 @@ void bind_cosim(py::module_& m) {
     py::class_<kernel::PhysicsParty, kernel::Party, py::smart_holder>(
         m, "PhysicsParty", "A loaded PhysicsAdapter as the physics party (KER-016); takes ownership of the adapter.")
         .def(py::init<std::unique_ptr<kernel::PhysicsAdapter>, kernel::PhysicsPartyConfig>(), py::arg("adapter"),
-             py::arg("config") = kernel::PhysicsPartyConfig{});
+             py::arg("config") = kernel::PhysicsPartyConfig{})
+        .def("schedule_slip", &kernel::PhysicsParty::schedule_slip, py::arg("transmission"), py::arg("start"),
+             py::arg("end"), py::arg("fraction"))
+        .def(
+            "schedule_payload_change",
+            [](kernel::PhysicsParty& party, std::size_t payload, kernel::SimTime at, std::optional<double> mass,
+               std::optional<std::int64_t> carrier) {
+                if (mass.has_value() == carrier.has_value()) {
+                    throw kernel::KernelConfigError("schedule_payload_change: give exactly one of mass and carrier");
+                }
+                if (mass.has_value()) {
+                    party.schedule_payload_change(payload, at, kernel::PayloadMass{*mass});
+                    return;
+                }
+                if (*carrier == -1) {
+                    party.schedule_payload_change(payload, at, kernel::PayloadCarrier{kernel::kWorldBody});
+                    return;
+                }
+                if (*carrier < 0) {
+                    throw kernel::KernelConfigError("schedule_payload_change: carrier " + std::to_string(*carrier) +
+                                                    " is neither a body index nor -1 (world)");
+                }
+                party.schedule_payload_change(payload, at,
+                                              kernel::PayloadCarrier{static_cast<std::size_t>(*carrier)});
+            },
+            py::arg("payload"), py::arg("tick"), py::kw_only(), py::arg("mass") = py::none(),
+            py::arg("carrier") = py::none(),
+            "A new mass (kg) or a new carrier body (-1 releases to the world) before the step at `tick`.");
 
     py::class_<controller::ControllerPartyConfig>(m, "ControllerPartyConfig")
         .def(py::init<>())
@@ -398,12 +426,16 @@ void bind_cosim(py::module_& m) {
         .def_readwrite("rate", &controller::ControllerPartyConfig::rate)
         .def_readwrite("pin_inputs", &controller::ControllerPartyConfig::pin_inputs)
         .def_readwrite("rails", &controller::ControllerPartyConfig::rails)
-        .def_readwrite("rail", &controller::ControllerPartyConfig::rail);
+        .def_readwrite("rail", &controller::ControllerPartyConfig::rail)
+        .def_readwrite("latency_ticks", &controller::ControllerPartyConfig::latency_ticks);
     py::class_<controller::ControllerParty, kernel::Party, py::smart_holder>(
         m, "ControllerParty", "A loaded ControllerRuntime as the controller party (KER-020); takes ownership.")
         .def(py::init<std::unique_ptr<controller::ControllerRuntime>, controller::ControllerPartyConfig>(),
              py::arg("runtime"), py::arg("config") = controller::ControllerPartyConfig{})
-        .def("pin_outputs", &controller::ControllerParty::pin_outputs);
+        .def("pin_outputs", &controller::ControllerParty::pin_outputs)
+        .def("schedule_freeze", &controller::ControllerParty::schedule_freeze, py::arg("start"), py::arg("end"))
+        .def("schedule_slowdown", &controller::ControllerParty::schedule_slowdown, py::arg("start"), py::arg("end"),
+             py::arg("factor"));
 
     py::class_<signals::ComponentClock>(m, "ComponentClock", "Base rate, layer period and child seed (SIG-030).")
         .def(py::init<>())

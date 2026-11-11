@@ -22,18 +22,24 @@ import numpy as np
 from numpy.typing import NDArray
 
 from mechsim.record.layout import (
+    COLUMN_SERIES,
     CONSTRAINT_FORCE,
     CONTACT_ROW,
     CONTROLLER_STATE,
     COUPLING,
     COUPLING_DIGEST,
     COUPLING_VALUE,
+    DRIVE_DRIVEN,
+    DRIVE_TORQUE,
     JOINT_FORCE,
+    JOINT_POSITIONS,
     NAMED_GROUPS,
+    Columns,
     Recording,
     Series,
     check_rate,
     check_text,
+    label_series,
     seconds,
 )
 from mechsim.record.tick import (
@@ -41,8 +47,10 @@ from mechsim.record.tick import (
     ConstraintForce,
     ContactForce,
     CouplingSample,
+    JointDriveTorque,
     JointForce,
     MemberEndLoads,
+    PayloadState,
     PhysicsOutputs,
     Quat,
     RecordedEvent,
@@ -56,7 +64,9 @@ from mechsim.record.tick import (
 )
 
 FORMAT = "mechsim-run-archive"
-FORMAT_VERSION = 1
+FORMAT_VERSION = 2
+# Version 1 lacks the joint, drive and payload series and the column labels; they read as empty.
+READABLE_VERSIONS = (1, 2)
 CHUNK_ROWS = 1024
 CONTROLLER_MODES = ("native", "emulated", "none")
 END_CONDITION_MET = "end_condition_met"
@@ -217,10 +227,17 @@ META_PREFIX = "meta_"
 
 
 def write_archive(
-    path: Path, identity: RunIdentity, end: RunEnd, recording: Recording, extra: Mapping[str, str] | None = None
+    path: Path,
+    identity: RunIdentity,
+    end: RunEnd,
+    recording: Recording,
+    extra: Mapping[str, str] | None = None,
+    columns: Mapping[str, Columns] | None = None,
 ) -> None:
     """Write one run archive; an existing file at `path` is replaced. `extra` lands as root attrs `meta_<key>` in key
-    order: run metadata a caller keeps beside the identity (run id, end reason, bridge approximations)."""
+    order: run metadata a caller keeps beside the identity (run id, end reason, bridge approximations). `columns`
+    labels index-column series (REC-018) over any labels the recording carries."""
+    series_map = label_series(recording.series, columns or {})
     with h5py.File(path, "w", libver=("v110", "v110"), track_order=False) as h5:
         attrs = h5.attrs
         for key in sorted(extra or {}):
@@ -251,12 +268,15 @@ def write_archive(
         attrs["series"] = np.array(list(recording.series), dtype=h5py.string_dtype())
         _dataset(h5, _DESIGN_FILE, np.frombuffer(identity.design_file, dtype=np.uint8))
         _dataset(h5, _TEST_CASE_FILE, np.frombuffer(identity.test_case_file, dtype=np.uint8))
-        for name, series in recording.series.items():
+        for name, series in series_map.items():
             dataset = _dataset(h5, name, series.values)
             dataset.attrs["unit"] = series.unit
             dataset.attrs["axis"] = series.axis
             if name in (JOINT_FORCE, CONSTRAINT_FORCE):
                 dataset.attrs["counts"] = np.array(series.counts, dtype=np.int64)
+            if name in COLUMN_SERIES:
+                dataset.attrs["names"] = np.array(list(series.names), dtype=h5py.string_dtype())
+                dataset.attrs["units"] = np.array(list(series.units), dtype=h5py.string_dtype())
         for group in NAMED_GROUPS:
             h5.require_group(group).attrs["names"] = np.array(recording.named[group], dtype=h5py.string_dtype())
         coupling = h5.require_group(COUPLING)
@@ -302,6 +322,10 @@ class RunArchive:
         if _text(attrs.get("format", "")) != FORMAT:
             self._file.close()
             raise RecordError(f"{path} is not a {FORMAT}")
+        self.format_version = int(attrs.get("format_version", 0))
+        if self.format_version not in READABLE_VERSIONS:
+            self._file.close()
+            raise RecordError(f"{path}: format version {self.format_version}, readable {list(READABLE_VERSIONS)}")
         fault: RunFault | None = None
         if "fault_party" in attrs:
             fault = RunFault(_text(attrs["fault_party"]), int(attrs["fault_time"]), _text(attrs["fault_cause"]))
@@ -346,7 +370,9 @@ class RunArchive:
             raise RecordError(f"no series {name!r} in the archive")
         dataset = self._file[name]
         counts = tuple(int(count) for count in dataset.attrs.get("counts", np.zeros(0, dtype=np.int64)))
-        return Series(dataset[...], _text(dataset.attrs["unit"]), _text(dataset.attrs["axis"]), counts)
+        names = tuple(_text(item) for item in dataset.attrs.get("names", ()))
+        units = tuple(_text(item) for item in dataset.attrs.get("units", ()))
+        return Series(dataset[...], _text(dataset.attrs["unit"]), _text(dataset.attrs["axis"]), counts, names, units)
 
     def named(self, group: str) -> tuple[str, ...]:
         return tuple(_text(name) for name in self._file[group].attrs["names"])
@@ -443,6 +469,8 @@ class RunArchive:
         contact_rows: NDArray[Any],
     ) -> PhysicsOutputs:
         def at(name: str) -> Any:
+            if name not in values:
+                return []
             return values[name][index]
 
         bodies = tuple(
@@ -510,4 +538,31 @@ class RunArchive:
                 strict=True,
             )
         )
-        return PhysicsOutputs(at("physics/steps"), bodies, joints, constraints, contacts, members, ropes, transmissions)
+        drive_torques = tuple(
+            JointDriveTorque(joint, torque)
+            for joint, (torque, driven) in enumerate(zip(at(DRIVE_TORQUE), at(DRIVE_DRIVEN), strict=True))
+            if driven
+        )
+        payloads = tuple(
+            PayloadState(body, carrier, attached, _vec3(force))
+            for body, carrier, attached, force in zip(
+                at("physics/payloads/body"),
+                at("physics/payloads/carrier"),
+                at("physics/payloads/attached"),
+                at("physics/payloads/force"),
+                strict=True,
+            )
+        )
+        return PhysicsOutputs(
+            at("physics/steps"),
+            bodies,
+            joints,
+            constraints,
+            contacts,
+            members,
+            ropes,
+            transmissions,
+            tuple(at(JOINT_POSITIONS)),
+            drive_torques,
+            payloads,
+        )

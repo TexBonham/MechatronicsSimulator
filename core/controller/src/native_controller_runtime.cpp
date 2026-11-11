@@ -31,6 +31,7 @@
 #include "mechsim/kernel/time.hpp"
 #include "mechsim/pins/pins.hpp"
 #include "mechsim_board.h"
+#include "windows_text.hpp"
 
 namespace mechsim::controller {
 
@@ -86,28 +87,7 @@ void check_voltage(double voltage) {
 }
 
 #if defined(_WIN32)
-std::string error_text(DWORD code) {
-    LPWSTR buffer = nullptr;
-    const DWORD length = ::FormatMessageW(
-        FORMAT_MESSAGE_ALLOCATE_BUFFER | FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS, nullptr, code, 0,
-        reinterpret_cast<LPWSTR>(&buffer), 0, nullptr);
-    std::string text = "error " + std::to_string(code);
-    if (length > 0 && buffer != nullptr) {
-        std::wstring message(buffer, length);
-        while (!message.empty() && (message.back() == L'\n' || message.back() == L'\r' || message.back() == L' ')) {
-            message.pop_back();
-        }
-        const int size = ::WideCharToMultiByte(CP_UTF8, 0, message.data(), static_cast<int>(message.size()), nullptr,
-                                               0, nullptr, nullptr);
-        text.assign(static_cast<std::size_t>(size), '\0');
-        ::WideCharToMultiByte(CP_UTF8, 0, message.data(), static_cast<int>(message.size()), text.data(), size,
-                              nullptr, nullptr);
-    }
-    if (buffer != nullptr) {
-        ::LocalFree(buffer);
-    }
-    return text;
-}
+using detail::error_text;
 #endif
 
 // dlopen hands back one handle per path, so two runtimes opening the same file would share the firmware's static

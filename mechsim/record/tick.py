@@ -13,6 +13,8 @@ Quat = tuple[float, float, float, float]
 
 ZERO3: Vec3 = (0.0, 0.0, 0.0)
 IDENTITY: Quat = (1.0, 0.0, 0.0, 0.0)
+# `kWorldBody` (the C++ size_t maximum) as a payload carrier: released.
+WORLD_BODY = -1
 
 
 class RecordError(Exception):
@@ -79,6 +81,25 @@ class TransmissionState:
 
 
 @dataclass(frozen=True, slots=True)
+class JointDriveTorque:
+    """Torque or force a joint drive applied in the step, on its joint along the + axis: N m or N (PHY-034)."""
+
+    joint: int = 0
+    torque: float = 0.0
+
+
+@dataclass(frozen=True, slots=True)
+class PayloadState:
+    """A payload body and its carrier after the step; `carrier` is `WORLD_BODY` once released, `force` the world-frame
+    force the attachment applies, N (PHY-006, ENG-035)."""
+
+    body: int = 0
+    carrier: int = WORLD_BODY
+    attached: bool = False
+    force: Vec3 = ZERO3
+
+
+@dataclass(frozen=True, slots=True)
 class PhysicsOutputs:
     steps: int = 0
     bodies: tuple[BodyState, ...] = ()
@@ -88,6 +109,9 @@ class PhysicsOutputs:
     members: tuple[MemberEndLoads, ...] = ()
     ropes: tuple[RopeTension, ...] = ()
     transmissions: tuple[TransmissionState, ...] = ()
+    joint_positions: tuple[float, ...] = ()
+    joint_drive_torques: tuple[JointDriveTorque, ...] = ()
+    payloads: tuple[PayloadState, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
