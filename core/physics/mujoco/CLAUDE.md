@@ -48,6 +48,10 @@ springs and payload changes on a shaft body throw `AdapterError`.
 | `set_payload_attachment(p, carrier)` | weld on at the translated relative pose; any other carrier throws (no re-parenting) |
 
 Shaft output under slip or play: angle + (r_cmd - r_eff), rate + (Delta r_cmd - Delta r_eff) / h (`ShaftMap::receive`).
+Steady slip (approximation, recorded): the spring sees K (rest - theta') with theta' the reported end-state shaft
+angle, so the stepper's theta + omega h prediction (omega the reported rate v) is exact and leaves no spring offset;
+the drive's damper acts on the driven rate, (1 - s) v, so the drive carries a constant offset D s v against the
+stepper's damper term (bounded by D v; the stepper's tangent absorbs it in its lead).
 A step with no enabled drive on the shaft ends tracking; the next enabled rest restarts there, no increment counted,
 band re-centred on rest - slip_accum, `slip_accum` kept (ruling 10).
 
@@ -57,9 +61,9 @@ Every shaft joint and every `signals.drive_joints` entry has an inactive one-joi
 in `mechsim:drives`) on the DOF it moves. `apply_drives` each step: all off, then per enabled drive K_d = K / c^2,
 D_d = D / c^2, `eq_data[0]` = rest c - qvel h, d = clamp(Z / (1 + Z), 1e-4, 400 / 401) with Z = (K_d h^2 + D_d h) A0
 (A0 = `dof_invweight0`), solref = (-(1 - d) K_d A0, -(1 - d) D_d A0), solimp (d, d, 0.001, 0.5, 2);
-s0 h^2 + 2 s1 h >= 4 throws (past the clamp: K_d A0 h^2 >~ 1600 on a bare DOF). The result is backward Euler, the
-spring and damper at the step's end state, (m + D_d h + K_d h^2) a = F - D_d v - K_d (q + v h - rest_d), exact to
-Z = 400; the read-back `efc_force` is K (rest - q') - D v'. Static sag and steady lag (behind the same step's rest)
+envelope Z <= 400, beyond it `AdapterError` (PHY-034; past the clamp backward Euler is lost and from Z ~ 535 the
+shifted-rest map diverges). The result is backward Euler, the spring and damper at the step's end state,
+(m + D_d h + K_d h^2) a = F - D_d v - K_d (q + v h - rest_d); the read-back `efc_force` is K (rest - q') - D v'. Static sag and steady lag (behind the same step's rest)
 exact. Brief M2-C2: the old start-state spring (eq_data = rest c, d = 1 - 1 / (K_d A0 h^2)) left a stepper's rest at
 theta + omega h standing omega h ahead of the joint, so its braking drive drove G10's x axis to 0.78 m/s under slip.
 Derivation above `apply_drives`.

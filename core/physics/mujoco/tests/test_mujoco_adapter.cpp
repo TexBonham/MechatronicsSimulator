@@ -809,7 +809,19 @@ TEST_CASE("MuJoCo adapter refuses drives it cannot apply", "[PHY-034][PHY-009]")
     PhysicsInputs twice = driven(JointDrive{0, 0.0, 1.0, 0.0, true});
     twice.joint_drives.push_back(JointDrive{0, 0.1, 1.0, 0.0, false});
     CHECK_THROWS_AS(screw->set_inputs(twice), AdapterError);
-    // Past the clamp d = 400 / 401 the loop frequency is s0 = K / (401 m): K = 1e10 N/m on 1 kg gives s0 h^2 = 24.9 >= 4.
+    // The envelope is Z = (K_d h^2 + D_d h) A0 <= 400 (past it the clamp breaks backward Euler and from Z of about 535
+    // the semi-implicit map with the shifted rest diverges). Slider, 1 kg, A0 = 1 / m, h = 1 ms: K = 4e8 N/m is
+    // Z = 400 exactly; K = 3.99e8 (Z = 399) runs and K = 4.01e8 (Z = 401) throws. Damping counts: K = 3.9e8 with
+    // D = 1e5 N s/m is Z = 390 + 100 = 490 and throws, as does K = 1e10.
+    auto below = loaded("slider.xml");
+    below->set_inputs(driven(JointDrive{0, 0.0, 3.99e8, 0.0, true}));
+    CHECK_NOTHROW(below->step());
+    auto above = loaded("slider.xml");
+    above->set_inputs(driven(JointDrive{0, 0.0, 4.01e8, 0.0, true}));
+    CHECK_THROWS_AS(above->step(), AdapterError);
+    auto damped = loaded("slider.xml");
+    damped->set_inputs(driven(JointDrive{0, 0.0, 3.9e8, 1e5, true}));
+    CHECK_THROWS_AS(damped->step(), AdapterError);
     auto slider = loaded("slider.xml");
     slider->set_inputs(driven(JointDrive{0, 0.0, 1e10, 0.0, true}));
     CHECK_THROWS_AS(slider->step(), AdapterError);
@@ -1180,6 +1192,16 @@ TEST_CASE("A stepper through a slipping belt drives the carriage at (1 - s) v an
     // pull-out of 2 steps, and the implicit step only lowers the spring's energy). Transients decay by at least
     // 1 / sqrt(1 + K_hold h^2 / J_eff) = 0.93 per tick, so 450 ticks into the window they are below 1e-14: speeds to
     // 1e-6 relative.
+    // Expected failure on the old start-state mapping (eq_data = rest c, the spring at q, v before the step): the
+    // drive then applies K (rest - theta) with theta the angle the stepper sampled, not the step's end angle. The slip
+    // onset (the driven joint suddenly sees (1 - s) of each increment) pushes |omega h - n' step| past one step and
+    // the loss-of-synchronism rule publishes rest = theta + omega h - sign(omega) step with K = tau_avail(omega) /
+    // step. At the start state that is K (omega h - step) = tau_avail(omega) (omega h / step - 1) along the motion,
+    // positive whenever the shaft turns more than one step per tick: the brake drives the shaft faster, which raises
+    // omega h further, until tau_avail(omega) = 0 at the curve's end, 1800 rpm = 188.5 rad/s, where K = 0 and the
+    // shaft coasts (6 steps per tick, carriage (1 - s) 188.5 c = 0.84 m/s; X3 saw 0.78 m/s on G10). Measured on the
+    // old mapping: carriage 0.834 m/s, shaft 186.5 rad/s, worst torque 0.82 N m, so each speed and the torque bound
+    // below fail.
     const double step = std::numbers::pi / 100.0;
     const double c = 0.04 / (2.0 * std::numbers::pi);
     const double rpm = 2.0 * std::numbers::pi / 60.0;

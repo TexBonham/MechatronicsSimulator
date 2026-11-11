@@ -54,7 +54,7 @@ element; counter channels may sum several signals (A + B).
 | `brake` (safety, power stage in the wiring) | `Brake` | see the brake drive bound below |
 | `power_supply` | `PowerSupply` | `power_loss` fault: 0 V for [start, end) (SIG-019) |
 
-Brake drive bound (PHY-034 envelope K_d A0 h^2 < 400): K_b = `brake_envelope_product` / (A0 h^2) = 100 / (A0 h^2)
+Brake drive bound (PHY-034 envelope (K_d h^2 + D_d h) A0 <= 400): K_b = `brake_envelope_product` / (A0 h^2) = 100 / (A0 h^2)
 with A0 (`inverse_inertia`, the joint's `dof_invweight0`) given, so K_b A0 h^2 = 100; without it K_b = brake_torque /
 `brake_default_compliance` (0.01 rad), which the wiring must keep under the envelope. Hold: rest at the engagement
 coordinate or where it stuck (static sag L / K_b), K_b and the brake's damping. Slip (SIG-020, brief M2-C2) on

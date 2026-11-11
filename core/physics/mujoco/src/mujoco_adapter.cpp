@@ -169,6 +169,9 @@ struct MemberMap {
 // violation.
 constexpr double drive_impedance_min = 1e-4;
 constexpr double drive_impedance_max = 400.0 / 401.0;
+// Past Z = 400 the clamp breaks backward Euler, and with the rest shifted by -v h the semi-implicit map needs
+// 3 s0 h^2 + 2 s1 h < 4 and s0 h^2 + s1 h < 2, which fail from Z of about 535: the envelope ends at the clamp.
+constexpr double drive_envelope = 400.0;
 constexpr double drive_impedance_width = 1e-3;
 
 constexpr std::array<int, 3> fatal_warnings{mjWARN_BADQPOS, mjWARN_BADQVEL, mjWARN_BADQACC};
@@ -871,7 +874,7 @@ void MujocoAdapter::Engine::apply_inputs() {
 // drive_impedance_max]. Evaluated at the start state instead (eq_data = rest_d), a rest a stepper places at the
 // predicted angle theta + omega h stands omega h ahead of the joint, and its braking drive pushes the shaft on
 // (brief M2-C2). Static sag F / K_d and the steady lag D_d w / K_d are exact; past the clamp the step is less than
-// backward Euler, and s0 h^2 + 2 s1 h >= 4 (semi-implicit instability) is an AdapterError.
+// backward Euler, so Z > drive_envelope (400) is an AdapterError.
 void MujocoAdapter::Engine::apply_drives() {
     const mjModel& m = *model;
     const mjData& d = *data;
@@ -897,11 +900,12 @@ void MujocoAdapter::Engine::apply_drives() {
         const double impedance = std::clamp(implicit / (1.0 + implicit), drive_impedance_min, drive_impedance_max);
         const double s0 = (1.0 - impedance) * stiffness * weight;
         const double s1 = (1.0 - impedance) * damping * weight;
-        if ((s0 * h * h) + (2.0 * s1 * h) >= 4.0) {
+        if (implicit > drive_envelope) {
             throw AdapterError(outputs.steps, "drive on joint " + std::to_string(drive.joint) + ": stiffness " +
                                                   std::to_string(drive.stiffness) + " and damping " +
                                                   std::to_string(drive.damping) +
-                                                  " are beyond the bridge's stable drive envelope at this step (PHY-034)");
+                                                  " are beyond the bridge's drive envelope (K_d h^2 + D_d h) A0 <= 400 "
+                                                  "at this step (PHY-034)");
         }
         const auto eq = to_size(coordinate.equality);
         m.eq_solref[(mjNREF * eq) + 0] = -s0;
