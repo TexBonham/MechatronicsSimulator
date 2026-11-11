@@ -12,10 +12,14 @@ from mechsim.library.schema import CATALOG_DIR
 
 SHIPPED_TYPES = [
     "belt_pulley",
+    "brake",
     "estop_relay",
+    "imu",
     "incremental_encoder",
     "lead_screw",
     "limit_switch",
+    "load_cell",
+    "load_cell_amplifier",
     "power_supply",
     "step_dir_driver",
     "stepper_behavioral",
@@ -43,6 +47,26 @@ def test_registry_loads_every_shipped_type_and_part() -> None:
 def test_default_registry_is_loaded_once() -> None:
     assert default_registry() is default_registry()
     assert default_registry().type_names() == SHIPPED_TYPES
+
+
+@pytest.mark.req("DES-039")
+@pytest.mark.req("LIB-019")
+@pytest.mark.req("LIB-027")
+@pytest.mark.parametrize(
+    ("type_name", "part_name", "category"),
+    [
+        ("load_cell", "load_cell_5kg_generic", "sensor"),
+        ("load_cell_amplifier", "load_cell_amplifier_generic", "front_end"),
+        ("imu", "imu_6axis_generic", "sensor"),
+        ("brake", "brake_24v_generic", "safety"),
+    ],
+)
+def test_milestone_2_types_resolve_from_the_default_registry(type_name: str, part_name: str, category: str) -> None:
+    registry = default_registry()
+    assert registry.has_type(type_name)
+    assert registry.component_type(type_name).category == category
+    assert registry.part(part_name).type == type_name
+    assert registry.resolve_part(part_name).type == type_name
 
 
 @pytest.mark.req("DES-039")

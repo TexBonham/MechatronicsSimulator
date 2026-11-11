@@ -1,0 +1,81 @@
+# Load-cell amplifier, a sensor front end separate from the load cell it serves (LIB-019, LIB-026); its out pin binds
+# to an adc_input pin. Numeric part values are placeholders.
+types:
+  - name: load_cell_amplifier
+    version: 1.0.0
+    category: front_end
+    description: Bridge amplifier with a fixed gain and a single-ended analog output for an ADC input.
+    parameters:
+      - name: mass
+        dimension: "[mass]"
+        minimum: "0 kg"
+      - name: gain
+        dimension: dimensionless
+        minimum: "0"
+        minimum_exclusive: true
+      - name: output_full_scale
+        dimension: "[mass] * [length] ** 2 / [time] ** 3 / [current]"
+        minimum: "0 V"
+        minimum_exclusive: true
+      - name: offset
+        dimension: "[mass] * [length] ** 2 / [time] ** 3 / [current]"
+        default: "0 V"
+      - name: bandwidth
+        dimension: "1 / [time]"
+        minimum: "0 Hz"
+        minimum_exclusive: true
+      - name: supply_voltage
+        dimension: "[mass] * [length] ** 2 / [time] ** 3 / [current]"
+        minimum: "0 V"
+        minimum_exclusive: true
+      - name: supply_current
+        dimension: "[current]"
+        minimum: "0 A"
+    tiers:
+      - name: ideal
+        parameters: [mass, gain, output_full_scale, offset, bandwidth, supply_voltage, supply_current]
+    mechanical:
+      mass:
+        source: parameter
+        parameter: mass
+      mounts:
+        - name: board
+          kind: pad
+          offset: ["0 mm", "0 mm", "0 mm"]
+    electrical:
+      pins:
+        - name: signal_in
+          direction: input
+          signal_kind: analog
+        - name: out
+          direction: output
+          signal_kind: analog
+          voltage_rating: output_full_scale
+        - name: vcc
+          direction: power_in
+          signal_kind: power
+          voltage_rating: supply_voltage
+          current_rating: supply_current
+        - name: ground
+          direction: ground
+          signal_kind: ground
+    ratings:
+      absolute_maximums: []
+    thermal:
+      held_constant: true
+      temperature: "298.15 K"
+    plugin:
+      cpp: load_cell_amplifier
+parts:
+  - name: load_cell_amplifier_generic
+    type: load_cell_amplifier
+    tier: ideal
+    source: placeholder values, no datasheet assigned
+    values:
+      mass: "5 g"
+      gain: "128"
+      output_full_scale: "3.3 V"
+      bandwidth: "10 Hz"
+      supply_voltage: "5 V"
+      supply_current: "1.5 mA"
+    placeholders: [mass, gain, output_full_scale, bandwidth, supply_voltage, supply_current]

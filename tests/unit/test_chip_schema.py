@@ -63,11 +63,175 @@ def test_shipped_placeholder_chip_lists_the_gantry_pins() -> None:
 
 
 @pytest.mark.req("DES-029")
-@pytest.mark.parametrize("field", ["name", "family", "status", "platform_description", "svd", "pins"])
+def test_shipped_placeholder_chip_states_its_electrical_facts_in_si() -> None:
+    chip = load_chip(PLACEHOLDER_CHIP)
+    assert chip.core_voltage == pytest.approx(3.3)
+    assert chip.brownout_threshold == pytest.approx(2.0)
+    assert chip.adc.resolution_bits == 12
+    assert chip.adc.reference_voltage == pytest.approx(3.3)
+    assert chip.counter_bits == 16
+
+
+@pytest.mark.req("DES-029")
+def test_placeholder_values_are_marked_in_the_file() -> None:
+    lines = PLACEHOLDER_CHIP.read_text(encoding="utf-8").splitlines()
+    for key in ("core_voltage:", "brownout_threshold:", "resolution_bits:", "reference_voltage:", "counter_bits:"):
+        matching = [line for line in lines if line.strip().startswith(key)]
+        assert len(matching) == 1, key
+        assert matching[0].endswith("# placeholder until the part is selected (gantry team)"), key
+
+
+@pytest.mark.req("DES-029")
+@pytest.mark.parametrize(
+    "field",
+    [
+        "name",
+        "family",
+        "status",
+        "platform_description",
+        "svd",
+        "pins",
+        "core_voltage",
+        "brownout_threshold",
+        "adc",
+        "counter_bits",
+    ],
+)
 def test_required_field_missing(field: str) -> None:
     data = shipped()
     del data[field]
+    rejected(data, field, "Field required")
+
+
+@pytest.mark.req("DES-029")
+@pytest.mark.parametrize("field", ["resolution_bits", "reference_voltage"])
+def test_adc_field_missing(field: str) -> None:
+    data = shipped()
+    del data["adc"][field]
+    rejected(data, f"adc.{field}", "Field required")
+
+
+@pytest.mark.req("DES-029")
+@pytest.mark.parametrize(
+    ("value", "valid"),
+    [(0, False), (1, True), (2, True), (12, True), (31, True), (32, True), (33, False), (-1, False)],
+)
+def test_adc_resolution_bits_bounds(value: int, valid: bool) -> None:
+    data = shipped()
+    data["adc"]["resolution_bits"] = value
+    if valid:
+        assert Chip.model_validate(data).adc.resolution_bits == value
+    else:
+        rejected(data, "adc.resolution_bits")
+
+
+@pytest.mark.req("DES-029")
+@pytest.mark.parametrize(
+    ("value", "valid"),
+    [(0, False), (1, True), (2, True), (16, True), (32, True), (63, True), (64, True), (65, False), (-16, False)],
+)
+def test_counter_bits_bounds(value: int, valid: bool) -> None:
+    data = shipped()
+    data["counter_bits"] = value
+    if valid:
+        assert Chip.model_validate(data).counter_bits == value
+    else:
+        rejected(data, "counter_bits")
+
+
+@pytest.mark.req("DES-029")
+@pytest.mark.parametrize(
+    ("where", "value"),
+    [
+        ("counter_bits", "16"),
+        ("counter_bits", 16.0),
+        ("counter_bits", True),
+        ("counter_bits", None),
+        ("adc.resolution_bits", "12"),
+        ("adc.resolution_bits", 12.0),
+        ("adc.resolution_bits", False),
+        ("adc", "12 bits"),
+        ("adc", []),
+        ("adc", None),
+    ],
+)
+def test_wrong_type_rejected(where: str, value: Any) -> None:
+    data = shipped()
+    if where == "adc.resolution_bits":
+        data["adc"]["resolution_bits"] = value
+    else:
+        data[where] = value
+    rejected(data, where)
+
+
+@pytest.mark.req("DES-029")
+def test_empty_adc_block_rejected() -> None:
+    data = shipped()
+    data["adc"] = {}
+    rejected(data, "adc.resolution_bits", "adc.reference_voltage")
+
+
+@pytest.mark.req("DES-029")
+@pytest.mark.parametrize("field", ["core_voltage", "brownout_threshold", "adc.reference_voltage"])
+@pytest.mark.parametrize(
+    "value",
+    [3.3, 3, "3.3", "3.3 A", "3.3 m", "3.3 volts per metre", "V", "", True, None, "nan V", "inf V"],
+)
+def test_voltage_needs_a_voltage_unit_string(field: str, value: Any) -> None:
+    data = shipped()
+    if field == "adc.reference_voltage":
+        data["adc"]["reference_voltage"] = value
+    else:
+        data[field] = value
     rejected(data, field)
+
+
+@pytest.mark.req("DES-029")
+@pytest.mark.parametrize("field", ["core_voltage", "brownout_threshold", "adc.reference_voltage"])
+@pytest.mark.parametrize("value", ["0 V", "-1 V", "-0.001 V"])
+def test_voltage_must_be_positive(field: str, value: str) -> None:
+    data = shipped()
+    if field == "adc.reference_voltage":
+        data["adc"]["reference_voltage"] = value
+    else:
+        data[field] = value
+    rejected(data, field)
+
+
+@pytest.mark.req("DES-029")
+@pytest.mark.parametrize(
+    ("field", "value", "expected"),
+    [
+        ("core_voltage", "5 V", 5.0),
+        ("core_voltage", "3300 mV", 3.3),
+        ("core_voltage", "1 mV", 0.001),
+        ("adc.reference_voltage", "1 uV", 1e-6),
+        ("adc.reference_voltage", "2500 mV", 2.5),
+    ],
+)
+def test_positive_voltage_stored_in_volts(field: str, value: str, expected: float) -> None:
+    data = shipped()
+    data["brownout_threshold"] = "0.0001 V"
+    if field == "adc.reference_voltage":
+        data["adc"]["reference_voltage"] = value
+        assert Chip.model_validate(data).adc.reference_voltage == pytest.approx(expected)
+    else:
+        data[field] = value
+        assert Chip.model_validate(data).core_voltage == pytest.approx(expected)
+
+
+@pytest.mark.req("DES-029")
+@pytest.mark.parametrize(
+    ("brownout", "valid"),
+    [("0.001 V", True), ("2.0 V", True), ("3.299 V", True), ("3.3 V", False), ("3300 mV", False), ("3.301 V", False)],
+)
+def test_brownout_threshold_strictly_below_core_voltage(brownout: str, valid: bool) -> None:
+    data = shipped()
+    data["brownout_threshold"] = brownout
+    if valid:
+        assert Chip.model_validate(data).brownout_threshold < 3.3
+    else:
+        rejected(data, "brownout_threshold", "must be below core_voltage")
 
 
 @pytest.mark.req("DES-029")
@@ -173,12 +337,14 @@ def test_bad_pin_name_rejected(name: str) -> None:
 
 
 @pytest.mark.req("DES-029")
-@pytest.mark.parametrize("where", ["root", "pin"])
+@pytest.mark.parametrize("where", ["root", "pin", "adc"])
 def test_unknown_key_rejected(where: str) -> None:
     data = shipped()
     target = data
     if where == "pin":
         target = data["pins"][0]
+    if where == "adc":
+        target = data["adc"]
     target["alternate_function"] = "AF1"
     rejected(data, "alternate_function")
 

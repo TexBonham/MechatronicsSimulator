@@ -3,7 +3,9 @@
 A chip is data: an emulator platform description, an SVD register map and a pin map, in `chips/<name>/chip.yaml`.
 The pin map names every MCU pin and the peripheral modes it supports; a design's pin-binding table may only use a pin
 and mode the map lists. A `placeholder` chip stands in until a real part is selected and may leave its platform
-description and SVD as `placeholder`; a `verified` chip names both files, relative to its folder.
+description and SVD as `placeholder`; a `verified` chip names both files, relative to its folder. Every chip states its
+electrical facts the controller runtime and signal layer consume (CTL-013, SIG-014): core voltage, brownout threshold,
+ADC resolution and reference, and the width of its timer encoder counters, as unit strings in the file and SI inside.
 """
 
 from __future__ import annotations
@@ -15,10 +17,12 @@ import sys
 from pathlib import Path
 from typing import Annotated, Any, Literal
 
-from pydantic import AfterValidator, ConfigDict, Field, ValidationError, model_validator
+from pydantic import AfterValidator, ConfigDict, Field, ValidationError, WithJsonSchema, model_validator
 from ruamel.yaml import YAML
 
+from mechsim.library.schema import QUANTITY_PATTERN
 from mechsim.schema_base import StrictModel, format_errors
+from mechsim.units import Voltage
 
 SCHEMA_PATH = Path(__file__).resolve().parents[2] / "schemas" / "chip.json"
 CHIPS_DIR = Path(__file__).resolve().parents[2] / "chips"
@@ -32,6 +36,7 @@ PeripheralMode = Literal[
 
 Name = Annotated[str, Field(pattern=r"^[a-z][a-z0-9_]*$")]
 McuPin = Annotated[str, Field(pattern=r"^[A-Z][A-Z0-9_]*$")]
+PositiveVoltage = Annotated[Voltage, Field(gt=0.0), WithJsonSchema({"type": "string", "pattern": QUANTITY_PATTERN})]
 
 
 def _no_parent_segment(value: str) -> str:
@@ -61,6 +66,11 @@ class ChipPin(StrictModel):
         return self
 
 
+class ChipAdc(StrictModel):
+    resolution_bits: int = Field(ge=1, le=32)
+    reference_voltage: PositiveVoltage
+
+
 class Chip(StrictModel):
     """Root of `chips/<name>/chip.yaml`."""
 
@@ -73,6 +83,10 @@ class Chip(StrictModel):
     platform_description: ChipFile
     svd: ChipFile
     pins: list[ChipPin] = Field(min_length=1)
+    core_voltage: PositiveVoltage
+    brownout_threshold: PositiveVoltage
+    adc: ChipAdc
+    counter_bits: int = Field(ge=1, le=64)
 
     @model_validator(mode="after")
     def _consistent(self) -> Chip:
@@ -82,6 +96,10 @@ class Chip(StrictModel):
             if pin.name in seen:
                 errors.append(f"pins[{index}]: duplicate pin {pin.name!r}")
             seen.add(pin.name)
+        if self.brownout_threshold >= self.core_voltage:
+            errors.append(
+                f"brownout_threshold: {self.brownout_threshold} V must be below core_voltage {self.core_voltage} V"
+            )
         if self.status == "verified":
             for field in ("platform_description", "svd"):
                 if getattr(self, field) == PLACEHOLDER:

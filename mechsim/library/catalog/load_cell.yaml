@@ -1,0 +1,107 @@
+# Strain-gauge load cell (LIB-019, LIB-025): a bridge whose output is sensitivity x excitation at capacity, read
+# through a separate load_cell_amplifier front end (LIB-026). Numeric part values are placeholders.
+types:
+  - name: load_cell
+    version: 1.0.0
+    category: sensor
+    description: >-
+      Strain-gauge bridge load cell. Output voltage at capacity is sensitivity times excitation voltage; the absolute
+      maximum force is overload_limit, 1.5 times capacity for the shipped part.
+    parameters:
+      - name: mass
+        dimension: "[mass]"
+        minimum: "0 kg"
+      - name: capacity
+        dimension: "[force]"
+        minimum: "0 N"
+        minimum_exclusive: true
+      - name: sensitivity
+        dimension: dimensionless
+        minimum: "0"
+        minimum_exclusive: true
+        description: Output volts per excitation volt at capacity, typically 2e-3.
+      - name: excitation_voltage
+        dimension: "[mass] * [length] ** 2 / [time] ** 3 / [current]"
+        minimum: "0 V"
+        minimum_exclusive: true
+      - name: resolution
+        dimension: "[force]"
+        minimum: "0 N"
+      - name: noise
+        dimension: "[force]"
+        default: "0 N"
+        minimum: "0 N"
+      - name: delay
+        dimension: "[time]"
+        default: "0 s"
+        minimum: "0 s"
+      - name: sample_rate
+        dimension: "1 / [time]"
+        minimum: "1 Hz"
+      - name: overload_limit
+        dimension: "[force]"
+        minimum: "0 N"
+        minimum_exclusive: true
+      - name: nonlinearity
+        dimension: dimensionless
+        default: "0"
+        minimum: "0"
+        maximum: "1"
+    tiers:
+      - name: ideal
+        parameters:
+          - mass
+          - capacity
+          - sensitivity
+          - excitation_voltage
+          - resolution
+          - noise
+          - delay
+          - sample_rate
+          - overload_limit
+      - name: nonlinear
+        parameters: [nonlinearity]
+    mechanical:
+      mass:
+        source: parameter
+        parameter: mass
+      mounts:
+        - name: body
+          kind: bolt_pattern
+          offset: ["0 mm", "0 mm", "0 mm"]
+    electrical:
+      pins:
+        - name: excitation
+          direction: power_in
+          signal_kind: power
+          voltage_rating: excitation_voltage
+        - name: signal
+          direction: output
+          signal_kind: analog
+        - name: ground
+          direction: ground
+          signal_kind: ground
+    ratings:
+      absolute_maximums:
+        - name: force
+          parameter: overload_limit
+    thermal:
+      held_constant: true
+      temperature: "298.15 K"
+    failure_modes: [stuck, noisy, dropped]
+    plugin:
+      cpp: load_cell
+parts:
+  - name: load_cell_5kg_generic
+    type: load_cell
+    tier: ideal
+    source: placeholder values, no datasheet assigned
+    values:
+      mass: "30 g"
+      capacity: "49.05 N"
+      sensitivity: "2e-3"
+      excitation_voltage: "5 V"
+      resolution: "0.01 N"
+      sample_rate: "80 Hz"
+      overload_limit: "73.575 N"
+    placeholders: [mass, capacity, sensitivity, excitation_voltage, resolution, sample_rate, overload_limit]

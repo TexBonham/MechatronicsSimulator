@@ -29,6 +29,7 @@
             "actuator",
             "driver",
             "sensor",
+            "front_end",
             "transmission",
             "power",
             "safety",
@@ -581,6 +582,12 @@
           ],
           "default": null,
           "title": "Minimum"
+        },
+        "minimum_exclusive": {
+          "default": false,
+          "description": "True: a value must lie strictly above the minimum",
+          "title": "Minimum Exclusive",
+          "type": "boolean"
         },
         "name": {
           "pattern": "^[a-z][a-z0-9_]*$",

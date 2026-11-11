@@ -1,5 +1,27 @@
 {
   "$defs": {
+    "ChipAdc": {
+      "additionalProperties": false,
+      "properties": {
+        "reference_voltage": {
+          "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s+\\S.*)?$",
+          "title": "Reference Voltage",
+          "type": "string"
+        },
+        "resolution_bits": {
+          "maximum": 32,
+          "minimum": 1,
+          "title": "Resolution Bits",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "resolution_bits",
+        "reference_voltage"
+      ],
+      "title": "ChipAdc",
+      "type": "object"
+    },
     "ChipPin": {
       "additionalProperties": false,
       "properties": {
@@ -39,6 +61,25 @@
   "additionalProperties": false,
   "description": "Root of `chips/<name>/chip.yaml`.",
   "properties": {
+    "adc": {
+      "$ref": "#/$defs/ChipAdc"
+    },
+    "brownout_threshold": {
+      "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s+\\S.*)?$",
+      "title": "Brownout Threshold",
+      "type": "string"
+    },
+    "core_voltage": {
+      "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s+\\S.*)?$",
+      "title": "Core Voltage",
+      "type": "string"
+    },
+    "counter_bits": {
+      "maximum": 64,
+      "minimum": 1,
+      "title": "Counter Bits",
+      "type": "integer"
+    },
     "description": {
       "anyOf": [
         {
@@ -94,7 +135,11 @@
     "status",
     "platform_description",
     "svd",
-    "pins"
+    "pins",
+    "core_voltage",
+    "brownout_threshold",
+    "adc",
+    "counter_bits"
   ],
   "title": "ChipFile",
   "type": "object"
