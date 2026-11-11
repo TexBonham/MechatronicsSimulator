@@ -4,18 +4,16 @@ State for the coordinating session. A new session reads this, then `docs/rulings
 
 ## Current checkpoint
 
-Round 4 (milestone 2) in flight on `round/04-milestone-2`, cut from main at 46cbfe6 on 2026-11-10. Plan of record:
-`docs/briefs/round-04/plan.md`. Stage commits landed: prep 8aa11f3, G b99aba9, D 7b98dda, C and A1 fea1b9c, W
-e0d817e, F1 76e5738, A2 and B 66f6127, F2 ee5448b. Integration branch `wip/04-x1` (E merged; X1 d774e4f, X2
-9030952, A3 fa102dc, X3 db7e1de, X4 317e419, C2 merged at 0497675): G1 to G6, G8, G11, G13, G14 pass on the CLI; G7
-and G9 wait on C2's brake fix (merged, not yet rerun); G10 waits on frame-side encoders. In flight: A4
-(`wip/04-a4` from 0497675: linear encoder, load cell without target). Next: merge A4 into `wip/04-x1`, X5 (`m2-x5.md`:
-rulings 32 and the stand-in payload, G7, G9, G10, suite to G14, carry-overs), the incremental review of X4, A4, X5
-with an Opus audit, the X-wave stage landing under `debug-sanitize`, then the gate: reference-validator (the
-PHY-034 drive mapping changed, ruling 33: baselines re-recorded with justification), Fable gate review, owner
-review. Reviews of record so far: G, C, A1, D, E, W, F1, A2, B, F2, X1 to X3 (grouped), C2; audits clean except the
-X-wave gate audit's two majors (fixed in X4 and A4). The round branch is not pushed: the owner pushes or adds a
-rule for `round/*` and `wip/*`.
+Round 4 (milestone 2) on `round/04-milestone-2`, cut from main at 46cbfe6 on 2026-11-10. Plan of record:
+`docs/briefs/round-04/plan.md`. Stage commits: prep 8aa11f3, G b99aba9, D 7b98dda, C and A1 fea1b9c, W e0d817e,
+F1 76e5738, A2 and B 66f6127, F2 ee5448b, integration wave 5d553cc (G1 to G11, G13, G14 in the acceptance tier;
+debug-sanitize 347, firmware 92, Python 3707 passed). In flight: reference-validator for the gate (ruling 33's drive
+mapping), F3 (`wip/04-f3`: browser client on `list_runs` and `advance`). Next: Fable gate review (`review-m2-gate.md`),
+F3 landing, docs-indexer round-close pass, the gate commit for the owner's review, then the round close (cost-log
+archive, contract sweep, PR to main with a merge commit). The round branch is not pushed: the owner pushes or adds a
+rule for `round/*` and `wip/*`. Open rulings 1 to 33 below await the owner; 33 (drive mapping), 23 (drive
+combination), 11 (predicted lead), 24 (fixed payload), 25 (relay auto-close), 29 (brake error) change milestone 1
+behaviour or the architecture and need explicit confirmation at the gate.
 
 ## Round 4 open rulings (owner answers when available; the planned default applies until then)
 
