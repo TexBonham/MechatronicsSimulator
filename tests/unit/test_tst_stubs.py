@@ -19,10 +19,3 @@ def test_tst_029() -> None:
     no other source.
     """
     raise NotImplementedError
-
-
-@pytest.mark.req("TST-034")
-@pytest.mark.xfail(strict=True, reason="stub")
-def test_tst_034() -> None:
-    """The CLI shall drive the simulator only through the facade and hold no domain logic of its own."""
-    raise NotImplementedError

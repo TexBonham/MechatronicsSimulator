@@ -38,3 +38,5 @@ type live in the root `CLAUDE.md` dispatch table once measured.
 | 2026-11-10 | M2-F1 fix round: reader under mechsim/record, one answer per request, strict version, end reasons, conformance cases (wip/04-f1 8e960e3) | module-writer (opus), resumed | ~35K | 26 calls |
 | 2026-11-10 | M2-F1 re-review | general-purpose (fable), resumed | ~30K | 8 calls; accept; ADR 0015 events row to align at merge-back |
 | 2026-11-10 | Invariant audit: wave 2 (A2, B, F1) | invariant-auditor (sonnet) | ~35K | clean, three minors (tier default, archive format version, swallowed parse error) |
+| 2026-11-10 | M2 review: A2 and B | general-purpose (fable) | 138K | 18 calls; A2 accept, B accept with rulings 18 to 20 |
+| 2026-11-10 | M2-F1 stage landed: merge wip/04-f1, ruling 15 in the import test and tool contract, TST-034 stub dropped, ADR 0015 events row aligned; full suite 3463 passed | inline | ~20K | coordinator |

@@ -34,6 +34,9 @@ origin round/04-milestone-2`) or adds a rule for `round/*` and `wip/*`.
 | 15 | F1: `mechsim.viewer` may be imported under `mechsim/facade/` (the facade serves the viewer's probes, timeline and geometry, VIE-014); invariant 9 keeps display code inside `mechsim/viewer/` and that package still imports no Qt or OpenGL. `tools/check_imports.py` rule and its test updated. | allowed | coordinator ruling, for confirmation |
 | 16 | F1 review: series decimation is nearest-centre per equal bucket (the first sample when points >= samples); accepted as the ADR 0015 algorithm and written into FAC-018. | accept | coordinator ruling, for confirmation |
 | 17 | F1 review: the archive reader (`Kinematics`, `RecordingView`, `RecordArchiveReader`) moves under `mechsim/record/` with no import of `mechsim._core`, re-exported by `core_driver`; replay runs without the extension (VIE-016, REC-024). `run_suite` drops its seed and mode fields. | as stated | coordinator ruling, for confirmation |
+| 18 | B review (REC-018): index-column series for joints, transmissions and payloads carry per-column `names` and `units` group attrs supplied by the driver from the neutral model; archive format version 2, reader accepts 1 and 2. | as stated | coordinator ruling, for confirmation |
+| 19 | B: CTL-020 latency counts whole control ticks; CTL-021 slow-down ticks the controller once per `factor` periods (tick skipping), outputs hold between. | as stated | coordinator ruling, for confirmation |
+| 20 | A2 review: SCO-013 widens to layer `approximation` events (the load cell's saturation line) so they reach the score report; spec edit and scoring change in X2. | widen | coordinator ruling, for confirmation |
 | 6 | Placeholders set by the coordinator for the gantry team's slots: overload limit rated + 15 percent (3.45 kg), heartbeat period 10 ms, watchdog timeout 50 ms, brownout threshold 2.0 V, encoder mismatch threshold 2 mm, ADC 12 bits at 3.3 V | as listed | open |
 
 ## Next
