@@ -393,7 +393,7 @@ class Facade:
                 data = None
             if isinstance(data, dict) and isinstance(data.get("version"), str):
                 version = data["version"]
-            entries.append(DesignEntry(name=path.parent.name, path=str(path), version=version, errors=errors))
+            entries.append(DesignEntry(name=path.parent.name, path=path.as_posix(), version=version, errors=errors))
         return DesignList(designs=entries)
 
     def list_runs(self) -> RunList:
@@ -418,7 +418,7 @@ class Facade:
         results: list[FileValidation] = []
         for file in files:
             kind, errors = validate_file(file, self._services.designs_root)
-            results.append(FileValidation(path=str(file), kind=kind, errors=errors))
+            results.append(FileValidation(path=file.as_posix(), kind=kind, errors=errors))
         return ValidationResult(files=results)
 
     def _inside(self, path: Path) -> Path:
@@ -438,7 +438,7 @@ class Facade:
             raise FacadeError("not_found", f"{path}: no such file", "FAC-017", "path")
         text = target.read_text(encoding="utf-8")
         kind = self._writable_kind(target, text, path)
-        return FileContent(path=str(path), kind=kind, text=text)
+        return FileContent(path=path.as_posix(), kind=kind, text=text)
 
     def _writable_kind(self, target: Path, text: str, shown: Path) -> str:
         try:
@@ -469,7 +469,7 @@ class Facade:
                 else:
                     target.write_bytes(previous)
                 raise FacadeError("validation_failed", "\n".join(errors), "FAC-017", "text")
-        return WriteResult(path=str(path), kind=kind)
+        return WriteResult(path=path.as_posix(), kind=kind)
 
     # ----- runs --------------------------------------------------------
 
