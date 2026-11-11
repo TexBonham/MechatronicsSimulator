@@ -36,6 +36,7 @@ from mechsim.testing.schema import DESIGNS_ROOT, ROOT, CaseError, load_test_case
 from mechsim.viewer import ProbeError, ReplayCursor, ReplayError, body_geometry, probe, timeline
 
 RUN_ERROR_REQUIREMENT = "INV-007"
+CORE_MODULE = "mechsim._core"
 ProbeKind = Literal["body", "joint", "pin", "signal"]
 
 
@@ -65,16 +66,19 @@ class FacadeServices:
 
 
 def default_services() -> FacadeServices:
-    """The real services over the core binding; unwired (runs refused, validate still works) when the extension is
-    not built."""
-    from mechsim._core import CoreNotBuiltError
+    """The archive reader always (replay needs no engine, VIE-016); the runner and live wiring over the core binding
+    when the extension is built, else unwired (runs refused, validate and replay still work)."""
+    from mechsim.record.reader import RecordArchiveReader
 
+    reader = RecordArchiveReader()
     try:
         from mechsim.facade.core_wiring import CoreLiveWiring
-        from mechsim.testing.core_driver import RecordArchiveReader, core_services
-    except CoreNotBuiltError:
-        return FacadeServices()
-    return FacadeServices(runner=core_services(), reader=RecordArchiveReader(), live=CoreLiveWiring())
+        from mechsim.testing.core_driver import core_services
+    except ImportError as error:
+        if error.name is None or not error.name.startswith(CORE_MODULE):
+            raise
+        return FacadeServices(reader=reader)
+    return FacadeServices(runner=core_services(), reader=reader, live=CoreLiveWiring())
 
 
 # ===== Result models ===================================================

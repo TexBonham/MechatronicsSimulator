@@ -126,6 +126,8 @@ class Session:
     root: Path
     run: Exchange
     subscribed: Exchange
+    missing: Exchange
+    busy: dict[str, Any]
 
 
 def _copy_inputs(root: Path) -> None:
@@ -140,20 +142,24 @@ def session(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Session]:
     root = tmp_path_factory.mktemp("conformance")
     _copy_inputs(root)
     service = Service(root)
+    run_case = {
+        "design": "designs/pendulum/design.yaml",
+        "test_case": "test_cases/pendulum/P1_period.yaml",
+        "seed": 0,
+        "mode": "none",
+    }
     with connect(service.url()) as ws:
         window = {"run_id": RUN_ID, "series": [ANGLE], "t_start": 0.0, "t_end": P1_END, "points": POINTS}
         subscribed = request(ws, "subscribe_series", window)
-        run = request(
-            ws,
-            "run_case",
-            {
-                "design": "designs/pendulum/design.yaml",
-                "test_case": "test_cases/pendulum/P1_period.yaml",
-                "seed": 0,
-                "mode": "none",
-            },
-        )
-    yield Session(service, root, run, subscribed)
+        missing = request(ws, "subscribe_series", {**window, "series": ["joint:nothing.position"]})
+        # A second run_case while the first runs is refused with busy; both go out before any answer arrives.
+        run_id = send(ws, "run_case", run_case)
+        second_id = send(ws, "run_case", run_case)
+        run = receive(ws, run_id)
+    busy = [m for m in run.messages if m["kind"] == "error" and m["payload"]["request_id"] == second_id]
+    run.messages = [m for m in run.messages if m not in busy]
+    assert len(busy) == 1
+    yield Session(service, root, run, subscribed, missing, busy[0])
     service.close()
 
 
@@ -215,6 +221,11 @@ def test_conformance_version_mismatch_names_both_versions(ws: ClientConnection) 
     assert payload["request_id"] == message_id
     assert f"version {PROTOCOL_VERSION + 1}" in payload["message"]
     assert f"version {PROTOCOL_VERSION}" in payload["message"]
+    # Only the integer itself is the version: a boolean or a float equal to it is another version (FAC-003).
+    for version in (True, 1.0, "1", None):
+        frame = {"version": version, "message_id": "v", "kind": "list_designs", "payload": {}}
+        ws.send(json.dumps(frame))
+        assert assert_error(receive(ws, "v"), "unsupported_version", "FAC-003")["request_id"] == "v"
 
 
 @pytest.mark.req("FAC-020")
@@ -272,9 +283,20 @@ def test_conformance_fac_006(session: Session) -> None:
     # P1 ends at 24.4 s, the last 1 kHz sample; the last progress report is that sample's time.
     assert progress[-1] == pytest.approx(P1_END, abs=1e-9)
     ended = session.run.messages[-2]["payload"]
-    assert (ended["run_id"], ended["reason"], ended["requirement_id"]) == (RUN_ID, "end_condition", None)
+    assert (ended["run_id"], ended["reason"], ended["requirement_id"]) == (RUN_ID, "end_time", None)
     sequences = [header["sequence"] for header, _ in session.run.batches]
     assert sequences == list(range(len(sequences)))
+
+
+@pytest.mark.req("FAC-006", "FAC-020")
+def test_conformance_one_run_at_a_time_and_one_answer_per_request(session: Session) -> None:
+    """A second run while one runs is refused with busy; a subscription that cannot be served is reported inside the
+    run's single ok answer, never as an answer of its own."""
+    assert (session.busy["payload"]["code"], session.busy["payload"]["requirement_id"]) == ("busy", "FAC-006")
+    assert session.missing.answer["payload"]["result"]["live"] is True
+    answers = [m for m in session.run.messages if m["kind"] in ("ok", "error")]
+    assert [m["kind"] for m in answers] == ["ok"]
+    assert answers[0]["payload"]["result"]["stream_errors"] == ["no series 'joint:nothing.position' in the recording"]
 
 
 @pytest.mark.req("FAC-007", "FAC-018")
@@ -331,6 +353,14 @@ def test_conformance_fac_008(ws: ClientConnection, session: Session) -> None:
     assert header["sample_count"] == 10
     times = decode(header, body)[0]
     assert np.all((times >= 1.0) & (times <= 2.0))
+    # One point over a window: one sample, so the header's t_start equals its t_end (FAC-019).
+    one = {"run_id": RUN_ID, "series": [ANGLE], "t_start": 5.0, "t_end": 6.0, "points": 1}
+    assert request(ws, "subscribe_series", one).answer["payload"]["result"]["sample_count"] == 1
+    header, body = next_batch(ws)
+    assert (header["sample_count"], header["byte_length"], len(body)) == (1, 16, 16)
+    assert header["t_start"] == header["t_end"] == decode(header, body)[0][0]
+    # Window [5, 6], one bucket with centre 5.5 s, which is a recorded 1 ms tick.
+    assert header["t_start"] == pytest.approx(5.5, abs=1e-12)
     scrub = request(ws, "scrub", {"run_id": RUN_ID, "t": 12.0005}).answer["payload"]["result"]
     assert (scrub["index"], scrub["paused"]) == (11999, True)
     assert scrub["t"] == pytest.approx(12.0, abs=1e-12)
@@ -386,7 +416,7 @@ def test_conformance_fac_012(ws: ClientConnection, tmp_path: Path) -> None:
     suite = tmp_path / "suite"
     suite.mkdir()
     (suite / "P1_period.yaml").write_text(UNRUNNABLE, encoding="utf-8")
-    payload = {"design": "designs/pendulum/design.yaml", "suite": str(suite), "seed": 0, "mode": "none"}
+    payload = {"design": "designs/pendulum/design.yaml", "suite": str(suite)}
     ran = request(ws, "run_suite", payload).answer["payload"]["result"]
     assert (ran["name"], ran["status"]) == ("suite", "error")
     report = request(ws, "report", {"suite_id": ran["suite_id"]}).answer["payload"]["result"]
@@ -404,12 +434,14 @@ def test_conformance_fac_014(ws: ClientConnection, tmp_path: Path) -> None:
     case.write_text(UNRUNNABLE, encoding="utf-8")
     payload = {"design": "designs/pendulum/design.yaml", "test_case": str(case), "seed": 0, "mode": "none"}
     exchange = request(ws, "run_case", payload)
-    assert exchange.kinds() == ["ok"]
-    result = exchange.answer["payload"]["result"]
-    assert (result["status"], result["run_id"], result["archive"]) == ("error", None, None)
-    error = result["error"]
-    assert (error["party"], error["t"], error["requirement_id"]) == ("runner", 0.0, "INV-007")
-    assert "9.9.9" in error["cause"]
+    # A case stopped before t = 0 never started: no run_ended, and the one answer is a run_error.
+    assert exchange.kinds() == ["error"]
+    error = assert_error(exchange, "run_error", "INV-007")
+    assert error["run_id"] is None
+    report = error["report"]
+    assert (report["party"], report["t"], report["requirement_id"]) == ("runner", 0.0, "INV-007")
+    assert "9.9.9" in report["cause"]
+    assert error["message"].startswith("run P1: runner at 0 s: ")
 
 
 @pytest.mark.req("FAC-017")

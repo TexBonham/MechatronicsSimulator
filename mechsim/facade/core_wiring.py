@@ -7,8 +7,9 @@ from typing import Any
 
 from mechsim.builder.result import BuildResult as CoreBuild
 from mechsim.record.layout import Recording
+from mechsim.record.reader import DriverError, Kinematics, RecordingView
 from mechsim.record.tick import TickRecord
-from mechsim.testing.core_driver import CoreDriver, DriverError, Kinematics, RecordingView, tick_record
+from mechsim.testing.core_driver import CoreDriver, tick_record
 from mechsim.testing.driver import BuildResult, RecordView, SimulationDriver
 
 

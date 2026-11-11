@@ -41,7 +41,7 @@ ErrorCode = Literal[
     "run_error",
     "internal",
 ]
-RunEndReason = Literal["end_condition", "solver_failure", "drift", "emulator_fault", "cancelled"]
+RunEndReason = Literal["end_time", "message", "controller_state", "max_duration", "run_error"]
 TimelineCategory = Literal["command", "fault", "safety_event", "criterion_failure"]
 
 
@@ -90,8 +90,6 @@ class RunCasePayload(StrictModel):
 class RunSuitePayload(StrictModel):
     design: NonEmptyText
     suite: NonEmptyText
-    seed: int = Field(ge=0)
-    mode: NonEmptyText
 
 
 class ReplayOpenPayload(StrictModel):
@@ -171,6 +169,10 @@ class ErrorPayload(StrictModel):
     code: ErrorCode
     message: NonEmptyText
     requirement_id: RequirementId | None = Field(default=None, description="ID of the violated requirement.")
+    run_id: RunId | None = Field(default=None, description="The run a run_error answers for, when it got an id.")
+    report: dict[str, JsonValue] | None = Field(
+        default=None, description="Structured run error report (party, t, cause, requirement_id) for run_error."
+    )
 
 
 # ===== Event payloads =======================================================

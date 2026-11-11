@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import ast
+import math
 import os
 import subprocess
 import sys
@@ -22,6 +23,7 @@ from tests.unit.test_runner_fakes import FakeRecording, recording_from
 
 ROOT = Path(__file__).resolve().parents[2]
 TIMES = [0.0, 0.001, 0.002, 0.003]
+ONE_STEP_BOUND = 9.81 * 0.25 * math.sin(0.05) * 12.0 * 0.001**2
 
 
 # ===== Timeline (VIE-002) ===============================================
@@ -275,37 +277,46 @@ def test_box_sphere_capsule_and_open_sizes() -> None:
 
 @pytest.mark.req("VIE-016")
 def test_replay_works_without_the_engine(tmp_path: Path) -> None:
-    from tests.unit.test_facade_service import run_machine
+    """A real P1 archive replays through the shipped reader with the core extension and MuJoCo unimportable."""
+    from mechsim.facade.service import Facade, default_services
 
-    _, summary = run_machine(tmp_path)
+    case = ROOT / "test_cases" / "pendulum" / "P1_period.yaml"
+    summary = Facade(default_services()).run_case(case, out_dir=tmp_path)
+    assert summary.archive is not None
+    # Released at rest from 0.05 rad, one 1 ms semi-implicit Euler step moves the angle by at most alpha dt^2 with
+    # alpha = m g d sin(0.05) / I = 9.81 * 0.25 * sin(0.05) * 12 rad/s^2 (m = 1 kg, d = 0.25 m, I = 1/12 kg m^2).
     script = f"""
 import sys
 
 class Block:
     def find_spec(self, name, path=None, target=None):
-        if name == "mechsim._core" or name.startswith("mechsim._core_ext") or name == "mujoco":
-            raise ImportError("engine blocked: " + name)
+        if name.startswith("mechsim._core") or name == "mujoco":
+            raise ImportError("engine blocked: " + name, name=name)
         return None
 
 sys.meta_path.insert(0, Block())
 from pathlib import Path
-from mechsim.facade.service import Facade, FacadeServices
-from tests.unit.test_runner_fakes import FakeArchiveReader
+from mechsim.facade.service import Facade, default_services
 
-facade = Facade(FacadeServices(None, FakeArchiveReader()))
+services = default_services()
+assert services.runner is None and services.live is None
+facade = Facade(services)
 handle = facade.replay_open(Path({summary.archive!r}))
-assert facade.scrub(handle.run_id, 0.0035).t == 0.003
-assert facade.step(handle.run_id, "backward").t == 0.002
-assert facade.probe(handle.run_id, "joint", "pivot").columns[0].values[3] == 3.05
-assert [e.label for e in facade.timeline(handle.run_id).entries] == ["home", "target"]
-assert "mechsim._core" not in sys.modules and "mujoco" not in sys.modules
+assert facade.scrub(handle.run_id, 12.0005).index == 11999
+assert facade.step(handle.run_id, "backward").index == 11998
+angle = facade.value_at(handle.run_id, "joint:pivot.position", 0.0)
+assert angle.t == 0.001 and abs(angle.value - 0.05) <= {ONE_STEP_BOUND!r}
+assert facade.probe(handle.run_id, "body", "link").columns[6].name == "vx"
+assert facade.geometry(handle.run_id).bodies[0]["body"] == "link"
+assert not any(name.startswith("mechsim._core") for name in sys.modules) and "mujoco" not in sys.modules
 print("replayed", handle.samples)
 """
     result = subprocess.run(
         [sys.executable, "-c", script], cwd=ROOT, capture_output=True, text=True, check=False, env=dict(os.environ)
     )
     assert result.returncode == 0, result.stderr
-    assert result.stdout == "replayed 11\n"
+    # P1 records one row per 1 ms tick from 0.001 s to its end at 24.4 s.
+    assert result.stdout == "replayed 24400\n"
 
 
 @pytest.mark.req("VIE-017")

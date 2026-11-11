@@ -84,6 +84,37 @@
           "default": null,
           "description": "ID of the violated requirement.",
           "title": "Requirement Id"
+        },
+        "run_id": {
+          "anyOf": [
+            {
+              "description": "Run identifier assigned by the service.",
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The run a run_error answers for, when it got an id.",
+          "title": "Run Id"
+        },
+        "report": {
+          "anyOf": [
+            {
+              "additionalProperties": {
+                "$ref": "#/$defs/JsonValue"
+              },
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Structured run error report (party, t, cause, requirement_id) for run_error.",
+          "title": "Report"
         }
       },
       "required": [
@@ -662,11 +693,11 @@
         },
         "reason": {
           "enum": [
-            "end_condition",
-            "solver_failure",
-            "drift",
-            "emulator_fault",
-            "cancelled"
+            "end_time",
+            "message",
+            "controller_state",
+            "max_duration",
+            "run_error"
           ],
           "title": "Reason",
           "type": "string"
@@ -781,23 +812,11 @@
           "minLength": 1,
           "title": "Suite",
           "type": "string"
-        },
-        "seed": {
-          "minimum": 0,
-          "title": "Seed",
-          "type": "integer"
-        },
-        "mode": {
-          "minLength": 1,
-          "title": "Mode",
-          "type": "string"
         }
       },
       "required": [
         "design",
-        "suite",
-        "seed",
-        "mode"
+        "suite"
       ],
       "title": "RunSuitePayload",
       "type": "object"

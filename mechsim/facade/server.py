@@ -74,8 +74,22 @@ def _message_id() -> str:
     return uuid.uuid4().hex
 
 
-def error_message(request_id: str | None, code: ErrorCode, message: str, requirement_id: str | None = None) -> str:
-    payload = ErrorPayload(request_id=request_id, code=code, message=message, requirement_id=requirement_id)
+def error_message(
+    request_id: str | None,
+    code: ErrorCode,
+    message: str,
+    requirement_id: str | None = None,
+    run_id: str | None = None,
+    report: dict[str, Any] | None = None,
+) -> str:
+    payload = ErrorPayload(
+        request_id=request_id,
+        code=code,
+        message=message,
+        requirement_id=requirement_id,
+        run_id=run_id,
+        report=report,
+    )
     return dump_message(
         ErrorResponse(version=PROTOCOL_VERSION, message_id=_message_id(), kind="error", payload=payload)
     )
@@ -127,7 +141,7 @@ def classify(text: str | bytes) -> Message | str:
     if isinstance(identifier, str) and identifier != "":
         request_id = identifier
     version = data.get("version")
-    if version != PROTOCOL_VERSION:
+    if type(version) is not int or version != PROTOCOL_VERSION:
         return error_message(
             request_id,
             "unsupported_version",
@@ -148,16 +162,17 @@ def classify(text: str | bytes) -> Message | str:
 
 
 def run_end_reason(summary: RunResultSummary) -> RunEndReason:
-    """A run that ended without error met its end condition; a run error by its party and cause (invariant 7)."""
-    error = summary.error
-    if error is None:
-        return "end_condition"
-    text = f"{error.party} {error.cause}".lower()
-    if "drift" in text:
-        return "drift"
-    if "controller" in text or "emulator" in text or "firmware" in text:
-        return "emulator_fault"
-    return "solver_failure"
+    """The runner's structured end reason (`RunReport.reason`, scored as the case's end reason)."""
+    reasons: dict[str, RunEndReason] = {
+        "end_time": "end_time",
+        "message": "message",
+        "controller_state": "controller_state",
+        "max_duration": "max_duration",
+        "run_error": "run_error",
+    }
+    if summary.end_reason is None or summary.end_reason not in reasons:
+        return "run_error"
+    return reasons[summary.end_reason]
 
 
 class _Listener:
@@ -167,6 +182,7 @@ class _Listener:
         self._push = push
         self._run_id = run_id
         self._request_id = request_id
+        self.stream_errors: list[str] = []
 
     def progress(self, t: float) -> None:
         payload = RunProgressPayload(run_id=self._run_id, t=t, t_end=None)
@@ -184,7 +200,8 @@ class _Listener:
         self._push(body)
 
     def failed(self, message: str) -> None:
-        self._push(error_message(self._request_id, "not_found", message, "FAC-011"))
+        """A stream that cannot be served is reported in the run's one answer, never as its own answer."""
+        self.stream_errors.append(message)
 
 
 @dataclass
@@ -288,9 +305,8 @@ class FacadeServer:
         request_id = message.message_id
         facade = self.facade
         kind = message.kind
-        result: BaseModel | dict[str, Any] | None = None
         payload: Any = message.payload
-        handlers: dict[str, Callable[[], Awaitable[BaseModel | dict[str, Any] | None]]] = {
+        handlers: dict[str, Callable[[], Awaitable[BaseModel | dict[str, Any] | str | None]]] = {
             "list_designs": lambda: self._call(lambda: facade.list_designs()),
             "validate_design": lambda: self._call(lambda: facade.validate(self._path(payload.design))),
             "run_case": lambda: self._run_case(connection, request_id, payload),
@@ -311,7 +327,9 @@ class FacadeServer:
             "write_file": lambda: self._call(lambda: facade.write_file(Path(payload.path), payload.text)),
         }
         result = await handlers[kind]()
-        if result is not None:
+        if isinstance(result, str):
+            await connection.queue.put(result)
+        elif result is not None:
             await connection.queue.put(ok_message(request_id, result))
 
     async def _subscribe(self, connection: _Connection, request_id: str, payload: Any) -> dict[str, Any] | None:
@@ -335,7 +353,7 @@ class FacadeServer:
             await connection.queue.put(body)
         return None
 
-    async def _run_case(self, connection: _Connection, request_id: str, payload: Any) -> RunResultSummary:
+    async def _run_case(self, connection: _Connection, request_id: str, payload: Any) -> str:
         if not self._run_lock.acquire(blocking=False):
             raise FacadeError("busy", "a run is already in progress on this service", "FAC-006")
         try:
@@ -388,7 +406,25 @@ class FacadeServer:
                     RunEndedEvent(version=PROTOCOL_VERSION, message_id=_message_id(), kind="run_ended", payload=end)
                 )
             )
-        return summary
+        return self._run_answer(request_id, summary, listener.stream_errors)
+
+    def _run_answer(self, request_id: str, summary: RunResultSummary, stream_errors: list[str]) -> str:
+        """The run's one terminal answer: `error` (run_error, with the run id and the structured report) when the run
+        ended in error or never started, else `ok` with the summary and any stream errors (FAC-014, FAC-020)."""
+        error = summary.error
+        if error is not None:
+            name = summary.run_id or summary.case_id
+            return error_message(
+                request_id,
+                "run_error",
+                f"run {name}: {error.party} at {error.t:.12g} s: {error.cause}",
+                error.requirement_id,
+                summary.run_id,
+                error.model_dump(mode="json"),
+            )
+        result = summary.model_dump(mode="json")
+        result["stream_errors"] = list(stream_errors)
+        return ok_message(request_id, result)
 
     async def _run_suite(self, payload: Any) -> BaseModel:
         if not self._run_lock.acquire(blocking=False):

@@ -7,11 +7,11 @@ runner, recorder, scoring and viewer.
 | File | Holds |
 |---|---|
 | `protocol.py` | Message models (below) |
-| `service.py` | `Facade(services, runs_dir)`, `FacadeServices(runner, reader, designs_root, live, files_root)` (= the CLI's `CliServices`), `default_services()` (core lazily; unwired without the extension), `FacadeError(code, message, requirement_id, field)`, result models |
+| `service.py` | `Facade(services, runs_dir)`, `FacadeServices(runner, reader, designs_root, live, files_root)` (= the CLI's `CliServices`), `default_services()` (archive reader always; runner and live wiring when the core extension imports), `FacadeError(code, message, requirement_id, field)`, result models |
 | `files.py` | `file_kind`, `kind_of_text`, `validate_file` (moved from the CLI), `WRITABLE_KINDS` = design, case |
 | `decimate.py` | `decimate(times, t_start, t_end, points) -> indices`, `bucket_select`, `bucket_of`, `window` |
 | `live.py` | `LiveWiring` protocol (`driver(on_row)`, `view(recording, build)`), `LiveDriver` (wraps the run's driver, mirrors rows into its own `Recorder`, subscription emits progress and batches every `CHUNK_ROWS` = 2048 rows and at the end), `Subscription`, `Batch`, `RunListener` |
-| `core_wiring.py` | `CoreLiveWiring`: `CoreDriver(subscribers=...)` rows as `TickRecord`, `RecordingView` + `Kinematics.of` for partial recordings; imported only when the core is built |
+| `core_wiring.py` | `CoreLiveWiring`: `CoreDriver(subscribers=...)` rows as `TickRecord`, `record.reader.RecordingView` + `Kinematics.of` for partial recordings; imported only when the core is built |
 | `server.py` | `serve(facade, host, port, *, token) -> FacadeServer` (`port`, `url()`, `close()`), `classify(frame)`, `ok_message`, `error_message`, `tick_batch_frames` |
 
 ## Facade methods (all synchronous; results are pydantic models)
@@ -36,15 +36,26 @@ runner, recorder, scoring and viewer.
 | Request kind | Facade call |
 |---|---|
 | `list_designs`, `validate_design` | `list_designs()`, `validate(path)` |
-| `run_case` | worker thread; `run_progress`, `tick_batch` (header + one binary frame) while running, `run_ended`, then `ok`; one run at a time (`busy`) |
+| `run_case` | worker thread; `run_progress`, `tick_batch` (header + one binary frame) while running, `run_ended`, then the one answer; one run at a time (`busy`) |
 | `run_suite`, `report`, `diff` | `run_suite(suite, design)`, `report`, `diff` |
 | `replay_open`, `scrub`, `pause`, `step` | the replay and its cursor |
 | `subscribe_series` | open replay: `ok` then one batch; otherwise held for the next run of that run id on the connection |
 | `events`, `timeline`, `geometry`, `value_at`, `probe`, `read_file`, `write_file` | same-named methods |
 
-Paths in requests are relative to `files_root` unless absolute. Error codes: `unsupported_version` (FAC-003),
-`invalid_message` (bad JSON, binary, failed validation; request id null when unparseable), `unknown_kind`,
-`not_found`, `validation_failed`, `busy`, `internal`. Shutdown closes connections with 1001.
+Paths in requests are relative to `files_root` unless absolute. Error codes: `unsupported_version` (FAC-003; the
+version must be the int itself, `true` and `1.0` included as unsupported), `invalid_message` (bad JSON, binary, failed
+validation; request id null when unparseable), `unknown_kind`, `validation_failed`, `not_found`, `busy`, `run_error`,
+`internal`. Shutdown closes connections with 1001.
+
+One terminal answer per request id. `run_case` answers `error` (`run_error`, `run_id`, `report` = the structured
+run error) when the run ended in error or never started, else `ok` with the summary plus `stream_errors`; a listener
+failure mid-run only lands in `stream_errors`. `run_ended.reason` is the runner's end reason (`end_time`, `message`,
+`controller_state`, `max_duration`, `run_error`).
+
+Locks: `_run_lock` admits one run or suite per service (a second gets `busy`), and every other facade call runs on a
+worker thread under `_facade_lock`, while the run itself holds only `_run_lock` so replay requests stay served during
+it. `close()` closes the listening socket and every connection, then waits for in-flight request tasks, so a running
+run's worker thread finishes before `close()` returns.
 
 Decimation: every window sample when `points` >= samples in [t_start, t_end]; otherwise `points` equal buckets
 (half-open, last closed), each giving its sample nearest the centre (earlier on a tie, none when empty).
@@ -83,5 +94,5 @@ column first, float64 little-endian; one sample means `t_start == t_end` (FAC-01
 
 - Unit: `tests/unit/test_facade_protocol.py`, `tests/unit/test_facade_service.py` (fakes; FAC-015 runs P1 on the core)
 - Conformance suite: `tests/acceptance/test_facade_conformance_stubs.py` (protocol only, one P1 run plus the CLI's
-  for FAC-015; FAC-013 still a stub)
+  for FAC-015, busy and one-answer checks; FAC-013 still a stub)
 - Invariant: `tests/invariant/test_fac_stubs.py` (clients import only the facade)
