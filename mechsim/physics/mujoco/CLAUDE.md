@@ -10,7 +10,7 @@ Translation half of the MuJoCo bridge (ADR 0014): neutral model to MJCF text, bu
 | `supported_elements()` | Element kinds mapped; mirrors `supported_kinds` in `core/physics/mujoco/src/mujoco_adapter.cpp` (test-checked) |
 | `UnmappableElementError(element, reason)` | Raised for anything without an exact mapping, naming the element (PHY-017, PHY-019) |
 
-## Mapping (milestone 1)
+## Mapping
 
 | Neutral | MJCF |
 |---|---|
@@ -49,3 +49,15 @@ at 1 ms (`omega h > 2`) and ends the run (invariant 7).
 (`name:shaft_body:parent:driven_joint`), `mechsim:payloads` (`payload:carrier`), numeric `mechsim:member:<name>` = [l, position, orientation], numeric
 `mechsim:transmission:<name>` = [c, efficiency, J, joint position, orientation, unit axis, backlash / abs(c)]. The C++ adapter reads only these and MuJoCo's own arrays.
 Generated MJCF names join a neutral name and a suffix with `.`, which neutral names cannot contain.
+
+## Section index
+
+| Section | File | Line |
+|---|---|---|
+| Joints | translate.py | 138 |
+| Shapes | translate.py | 223 |
+| Lumped members | translate.py | 255 |
+| Constraints and transmissions | translate.py | 336 |
+| Payloads | translate.py | 540 |
+| Contacts | translate.py | 575 |
+| Model | translate.py | 642 |

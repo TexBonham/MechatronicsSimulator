@@ -26,6 +26,7 @@
 using namespace mechsim::kernel;  // NOLINT(google-build-using-namespace)
 using mechsim::kernel::test::ScriptedParty;
 
+// ===== Fixtures ============================================================
 namespace {
 
 // One body whose x position counts the steps; records the inputs each step received.
@@ -95,6 +96,7 @@ PhysicsInputs force(std::vector<double> generalized, std::size_t wrench_body) {
 
 }  // namespace
 
+// ===== Exchange and config errors ==========================================
 TEST_CASE("Physics party exchanges outputs and summed inputs through the coupling table only",
           "[KER-008][KER-009][KER-016]") {
     auto shared = std::make_shared<CountingAdapter::Shared>();
@@ -258,6 +260,7 @@ TEST_CASE("Payload coupling values keep their type and read back typed", "[KER-0
     CHECK_THROWS_AS(payload_as<PhysicsInputs>(table.value("p.scalar"), "p.scalar"), CouplingError);
 }
 
+// ===== Scheduling (KER-023) ================================================
 // KER-023 scheduling rule: each party steps on its own period boundaries; a slower party's outputs hold between its
 // steps; end checks happen at physics boundaries. A 500 Hz controller under 1 kHz physics steps at even ticks only
 // and physics sees each controller value for two physics steps.
@@ -309,6 +312,7 @@ TEST_CASE("Parties at different rates step on their own boundaries with outputs 
     }
 }
 
+// ===== Fault fixtures ======================================================
 namespace {
 
 struct FaultRun {

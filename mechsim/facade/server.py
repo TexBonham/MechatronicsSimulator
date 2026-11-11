@@ -79,6 +79,7 @@ STATIC_TYPES = {
 }
 
 
+# ===== Frames and messages ==================================================
 def _message_id() -> str:
     return uuid.uuid4().hex
 
@@ -184,6 +185,7 @@ def run_end_reason(summary: RunResultSummary) -> RunEndReason:
     return reasons[summary.end_reason]
 
 
+# ===== Listener and connections =============================================
 class _Listener:
     """Runs on the worker thread; every frame is handed to the connection's loop in order."""
 
@@ -220,6 +222,7 @@ class _Connection:
     live: dict[str, list[Subscription]] = field(default_factory=dict)
 
 
+# ===== Facade server ========================================================
 class FacadeServer:
     """A running service: `port`, `url`, `close()` (every connection closed with 1001 going away)."""
 
@@ -457,6 +460,7 @@ class FacadeServer:
         return summary
 
 
+# ===== Static files =========================================================
 def static_file(web_root: Path, request_path: str) -> Path | None:
     """The file under `web_root` a GET path names: `/` is `index.html`; top-level `*.html`, `*.js`, `*.css` and
     `vendor/*` only. None for anything else, `..`, an absolute or encoded-absolute path, or a path resolving outside
@@ -505,6 +509,7 @@ def static_response(web_root: Path, request_path: str) -> Response:
     return Response(HTTPStatus.OK.value, HTTPStatus.OK.phrase, headers, body)
 
 
+# ===== Serve entry point ====================================================
 async def serve(
     facade: Facade, host: str = "127.0.0.1", port: int = 0, *, token: str, web_root: Path = WEB_ROOT
 ) -> FacadeServer:

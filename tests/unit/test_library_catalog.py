@@ -23,6 +23,7 @@ from mechsim.library.schema import (
 )
 
 
+# ===== Stepper and estop catalog entries ====================================
 @pytest.mark.req("LIB-034")
 def test_stepper_curve_starts_at_zero_speed_with_the_holding_torque() -> None:
     registry = default_registry()
@@ -179,6 +180,7 @@ EXPECTED_PINS: dict[str, list[tuple[str, str, str]]] = {
 }
 
 
+# ===== Parametrized case builders ===========================================
 def raw(type_name: str) -> dict[str, Any]:
     data: dict[str, Any] = YAML(typ="safe").load((CATALOG_DIR / NEW_TYPES[type_name][0]).read_text(encoding="utf-8"))
     return copy.deepcopy(data)
@@ -262,6 +264,7 @@ def with_value(type_name: str, parameter_name: str, value: str | bool) -> dict[s
     return data
 
 
+# ===== Shipped files and placeholders =======================================
 @pytest.mark.req("LIB-019")
 @pytest.mark.req("LIB-025")
 @pytest.mark.req("LIB-027")
@@ -311,6 +314,7 @@ def test_shipped_part_values_in_si_and_flagged_as_placeholders(type_name: str) -
     assert entry.source == "placeholder values, no datasheet assigned"
 
 
+# ===== Sensor types =========================================================
 @pytest.mark.req("LIB-019")
 @pytest.mark.req("LIB-025")
 @pytest.mark.parametrize("type_name", ["load_cell", "imu"])

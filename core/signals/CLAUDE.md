@@ -39,7 +39,7 @@ element; counter channels may sum several signals (A + B).
   lost); forced_level digital 0/1, counter round(level) counts, analog an error; overlapping windows an error at start.
 - Debounce (SIG-010): a level sampled first at i appears at the first sample >= i + N if every sample between saw it.
 - Actuator faults: stall scales available torque; slip misses steps.
-- Stepper (SIG-033, PHY-034): position-commanded; theta_cmd += steps x step_angle; theta = `joint_positions[joint]`; each tick publishes `joint_drives()` = {joint, rest theta_p + tau / K_t, K_t, damping, enabled}, the tangent of tau = holding sin(pi delta / (2 step_angle)) at the predicted lead delta = theta_cmd - theta_p, theta_p = theta + omega h (pull-out also on it), K_t = K_hold cos(.) floored at 0.05 K_hold (delta 0: K_hold toward theta_cmd), which the layer copies into `physics_inputs.joint_drives`; output `torque` is the drive torque read back from `joint_drive_torques`. Pull-out when |delta| > 2 step angles (re-synchronizes to the step nearest theta) or |drive torque| > table(|omega|) (the same, but at least one step toward the load: sign of delta, or of the drive torque at delta 0); counts missed steps, stall at zero commanded speed. Loss of synchronism (brief M2-A3): while |slip| = |omega h - n' step| (n' the steps applied last tick, 0 when disabled) exceeds one step (1e-9 relative margin, `slip_rounding`), theta_cmd re-syncs every tick to the step nearest theta_p (missed counted) and the drive brakes: rest theta_p - sign(slip) step, K = table(|omega|) / step, damping D; tracking resumes when |slip| <= one step. Without it a shaft spinning past the motor re-synced every tick with the tangent's rest moving along at theta + omega h, so the drive sustained the motion (X2's G7 runaway). Its `ActuatorOutput` is `applied = false` (recorded only). `shaft_axial_inertia` given: must equal `rotor_inertia` to 1e-9 relative, else SignalConfigError naming both (SIG-037).
+- Stepper (SIG-033, PHY-034): position-commanded; theta_cmd += steps x step_angle; theta = `joint_positions[joint]`; each tick publishes `joint_drives()` = {joint, rest theta_p + tau / K_t, K_t, damping, enabled}, the tangent of tau = holding sin(pi delta / (2 step_angle)) at the predicted lead delta = theta_cmd - theta_p, theta_p = theta + omega h (pull-out also on it), K_t = K_hold cos(.) floored at 0.05 K_hold (delta 0: K_hold toward theta_cmd), which the layer copies into `physics_inputs.joint_drives`; output `torque` is the drive torque read back from `joint_drive_torques`. Pull-out when |delta| > 2 step angles (re-synchronizes to the step nearest theta) or |drive torque| > table(|omega|) (the same, but at least one step toward the load: sign of delta, or of the drive torque at delta 0); counts missed steps, stall at zero commanded speed. Loss of synchronism (brief M2-A3): while |slip| = |omega h - n' step| (n' the steps applied last tick, 0 when disabled) exceeds one step (1e-9 relative margin, `slip_rounding`), theta_cmd re-syncs every tick to the step nearest theta_p (missed counted) and the drive brakes: rest theta_p - sign(slip) step, K = table(|omega|) / step, damping D; tracking resumes when |slip| <= one step. Its `ActuatorOutput` is `applied = false` (recorded only). `shaft_axial_inertia` given: must equal `rotor_inertia` to 1e-9 relative, else SignalConfigError naming both (SIG-037).
 - Per-tick pin buffers (SIG-038): `controller_rate` (default the layer's); counter deltas and UART rx accumulate over layer steps until a controller boundary lies in [last step, t), outputs' step counts and UART tx are taken only at the first layer step after one; over 64 rx bytes per controller step throws.
 - ASCII line: `name *(SP value) LF`, shortest round-trip SI decimals; UART 8N1, baud / 10 bytes per s, <= 64 per tick.
 - Built-ins hold no design names; the gantry message set is test data only.
@@ -60,12 +60,46 @@ with A0 (`inverse_inertia`, the joint's `dof_invweight0`) given, so K_b A0 h^2 =
 coordinate or where it stuck (static sag L / K_b), K_b and the brake's damping. Slip (SIG-020, brief M2-C2) on
 engaging a moving joint (s = -sign omega) or when |read-back share| > brake_torque (s its sign): K_s =
 `brake_slip_stiffness_ratio` K_b = 1e-5 K_b, damping 0, rest = theta + omega h + s T_b / K_s, so the implicit drive
-applies s T_b at the step's end state to the apparent inertia K_s A0 h^2 <= 4e-3 (a pure Coulomb torque; the old
-rest theta + omega h + alpha h^2 at K_b grew 2.7x per step at K_b A0 h^2 = 100). Sticks (rest theta, K_b) once omega
+applies s T_b at the step's end state to the apparent inertia K_s A0 h^2 <= 4e-3 (a pure Coulomb torque). Sticks (rest theta, K_b) once omega
 or omega + alpha h no longer opposes s. In the power stage the brake reads its `vcc` rail one step late (rails update
 after that stage).
 
-## `src/signal_layer.cpp` sections
+## Section index
 
-Helpers 26, Construction 165, Resolve 244, Start 364, ReadPinOutputs 397, ApportionDriveTorques 439, RunStage 522,
-UpdateRails 558, WritePinInputs 585, Step 634, Coupling 734, Record 793.
+| Section | File | Line |
+|---|---|---|
+| Helpers | src/signal_layer.cpp | 26 |
+| Construction | src/signal_layer.cpp | 165 |
+| Resolve | src/signal_layer.cpp | 244 |
+| Start | src/signal_layer.cpp | 364 |
+| ReadPinOutputs | src/signal_layer.cpp | 397 |
+| ApportionDriveTorques | src/signal_layer.cpp | 439 |
+| RunStage | src/signal_layer.cpp | 522 |
+| UpdateRails | src/signal_layer.cpp | 558 |
+| WritePinInputs | src/signal_layer.cpp | 585 |
+| Step | src/signal_layer.cpp | 634 |
+| Coupling | src/signal_layer.cpp | 734 |
+| Record | src/signal_layer.cpp | 793 |
+| Load cell | tests/test_m2_components.cpp | 125 |
+| Amplifier | tests/test_m2_components.cpp | 367 |
+| IMU | tests/test_m2_components.cpp | 418 |
+| Brake | tests/test_m2_components.cpp | 483 |
+| Power loss | tests/test_m2_components.cpp | 704 |
+| Layer: front_end stage and approximation notes | tests/test_m2_components.cpp | 744 |
+| Layer: drives on one joint combine (ruling 23) | tests/test_signal_layer.cpp | 400 |
+| Layer: the combined drive's torque apportioned (ruling 23, SIG-039) | tests/test_signal_layer.cpp | 496 |
+| Encoders and limit switch | tests/test_sensors.cpp | 37 |
+| Linear encoder | tests/test_sensors.cpp | 227 |
+| Sensor pipeline | tests/test_sensors.cpp | 327 |
+| Noise, delay and sample rate | tests/test_sensors.cpp | 388 |
+| Sensor faults | tests/test_sensors.cpp | 500 |
+| Debounce and chatter | tests/test_sensors.cpp | 578 |
+| Encoder delay and child generators | tests/test_sensors.cpp | 642 |
+| Fixtures | tests/test_stepper.cpp | 35 |
+| Driver and torque-speed table | tests/test_stepper.cpp | 66 |
+| Shaft stub | tests/test_stepper.cpp | 102 |
+| Holding torque and static load | tests/test_stepper.cpp | 221 |
+| Pull-out and loss of steps | tests/test_stepper.cpp | 343 |
+| Disabled, stall and slip | tests/test_stepper.cpp | 443 |
+| Parameters and rotor inertia | tests/test_stepper.cpp | 502 |
+| Loss of synchronism (SIG-033, brief M2-A3) | tests/test_stepper.cpp | 551 |

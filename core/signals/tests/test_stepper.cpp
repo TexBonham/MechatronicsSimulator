@@ -32,6 +32,7 @@ using mechsim::signals::PhysicalState;
 using signal_test::state_at;
 using signal_test::Stepper;
 
+// ===== Fixtures ============================================================
 namespace {
 
 constexpr double pi = std::numbers::pi;
@@ -62,6 +63,7 @@ bool near(double a, double b) {
 
 }  // namespace
 
+// ===== Driver and torque-speed table =======================================
 TEST_CASE("The driver counts the tick's pulses in full steps and latches direction and enable", "[SIG-012][SIG-013]") {
     StepDirDriver driver("x_driver", StepDirDriverParams{16, true});
     Stepper run(driver);
@@ -97,6 +99,7 @@ TEST_CASE("The torque-speed table interpolates linearly and gives nothing above 
     CHECK_THROWS_AS(TorqueSpeedTable({{0.0, -0.1}}), SignalConfigError);
 }
 
+// ===== Shaft stub ==========================================================
 namespace {
 
 // The physics stub: a shaft on a frictionless bearing, J theta'' = K (rest - theta) - D omega - load, with the
@@ -215,6 +218,7 @@ double swing_bound(double load) {
 
 }  // namespace
 
+// ===== Holding torque and static load ======================================
 TEST_CASE("An enabled stepper publishes its hold as a joint drive toward the commanded angle", "[SIG-033][KER-027]") {
     // At delta = 0 the tangent is the milestone 1 drive: rest theta_cmd, K_hold = 20 N m/rad. One step back gives
     // delta = -step, phase -pi/2: K_t = K_hold cos(-pi/2) = 0 is floored at 0.05 K_hold = 1 N m/rad, and the rest sits
@@ -336,6 +340,7 @@ TEST_CASE("An enabled stepper at rest holds a load below its holding torque at t
     CHECK_FALSE(trace.stalled);
 }
 
+// ===== Pull-out and loss of steps ==========================================
 TEST_CASE("A load above the holding torque pulls the stepper out: missed steps and stall", "[SIG-033]") {
     // 0.5 N m > tau_avail(0) = 0.40 N m: the drive torque that would balance it exceeds what the motor has, so the
     // pull-out re-synchronizes, counts lost steps and, with zero commanded speed, reports a stall; the shaft falls.
@@ -435,6 +440,7 @@ TEST_CASE("The lift's 10 kg on an 8 mm lead screw holds within 1 mm over 2 s wit
     CHECK(trace.missed == 0.0);
 }
 
+// ===== Disabled, stall and slip ============================================
 TEST_CASE("A disabled stepper or a dead rail drives nothing and the loaded shaft falls", "[SIG-016][SIG-032]") {
     // Free fall of the shaft under the stub: theta_n = -(load / J) h^2 n (n + 1) / 2, -39.8 rad after 100 ticks.
     BehavioralStepper motor("x_motor", holding_params(5.4e-6));
@@ -493,6 +499,7 @@ TEST_CASE("Stall and slip faults scale the hold and miss steps for the window", 
                     std::invalid_argument);
 }
 
+// ===== Parameters and rotor inertia ========================================
 TEST_CASE("The stepper rejects bad parameters and a shaft outside the published state", "[SIG-032]") {
     CHECK_THROWS_AS(BehavioralStepper("m", motor_params(-1.0)), SignalConfigError);
     BehavioralStepperParams weak = holding_params(0.0);

@@ -48,3 +48,14 @@ types. `reader.py` imports `mechsim.testing.driver` and `.runner` types (no cycl
 - Exports prepend the axis time series; CSV headers `name[i,j] [unit]`; MAT v5 cells `series_names`,
   `series_units`, `series_values`; JSON rejects NaN.
 - Synthetic rows for tests: `tests/unit/test_record_support.py`.
+
+## Section index
+
+| Section | File | Line |
+|---|---|---|
+| Run records | archive.py | 84 |
+| Repository and tool identity | archive.py | 156 |
+| HDF5 helpers | archive.py | 178 |
+| Writer | archive.py | 232 |
+| Value conversions | archive.py | 293 |
+| Reader | archive.py | 321 |

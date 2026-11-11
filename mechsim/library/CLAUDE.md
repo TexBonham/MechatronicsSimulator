@@ -26,15 +26,15 @@ Component types and shipped catalog (LIB). Schema `schemas/component.json` from 
 | `CatalogPart` | resolved part, SI floats; only via `CatalogPart.resolve(entry, type, overrides=None)` |
 | `CatalogFile.resolved_parts()` | every part resolved at file validation; `component_type(name)` lookup |
 
-## Section index, `schema.py`
+## Section index
 
 | Section | File | Line |
 |---|---|---|
-| Parameters | `mechsim/library/schema.py` | 88 |
-| Facets | `mechsim/library/schema.py` | 179 |
-| ComponentType | `mechsim/library/schema.py` | 252 |
-| CatalogPart | `mechsim/library/schema.py` | 347 |
-| CatalogFile | `mechsim/library/schema.py` | 517 |
+| Parameters | schema.py | 106 |
+| Facets | schema.py | 197 |
+| ComponentType | schema.py | 270 |
+| CatalogPart | schema.py | 378 |
+| CatalogFile | schema.py | 548 |
 
 ## Rules
 

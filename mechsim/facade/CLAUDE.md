@@ -103,3 +103,16 @@ column first, float64 little-endian; one sample means `t_start == t_end` (FAC-01
   for FAC-015, busy and one-answer checks; FAC-013 still a stub)
 - Invariant: `tests/invariant/test_fac_stubs.py` (clients import only the facade)
 - Browser client and static route: `tests/unit/test_web_client.py` (ruling 21: no browser)
+
+## Section index
+
+| Section | File | Line |
+|---|---|---|
+| Frames and messages | server.py | 82 |
+| Listener and connections | server.py | 188 |
+| Facade server | server.py | 225 |
+| Static files | server.py | 463 |
+| Serve entry point | server.py | 512 |
+| Result models | service.py | 84 |
+| Helpers | service.py | 274 |
+| Facade | service.py | 363 |

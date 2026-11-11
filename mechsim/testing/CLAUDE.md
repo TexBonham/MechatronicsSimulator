@@ -59,15 +59,36 @@ Examples: `test_cases/gantry/G1.yaml` to `G11.yaml`, `G13.yaml`, `G14.yaml` (dra
 
 ## Section index
 
-`schema.py`: Quantities of any dimension 96, Header 187, Initial state 211, Commands and faults 285, End condition 422,
-Pass criteria 454, Sweeps and variations 713, Test case 759, Cross-check against the design 825, Suite file 1118,
-Files and schema 1187.
-`baseline.py`: Diff 130, Files and schema 182.
-`runner.py`: Timing 98, Loading and resolution 126, Timelines 358, Runs 485, Suites 638.
-
-`tests/unit/test_test_case_schema.py`: Shipped examples 120, Header 182, Open parameters 332, Initial state 393,
-Commands 528, Faults 599, End condition 763, Pass criteria 813, Sweeps, variations, baseline 1108, Suite file 1230,
-Files 1300.
-`tests/unit/test_runner.py`: Loading 90, Initial state and precondition 154, Command timeline 197, Fault timeline 252,
-End conditions 368, Configuration 444, Suites and sweeps 520, Suite files 624, Fault routing through the driver 733,
-Overrides and part substitution 777.
+| Section | File | Line |
+|---|---|---|
+| Rows | core_driver.py | 91 |
+| Driver | core_driver.py | 234 |
+| Archives | core_driver.py | 640 |
+| Services | core_driver.py | 708 |
+| Errors and runner state | core_wiring.py | 105 |
+| Runner party | core_wiring.py | 159 |
+| Joint places and inertia | core_wiring.py | 249 |
+| Component parameters | core_wiring.py | 326 |
+| Fault injection and ticks | core_wiring.py | 532 |
+| Assembly | core_wiring.py | 557 |
+| Controller build | core_wiring.py | 580 |
+| Signal layer | core_wiring.py | 700 |
+| Event and operator wiring | core_wiring.py | 808 |
+| Timing | runner.py | 98 |
+| Loading and resolution | runner.py | 126 |
+| Timelines | runner.py | 358 |
+| Runs | runner.py | 485 |
+| Suites | runner.py | 638 |
+| Quantities of any dimension | schema.py | 96 |
+| Header | schema.py | 187 |
+| Initial state | schema.py | 211 |
+| Commands and faults | schema.py | 285 |
+| End condition | schema.py | 422 |
+| Pass criteria | schema.py | 454 |
+| Sweeps and variations | schema.py | 717 |
+| Test case | schema.py | 763 |
+| Cross-check against the design | schema.py | 829 |
+| Suite file | schema.py | 1132 |
+| Files and schema | schema.py | 1201 |
+| Diff | baseline.py | 130 |
+| Files and schema | baseline.py | 182 |

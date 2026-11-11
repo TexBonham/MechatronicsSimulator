@@ -34,6 +34,7 @@ using signal_test::khz_clock;
 using signal_test::state_at;
 using signal_test::Stepper;
 
+// ===== Encoders and limit switch ===========================================
 namespace {
 
 // 0.15 deg per count: 2400 quadrature counts per revolution (catalog part encoder_600ppr_generic).
@@ -223,6 +224,7 @@ TEST_CASE("Encoder stuck and dropped lose counts, forced presents its count, noi
     CHECK(still[1] == 0.0);
 }
 
+// ===== Linear encoder ======================================================
 namespace {
 
 // Ruling 32: a linear encoder on the carriage, 60000 quadrature counts per metre, so resolution = 1 / 60000 m.
@@ -322,6 +324,7 @@ TEST_CASE("An encoder whose resolution kind disagrees with its coordinate is a c
     CHECK(config_error(zero).find("y_encoder") != std::string::npos);
 }
 
+// ===== Sensor pipeline =====================================================
 namespace {
 
 // An analog SampledSensor reading the body's x as is: the base pipeline (noise, sample rate, delay, faults) seen
@@ -382,6 +385,7 @@ std::vector<double> ramp_outputs(SampledSensor& sensor, int n) {
 
 }  // namespace
 
+// ===== Noise, delay and sample rate ========================================
 TEST_CASE("Sensor noise is N(0, noise) in the measured unit, plus the noisy fault's on top", "[SIG-002][SIG-007]") {
     // N = 20000 draws of N(0, sigma). The sample mean is N(0, sigma^2 / N), so |mean| < 4 sigma / sqrt(N) = 0.028 sigma
     // fails with probability 6e-5. (N - 1) s^2 / sigma^2 is chi^2(N - 1), mean N - 1 and SD sqrt(2 (N - 1)), close to
@@ -493,6 +497,7 @@ TEST_CASE("Sensor sample rate holds the output between samples on the layer cloc
     CHECK_THROWS_AS(ProbeSensor("probe", fidelity(0.0, 0.0, -1.0)), SignalConfigError);
 }
 
+// ===== Sensor faults =======================================================
 TEST_CASE("Sensor faults act for start <= step < end: stuck and dropped hold, dropped draws nothing",
           "[SIG-006][SIG-007][SIG-008][SIG-036]") {
     ProbeSensor stuck("probe", fidelity(0.0));
@@ -570,6 +575,7 @@ TEST_CASE("Two fault windows overlapping on one sensor are refused at start; adj
     CHECK(ramp_outputs(adjacent, 6) == std::vector<double>{0.0, 0.0, 0.0, 0.0, 0.0, 5.0});
 }
 
+// ===== Debounce and chatter ================================================
 TEST_CASE("Debounce: N - 1 periods suppressed, N passes, a short gap merges, 0 passes, a long one holds",
           "[SIG-010]") {
     // debounce 5 ms at 1 kHz: N = 5. levels[k] is the contact state sampled at step k (1 = past the switch).
@@ -633,6 +639,7 @@ TEST_CASE("A noisy limit switch chatters at its position; noise 0 draws nothing"
     CHECK(quiet.generator().state() == SignalRng(khz_clock().seed).state());
 }
 
+// ===== Encoder delay and child generators ==================================
 TEST_CASE("Encoder delay shifts its edges, its sample rate gathers them at sample steps", "[SIG-003][SIG-004]") {
     // One turn in 100 ticks: 24 counts per tick, from half a count in so no sample sits on a cell edge.
     const auto angle = [](int k) { return (0.5 * resolution) + (2.0 * std::numbers::pi * k / 100.0); };
