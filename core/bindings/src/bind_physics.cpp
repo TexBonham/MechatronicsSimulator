@@ -66,6 +66,9 @@ public:
     void set_payload_attachment(std::size_t payload, std::size_t body) override {
         call_override<void>(this, "set_payload_attachment", payload, body);
     }
+    void set_transmission_slip(std::size_t transmission, double fraction) override {
+        PYBIND11_OVERRIDE(void, PhysicsAdapter, set_transmission_slip, transmission, fraction);
+    }
 
 private:
     mutable std::vector<std::string> supported_;
@@ -119,6 +122,12 @@ void bind_types(py::module_& m) {
         .def_readwrite("force", &kernel::TransmissionState::force)
         .def_readwrite("stretch", &kernel::TransmissionState::stretch)
         .def_readwrite("power_flow", &kernel::TransmissionState::power_flow);
+    py::class_<kernel::PayloadState>(m, "PayloadState", "A payload and its attachment after the step (PHY-006).")
+        .def(py::init<>())
+        .def_readwrite("body", &kernel::PayloadState::body)
+        .def_readwrite("carrier", &kernel::PayloadState::carrier)
+        .def_readwrite("attached", &kernel::PayloadState::attached)
+        .def_readwrite("force", &kernel::PayloadState::force);
     py::class_<kernel::PhysicsHealth>(m, "PhysicsHealth")
         .def(py::init<>())
         .def_readwrite("max_constraint_drift", &kernel::PhysicsHealth::max_constraint_drift)
@@ -152,7 +161,8 @@ void bind_types(py::module_& m) {
         .def_readwrite("ropes", &kernel::PhysicsOutputs::ropes)
         .def_readwrite("transmissions", &kernel::PhysicsOutputs::transmissions)
         .def_readwrite("joint_positions", &kernel::PhysicsOutputs::joint_positions)
-        .def_readwrite("joint_drive_torques", &kernel::PhysicsOutputs::joint_drive_torques);
+        .def_readwrite("joint_drive_torques", &kernel::PhysicsOutputs::joint_drive_torques)
+        .def_readwrite("payloads", &kernel::PhysicsOutputs::payloads);
     py::class_<kernel::BodyWrench>(m, "BodyWrench")
         .def(py::init<>())
         .def_readwrite("body", &kernel::BodyWrench::body)
@@ -193,7 +203,9 @@ void bind_adapter(py::module_& m) {
         .def("release_load", &PhysicsAdapter::release_load, py::arg("load"))
         .def("set_payload_mass", &PhysicsAdapter::set_payload_mass, py::arg("payload"), py::arg("mass"))
         .def("set_payload_attachment", &PhysicsAdapter::set_payload_attachment, py::arg("payload"),
-             py::arg("body"));
+             py::arg("body"))
+        .def("set_transmission_slip", &PhysicsAdapter::set_transmission_slip, py::arg("transmission"),
+             py::arg("fraction"));
 
     py::class_<physics::mujoco::MujocoAdapter, PhysicsAdapter, py::smart_holder>(
         m, "MujocoAdapter", "MuJoCo behind the PhysicsAdapter interface (PHY-014, ADR 0014); load the translation's MJCF.")

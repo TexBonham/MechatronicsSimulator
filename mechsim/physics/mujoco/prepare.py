@@ -86,11 +86,14 @@ def _place(root: ET.Element, joint: str, kind: str, start: float) -> None:
 
 
 def prepare_model(
-    model: PhysicsModel, starts: Mapping[str, float] | None = None, step: float | None = None
+    model: PhysicsModel,
+    starts: Mapping[str, float] | None = None,
+    step: float | None = None,
+    payloads: Mapping[str, str] | None = None,
 ) -> PreparedArtifacts:
     """The bridge's prepared model; `starts` maps single-DOF joint names to their start coordinate (m or rad); `step`
-    (s) is the run's physics step when it is not the model's."""
-    translation = translate_report(model, step)
+    (s) is the run's physics step when it is not the model's; `payloads` maps payload bodies to their carriers."""
+    translation = translate_report(model, step, payloads)
     chosen = dict(starts or {})
     kinds = {body.joint.name: body.joint.type for body in model.bodies if body.joint is not None}
     mjcf = translation.mjcf

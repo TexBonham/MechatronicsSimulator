@@ -323,6 +323,29 @@ def _gear(ratio: float) -> dict[str, Any]:
     return data
 
 
+def _lead_screw_backlash() -> dict[str, Any]:
+    """C++ fixture: the horizontal lead screw with 0.4 mm backlash at the carriage, b / c = 0.1 pi rad (PHY-006)."""
+    data = _lead_screw(1.0)
+    data["design"]["name"] = "lead_screw_backlash"
+    data["transmissions"][0]["backlash"] = "0.0004 m"
+    return data
+
+
+def _payload() -> dict[str, Any]:
+    """C++ fixture: a 2 kg payload on a free joint at a hook fixed 1 m above the origin, gravity -z, no floor
+    (PHY-006, ENG-035); the payload welds to the hook through `payloads={"load": "hook"}`."""
+    data = _example()
+    data["design"]["name"] = "payload"
+    data["gravity"] = ["0 m/s**2", "0 m/s**2", "-9.81 m/s**2"]
+    up = ["0 m", "0 m", "1 m"]
+    data["bodies"] = [
+        _body("hook", _joint("mount", "fixed", position=up), mass="1 kg"),
+        _body("load", _joint("float", "free", position=up), mass="2 kg"),
+    ]
+    data["signals"] = {"pose_bodies": ["load"]}
+    return data
+
+
 def fixtures() -> dict[str, str]:
     """The MJCF fixtures committed under core/physics/mujoco/tests/fixtures/, by file name."""
     return {
@@ -335,6 +358,8 @@ def fixtures() -> dict[str, str]:
         "slider.xml": mj.translate(_model(_slider())),
         "gear_pair.xml": mj.translate(_model(_gear(4.0))),
         "gear_pair_reversed.xml": mj.translate(_model(_gear(-4.0))),
+        "lead_screw_backlash.xml": mj.translate(_model(_lead_screw_backlash())),
+        "payload.xml": mj.translate(_model(_payload()), payloads={"load": "hook"}),
     }
 
 
@@ -429,6 +454,8 @@ def test_step_override_sets_timestep_and_equality_reference() -> None:
         "slider.xml",
         "gear_pair.xml",
         "gear_pair_reversed.xml",
+        "lead_screw_backlash.xml",
+        "payload.xml",
     ],
 )
 def test_committed_cpp_fixtures_are_current_translations(name: str) -> None:
@@ -807,7 +834,7 @@ def test_linear_transmission_reflects_the_shaft_onto_the_driven_joint(
     assert frame is not None
     values = _floats(frame.get("data"))
     assert values[:3] == pytest.approx([coefficient, 0.9, 1e-4], rel=1e-15)
-    assert values[3:] == [0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0]
+    assert values[3:] == [0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0]
 
 
 @pytest.mark.req("PHY-018")
@@ -930,15 +957,57 @@ def test_negative_gear_ratio_flips_the_coefficient_sign_only() -> None:
     assert frames[4.0][1:] == frames[-4.0][1:]
 
 
-@pytest.mark.parametrize(
-    ("field", "value", "reason"),
-    [("backlash", "0.001 m", "backlash"), ("slip", 0.1, "slip")],
-)
-def test_transmission_backlash_or_slip_is_unmappable(field: str, value: Any, reason: str) -> None:
+@pytest.mark.req("PHY-006")
+def test_static_transmission_slip_is_unmappable() -> None:
     data = _full()
-    data["transmissions"][0][field] = value
-    with pytest.raises(mj.UnmappableElementError, match=rf"transmission 'belt'.*{reason}"):
+    data["transmissions"][0]["slip"] = 0.1
+    with pytest.raises(mj.UnmappableElementError, match=r"transmission 'belt'.*static slip.*set_transmission_slip"):
         mj.translate(_model(data))
+
+
+@pytest.mark.req("PHY-006")
+@pytest.mark.parametrize(
+    ("transmission", "backlash", "shaft_band"),
+    [
+        # Output-side dead band over |c|: 1 mm on a 0.02 m pulley is 0.05 rad on the shaft.
+        ({"type": "belt_pulley", "pulley_radius": "0.02 m", "stiffness": "1e5 N/m"}, "0.001 m", 0.05),
+        # 0.4 mm on an 8 mm lead (c = 0.008 / 2 pi) is 0.1 pi rad.
+        ({"type": "lead_screw", "lead": "0.008 m", "stiffness": "1e5 N/m"}, "0.0004 m", 0.1 * math.pi),
+    ],
+)
+def test_backlash_is_a_play_band_in_shaft_units_and_reported(
+    transmission: dict[str, Any], backlash: str, shaft_band: float
+) -> None:
+    data = _drive({**transmission, "backlash": backlash})
+    translation = mj.translate_report(_model(data))
+    root = ET.fromstring(translation.mjcf)
+    frame = root.find("./custom/numeric[@name='mechsim:transmission:drive']")
+    assert frame is not None
+    values = _floats(frame.get("data"))
+    assert len(values) == 14
+    assert values[13] == pytest.approx(shaft_band, rel=1e-15)
+    lines = [line for line in translation.report if "play element" in line]
+    assert len(lines) == 1
+    assert lines[0].startswith("transmission 'drive': backlash")
+    assert "no impact dynamics" in lines[0]
+    assert "torque-driven shaft passes its torque without play" in lines[0]
+
+
+@pytest.mark.req("PHY-006")
+def test_gear_backlash_converts_through_the_ratio_magnitude() -> None:
+    # c = 1 / ratio = -0.25: 0.01 rad at the wheel is 0.01 / 0.25 = 0.04 rad at the rotor, sign-free.
+    data = _gear(-4.0)
+    data["transmissions"][0]["backlash"] = "0.01 rad"
+    root = _xml(data)
+    frame = root.find("./custom/numeric[@name='mechsim:transmission:gears']")
+    assert frame is not None
+    assert _floats(frame.get("data"))[13] == pytest.approx(0.04, rel=1e-15)
+
+
+@pytest.mark.req("PHY-006")
+def test_zero_backlash_reports_no_play_element() -> None:
+    report = mj.translate_report(_model(_lead_screw(1.0))).report
+    assert not any("play element" in line for line in report)
 
 
 def test_self_locking_lead_screw_is_unmappable() -> None:
@@ -1007,3 +1076,72 @@ def test_structural_members_and_signals_add_no_mjcf() -> None:
         }
     ]
     assert mj.translate(_model(data)) == plain
+
+
+# ===== Payloads =========================================================
+
+
+@pytest.mark.req("PHY-006")
+@pytest.mark.req("ENG-035")
+def test_payload_is_a_free_body_welded_to_its_carrier() -> None:
+    translation = mj.translate_report(_model(_payload()), payloads={"load": "hook"})
+    root = ET.fromstring(translation.mjcf)
+    load = _named(root, "body", "load")
+    assert _named(load, "joint", "float").get("type") == "free"
+    assert root.find("./worldbody/body[@name='load']") is load
+    weld = _named(root, "weld", "load.attach")
+    assert weld.get("body1") == "load"
+    assert weld.get("body2") == "hook"
+    assert weld.get("active") is None
+    assert _floats(weld.get("solref")) == [2e-3, 1.0]
+    assert _custom(root, "mechsim:payloads") == ["load:hook"]
+    lines = [line for line in translation.report if line.startswith("payload 'load'")]
+    assert len(lines) == 1
+    assert "weld 'load.attach'" in lines[0]
+
+
+@pytest.mark.req("PHY-006")
+def test_no_payload_emits_no_weld_or_entry() -> None:
+    root = _xml(_payload())
+    assert root.find(".//weld") is None
+    assert _custom(root, "mechsim:payloads") == []
+
+
+@pytest.mark.req("PHY-006")
+def test_payload_weld_follows_the_step_override() -> None:
+    root = ET.fromstring(mj.translate(_model(_payload()), step=5e-4, payloads={"load": "hook"}))
+    assert _floats(_named(root, "weld", "load.attach").get("solref")) == [1e-3, 1.0]
+
+
+@pytest.mark.req("PHY-006")
+@pytest.mark.parametrize(
+    ("payloads", "reason"),
+    [
+        ({"crate": "hook"}, "not a body"),
+        ({"hook": "load"}, "free joint under world"),
+        ({"load": "load"}, "not another body"),
+        ({"load": "world"}, "not another body"),
+        ({"load": "crane"}, "not another body"),
+    ],
+)
+def test_payloads_the_bridge_cannot_weld_are_unmappable(payloads: dict[str, str], reason: str) -> None:
+    payload = next(iter(payloads))
+    with pytest.raises(mj.UnmappableElementError, match=rf"payload '{payload}'.*{reason}"):
+        mj.translate(_model(_payload()), payloads=payloads)
+
+
+@pytest.mark.req("PHY-006")
+def test_payload_on_a_reflected_shaft_is_unmappable() -> None:
+    data = _lead_screw(1.0)
+    data["bodies"].append(_body("load", _joint("float", "free"), mass="1 kg"))
+    with pytest.raises(mj.UnmappableElementError, match=r"payload 'load'.*carrier 'rotor' is a reflected"):
+        mj.translate(_model(data), payloads={"load": "rotor"})
+    with pytest.raises(mj.UnmappableElementError, match=r"payload 'rotor'"):
+        mj.translate(_model(data), payloads={"rotor": "carriage"})
+
+
+@pytest.mark.req("PHY-006")
+@pytest.mark.req("PHY-010")
+def test_payload_translation_is_deterministic() -> None:
+    model = _model(_payload())
+    assert mj.translate(model, payloads={"load": "hook"}) == mj.translate(model, payloads={"load": "hook"})

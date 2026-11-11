@@ -1,6 +1,12 @@
-"""Unit tier stubs for the physics adapter spec (PHY), strict xfail until converted."""
+"""Unit tier tests and stubs for the physics adapter spec (PHY); stubs are strict xfail until converted."""
+
+import math
+from pathlib import Path
+from typing import Any
 
 import pytest
+
+from mechsim import _core as core
 
 
 @pytest.mark.req("PHY-003")
@@ -18,10 +24,62 @@ def test_phy_004() -> None:
 
 
 @pytest.mark.req("PHY-006")
-@pytest.mark.xfail(strict=True, reason="stub")
 def test_phy_006() -> None:
-    """The adapter interface shall accept injected physical faults: transmission slip and payload change."""
-    raise NotImplementedError
+    """The adapter interface shall accept injected physical faults: transmission slip and payload change.
+
+    Through the binding on the MuJoCo adapter, with the committed translation fixtures. Slip: the lead screw
+    (c = 0.008 / 2 pi) under a shaft drive whose rest advances 0.01 rad per step for 10 steps with s = 0.5 loses
+    s * 9 * 0.01 = 0.045 rad (the first rest only starts tracking). Payload: 2 kg welded to a fixed hook carries a
+    force near m g; doubled, it carries near 2 m g; released, it falls and reports no carrier; a wrong carrier or a
+    fraction outside [0, 1] is an AdapterError. The exact closed-form checks are the C++ reference tests [PHY-006].
+    """
+    fixtures = Path(__file__).resolve().parents[2] / "core" / "physics" / "mujoco" / "tests" / "fixtures"
+
+    def load(name: str) -> Any:
+        adapter = core.make_physics_adapter("mujoco")
+        adapter.load(core.PreparedModel("", (fixtures / name).read_text(encoding="utf-8"), "0.1.0"), core.Rate(1000))
+        return adapter
+
+    screw = load("lead_screw.xml")
+    screw.set_transmission_slip(0, 0.5)
+    for k in range(10):
+        inputs = core.PhysicsInputs()
+        inputs.joint_drives = [core.JointDrive(0, 0.01 * k, 20.0, 0.01, True)]
+        screw.set_inputs(inputs)
+        screw.step()
+    state = screw.outputs().transmissions[0]
+    assert state.slipping
+    assert state.slip == pytest.approx(0.045, rel=1e-12)
+    for fraction in (-0.1, 1.5, math.nan):
+        with pytest.raises(core.AdapterError):
+            screw.set_transmission_slip(0, fraction)
+    with pytest.raises(core.AdapterError):
+        screw.set_transmission_slip(1, 0.1)
+
+    payload = load("payload.xml")
+    weight = 2.0 * 9.81
+    for _ in range(200):
+        payload.step()
+    held = payload.outputs().payloads[0]
+    assert (held.body, held.carrier, held.attached) == (1, 0, True)
+    assert held.force[2] == pytest.approx(weight, rel=1e-6)
+    payload.set_payload_mass(1, 4.0)
+    for _ in range(200):
+        payload.step()
+    assert payload.outputs().payloads[0].force[2] == pytest.approx(2.0 * weight, rel=1e-6)
+    with pytest.raises(core.AdapterError):
+        payload.set_payload_attachment(1, 1)
+    height = payload.outputs().bodies[1].position[2]
+    payload.release_load(1)
+    for _ in range(10):
+        payload.step()
+    released = payload.outputs().payloads[0]
+    assert not released.attached
+    assert released.force == [0.0, 0.0, 0.0]
+    assert payload.outputs().bodies[1].position[2] < height
+    payload.set_payload_attachment(1, 0)
+    payload.step()
+    assert payload.outputs().payloads[0].attached
 
 
 @pytest.mark.req("PHY-007")

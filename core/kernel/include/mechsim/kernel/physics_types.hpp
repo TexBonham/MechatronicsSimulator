@@ -73,6 +73,15 @@ struct TransmissionState {
     PowerFlow power_flow = PowerFlow::Static;
 };
 
+// A payload body and its attachment after the step (PHY-006, ENG-035): carrier is kWorldBody once released; force is
+// what the attachment applies to the payload, world frame, N (zero when released).
+struct PayloadState {
+    std::size_t body = 0;
+    std::size_t carrier = kWorldBody;
+    bool attached = false;
+    Vec3 force{};
+};
+
 // Field for field with mechsim::engine::StepHealth (ENG-026); time and step are carried as the completed step count
 // and the run's physics rate (time = steps / rate, step = 1 / rate) so the adapter needs no kernel base tick.
 struct PhysicsHealth {
@@ -104,6 +113,7 @@ struct PhysicsOutputs {
     // a reflected shaft: q_driven / c), 0 for other joint types (PHY-034).
     std::vector<double> joint_positions;
     std::vector<JointDriveTorque> joint_drive_torques;
+    std::vector<PayloadState> payloads;  // one per payload the adapter maps, in its order
 };
 
 struct BodyWrench {

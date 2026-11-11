@@ -16,6 +16,6 @@
     <text name="mechsim:joints" data="spindle:revolute axle:revolute" />
     <text name="mechsim:drives" data="spindle" />
     <text name="mechsim:transmissions" data="gears:rotor:world:axle" />
-    <numeric name="mechsim:transmission:gears" data="-0.25 1.0 5.4e-06 0 0 0 1.0 0 0 0 0 0 1.0" />
+    <numeric name="mechsim:transmission:gears" data="-0.25 1.0 5.4e-06 0 0 0 1.0 0 0 0 0 0 1.0 0" />
   </custom>
 </mujoco>
