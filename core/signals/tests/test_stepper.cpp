@@ -269,10 +269,12 @@ TEST_CASE("The detent tangent matches the sinusoid's torque and slope, floored p
     CHECK(unheld.stiffness == 0.0);
     CHECK(unheld.offset == 0.0);
 
-    // Through the stepper: shaft at -step / 2 below a command of 0, so delta = step / 2.
+    // Through the stepper: shaft held still at -step / 2 below a command of 0, so omega = 0, the predicted angle is
+    // the shaft's and delta = step / 2.
     BehavioralStepper motor("x_motor", holding_params(5.4e-6));
     Stepper run(motor);
     run.step(state_at(0.0, 0.0), drive(0.0));
+    run.step(state_at(-step / 2.0, 0.0), drive(0.0));
     run.step(state_at(-step / 2.0, 0.0), drive(0.0));
     const JointDrive drive_half = motor.joint_drives()[0];
     CHECK(near(drive_half.stiffness, hold_stiffness * std::cos(pi / 4.0)));
@@ -350,7 +352,8 @@ TEST_CASE("A load above the curve at a sub-half-step lead loses a step every tic
     // speed (tau_avail <= 0.40 N m): round(delta / step) = 0, yet the motor has lost synchronism, so each tick it
     // re-synchronizes one step toward the load (sign of delta, or of the drive torque at delta = 0), counts it
     // missed and, with no steps commanded, stalls. After a priming tick that puts the commanded angle on the shaft at 0,
-    // the command moves by exactly one step angle each tick; the drive is the detent's tangent at the new lead.
+    // the command moves by exactly one step angle each tick; the drive is the detent's tangent at the new lead from
+    // the predicted shaft angle theta + omega h, omega the shaft's motion over the last tick.
     const double step = pi / 100.0;
     struct Lead {
         double fraction;
@@ -364,8 +367,11 @@ TEST_CASE("A load above the curve at a sub-half-step lead loses a step every tic
         run.step(state_at(0.0, 0.0), drive(0.0));
         CHECK(motor.joint_drives()[0].rest == 0.0);
         double command = 0.0;
+        double previous = 0.0;
         for (int k = 0; k < 5; ++k) {
             const double theta = command - (lead.fraction * step);
+            const double predicted = theta + (theta - previous);
+            previous = theta;
             PhysicalState state = state_at(theta, 0.0);
             state.joint_drive_torques.push_back(JointDriveTorque{0, lead.torque});
             const std::span<const double> out = run.step(state, drive(0.0));
@@ -373,8 +379,8 @@ TEST_CASE("A load above the curve at a sub-half-step lead loses a step every tic
             CHECK(out[2] == 1.0);
             CHECK(out[1] == 1.0);
             command += lead.direction * step;
-            const DetentTangent tangent = detent_tangent(0.40, step, command - theta);
-            CHECK(std::fabs(motor.joint_drives()[0].rest - (theta + tangent.offset)) < tight);
+            const DetentTangent tangent = detent_tangent(0.40, step, command - predicted);
+            CHECK(std::fabs(motor.joint_drives()[0].rest - (predicted + tangent.offset)) < tight);
             CHECK(near(motor.joint_drives()[0].stiffness, tangent.stiffness));
         }
     }
@@ -394,29 +400,18 @@ TEST_CASE("A commanded jump past the pull-out angle re-synchronizes to the shaft
 
 TEST_CASE("At a constant commanded speed under the curve the stepper tracks with the spring-damper lag",
           "[SIG-032][SIG-033]") {
-    // Command ramps from 0 to 1 full step per tick over 200 ticks (to w = 10 pi rad/s = 300 rpm, table 0.36 N m), then
-    // holds for 800. Steady state of the implicit stub at omega = w: the drive is the tangent at the lead delta_n =
-    // theta_cmd - theta_n before the step, and its torque at the step's end is tau(delta_n) - K_t(delta_n) w h - D w =
-    // load; the recorded lag is delta_n - w h. Solved on the rising branch delta_n in (0, step) by bisection. The
-    // continuous sinusoid's lag (2 step / pi) asin((load + D w) / tau_hold) is printed beside it: at a full step per
-    // tick the tangent's second-order error, tau_hold (pi / 2)^2 / 2 at most, keeps the two apart (sig.md, SIG-033).
+    // Command ramps from 0 to 1 full step per tick over 200 ticks (to omega = step / h = (pi / 100) / 0.001 = 10 pi
+    // rad/s = 300 rpm, table 0.36 N m), then holds for 800. In steady tracking the shaft moves omega h per tick, so the
+    // predicted angle theta + omega h is the end-of-tick angle and the drive's torque there is the sinusoid's: the
+    // stub's balance tau(delta) - D omega = load gives the closed form
+    // delta = (2 step / pi) asin((load + D omega) / tau_hold) = (2 pi / 100 / pi) asin((0.1 + 1e-4 * 10 pi) / 0.40)
+    // = 0.02 asin(0.10314 / 0.40) = 5.216e-3 rad, under a step; no torque above the curve, so nothing is missed.
     BehavioralStepper motor("x_motor", holding_params(5.4e-6));
     Shaft shaft{2.54e-5, 0.1};
     const Trace trace = run_shaft(
         motor, shaft, 1000, [](int k) { return std::min(1.0, static_cast<double>(k) / 200.0); }, 400);
-    const double step = pi / 100.0;
-    const double w = 10.0 * pi;
-    const double h = 0.001;
-    const double lead = bisect(
-        [&](double delta) {
-            const DetentTangent t = detent_tangent(0.40, step, delta);
-            return t.torque - (t.stiffness * w * h) - (1e-4 * w) - 0.1;
-        },
-        0.0, step);
-    const double lag = lead - (w * h);
-    const double continuous = sinusoid_sag(0.1 + (1e-4 * w));
-    INFO("scheme steady lag " << lag << " rad, continuous sinusoid lag " << continuous << " rad, measured "
-                              << trace.last_delta << " rad");
+    const double lag = sinusoid_sag(0.1 + (1e-4 * 10.0 * pi));
+    INFO("closed-form lag " << lag << " rad, measured " << trace.last_delta << " rad");
     CHECK(std::fabs(trace.last_delta - lag) < 0.01 * std::fabs(lag));
     CHECK(trace.max_abs_delta < pi / 100.0);
     CHECK(trace.missed == 0.0);

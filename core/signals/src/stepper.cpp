@@ -169,7 +169,8 @@ void BehavioralStepper::latch_outputs() {
         return;
     }
     theta_cmd_ += steps * step;
-    const double delta = theta_cmd_ - theta_;
+    const double predicted = theta_ + (omega * dt);
+    const double delta = theta_cmd_ - predicted;
     const double available = scale * table_.available(omega);
     bool stalled = false;
     const bool above_curve = std::fabs(drive_torque_) > available;
@@ -186,8 +187,8 @@ void BehavioralStepper::latch_outputs() {
         missed += std::fabs(lost);
         stalled = steps == 0.0;
     }
-    const DetentTangent tangent = detent_tangent(scale * params_.holding_torque, step, theta_cmd_ - theta_);
-    drive = kernel::JointDrive{params_.joint, theta_ + tangent.offset, tangent.stiffness, params_.damping, true};
+    const DetentTangent tangent = detent_tangent(scale * params_.holding_torque, step, theta_cmd_ - predicted);
+    drive = kernel::JointDrive{params_.joint, predicted + tangent.offset, tangent.stiffness, params_.damping, true};
     set_output(1, static_cast<double>(stalled));
     set_output(2, missed);
 }

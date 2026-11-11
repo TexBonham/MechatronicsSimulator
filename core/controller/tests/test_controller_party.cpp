@@ -193,7 +193,11 @@ TEST_CASE("Physics, signal layer and controller parties exchange every crossing 
         const kernel::JointDrive& hold = seen->physics_inputs[2].joint_drives[0];
         CHECK(hold.enabled);
         CHECK(hold.joint == 0);
-        CHECK(std::abs(hold.rest - (turn_per_step + (std::numbers::pi / 100.0))) < 1e-12);
+        // The layer's step that published it saw the shaft at 2 turn_per_step after one at turn_per_step, so its
+        // predicted angle is theta + omega h = 3 turn_per_step. The motor has no holding torque, so the detent tangent
+        // has tau(delta) = 0 and stiffness 0: the rest is the predicted angle itself (SIG-033).
+        CHECK(std::abs(hold.rest - (3.0 * turn_per_step)) < 1e-12);
+        CHECK(hold.stiffness == 0.0);
     }
     SECTION("the coupling table holds every crossing, publisher by name") {
         const kernel::CouplingTable& table = kernel.coupling();
