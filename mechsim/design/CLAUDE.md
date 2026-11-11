@@ -30,6 +30,9 @@ Design files (DES). Schema `schemas/design.json` from `Design`; regenerate with
 
 name (folder name), family, `status` placeholder or verified, `platform_description` and `svd` (path in the chip
 folder or `placeholder`; verified needs both files), `pins` (MCU pin name, `modes` from `PeripheralMode`, no duplicates).
+Electrical facts, all required (CTL-013, SIG-014 consume them): `core_voltage`, `brownout_threshold` (both voltage
+strings > 0, threshold strictly below core), `adc` (`resolution_bits` 1..32, `reference_voltage` > 0), `counter_bits`
+1..64 (timer encoder counter width); SI floats inside.
 `PeripheralMode` is the runtime vocabulary (`core/signals/CLAUDE.md`): digital_input, digital_output, counter_input,
 adc_input, pulse_output, uart_rx, uart_tx; READ_MODES and WRITE_MODES in `schema.py` split them by direction.
 

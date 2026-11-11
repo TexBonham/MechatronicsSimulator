@@ -60,7 +60,7 @@ TorqueText = Annotated[
 SpeedText = Annotated[float, BeforeValidator(_parser("1 / [time]")), WithJsonSchema(_QUANTITY_SCHEMA)]
 TemperatureText = Annotated[float, BeforeValidator(_parser("[temperature]")), WithJsonSchema(_QUANTITY_SCHEMA)]
 
-Category = Literal["actuator", "driver", "sensor", "transmission", "power", "safety", "body", "joint"]
+Category = Literal["actuator", "driver", "sensor", "front_end", "transmission", "power", "safety", "body", "joint"]
 FailureMode = Literal["stuck", "noisy", "dropped", "forced_level"]
 PinDirection = Literal["input", "output", "bidirectional", "power_in", "power_out", "ground"]
 SignalKind = Literal["digital", "analog", "pwm", "step", "direction", "enable", "quadrature", "power", "ground", "coil"]
@@ -94,6 +94,7 @@ class QuantityParameter(StrictModel):
     dimension: str = Field(min_length=1)
     default: SIText | None = None
     minimum: SIText | None = None
+    minimum_exclusive: bool = Field(default=False, description="True: a value must lie strictly above the minimum")
     maximum: SIText | None = None
     sweepable: bool = True
     description: str | None = None
@@ -126,6 +127,14 @@ class QuantityParameter(StrictModel):
     def _ordered(self) -> QuantityParameter:
         if self.minimum is not None and self.maximum is not None and self.minimum > self.maximum:
             raise ValueError(f"parameter {self.name!r}: minimum {self.minimum} above maximum {self.maximum}")
+        if self.minimum_exclusive:
+            if self.minimum is None:
+                raise ValueError(f"parameter {self.name!r}: minimum_exclusive needs a minimum")
+            if self.maximum is not None and self.minimum >= self.maximum:
+                raise ValueError(
+                    f"parameter {self.name!r}: exclusive minimum {self.minimum} leaves no value up to maximum "
+                    f"{self.maximum}"
+                )
         if self.default is not None:
             check_bounds(self, self.default)
         return self
@@ -154,6 +163,10 @@ Parameter = Annotated[
 def check_bounds(parameter: QuantityParameter, value: float) -> None:
     if parameter.minimum is not None and value < parameter.minimum:
         raise ValueError(f"parameter {parameter.name!r} value {value} below minimum {parameter.minimum}")
+    if parameter.minimum_exclusive and parameter.minimum is not None and value == parameter.minimum:
+        raise ValueError(
+            f"parameter {parameter.name!r} value {value} must lie above exclusive minimum {parameter.minimum}"
+        )
     if parameter.maximum is not None and value > parameter.maximum:
         raise ValueError(f"parameter {parameter.name!r} value {value} above maximum {parameter.maximum}")
 

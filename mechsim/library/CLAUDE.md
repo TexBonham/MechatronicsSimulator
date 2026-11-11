@@ -15,8 +15,8 @@ Component types and shipped catalog (LIB). Schema `schemas/component.json` from 
 | Class | Key points |
 |---|---|
 | `CatalogFile` | `types` (min 1), `parts` (may be empty); parts resolve against types in the same file |
-| `ComponentType` | name, semver version, category, parameters, tiers, mechanical, electrical, ratings, thermal, failure_modes, plugin |
-| `QuantityParameter` | `dimension` (pint string), optional default/minimum/maximum as unit strings, stored SI; `sweepable` default true |
+| `ComponentType` | name, semver version, category (adds `front_end`, LIB-026), parameters, tiers, mechanical, electrical, ratings, thermal, failure_modes, plugin |
+| `QuantityParameter` | `dimension` (pint string), optional default/minimum/maximum as unit strings, stored SI; `minimum_exclusive` (default false) makes the minimum strict; `sweepable` default true |
 | `FlagParameter` | `kind: flag`, bool default |
 | `Tier` | ordered lowest first; each parameter in exactly one tier; `tier_parameters(t)` is the additive union |
 | Facets | name parameters by reference (mass, pin voltage/current ratings, absolute maximums, holding torque) |
@@ -30,10 +30,10 @@ Component types and shipped catalog (LIB). Schema `schemas/component.json` from 
 | Section | File | Line |
 |---|---|---|
 | Parameters | `mechsim/library/schema.py` | 88 |
-| Facets | `mechsim/library/schema.py` | 166 |
-| ComponentType | `mechsim/library/schema.py` | 239 |
-| CatalogPart | `mechsim/library/schema.py` | 334 |
-| CatalogFile | `mechsim/library/schema.py` | 504 |
+| Facets | `mechsim/library/schema.py` | 179 |
+| ComponentType | `mechsim/library/schema.py` | 252 |
+| CatalogPart | `mechsim/library/schema.py` | 347 |
+| CatalogFile | `mechsim/library/schema.py` | 517 |
 
 ## Rules
 
@@ -43,4 +43,8 @@ Component types and shipped catalog (LIB). Schema `schemas/component.json` from 
 - `thermal.held_constant` must be true in v1; plugin needs `python` (`pkg.mod:Class`), `cpp`, or both.
 - `load_catalog_file` errors start with the file path.
 - Safety types `estop_relay` and `watchdog` both carry a `heartbeat` input port; `watchdog` has `timeout` and gates its
-  rail through `contact_in`/`contact_out` (LIB-019 watchdog half; load cell, amplifier, IMU still owed).
+  rail through `contact_in`/`contact_out` (LIB-019 watchdog half).
+- Milestone 2 types (LIB-019, LIB-025, LIB-027): `load_cell` (sensor; `overload_limit` is the force absolute maximum;
+  tiers ideal, nonlinear), `load_cell_amplifier` (front_end; `out` binds to an adc_input pin), `imu` (sensor; analog
+  output per axis until a serial peripheral mode exists), `brake` (safety; `brake_torque` is the holding torque; the
+  joint it acts on is design data, `acts_on`, owed). C++ plugins for them owed by brief A2.

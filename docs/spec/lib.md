@@ -69,6 +69,10 @@ proposed <value>)".
 | Stepper pull-out torque tolerance against the published curve (LIB-022); proposed 10% of the curve value per speed point | not set | owner |
 | Flexible beam deflection and first-mode tolerance (LIB-032) | not set | owner |
 | Fidelity tier names per component type | set per type in `mechsim/library/catalog/*.yaml` (phase 1 C2); new types name their own | library briefs, per type |
+| Milestone 2 catalog part values (LIB-019, LIB-025, LIB-027) | `load_cell_5kg_generic`, `load_cell_amplifier_generic`, `imu_6axis_generic`, `brake_24v_generic` carry placeholder values listed in each part's `placeholders` | gantry team |
+| IMU interface | analog output per axis until the chip vocabulary has a serial peripheral mode (open ruling 2, `docs/queue.md`) | owner |
+| Joint a brake acts on | design data, an `acts_on` block analogous to DES-043 `senses`; not in the catalog type | integration brief, DES |
+| Strict lower bounds | a quantity parameter may set `minimum_exclusive: true`, so a value equal to its minimum is rejected (used for the strictly positive parameters of the milestone 2 types) | set (brief M2-G) |
 | Rope parameters and model detail | not set | milestone 3 ADR (ruling P4) |
 | Datasheet curve source for each shipped stepper part | not set | owner |
 

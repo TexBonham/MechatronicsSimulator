@@ -7,6 +7,12 @@ status: placeholder
 description: STM32-family stand-in; pin names and peripheral modes only, no platform description or SVD.
 platform_description: placeholder
 svd: placeholder
+core_voltage: "3.3 V"  # placeholder until the part is selected (gantry team)
+brownout_threshold: "2.0 V"  # placeholder until the part is selected (gantry team)
+adc:
+  resolution_bits: 12  # placeholder until the part is selected (gantry team)
+  reference_voltage: "3.3 V"  # placeholder until the part is selected (gantry team)
+counter_bits: 16  # placeholder until the part is selected (gantry team)
 pins:
   - name: PA0
     modes: [digital_input, digital_output, pulse_output]

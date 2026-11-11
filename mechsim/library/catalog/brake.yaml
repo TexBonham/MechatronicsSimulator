@@ -1,0 +1,80 @@
+# Power-off brake on a joint, safety hardware carrying brake torque (LIB-027). The joint it acts on is design data, an acts_on block
+# analogous to the DES-043 senses block, owed by the integration brief; this file carries only the type. Numeric part
+# values are placeholders.
+types:
+  - name: brake
+    version: 1.0.0
+    category: safety
+    description: >-
+      Spring-applied brake: with power_off_engaged it holds while the coil is unpowered and a high release input
+      energises the coil to release it.
+    parameters:
+      - name: mass
+        dimension: "[mass]"
+        minimum: "0 kg"
+      - name: brake_torque
+        dimension: "[mass] * [length] ** 2 / [time] ** 2"
+        minimum: "0 N*m"
+        minimum_exclusive: true
+      - name: engage_delay
+        dimension: "[time]"
+        minimum: "0 s"
+      - name: release_delay
+        dimension: "[time]"
+        minimum: "0 s"
+      - name: coil_voltage
+        dimension: "[mass] * [length] ** 2 / [time] ** 3 / [current]"
+        minimum: "0 V"
+        minimum_exclusive: true
+      - name: coil_current
+        dimension: "[current]"
+        minimum: "0 A"
+      - name: power_off_engaged
+        kind: flag
+        default: true
+    tiers:
+      - name: ideal
+        parameters: [mass, brake_torque, engage_delay, release_delay, coil_voltage, coil_current, power_off_engaged]
+    mechanical:
+      mass:
+        source: parameter
+        parameter: mass
+      mounts:
+        - name: body
+          kind: bolt_pattern
+          offset: ["0 mm", "0 mm", "0 mm"]
+    electrical:
+      pins:
+        - name: release
+          direction: input
+          signal_kind: digital
+        - name: vcc
+          direction: power_in
+          signal_kind: power
+          voltage_rating: coil_voltage
+          current_rating: coil_current
+        - name: ground
+          direction: ground
+          signal_kind: ground
+    ratings:
+      absolute_maximums: []
+      holding_torque: brake_torque
+    thermal:
+      held_constant: true
+      temperature: "298.15 K"
+    plugin:
+      cpp: brake
+parts:
+  - name: brake_24v_generic
+    type: brake
+    tier: ideal
+    source: placeholder values, no datasheet assigned
+    values:
+      mass: "0.3 kg"
+      brake_torque: "0.5 N*m"
+      engage_delay: "20 ms"
+      release_delay: "30 ms"
+      coil_voltage: "24 V"
+      coil_current: "0.25 A"
+      power_off_engaged: true
+    placeholders: [mass, brake_torque, engage_delay, release_delay, coil_voltage, coil_current]
