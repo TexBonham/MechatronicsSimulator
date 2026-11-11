@@ -83,7 +83,7 @@ def test_the_cli_and_web_clients_import_no_runner_recorder_or_scoring() -> None:
         for module in _imported_modules(client):
             assert not module.startswith(forbidden), f"{client} imports {module}"
     mechsim_modules = {m for m in _imported_modules(ROOT / "mechsim" / "cli.py") if m.startswith("mechsim")}
-    assert mechsim_modules == {"mechsim.facade.files", "mechsim.facade.service"}
+    assert mechsim_modules == {"mechsim.facade.files", "mechsim.facade.server", "mechsim.facade.service"}
 
 
 @pytest.mark.req("FAC-009")
