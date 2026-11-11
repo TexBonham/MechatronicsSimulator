@@ -1,8 +1,8 @@
 # M2-B: controller faults, kernel fault scheduling, recorded joint series
 
 Agent: module-writer (Opus). Worktree `../MechatronicsSimulator-04-b` on branch `wip/04-b`, from
-`round/04-milestone-2` after brief C has landed (its additive changes to `physics_adapter.hpp` and
-`physics_types.hpp` are yours to build on). Read first: root `CLAUDE.md`, `core/CLAUDE.md`,
+`round/04-milestone-2` after briefs C and W2 have landed (C's additive changes to `physics_adapter.hpp` and
+`physics_types.hpp` are yours to build on; W2's `#ifdef _WIN32` branches in the controller sources must stay intact). Read first: root `CLAUDE.md`, `core/CLAUDE.md`,
 `core/controller/CLAUDE.md`, `core/kernel/CLAUDE.md`, `mechsim/record/CLAUDE.md`, `core/bindings/CLAUDE.md`, spec
 rows CTL-001, 011, 012, 013, 014, 018, 020, 021 in `docs/spec/ctl.md`, KER-021 in `docs/spec/ker.md`, SIG-022 in
 `docs/spec/sig.md`, TST-017, 018 in `docs/spec/tst.md`, REC-027 and the archive layout in `docs/spec/rec.md`, the
