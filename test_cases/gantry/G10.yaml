@@ -14,7 +14,7 @@
 # 60 000 counts/m) and begins its stop at the deceleration limit, and latches the fault and emits it when the profile
 # reaches zero velocity (FW-020), so the event comes at detection + v / a. Stall: the carriage halts at 8.5 s while the
 # steps run on from 0.025 m/s at 0.05 m/s^2, 0.025 t + 0.025 t^2 = 2.017 mm at t = 75 ms (8.575 s, 0.0287 m/s), stop
-# 0.575 s, latched by 9.15 s (measured 9.161 s). Slip 0.3: the mismatch grows at 0.3 v, 0.3 (0.025 t + 0.025 t^2) =
+# 0.575 s, latched by about 9.16 s (9.15 s derived plus one controller tick; measured 9.161 s). Slip 0.3: the mismatch grows at 0.3 v, 0.3 (0.025 t + 0.025 t^2) =
 # 2.017 mm at t = 0.220 s (30.72 s, 0.036 m/s), stop 0.72 s, latched by 31.44 s (measured 31.427 s). Both detections
 # fall inside the 0.5 s fault windows, as the bound assumes; the windows stand.
 # The encoders sense the axis joints, frame side (round 4 ruling 32), so the stall and the slip both show as a

@@ -67,8 +67,7 @@ types:
     plugin:
       cpp: load_cell_amplifier
 parts:
-  # Bandwidth 2 Hz (coordinator ruling 35) so the gantry lift's microstep jitter does not read as an overload;
-  # placeholder owed by the gantry team with the overload filtering they want.
+  # Generic placeholder part; a design that needs a slower front end overrides `bandwidth` on its instance.
   - name: load_cell_amplifier_generic
     type: load_cell_amplifier
     tier: ideal
@@ -77,7 +76,7 @@ parts:
       mass: "5 g"
       gain: "128"
       output_full_scale: "3.3 V"
-      bandwidth: "2 Hz"
+      bandwidth: "10 Hz"
       supply_voltage: "5 V"
       supply_current: "1.5 mA"
     placeholders: [mass, gain, output_full_scale, bandwidth, supply_voltage, supply_current]

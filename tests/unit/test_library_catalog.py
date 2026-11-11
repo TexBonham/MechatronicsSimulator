@@ -134,7 +134,7 @@ EXPECTED_PART_VALUES: dict[str, dict[str, float | bool]] = {
         "gain": 128.0,
         "output_full_scale": 3.3,
         "offset": 0.0,
-        "bandwidth": 2.0,
+        "bandwidth": 10.0,
         "supply_voltage": 5.0,
         "supply_current": 1.5e-3,
     },

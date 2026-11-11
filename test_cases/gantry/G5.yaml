@@ -8,7 +8,7 @@
 # 20.2 kg; m_stack = 0.44 kg of printed PETG carriage and hook plus the 30 g cell. An undamped step from m0 to m1 peaks
 # at (m_stack + m0 + 2 (m1 - m0)) g c, under the holding torque for m1 <= (20.2 - 0.44 + m0) / 2, so even a single
 # 1 -> 5.5 kg step meets it (10.4 kg allowed); the steps are kept so the load passes through the limit while standing. Lift timing at the 2026-11-11 limits (0.05 m/s^2, 0.1 m/s): a move of d >= 0.1 m takes
-# d / v + v / a = d / 0.1 + 2 s, plus the 50 ms brake release wait: `lift 0.3` at 8 s ends by 13.05 s, the loading
+# d / v + v / a = d / 0.1 + 2 s, plus the 50 ms brake release wait: `lift 0.3` at 8 s ends by 13.05 s, the loading (minimum time; the 50 mm slow zones add about 0.25 s, which the windows carry as slack)
 # runs from 14 s to 17 s, `lift 0.4` at 18 s is refused with a status and a `refused` event (fault overload) and the
 # lift holds to 20 s; `lift 0.1` at 20 s lowers it by 20 cm, done by 20 + 4.05 = 24.05 s, ending within 1 cm of 10 cm
 # (the 1 cm position accuracy, G2 and G3) at 26 s. Homing from the start positions takes 0.1 m / 0.02 m/s + 0.02 /

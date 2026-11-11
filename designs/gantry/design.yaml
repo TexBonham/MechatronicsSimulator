@@ -720,8 +720,11 @@ components:
   - name: load_amp
     type: load_cell_amplifier
     part: load_cell_amplifier_generic
+    # PLACEHOLDER bandwidth 2 Hz (ruling 35): the lift-start force transient must not read as an overload; the gantry
+    # team owes the real front end or overload filtering.
     overrides:
       gain: "241.8"
+      bandwidth: "2 Hz"
 
     mechanical:
       - mount: board

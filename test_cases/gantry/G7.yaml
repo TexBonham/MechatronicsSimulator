@@ -8,7 +8,7 @@
 # travel is 10 cm (gantry team 2026-11-11). At 0.05 m/s^2 the 5 cm lift is a triangle, 2 sqrt(d / a) = 2 s plus the
 # 50 ms brake release wait, done by 10.05 s, so the target follows at 11 s; the press at 12 s is 1 s into the move,
 # the carriage within a t^2 / 2 = 2.5 cm of the origin, so the `home` at 15 s (at most 0.1 m / 0.02 m/s + 0.4 s ramp
-# = 5.2 s) is done by 20.2 s, and the target at 22 s (0.4 m: d / v + v / a = 0.4 / 0.1 + 2 = 6 s) arrives by 28 s,
+# = 5.2 s) is done by 20.2 s, and the target at 22 s (0.4 m: d / v + v / a = 6 s, about 6.25 s with the 50 mm slow zones) arrives by 28 s,
 # scored at 30 s. The release at the window end closes the E-stop loop and the relay returns the rail
 # (`manual_reset: false`, round 4 ruling 25); `reset` returns the firmware to not_homed (round 4 ruling 7), so `home`
 # precedes the target. Windows after the press at 12 s (press + 20 ms cutoff_delay of estop_relay_24v_generic): the
