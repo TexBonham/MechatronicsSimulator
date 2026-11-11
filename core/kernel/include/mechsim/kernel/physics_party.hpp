@@ -47,7 +47,8 @@ struct PayloadCarrier {
 // party calls set_transmission_slip(transmission, fraction), and set_transmission_slip(transmission, 0) before the
 // first step at or after its end; a payload change applies before the first step at or after its tick. Each start,
 // end and change is a row event (source "kernel", kind "fault"). Overlapping slip windows on one transmission, or two
-// changes to one payload at one tick, are a KernelConfigError at start().
+// changes to one payload at one tick, or a slip window holding no step at the party's rate, are a KernelConfigError at
+// start(); with slip windows, a step period other than the nominal one faults the run.
 class PhysicsParty final : public Party {
 public:
     // Throws std::invalid_argument on a null adapter.
@@ -102,6 +103,7 @@ private:
     std::vector<SlipWindow> slips_;
     std::vector<PayloadChange> payload_changes_;
     bool started_ = false;
+    Duration period_{1};
     // Written in step(), handed to the next row by record(), which the kernel calls const once per row.
     mutable std::vector<RecordedEvent> pending_events_;
 };

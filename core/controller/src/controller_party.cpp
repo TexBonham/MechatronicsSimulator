@@ -71,6 +71,13 @@ void check_overlap(const std::vector<kernel::SimTime>& starts, const std::vector
     }
 }
 
+// Whether [start, end) holds a multiple of the period, start >= 0 (KER-023: a party steps on its period boundaries).
+bool holds_step(kernel::SimTime start, kernel::SimTime end, kernel::Duration period) {
+    const std::int64_t p = period.count();
+    const std::int64_t first = ((start.count() + p - 1) / p) * p;
+    return first < end.count();
+}
+
 }  // namespace
 
 void ControllerParty::check_schedulable(kernel::SimTime start, kernel::SimTime end) const {
@@ -98,7 +105,7 @@ void ControllerParty::schedule_slowdown(kernel::SimTime start, kernel::SimTime e
     slowdowns_.push_back(Window{start, end, factor});
 }
 
-void ControllerParty::start(const kernel::Rate& /*base_rate*/) {
+void ControllerParty::start(const kernel::Rate& base_rate) {
     const auto by_start = [](const Window& a, const Window& b) { return a.start < b.start; };
     std::sort(freezes_.begin(), freezes_.end(), by_start);
     std::sort(slowdowns_.begin(), slowdowns_.end(), by_start);
@@ -113,16 +120,25 @@ void ControllerParty::start(const kernel::Rate& /*base_rate*/) {
     };
     check(freezes_, "freeze");
     check(slowdowns_, "slow-down");
+    if (!freezes_.empty() || !slowdowns_.empty()) {
+        period_ = kernel::period_in_ticks(config_.rate, base_rate);
+        const auto check_steps = [this](const std::vector<Window>& windows, const std::string& what) {
+            for (const Window& window : windows) {
+                if (!holds_step(window.start, window.end, period_)) {
+                    throw kernel::KernelConfigError("controller party '" + config_.name + "': " + what + " window [" +
+                                                    std::to_string(window.start.count()) + ", " +
+                                                    std::to_string(window.end.count()) + ") holds none of its steps");
+                }
+            }
+        };
+        check_steps(freezes_, "freeze");
+        check_steps(slowdowns_, "slow-down");
+    }
     started_ = true;
 }
 
 bool ControllerParty::advance(Window& window, kernel::SimTime t, const std::string& what) {
     if (!window.started && t >= window.start) {
-        if (t >= window.end) {
-            throw kernel::KernelConfigError("controller party '" + config_.name + "': " + what + " window [" +
-                                            std::to_string(window.start.count()) + ", " +
-                                            std::to_string(window.end.count()) + ") holds none of its steps");
-        }
         window.started = true;
         std::string detail = what + " start " + config_.name;
         if (window.factor > 1) {
@@ -155,7 +171,12 @@ void ControllerParty::read_inputs(const kernel::CouplingReader& inputs) {
     }
 }
 
-void ControllerParty::step(kernel::SimTime t, kernel::Duration /*dt*/) {
+void ControllerParty::step(kernel::SimTime t, kernel::Duration dt) {
+    if ((!freezes_.empty() || !slowdowns_.empty()) && dt != period_) {
+        throw kernel::KernelConfigError("controller party '" + config_.name + "': steps every " +
+                                        std::to_string(dt.count()) + " ticks, but its fault windows were checked at " +
+                                        "its nominal rate (" + std::to_string(period_.count()) + " ticks)");
+    }
     if (rail_.has_value()) {
         double voltage = 0.0;
         if (rail_->on) {

@@ -69,7 +69,8 @@ Known before t = 0, in kernel ticks. Slip: `set_transmission_slip(t, fraction)` 
 call at the boundary); fraction in (0, 1]. Payload change: `set_payload_mass` (finite, > 0 kg) or
 `set_payload_attachment` before the first step at or after its tick. Malformed: `KernelConfigError` at the call;
 overlapping slip windows on one transmission or two changes to one payload at one tick: `KernelConfigError` at
-`start()`; after `start()`: `KernelConfigError`; a window holding no physics step faults the run. Each start, end
+`start()`, as is a slip window holding no step at the party's rate; after `start()`: `KernelConfigError`; with slip
+windows, a step period other than the nominal one faults the first step. Each start, end
 and change: `RecordedEvent{t, "kernel", "fault", detail}` (`slip start transmission i fraction f`, `slip end
 transmission i`, `payload i mass m` / `carrier b` / `released`) on the first row after the step. Tests:
 `tests/test_physics_party.cpp`, section "Scheduled faults"; controller-side windows in `core/controller/CLAUDE.md`.

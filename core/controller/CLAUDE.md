@@ -43,11 +43,11 @@ configure of `firmware/app/main_tick.c`); other native tests load its library fr
 
 | Item | Behavior |
 |---|---|
-| Windows | Kernel ticks [start, end), scheduled before `start()` (later: `KernelConfigError`); end <= start or start < 0: `KernelConfigError` at the call; act at the party's first step at or after each bound (KER-023); a window holding none of the party's steps faults the run |
+| Windows | Kernel ticks [start, end), scheduled before `start()` (later: `KernelConfigError`); end <= start or start < 0: `KernelConfigError` at the call; act at the party's first step at or after each bound (KER-023); a window holding none of the party's steps at its nominal rate: `KernelConfigError` at `start()`; with windows, a step period other than the nominal one faults the first step |
 | Freeze | `freeze(true)` at the window's first step, `freeze(false)` at the first step at or after its end; the runtime is still ticked and returns held levels; physics and signals keep stepping. Overlapping freeze windows: `KernelConfigError` at `start()`; adjacent ones stay frozen |
 | Slow-down | Integer factor >= 2 (else `KernelConfigError`); runtime ticks on the window's first step, then every factor-th step; between, `held_levels` of the last output. Overlapping slow-down windows: `KernelConfigError` at `start()`; a freeze inside a slow-down is allowed |
 | Events | Each start and end: `RecordedEvent{t, "kernel", "fault", "<freeze or slowdown> start <party>[ factor N]"}` / `"... end <party>"`, on the first row after the step |
-| Latency | `latency_ticks` control ticks through a FIFO; zeros until the first delayed output; events and state codes delay with the pins; 0 publishes the runtime's output unchanged |
+| Latency | `latency_ticks` control ticks through a FIFO; zeros until the first delayed output; events and state codes delay with the pins; transport latency, not flushed on freeze or brownout; 0 publishes the runtime's output unchanged |
 | Brownout | Rail voltage from `signals.rails` (SIG-022); threshold is `NativeRuntimeConfig::brownout_threshold_v`, which the driver fills from the chip file's `brownout_threshold` (`chips/<chip>/chip.yaml`); default `placeholder_brownout_threshold_v` (2.7 V) |
 
 `tests/test_controller_faults.cpp` (native test binary, mirror fixture) covers these through `CoSimKernel`.

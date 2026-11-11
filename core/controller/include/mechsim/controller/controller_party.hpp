@@ -39,7 +39,8 @@ struct ControllerPartyConfig {
 // at the first step at or after its end; the kernel keeps stepping every other party. A slow-down window ticks the
 // runtime on its first step and then once per `factor` steps; between those the outputs hold their levels with the
 // per-tick buffers empty (held_levels). Each window start and end is a row event (source "kernel", kind "fault").
-// Overlapping windows of one kind are a KernelConfigError at start().
+// Overlapping windows of one kind, or a window holding none of the party's steps at its nominal rate, are a
+// KernelConfigError at start(); a step period other than the nominal one, with windows scheduled, faults the run.
 class ControllerParty final : public kernel::Party {
 public:
     // Throws std::invalid_argument on a null runtime.
@@ -98,6 +99,7 @@ private:
     std::vector<Window> slowdowns_;
     bool started_ = false;
     bool frozen_ = false;
+    kernel::Duration period_{1};
     // Written in step(), handed to the next row by record(), which the kernel calls const once per row.
     mutable std::vector<FaultEvent> pending_events_;
 };

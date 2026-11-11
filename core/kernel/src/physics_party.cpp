@@ -55,6 +55,12 @@ std::string window_text(SimTime start, SimTime end) {
     return "[" + std::to_string(start.count()) + ", " + std::to_string(end.count()) + ")";
 }
 
+bool holds_step(SimTime start, SimTime end, Duration period) {
+    const std::int64_t p = period.count();
+    const std::int64_t first = ((start.count() + p - 1) / p) * p;
+    return first < end.count();
+}
+
 }  // namespace
 
 void PhysicsParty::check_schedulable(SimTime start) const {
@@ -103,7 +109,7 @@ void PhysicsParty::schedule_payload_change(std::size_t payload, SimTime at, Payl
     payload_changes_.push_back(change);
 }
 
-void PhysicsParty::start(const Rate& /*base_rate*/) {
+void PhysicsParty::start(const Rate& base_rate) {
     std::stable_sort(slips_.begin(), slips_.end(),
                      [](const SlipWindow& a, const SlipWindow& b) { return a.start < b.start; });
     std::stable_sort(payload_changes_.begin(), payload_changes_.end(),
@@ -129,6 +135,15 @@ void PhysicsParty::start(const Rate& /*base_rate*/) {
             }
         }
     }
+    if (!slips_.empty()) {
+        period_ = period_in_ticks(config_.rate, base_rate);
+        for (const SlipWindow& window : slips_) {
+            if (!holds_step(window.start, window.end, period_)) {
+                throw KernelConfigError("physics party '" + config_.name + "': slip window " +
+                                        window_text(window.start, window.end) + " holds none of its steps");
+            }
+        }
+    }
     started_ = true;
 }
 
@@ -145,10 +160,6 @@ void PhysicsParty::apply_faults(SimTime t) {
     std::vector<std::size_t> starting;
     for (SlipWindow& window : slips_) {
         if (!window.started && t >= window.start) {
-            if (t >= window.end) {
-                throw KernelConfigError("physics party '" + config_.name + "': slip window " +
-                                        window_text(window.start, window.end) + " holds none of its steps");
-            }
             window.started = true;
             starting.push_back(window.transmission);
             adapter_->set_transmission_slip(window.transmission, window.fraction);
@@ -219,7 +230,12 @@ void PhysicsParty::read_inputs(const CouplingReader& inputs) {
     }
 }
 
-void PhysicsParty::step(SimTime t, Duration /*dt*/) {
+void PhysicsParty::step(SimTime t, Duration dt) {
+    if (!slips_.empty() && dt != period_) {
+        throw KernelConfigError("physics party '" + config_.name + "': steps every " + std::to_string(dt.count()) +
+                                " ticks, but its slip windows were checked at its nominal rate (" +
+                                std::to_string(period_.count()) + " ticks)");
+    }
     apply_faults(t);
     if (has_pending_) {
         adapter_->set_inputs(pending_);

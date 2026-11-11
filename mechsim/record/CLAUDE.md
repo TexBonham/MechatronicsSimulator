@@ -5,13 +5,13 @@ Recorder, HDF5 run archive, exports, run-twice comparison (REC). h5py and scipy 
 | File | Holds |
 |---|---|
 | `tick.py` | `TickRecord` and physics structs, frozen mirror of `core/kernel/.../tick_record.hpp` (incl. `coupling`: `CouplingSample(name, kind, value, digest)`, kinds none/real/integer/flag/payload; `PhysicsOutputs.joint_positions`, `joint_drive_torques` (`JointDriveTorque(joint, torque)`), `payloads` (`PayloadState(body, carrier, attached, force)`, carrier `WORLD_BODY` = -1 once released)); `RecordError` |
-| `layout.py` | `FIXED_SERIES` (path, unit, axis, dtype) canonical order; `Series`, `Recording`; `seconds()` |
-| `stream.py` | `Recorder(base_rate)`: `write_row`, `subscribe(cb) -> int`, `unsubscribe`, `recording()`, `flush(path, identity, end)` |
-| `archive.py` | `RunIdentity` (controller_mode native, emulated, none), `RunEnd`, `RunFault`, `write_archive(path, identity, end, recording, extra)` (`extra` -> root attrs `meta_<key>`, read back as `RunArchive.extra`), `RunArchive(path)` reader, `coupling()`, `records()` replay, `repository_commit`, `tool_version` |
+| `layout.py` | `FIXED_SERIES` (path, unit, axis, dtype) canonical order; `COLUMN_SERIES`, `Columns(names, units)`, `label_series`; `Series` (+ `names`, `units`), `Recording`; `seconds()` |
+| `stream.py` | `Recorder(base_rate, columns=None)`: `write_row`, `subscribe(cb) -> int`, `unsubscribe`, `recording()`, `flush(path, identity, end)` |
+| `archive.py` | `RunIdentity` (controller_mode native, emulated, none), `RunEnd`, `RunFault`, `write_archive(path, identity, end, recording, extra, columns)` (`extra` -> root attrs `meta_<key>`, read back as `RunArchive.extra`), `RunArchive(path)` reader, `coupling()`, `records()` replay, `repository_commit`, `tool_version` |
 | `export.py` | `export_csv`, `export_json`, `export_mat(archive, path, names)` |
 | `compare.py` | `archives_identical(a, b) -> Report(identical, content_identical, first_difference)` |
 
-## Archive layout (format version 1)
+## Archive layout (format version 2; reader accepts 1 and 2)
 
 - Root attrs: format, format_version, design_name/version/source_hash, test_case_id/hash, seed (uint64),
   controller_mode, base/physics/control_rate (int64 [num, den]), repository_commit, tool_version, end_outcome,
@@ -27,8 +27,13 @@ Recorder, HDF5 run archive, exports, run-twice comparison (REC). h5py and scipy 
   a drive on a joint outside the positions, or two on one joint, is a `RecordError`; replay returns drives in joint
   order (REC-027). Transmission `slip` (C's field) is `physics/transmissions/slip` (m or rad, one column per
   transmission). Per payload: `physics/payloads/{body, carrier (int64, -1 world), attached, force (N, 3)}`.
-- The row carries no joint, transmission or payload names or joint types, so these series are index columns with
-  `m or rad` units, like the other physics series.
+- Index-column series (`layout.COLUMN_SERIES`: transmissions, joint positions, drive torques, payloads) carry
+  dataset attrs `names` and `units` (per column, REC-018) from `Columns(names, units)` the driver builds from the
+  neutral model: `Recorder(base_rate, columns)` (counts checked at the first row) or
+  `write_archive(..., columns=)` (overrides). Without them `names` and `units` are empty and `unit` is the
+  conditional string (`m or rad`, `N or N m`). `Series.names`, `Series.units` read them back.
+- Version 1 archives lack the joint, drive and payload series and the labels: `records()` replays those fields empty;
+  `RunArchive.format_version`; any other version is a `RecordError`.
 - Every series: attrs `unit`, `axis` (`tick` or `contact`); `counts` on the flattened per-DOF joint and constraint
   forces. Contacts are ragged: one entry per contact with `row`, `tick`, `seconds`.
 

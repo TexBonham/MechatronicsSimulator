@@ -372,7 +372,35 @@ TEST_CASE("A window between two of the controller's steps is a run error", "[CTL
     InMemoryRecorderSink sink;
     const RunReport report = kernel.run(EndCondition{Seconds(10, 1'000), {}}, sink);
     CHECK(report.outcome == RunOutcome::run_error);
-    CHECK(fault_cause(report).find("holds none of its steps") != std::string::npos);
+    CHECK(fault_cause(report).find("freeze window [3, 4) holds none of its steps") != std::string::npos);
+    // Refused at start(), before any step (KER-023).
+    CHECK(report.fault.value_or(PartyFault("none", SimTime(-1), "")).time() == SimTime(0));
+    CHECK(sink.rows().empty());
+}
+
+TEST_CASE("Fault windows checked at a nominal rate the kernel overrides fault the run at the first step",
+          "[CTL-021][KER-023]") {
+    auto runtime = std::make_unique<NullControllerRuntime>(Rate(500));
+    runtime->load(FirmwareImage{"null", 500});
+    runtime->reset(native_test::logic_rail);
+    auto party = std::make_unique<ControllerParty>(std::move(runtime), ControllerPartyConfig{});
+    party->schedule_slowdown(SimTime(3), SimTime(4), 2);
+    RunConfig run_config;
+    run_config.control_rate = Rate(500);
+    CoSimKernel kernel{run_config};
+    kernel.register_party(std::make_unique<TestParty>("physics", PartyRole::physics));
+    auto source = std::make_unique<TestParty>("signals", PartyRole::sensors);
+    source->published_names = {"signals.pin_inputs"};
+    source->write = [](SimTime t, CouplingWriter& out) {
+        out.set("signals.pin_inputs", mechsim::kernel::make_payload(constant_inputs(t), mechsim::pins::pin_inputs_kind));
+    };
+    kernel.register_party(std::move(source));
+    kernel.register_party(std::move(party));
+    InMemoryRecorderSink sink;
+    const RunReport report = kernel.run(EndCondition{Seconds(10, 1'000), {}}, sink);
+    CHECK(report.outcome == RunOutcome::run_error);
+    CHECK(fault_cause(report).find("steps every 2 ticks") != std::string::npos);
+    CHECK(report.fault.value_or(PartyFault("none", SimTime(-1), "")).party() == "controller");
 }
 
 TEST_CASE("Output latency delays the published pin outputs, events and state codes by whole control ticks",

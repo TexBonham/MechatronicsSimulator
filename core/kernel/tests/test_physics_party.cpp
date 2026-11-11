@@ -482,6 +482,50 @@ TEST_CASE("A slip window between two physics steps is a run error", "[KER-023]")
     InMemoryRecorderSink sink;
     const RunReport report = kernel.run(EndCondition{Seconds(10, 1000), {}}, sink);
     CHECK(report.outcome == RunOutcome::run_error);
-    CHECK(cause(report).find("holds none of its steps") != std::string::npos);
+    CHECK(cause(report).find("slip window [3, 4) holds none of its steps") != std::string::npos);
+    // Refused at start(), before any step (KER-023).
+    CHECK(report.fault.value_or(PartyFault("none", SimTime(-1), "")).time() == SimTime(0));
+    CHECK(sink.rows().empty());
+    CHECK(shared->calls.empty());
+}
+
+TEST_CASE("A slip window ending exactly on the next physics step still holds one step", "[KER-023]") {
+    auto shared = std::make_shared<CountingAdapter::Shared>();
+    RunConfig config;
+    config.physics_rate = Rate(500);
+    PhysicsPartyConfig party_config;
+    party_config.rate = Rate(500);
+    party_config.inputs = {};
+    auto party = std::make_unique<PhysicsParty>(std::make_unique<CountingAdapter>(shared), party_config);
+    party->schedule_slip(0, SimTime(1), SimTime(3), 0.5);
+    CoSimKernel kernel{config};
+    kernel.register_party(std::move(party));
+    std::vector<std::string> log;
+    kernel.register_party(std::make_unique<ScriptedParty>("fast", Rate(1000), log));
+    InMemoryRecorderSink sink;
+    const RunReport report = kernel.run(EndCondition{Seconds(10, 1000), {}}, sink);
+    REQUIRE(report.outcome == RunOutcome::end_condition_met);
+    // Steps at even ticks: the window [1, 3) holds the step at 2 and ends before the step at 4.
+    CHECK(shared->calls == std::vector<std::string>{"slip 0 0.500000 @1", "slip 0 0.000000 @2"});
+}
+
+TEST_CASE("Slip windows checked at a nominal rate the kernel overrides fault the run at the first step",
+          "[KER-023]") {
+    auto shared = std::make_shared<CountingAdapter::Shared>();
+    RunConfig config;
+    config.physics_rate = Rate(500);
+    config.party_rates.emplace("physics", Rate(500));
+    PhysicsPartyConfig party_config;
+    party_config.inputs = {};
+    auto party = std::make_unique<PhysicsParty>(std::make_unique<CountingAdapter>(shared), party_config);
+    party->schedule_slip(0, SimTime(2), SimTime(4), 0.5);
+    CoSimKernel kernel{config};
+    kernel.register_party(std::move(party));
+    std::vector<std::string> log;
+    kernel.register_party(std::make_unique<ScriptedParty>("fast", Rate(1000), log));
+    InMemoryRecorderSink sink;
+    const RunReport report = kernel.run(EndCondition{Seconds(10, 1000), {}}, sink);
+    CHECK(report.outcome == RunOutcome::run_error);
+    CHECK(cause(report).find("steps every 2 ticks") != std::string::npos);
     CHECK(shared->calls.empty());
 }

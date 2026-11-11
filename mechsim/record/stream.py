@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, fields
 from fractions import Fraction
 from pathlib import Path
@@ -25,11 +25,14 @@ from mechsim.record.layout import (
     JOINT_POSITIONS,
     NAMED_GROUPS,
     TICK_AXIS,
+    Columns,
     Recording,
     Series,
+    check_columns,
     check_name,
     check_rate,
     check_text,
+    label_series,
     seconds,
 )
 from mechsim.record.tick import COUPLING_KINDS, RecordedEvent, RecordError, SeriesSample, TickRecord
@@ -117,6 +120,17 @@ def _drive_columns(row: TickRecord) -> tuple[list[float], list[bool]]:
     return torques, driven
 
 
+def _check_widths(layout: _Layout, columns: Mapping[str, Columns], time: int) -> None:
+    for path, labels in columns.items():
+        width = layout.payloads
+        if path.startswith("physics/transmissions/"):
+            width = layout.transmissions
+        elif path.startswith("physics/joint"):
+            width = layout.joint_coordinates
+        if len(labels.names) != width:
+            raise RecordError(f"tick {time}: {path} has {width} columns, {len(labels.names)} names given")
+
+
 def _named(row: TickRecord) -> tuple[tuple[SeriesSample, ...], ...]:
     return (row.pin_signals, row.rails, row.actuator_efforts)
 
@@ -139,8 +153,12 @@ class Recorder:
     """The Python side of the recorder sink (REC-019): `write_row` per physics tick, in time order; subscribers
     receive each row after it is stored, synchronously, in subscription order, and cannot change it (REC-020)."""
 
-    def __init__(self, base_rate: Fraction) -> None:
+    def __init__(self, base_rate: Fraction, columns: Mapping[str, Columns] | None = None) -> None:
+        """`columns`: per-column names and units of the index-column series, from the neutral model (REC-018); their
+        counts are checked against the first row."""
         check_rate(base_rate, "base rate")
+        self._columns = dict(columns or {})
+        check_columns(self._columns)
         self._base_rate = base_rate
         self._layout: _Layout | None = None
         self._buffers: dict[str, _Buffer] = {}
@@ -173,6 +191,7 @@ class Recorder:
         layout = _layout(row)
         if self._layout is None:
             _check_named(layout)
+            _check_widths(layout, self._columns, row.time)
             self._layout = layout
             self._buffers = _make_buffers(layout)
         else:
@@ -300,6 +319,8 @@ class Recorder:
             for group, entries in zip(NAMED_GROUPS, layout.named, strict=True)
         }
         coupling = tuple((name, self._coupling_kinds.get(name, "none")) for name in layout.coupling)
+        if self._layout is not None:
+            series = label_series(series, self._columns)
         return Recording(self._base_rate, series, named, tuple(self._states), tuple(self._events), coupling)
 
     def flush(self, path: Path, identity: RunIdentity, end: RunEnd) -> None:
