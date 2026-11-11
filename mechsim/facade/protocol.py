@@ -41,7 +41,7 @@ ErrorCode = Literal[
     "run_error",
     "internal",
 ]
-RunEndReason = Literal["end_condition", "solver_failure", "drift", "emulator_fault", "cancelled"]
+RunEndReason = Literal["end_time", "message", "controller_state", "max_duration", "run_error"]
 TimelineCategory = Literal["command", "fault", "safety_event", "criterion_failure"]
 
 
@@ -90,8 +90,6 @@ class RunCasePayload(StrictModel):
 class RunSuitePayload(StrictModel):
     design: NonEmptyText
     suite: NonEmptyText
-    seed: int = Field(ge=0)
-    mode: NonEmptyText
 
 
 class ReplayOpenPayload(StrictModel):
@@ -129,6 +127,35 @@ class StepPayload(StrictModel):
     direction: Literal["forward", "backward"]
 
 
+class ReplayRefPayload(StrictModel):
+    run_id: RunId = Field(description="An open replay's run id.")
+
+
+class ValueAtPayload(StrictModel):
+    run_id: RunId
+    ref: NonEmptyText = Field(description="Record view reference: pose:, joint:, signal: or actuator:.")
+    t: SimTime
+
+
+class ProbePayload(StrictModel):
+    run_id: RunId
+    probe: Literal["body", "joint", "pin", "signal"]
+    name: NonEmptyText
+
+
+class SuiteRefPayload(StrictModel):
+    suite_id: NonEmptyText = Field(description="The suite_id a run_suite result named.")
+
+
+class ReadFilePayload(StrictModel):
+    path: NonEmptyText = Field(description="Design or test case file path relative to the repository root.")
+
+
+class WriteFilePayload(StrictModel):
+    path: NonEmptyText = Field(description="Design or test case file path relative to the repository root.")
+    text: str = Field(description="Full YAML text; written only when it validates against the file's schema.")
+
+
 # ===== Response payloads ====================================================
 
 
@@ -142,6 +169,10 @@ class ErrorPayload(StrictModel):
     code: ErrorCode
     message: NonEmptyText
     requirement_id: RequirementId | None = Field(default=None, description="ID of the violated requirement.")
+    run_id: RunId | None = Field(default=None, description="The run a run_error answers for, when it got an id.")
+    report: dict[str, JsonValue] | None = Field(
+        default=None, description="Structured run error report (party, t, cause, requirement_id) for run_error."
+    )
 
 
 # ===== Event payloads =======================================================
@@ -250,6 +281,51 @@ class StepRequest(_Envelope):
     payload: StepPayload
 
 
+class EventsRequest(_Envelope):
+    kind: Literal["events"]
+    payload: ReplayRefPayload
+
+
+class TimelineRequest(_Envelope):
+    kind: Literal["timeline"]
+    payload: ReplayRefPayload
+
+
+class GeometryRequest(_Envelope):
+    kind: Literal["geometry"]
+    payload: ReplayRefPayload
+
+
+class ValueAtRequest(_Envelope):
+    kind: Literal["value_at"]
+    payload: ValueAtPayload
+
+
+class ProbeRequest(_Envelope):
+    kind: Literal["probe"]
+    payload: ProbePayload
+
+
+class ReportRequest(_Envelope):
+    kind: Literal["report"]
+    payload: SuiteRefPayload
+
+
+class DiffRequest(_Envelope):
+    kind: Literal["diff"]
+    payload: SuiteRefPayload
+
+
+class ReadFileRequest(_Envelope):
+    kind: Literal["read_file"]
+    payload: ReadFilePayload
+
+
+class WriteFileRequest(_Envelope):
+    kind: Literal["write_file"]
+    payload: WriteFilePayload
+
+
 class OkResponse(_Envelope):
     kind: Literal["ok"]
     payload: OkPayload
@@ -290,6 +366,15 @@ Message = Annotated[
     | ScrubRequest
     | PauseRequest
     | StepRequest
+    | EventsRequest
+    | TimelineRequest
+    | GeometryRequest
+    | ValueAtRequest
+    | ProbeRequest
+    | ReportRequest
+    | DiffRequest
+    | ReadFileRequest
+    | WriteFileRequest
     | OkResponse
     | ErrorResponse
     | RunProgressEvent

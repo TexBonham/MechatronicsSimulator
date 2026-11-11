@@ -48,7 +48,7 @@ proposed <value>)".
 | FAC-015 | A run started through the facade by any client shall produce the same archive as the same run started from the CLI. | Architecture doc, Repository starting point, invariant 4; ADR 0007, Consequences | M1 | unit | n/a |
 | FAC-016 | Client code shall hold no domain logic: every value a client shows comes from the facade. | ADR 0007, Decision, Client role; Ruling R-16 | M1 | invariant | n/a |
 | FAC-017 | The facade shall expose reading and writing design and test case files, validating every write against the file's schema. | Architecture doc, Repository starting point, invariant 3; Seams reserved for the roadmap, GUI design and test editors row | M1 | unit | n/a |
-| FAC-018 | A series subscription shall name one or more distinct series, a simulated-time window whose start is before its end, and a point count of at least one per series, and the service shall decimate to that count. | ADR 0015 (proposed), Decision, Decimation request; ADR 0007, Decision, Streaming and decimation | phase 1 | unit | n/a |
+| FAC-018 | A series subscription shall name one or more distinct series, a simulated-time window whose start is before its end, and a point count of at least one per series, and the service shall decimate to that count: every window sample when the count covers them, otherwise the count's equal buckets over the window (half-open, the last closed), each contributing its sample nearest the bucket centre, the earlier on a tie and none when empty. | ADR 0015 (proposed), Decision, Decimation request; ADR 0007, Decision, Streaming and decimation | phase 1 | unit | n/a |
 | FAC-019 | Time series shall cross the protocol as a header message naming the run, the series, the dtype float64, little-endian byte order and the sample count, followed by one binary frame of (1 + series count) x sample count x 8 bytes, time column first; a header whose byte length disagrees shall be rejected. | ADR 0015 (proposed), Decision, Binary frames | phase 1 | unit | n/a |
 | FAC-020 | Every error response shall carry an error code and a message, and the ID of the violated requirement where one applies. | ADR 0015 (proposed), Decision, Messages; Architecture doc, Repository starting point, invariant 7 | phase 1 | unit | n/a |
 
@@ -56,10 +56,20 @@ proposed <value>)".
 
 | Parameter | Current value | Owed by |
 |---|---|---|
-| Facade protocol and transport | proposed in ADR 0015: JSON over WebSocket, binary float64 frames for series; transport library not set | owner (ADR 0015 acceptance) |
+| Facade protocol and transport | proposed in ADR 0015: JSON over WebSocket, binary float64 frames for series; service on `websockets` (asyncio, >= 13), token as `?token=` on the URL, 401 at the handshake otherwise (M2-F1) | owner (ADR 0015 acceptance) |
 | Version compatibility rule (exact match or semver range) | proposed in ADR 0015: exact match on an integer version, currently 1 | owner (ADR 0015 acceptance) |
-| Default decimation policy and client rate requests | client request proposed in ADR 0015 (FAC-018); decimation algorithm not set | owner (ADR 0015 acceptance); FAC module plan |
+| Default decimation policy and client rate requests | client request proposed in ADR 0015 (FAC-018); algorithm (M2-F1): every window sample when `points` >= the window's samples, otherwise `points` equal buckets over [t_start, t_end] (half-open, the last closed), each contributing its sample nearest the bucket centre (the earlier on a tie, none when empty); live streams emit each bucket once the recording has passed it | owner (ADR 0015 acceptance) |
 | Whether designs and results are shared across a team | not set | owner (Requirements doc, Assumptions and open questions) |
+
+## Service rules (M2-F1)
+
+| Rule | Value |
+|---|---|
+| Requests beyond the phase 1 set (additive kinds) | `events`, `timeline`, `geometry`, `value_at`, `probe` (open replay, FAC-011, VIE-002 to VIE-006, VIE-015); `report`, `diff` (by the `suite_id` a `run_suite` result names, FAC-012); `read_file`, `write_file` (FAC-017) |
+| Error codes (the protocol's `ErrorCode`, all emitted) | `unsupported_version` (FAC-003; a version that is not the integer itself, booleans and floats included), `invalid_message` (unparseable, binary or failing validation; request id null when unparseable), `unknown_kind`, `validation_failed` (refused file or request), `not_found`, `busy` (a run or suite already going), `run_error` (a run that ended in error or never started), `internal` |
+| Run errors (FAC-014) and answers | one terminal answer per request id: a run that ended in error, or a case stopped before t = 0, answers `error` with code `run_error`, the run id (null when it never got one) and `report` (party, simulated time, cause, requirement `INV-007`); otherwise `ok` with the summary and `stream_errors` (subscriptions that could not be served). A run that started sends `run_ended` before the answer, its `reason` the runner's end reason: `end_time`, `message`, `controller_state`, `max_duration` or `run_error` |
+| Live subscriptions | `subscribe_series` on a run id that is not an open replay is held for the next run of that id on the connection; a run's id is `<case id>-seed<seed>` |
+| Files (FAC-017) | read and write only design and test case files under the service's files root; a write is checked in place and the previous bytes restored when it does not validate |
 
 ## Out of scope
 

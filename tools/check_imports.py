@@ -52,9 +52,9 @@ RULES: tuple[Rule, ...] = (
     ),
     Rule(
         modules=("mechsim.viewer",),
-        allowed_under=("mechsim/viewer/", "tests/"),
+        allowed_under=("mechsim/viewer/", "mechsim/facade/", "tests/"),
         forbidden_under=(),
-        reason="only the viewer and the tests depend on the viewer (invariant 9)",
+        reason="only the viewer, the facade serving it (VIE-014) and the tests depend on the viewer (invariant 9)",
     ),
     Rule(
         modules=("mechsim._core_ext.engine", "mechsim._core.engine", "mechsim.physics.native._engine"),

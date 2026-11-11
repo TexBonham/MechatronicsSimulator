@@ -4,6 +4,38 @@
   "title": "FacadeMessage",
   "description": "Facade protocol message, version 1 (ADR 0015). Generated; do not edit.",
   "$defs": {
+    "DiffRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "version": {
+          "const": 1,
+          "description": "Protocol version; the service accepts only its own version.",
+          "title": "Version",
+          "type": "integer"
+        },
+        "message_id": {
+          "minLength": 1,
+          "title": "Message Id",
+          "type": "string"
+        },
+        "kind": {
+          "const": "diff",
+          "title": "Kind",
+          "type": "string"
+        },
+        "payload": {
+          "$ref": "#/$defs/SuiteRefPayload"
+        }
+      },
+      "required": [
+        "version",
+        "message_id",
+        "kind",
+        "payload"
+      ],
+      "title": "DiffRequest",
+      "type": "object"
+    },
     "ErrorPayload": {
       "additionalProperties": false,
       "properties": {
@@ -52,6 +84,37 @@
           "default": null,
           "description": "ID of the violated requirement.",
           "title": "Requirement Id"
+        },
+        "run_id": {
+          "anyOf": [
+            {
+              "description": "Run identifier assigned by the service.",
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The run a run_error answers for, when it got an id.",
+          "title": "Run Id"
+        },
+        "report": {
+          "anyOf": [
+            {
+              "additionalProperties": {
+                "$ref": "#/$defs/JsonValue"
+              },
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Structured run error report (party, t, cause, requirement_id) for run_error.",
+          "title": "Report"
         }
       },
       "required": [
@@ -92,6 +155,70 @@
         "payload"
       ],
       "title": "ErrorResponse",
+      "type": "object"
+    },
+    "EventsRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "version": {
+          "const": 1,
+          "description": "Protocol version; the service accepts only its own version.",
+          "title": "Version",
+          "type": "integer"
+        },
+        "message_id": {
+          "minLength": 1,
+          "title": "Message Id",
+          "type": "string"
+        },
+        "kind": {
+          "const": "events",
+          "title": "Kind",
+          "type": "string"
+        },
+        "payload": {
+          "$ref": "#/$defs/ReplayRefPayload"
+        }
+      },
+      "required": [
+        "version",
+        "message_id",
+        "kind",
+        "payload"
+      ],
+      "title": "EventsRequest",
+      "type": "object"
+    },
+    "GeometryRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "version": {
+          "const": 1,
+          "description": "Protocol version; the service accepts only its own version.",
+          "title": "Version",
+          "type": "integer"
+        },
+        "message_id": {
+          "minLength": 1,
+          "title": "Message Id",
+          "type": "string"
+        },
+        "kind": {
+          "const": "geometry",
+          "title": "Kind",
+          "type": "string"
+        },
+        "payload": {
+          "$ref": "#/$defs/ReplayRefPayload"
+        }
+      },
+      "required": [
+        "version",
+        "message_id",
+        "kind",
+        "payload"
+      ],
+      "title": "GeometryRequest",
       "type": "object"
     },
     "JsonValue": {},
@@ -242,6 +369,119 @@
       "title": "PauseRequest",
       "type": "object"
     },
+    "ProbePayload": {
+      "additionalProperties": false,
+      "properties": {
+        "run_id": {
+          "description": "Run identifier assigned by the service.",
+          "minLength": 1,
+          "title": "Run Id",
+          "type": "string"
+        },
+        "probe": {
+          "enum": [
+            "body",
+            "joint",
+            "pin",
+            "signal"
+          ],
+          "title": "Probe",
+          "type": "string"
+        },
+        "name": {
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
+        }
+      },
+      "required": [
+        "run_id",
+        "probe",
+        "name"
+      ],
+      "title": "ProbePayload",
+      "type": "object"
+    },
+    "ProbeRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "version": {
+          "const": 1,
+          "description": "Protocol version; the service accepts only its own version.",
+          "title": "Version",
+          "type": "integer"
+        },
+        "message_id": {
+          "minLength": 1,
+          "title": "Message Id",
+          "type": "string"
+        },
+        "kind": {
+          "const": "probe",
+          "title": "Kind",
+          "type": "string"
+        },
+        "payload": {
+          "$ref": "#/$defs/ProbePayload"
+        }
+      },
+      "required": [
+        "version",
+        "message_id",
+        "kind",
+        "payload"
+      ],
+      "title": "ProbeRequest",
+      "type": "object"
+    },
+    "ReadFilePayload": {
+      "additionalProperties": false,
+      "properties": {
+        "path": {
+          "description": "Design or test case file path relative to the repository root.",
+          "minLength": 1,
+          "title": "Path",
+          "type": "string"
+        }
+      },
+      "required": [
+        "path"
+      ],
+      "title": "ReadFilePayload",
+      "type": "object"
+    },
+    "ReadFileRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "version": {
+          "const": 1,
+          "description": "Protocol version; the service accepts only its own version.",
+          "title": "Version",
+          "type": "integer"
+        },
+        "message_id": {
+          "minLength": 1,
+          "title": "Message Id",
+          "type": "string"
+        },
+        "kind": {
+          "const": "read_file",
+          "title": "Kind",
+          "type": "string"
+        },
+        "payload": {
+          "$ref": "#/$defs/ReadFilePayload"
+        }
+      },
+      "required": [
+        "version",
+        "message_id",
+        "kind",
+        "payload"
+      ],
+      "title": "ReadFileRequest",
+      "type": "object"
+    },
     "ReplayOpenPayload": {
       "additionalProperties": false,
       "properties": {
@@ -288,6 +528,54 @@
         "payload"
       ],
       "title": "ReplayOpenRequest",
+      "type": "object"
+    },
+    "ReplayRefPayload": {
+      "additionalProperties": false,
+      "properties": {
+        "run_id": {
+          "description": "An open replay's run id.",
+          "minLength": 1,
+          "title": "Run Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "run_id"
+      ],
+      "title": "ReplayRefPayload",
+      "type": "object"
+    },
+    "ReportRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "version": {
+          "const": 1,
+          "description": "Protocol version; the service accepts only its own version.",
+          "title": "Version",
+          "type": "integer"
+        },
+        "message_id": {
+          "minLength": 1,
+          "title": "Message Id",
+          "type": "string"
+        },
+        "kind": {
+          "const": "report",
+          "title": "Kind",
+          "type": "string"
+        },
+        "payload": {
+          "$ref": "#/$defs/SuiteRefPayload"
+        }
+      },
+      "required": [
+        "version",
+        "message_id",
+        "kind",
+        "payload"
+      ],
+      "title": "ReportRequest",
       "type": "object"
     },
     "RunCasePayload": {
@@ -405,11 +693,11 @@
         },
         "reason": {
           "enum": [
-            "end_condition",
-            "solver_failure",
-            "drift",
-            "emulator_fault",
-            "cancelled"
+            "end_time",
+            "message",
+            "controller_state",
+            "max_duration",
+            "run_error"
           ],
           "title": "Reason",
           "type": "string"
@@ -524,23 +812,11 @@
           "minLength": 1,
           "title": "Suite",
           "type": "string"
-        },
-        "seed": {
-          "minimum": 0,
-          "title": "Seed",
-          "type": "integer"
-        },
-        "mode": {
-          "minLength": 1,
-          "title": "Mode",
-          "type": "string"
         }
       },
       "required": [
         "design",
-        "suite",
-        "seed",
-        "mode"
+        "suite"
       ],
       "title": "RunSuitePayload",
       "type": "object"
@@ -769,6 +1045,22 @@
       "title": "SubscribeSeriesRequest",
       "type": "object"
     },
+    "SuiteRefPayload": {
+      "additionalProperties": false,
+      "properties": {
+        "suite_id": {
+          "description": "The suite_id a run_suite result named.",
+          "minLength": 1,
+          "title": "Suite Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "suite_id"
+      ],
+      "title": "SuiteRefPayload",
+      "type": "object"
+    },
     "TickBatchEvent": {
       "additionalProperties": false,
       "properties": {
@@ -946,6 +1238,38 @@
       "title": "TimelineEventPayload",
       "type": "object"
     },
+    "TimelineRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "version": {
+          "const": 1,
+          "description": "Protocol version; the service accepts only its own version.",
+          "title": "Version",
+          "type": "integer"
+        },
+        "message_id": {
+          "minLength": 1,
+          "title": "Message Id",
+          "type": "string"
+        },
+        "kind": {
+          "const": "timeline",
+          "title": "Kind",
+          "type": "string"
+        },
+        "payload": {
+          "$ref": "#/$defs/ReplayRefPayload"
+        }
+      },
+      "required": [
+        "version",
+        "message_id",
+        "kind",
+        "payload"
+      ],
+      "title": "TimelineRequest",
+      "type": "object"
+    },
     "ValidateDesignPayload": {
       "additionalProperties": false,
       "properties": {
@@ -993,15 +1317,137 @@
       ],
       "title": "ValidateDesignRequest",
       "type": "object"
+    },
+    "ValueAtPayload": {
+      "additionalProperties": false,
+      "properties": {
+        "run_id": {
+          "description": "Run identifier assigned by the service.",
+          "minLength": 1,
+          "title": "Run Id",
+          "type": "string"
+        },
+        "ref": {
+          "description": "Record view reference: pose:, joint:, signal: or actuator:.",
+          "minLength": 1,
+          "title": "Ref",
+          "type": "string"
+        },
+        "t": {
+          "description": "Simulated time in seconds.",
+          "minimum": 0.0,
+          "title": "T",
+          "type": "number"
+        }
+      },
+      "required": [
+        "run_id",
+        "ref",
+        "t"
+      ],
+      "title": "ValueAtPayload",
+      "type": "object"
+    },
+    "ValueAtRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "version": {
+          "const": 1,
+          "description": "Protocol version; the service accepts only its own version.",
+          "title": "Version",
+          "type": "integer"
+        },
+        "message_id": {
+          "minLength": 1,
+          "title": "Message Id",
+          "type": "string"
+        },
+        "kind": {
+          "const": "value_at",
+          "title": "Kind",
+          "type": "string"
+        },
+        "payload": {
+          "$ref": "#/$defs/ValueAtPayload"
+        }
+      },
+      "required": [
+        "version",
+        "message_id",
+        "kind",
+        "payload"
+      ],
+      "title": "ValueAtRequest",
+      "type": "object"
+    },
+    "WriteFilePayload": {
+      "additionalProperties": false,
+      "properties": {
+        "path": {
+          "description": "Design or test case file path relative to the repository root.",
+          "minLength": 1,
+          "title": "Path",
+          "type": "string"
+        },
+        "text": {
+          "description": "Full YAML text; written only when it validates against the file's schema.",
+          "title": "Text",
+          "type": "string"
+        }
+      },
+      "required": [
+        "path",
+        "text"
+      ],
+      "title": "WriteFilePayload",
+      "type": "object"
+    },
+    "WriteFileRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "version": {
+          "const": 1,
+          "description": "Protocol version; the service accepts only its own version.",
+          "title": "Version",
+          "type": "integer"
+        },
+        "message_id": {
+          "minLength": 1,
+          "title": "Message Id",
+          "type": "string"
+        },
+        "kind": {
+          "const": "write_file",
+          "title": "Kind",
+          "type": "string"
+        },
+        "payload": {
+          "$ref": "#/$defs/WriteFilePayload"
+        }
+      },
+      "required": [
+        "version",
+        "message_id",
+        "kind",
+        "payload"
+      ],
+      "title": "WriteFileRequest",
+      "type": "object"
     }
   },
   "discriminator": {
     "mapping": {
+      "diff": "#/$defs/DiffRequest",
       "error": "#/$defs/ErrorResponse",
+      "events": "#/$defs/EventsRequest",
+      "geometry": "#/$defs/GeometryRequest",
       "list_designs": "#/$defs/ListDesignsRequest",
       "ok": "#/$defs/OkResponse",
       "pause": "#/$defs/PauseRequest",
+      "probe": "#/$defs/ProbeRequest",
+      "read_file": "#/$defs/ReadFileRequest",
       "replay_open": "#/$defs/ReplayOpenRequest",
+      "report": "#/$defs/ReportRequest",
       "run_case": "#/$defs/RunCaseRequest",
       "run_ended": "#/$defs/RunEndedEvent",
       "run_progress": "#/$defs/RunProgressEvent",
@@ -1010,8 +1456,11 @@
       "step": "#/$defs/StepRequest",
       "subscribe_series": "#/$defs/SubscribeSeriesRequest",
       "tick_batch": "#/$defs/TickBatchEvent",
+      "timeline": "#/$defs/TimelineRequest",
       "timeline_event": "#/$defs/TimelineEventMessage",
-      "validate_design": "#/$defs/ValidateDesignRequest"
+      "validate_design": "#/$defs/ValidateDesignRequest",
+      "value_at": "#/$defs/ValueAtRequest",
+      "write_file": "#/$defs/WriteFileRequest"
     },
     "propertyName": "kind"
   },
@@ -1042,6 +1491,33 @@
     },
     {
       "$ref": "#/$defs/StepRequest"
+    },
+    {
+      "$ref": "#/$defs/EventsRequest"
+    },
+    {
+      "$ref": "#/$defs/TimelineRequest"
+    },
+    {
+      "$ref": "#/$defs/GeometryRequest"
+    },
+    {
+      "$ref": "#/$defs/ValueAtRequest"
+    },
+    {
+      "$ref": "#/$defs/ProbeRequest"
+    },
+    {
+      "$ref": "#/$defs/ReportRequest"
+    },
+    {
+      "$ref": "#/$defs/DiffRequest"
+    },
+    {
+      "$ref": "#/$defs/ReadFileRequest"
+    },
+    {
+      "$ref": "#/$defs/WriteFileRequest"
     },
     {
       "$ref": "#/$defs/OkResponse"
