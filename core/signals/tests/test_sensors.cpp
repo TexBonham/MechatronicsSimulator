@@ -365,8 +365,8 @@ TEST_CASE("Sensor sample rate holds the output between samples on the layer cloc
     for (int k = 0; k < 12; ++k) {
         double expected = 0.0;
         if (k >= 2) {
-            const int held = 4 * ((k - 2) / 4);
-            expected = static_cast<double>(held);
+            const int quantized = 4 * ((k - 2) / 4);
+            expected = static_cast<double>(quantized);
         }
         CHECK(held[static_cast<std::size_t>(k)] == expected);
     }

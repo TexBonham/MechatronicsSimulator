@@ -29,3 +29,4 @@ type live in the root `CLAUDE.md` dispatch table once measured.
 | 2026-11-10 | M2-W2: native runtime on Windows (CreateProcess, LoadLibrary), INV-020, cpp and python green on windows-2022 twice (wip/04-w 12a171c) | general-purpose (opus), resumed | ~53K | 37 calls total for W and W2, 58 min |
 | 2026-11-10 | Invariant audit: W and W2 | invariant-auditor (sonnet) | 31K | 4 calls; clean, two style minors |
 | 2026-11-10 | M2 review: W and W2 | general-purpose (fable) | ~45K | 9 calls; accept with minor fixes (x64 guard inline, helper dedup to B) |
+| 2026-11-10 | M2-C and M2-A1 stage landed: merges, driver fixtures to self-locking, 6 clang-tidy fixes in tests, debug-sanitize 278 passed, full suite 3406 passed | inline | ~40K | coordinator |

@@ -874,7 +874,8 @@ TEST_CASE("MuJoCo slip loses (1 - s) of the commanded shaft travel and reports i
         }
     }
     const PhysicsOutputs& out = adapter->outputs();
-    const double window = rate * h * (n / 2);
+    const int half = n / 2;
+    const double window = rate * h * half;
     const double slip = s * rate * h * (n - 1);
     std::cout << "slip: closed-form slip " << slip << " rad, measured " << out.transmissions[0].slip
               << " rad; carriage advance over 1 s closed form " << lead_c * (1.0 - s) * window << " m, measured "
