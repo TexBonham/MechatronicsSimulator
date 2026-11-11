@@ -56,10 +56,20 @@ proposed <value>)".
 
 | Parameter | Current value | Owed by |
 |---|---|---|
-| Facade protocol and transport | proposed in ADR 0015: JSON over WebSocket, binary float64 frames for series; transport library not set | owner (ADR 0015 acceptance) |
+| Facade protocol and transport | proposed in ADR 0015: JSON over WebSocket, binary float64 frames for series; service on `websockets` (asyncio, >= 13), token as `?token=` on the URL, 401 at the handshake otherwise (M2-F1) | owner (ADR 0015 acceptance) |
 | Version compatibility rule (exact match or semver range) | proposed in ADR 0015: exact match on an integer version, currently 1 | owner (ADR 0015 acceptance) |
-| Default decimation policy and client rate requests | client request proposed in ADR 0015 (FAC-018); decimation algorithm not set | owner (ADR 0015 acceptance); FAC module plan |
+| Default decimation policy and client rate requests | client request proposed in ADR 0015 (FAC-018); algorithm (M2-F1): every window sample when `points` >= the window's samples, otherwise `points` equal buckets over [t_start, t_end] (half-open, the last closed), each contributing its sample nearest the bucket centre (the earlier on a tie, none when empty); live streams emit each bucket once the recording has passed it | owner (ADR 0015 acceptance) |
 | Whether designs and results are shared across a team | not set | owner (Requirements doc, Assumptions and open questions) |
+
+## Service rules (M2-F1)
+
+| Rule | Value |
+|---|---|
+| Requests beyond the phase 1 set (additive kinds) | `events`, `timeline`, `geometry`, `value_at`, `probe` (open replay, FAC-011, VIE-002 to VIE-006, VIE-015); `report`, `diff` (by the `suite_id` a `run_suite` result names, FAC-012); `read_file`, `write_file` (FAC-017) |
+| Error codes used | `unsupported_version` (FAC-003), `invalid_message` (unparseable, binary or failing validation; request id null when unparseable), `unknown_kind`, `not_found`, `validation_failed` (refused file or request), `busy` (a run already going), `internal` |
+| Run errors (FAC-014) | the `ok` result of `run_case` carries `error`: party, simulated time, cause, requirement `INV-007`; a run that started is followed by `run_ended` before the answer; a case stopped before t = 0 has party `runner` and no `run_ended` |
+| Live subscriptions | `subscribe_series` on a run id that is not an open replay is held for the next run of that id on the connection; a run's id is `<case id>-seed<seed>` |
+| Files (FAC-017) | read and write only design and test case files under the service's files root; a write is checked in place and the previous bytes restored when it does not validate |
 
 ## Out of scope
 
