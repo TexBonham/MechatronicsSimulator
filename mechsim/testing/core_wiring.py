@@ -32,6 +32,7 @@ STAGES: dict[str, Any] = {
     "power": core.Stage.power,
     "safety": core.Stage.power,
     "sensor": core.Stage.sensor,
+    "front_end": core.Stage.front_end,
     "driver": core.Stage.driver,
     "actuator": core.Stage.actuator,
 }

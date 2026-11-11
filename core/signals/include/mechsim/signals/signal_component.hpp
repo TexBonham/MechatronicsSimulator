@@ -21,6 +21,7 @@ enum class FailureMode : std::uint8_t {
     forced_level,  // present forced_level whatever the physical input (SIG-036)
     stall,         // actuator: available torque scaled to `fraction` of nominal (SIG-034)
     slip,          // actuator: `fraction` of the commanded steps missed (SIG-034)
+    power_loss,    // supply: output 0 V for the window, restored after (SIG-019)
 };
 
 // Active for start <= t < end. Noise draws come from the component's child generator (SIG-005); the noise
@@ -76,6 +77,9 @@ public:
     virtual void begin_tick(kernel::SimTime /*t*/) {}
     // Joint drives this component asks physics to apply in the next step, read after latch_outputs() (KER-027).
     [[nodiscard]] virtual std::span<const kernel::JointDrive> joint_drives() const { return {}; }
+    // Approximation lines raised since the last call (e.g. a load cell saturating at its overload limit), read after
+    // latch_outputs(); the layer records each as an `approximation` event.
+    [[nodiscard]] virtual std::vector<std::string> take_notes() { return {}; }
 };
 
 // The Python tier's surface: the binding derives its trampoline from this, so a slow-path component is a

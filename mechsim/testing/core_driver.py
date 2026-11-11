@@ -78,7 +78,7 @@ from mechsim.testing.runner import RunnerError, Services
 from mechsim.testing.schema import DESIGNS_ROOT, ROOT, Case, InitialState, Quantity
 
 OPERATOR_EVENT_KINDS = ("operator_status", "operator_command")
-SIGNAL_LAYER_CATEGORIES = ("sensor", "actuator", "driver", "power", "safety", "communication")
+SIGNAL_LAYER_CATEGORIES = ("sensor", "front_end", "actuator", "driver", "power", "safety", "communication")
 CASES_ROOT = ROOT / "test_cases"
 Vec = tuple[float, float, float]
 Quat = tuple[float, float, float, float]

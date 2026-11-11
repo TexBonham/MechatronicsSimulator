@@ -263,4 +263,14 @@ std::span<const FailureInjection> BuiltinComponent::injections() const noexcept 
     return faults_;
 }
 
+void BuiltinComponent::note(std::string line) {
+    notes_.push_back(std::move(line));
+}
+
+std::vector<std::string> BuiltinComponent::take_notes() {
+    std::vector<std::string> taken;
+    taken.swap(notes_);
+    return taken;
+}
+
 }  // namespace mechsim::signals

@@ -77,7 +77,8 @@ parts:
     values:
       mass: "0.1 kg"
       resolution: "0.15 deg"
-      sample_rate: "10 kHz"
+      # Placeholder at the 1 kHz signal layer rate: a rate above the layer's is a configuration error (SIG-004, M2-A1).
+      sample_rate: "1 kHz"
       supply_voltage: "5 V"
       max_speed: "5000 rpm"
     placeholders: [mass, sample_rate, supply_voltage, max_speed]

@@ -23,12 +23,14 @@
 
 namespace mechsim::signals {
 
-// Evaluation order inside one layer step: safety and supplies, then rails, then sensors, drivers, actuators.
+// Evaluation order inside one layer step: safety and supplies, then rails, then sensors, front ends (amplifiers
+// between a sensor and its pin), drivers, actuators.
 enum class Stage : std::uint8_t {
     power,
     sensor,
     driver,
     actuator,
+    front_end,
 };
 
 // A PinInputs or PinOutputs field.
@@ -113,8 +115,9 @@ struct SignalLayerConfig {
 };
 
 // The signal layer party (KER-009, SIG-024). It owns the components, the pin tables and the rails. Per step: pin
-// outputs and external inputs onto the signal bus, power stage, rails, then sensor, driver and actuator stages, each
-// component begin_tick / set_inputs / sample / latch_outputs in registration order; then pin inputs from the bus
+// outputs and external inputs onto the signal bus, power stage, rails, then sensor, front_end, driver and actuator
+// stages, each component begin_tick / set_inputs / sample / latch_outputs in registration order, its take_notes()
+// recorded as `approximation` events; then pin inputs from the bus
 // through the slots only, and applied actuator torques and every component's joint drives (registration order) into
 // PhysicsInputs (KER-027).
 // Kernel coupling (KER-008, invariant 1): consumes config.physics_outputs, config.pin_outputs, `<name>.external_inputs`

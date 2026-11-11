@@ -72,6 +72,8 @@ proposed <value>)".
 | Milestone 2 catalog part values (LIB-019, LIB-025, LIB-027) | `load_cell_5kg_generic`, `load_cell_amplifier_generic`, `imu_6axis_generic`, `brake_24v_generic` carry placeholder values listed in each part's `placeholders` | gantry team |
 | IMU interface | analog output per axis until the chip vocabulary has a serial peripheral mode (open ruling 2, `docs/queue.md`) | owner |
 | Joint a brake acts on | design data, an `acts_on` block analogous to DES-043 `senses`; not in the catalog type | integration brief, DES |
+| Milestone 2 reference tolerances (LIB-021) | load cell bridge voltage 1e-15 V and ADC count exact; amplifier step response to its exact discretization 1e-12, and 1 - 1/e at the sample nearest 1 / (2 pi f) within one sample's increment; IMU at rest within half a resolution step, free fall below 1e-10 m/s^2 (rounding of the difference quotient), gyro within half a resolution step; brake hold torque 1e-9 N m and sag 1e-12 rad, slip torque 1e-6 N m (`core/signals/tests/test_reference_m2_sensors.cpp`, brief M2-A2); the milestone 1 types' reference tests are still owed, so the LIB-021 stub stays | owner |
+| Encoder sample rate (LIB-025) | `encoder_600ppr_generic` placeholder 1 kHz, the signal layer rate (a rate above it is a configuration error, SIG-004) | gantry team |
 | Strict lower bounds | a quantity parameter may set `minimum_exclusive: true`, so a value equal to its minimum is rejected (used for the strictly positive parameters of the milestone 2 types) | set (brief M2-G) |
 | Rope parameters and model detail | not set | milestone 3 ADR (ruling P4) |
 | Datasheet curve source for each shipped stepper part | not set | owner |

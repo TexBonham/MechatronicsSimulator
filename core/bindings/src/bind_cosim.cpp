@@ -28,6 +28,7 @@
 #include "mechsim/kernel/run_config.hpp"
 #include "mechsim/pins/pins.hpp"
 #include "mechsim/signals/component_base.hpp"
+#include "mechsim/signals/front_end.hpp"
 #include "mechsim/signals/operator_link.hpp"
 #include "mechsim/signals/safety.hpp"
 #include "mechsim/signals/sensors.hpp"
@@ -73,6 +74,21 @@ signals::JointCoordinate coordinate(const py::dict& params) {
         throw std::invalid_argument("parameter 'coordinate' (JointCoordinate) is required");
     }
     return params["coordinate"].cast<signals::JointCoordinate>();
+}
+
+signals::SensorFidelity fidelity(const py::dict& params) {
+    signals::SensorFidelity f;
+    f.noise = number(params, "noise", f.noise);
+    f.delay = number(params, "delay", f.delay);
+    f.sample_rate = number(params, "sample_rate", f.sample_rate);
+    return f;
+}
+
+std::optional<std::size_t> index(const py::dict& params, const char* key) {
+    if (!params.contains(key)) {
+        return std::nullopt;
+    }
+    return params[key].cast<std::size_t>();
 }
 
 void check_known(const std::string& type, const py::dict& params, const std::vector<std::string>& known) {
@@ -177,7 +193,7 @@ std::unique_ptr<signals::SignalComponent> make_signal_component(const std::strin
                                                                 const py::dict& params) {
     if (type == "limit_switch") {
         check_known(type, params, {"coordinate", "position", "actuate_above", "hysteresis", "resolution",
-                                   "debounce_time", "normally_open"});
+                                   "debounce_time", "normally_open", "noise", "delay", "sample_rate"});
         signals::LimitSwitchParams p;
         p.coordinate = coordinate(params);
         p.position = number(params, "position", p.position);
@@ -186,14 +202,16 @@ std::unique_ptr<signals::SignalComponent> make_signal_component(const std::strin
         p.resolution = number(params, "resolution", p.resolution);
         p.debounce_time = number(params, "debounce_time", p.debounce_time);
         p.normally_open = flag(params, "normally_open", p.normally_open);
+        p.fidelity = fidelity(params);
         return std::make_unique<signals::LimitSwitch>(instance, p);
     }
     if (type == "incremental_encoder") {
-        check_known(type, params, {"coordinate", "resolution", "reversed"});
+        check_known(type, params, {"coordinate", "resolution", "reversed", "noise", "delay", "sample_rate"});
         signals::EncoderParams p;
         p.coordinate = coordinate(params);
         p.resolution = number(params, "resolution", p.resolution);
         p.reversed = flag(params, "reversed", p.reversed);
+        p.fidelity = fidelity(params);
         return std::make_unique<signals::IncrementalEncoder>(instance, p);
     }
     if (type == "step_dir_driver") {
@@ -251,9 +269,72 @@ std::unique_ptr<signals::SignalComponent> make_signal_component(const std::strin
         p.manual_reset = flag(params, "manual_reset", p.manual_reset);
         return std::make_unique<signals::Watchdog>(instance, p);
     }
+    if (type == "load_cell") {
+        check_known(type, params, {"payload", "joint", "capacity", "sensitivity", "excitation_voltage", "resolution",
+                                   "overload_limit", "nonlinearity", "noise", "delay", "sample_rate"});
+        signals::LoadCellParams p;
+        p.payload = index(params, "payload");
+        p.joint = index(params, "joint");
+        p.capacity = number(params, "capacity", p.capacity);
+        p.sensitivity = number(params, "sensitivity", p.sensitivity);
+        p.excitation_voltage = number(params, "excitation_voltage", p.excitation_voltage);
+        p.resolution = number(params, "resolution", p.resolution);
+        p.overload_limit = number(params, "overload_limit", p.overload_limit);
+        p.nonlinearity = number(params, "nonlinearity", p.nonlinearity);
+        p.fidelity = fidelity(params);
+        return std::make_unique<signals::LoadCell>(instance, p);
+    }
+    if (type == "load_cell_amplifier") {
+        check_known(type, params, {"gain", "offset", "output_full_scale", "bandwidth", "adc_bits", "adc_reference"});
+        signals::AmplifierParams p;
+        p.gain = number(params, "gain", p.gain);
+        p.offset = number(params, "offset", p.offset);
+        p.output_full_scale = number(params, "output_full_scale", p.output_full_scale);
+        p.bandwidth = number(params, "bandwidth", p.bandwidth);
+        if (params.contains("adc_bits")) {
+            p.adc.bits = params["adc_bits"].cast<std::int64_t>();
+        }
+        p.adc.reference = number(params, "adc_reference", p.adc.reference);
+        return std::make_unique<signals::LoadCellAmplifier>(instance, p);
+    }
+    if (type == "imu") {
+        check_known(type, params, {"body", "gravity", "accel_range", "gyro_range", "resolution", "gyro_resolution",
+                                   "gyro_noise", "noise", "delay", "sample_rate"});
+        signals::ImuParams p;
+        if (params.contains("body")) {
+            p.body = params["body"].cast<std::size_t>();
+        }
+        if (params.contains("gravity")) {
+            p.gravity = params["gravity"].cast<kernel::Vec3>();
+        }
+        p.accel_range = number(params, "accel_range", p.accel_range);
+        p.gyro_range = number(params, "gyro_range", p.gyro_range);
+        p.resolution = number(params, "resolution", p.resolution);
+        p.gyro_resolution = number(params, "gyro_resolution", p.gyro_resolution);
+        p.gyro_noise = number(params, "gyro_noise", p.gyro_noise);
+        p.fidelity = fidelity(params);
+        return std::make_unique<signals::Imu>(instance, p);
+    }
+    if (type == "brake") {
+        check_known(type, params, {"joint", "brake_torque", "engage_delay", "release_delay", "power_off_engaged",
+                                   "damping", "inverse_inertia"});
+        signals::BrakeParams p;
+        if (params.contains("joint")) {
+            p.joint = params["joint"].cast<std::size_t>();
+        }
+        p.brake_torque = number(params, "brake_torque", p.brake_torque);
+        p.engage_delay = number(params, "engage_delay", p.engage_delay);
+        p.release_delay = number(params, "release_delay", p.release_delay);
+        p.power_off_engaged = flag(params, "power_off_engaged", p.power_off_engaged);
+        p.damping = number(params, "damping", p.damping);
+        if (params.contains("inverse_inertia")) {
+            p.inverse_inertia = params["inverse_inertia"].cast<double>();
+        }
+        return std::make_unique<signals::Brake>(instance, p);
+    }
     throw std::invalid_argument("unknown built-in component type '" + type +
-                                "'; known: estop_relay, incremental_encoder, limit_switch, power_supply, "
-                                "step_dir_driver, stepper_behavioral, watchdog");
+                                "'; known: brake, estop_relay, imu, incremental_encoder, limit_switch, load_cell, "
+                                "load_cell_amplifier, power_supply, step_dir_driver, stepper_behavioral, watchdog");
 }
 
 void bind_cosim(py::module_& m) {
@@ -390,7 +471,8 @@ void bind_cosim(py::module_& m) {
         .value("power", signals::Stage::power)
         .value("sensor", signals::Stage::sensor)
         .value("driver", signals::Stage::driver)
-        .value("actuator", signals::Stage::actuator);
+        .value("actuator", signals::Stage::actuator)
+        .value("front_end", signals::Stage::front_end);
     py::enum_<signals::PinField>(m, "PinField")
         .value("digital_in", signals::PinField::digital_in)
         .value("counter_delta", signals::PinField::counter_delta)

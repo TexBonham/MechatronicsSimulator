@@ -57,6 +57,9 @@ protected:
     // every output to the level, else the outputs are the delivered frame.
     virtual void present(std::span<const double> delivered, const std::optional<FailureInjection>& fault);
     virtual void on_sensor_start() {}
+    // Part noise standard deviation of one quantity; default the fidelity's noise for every quantity.
+    [[nodiscard]] virtual double part_noise(std::size_t quantity) const;
+    [[nodiscard]] const SensorFidelity& fidelity() const noexcept;
     [[nodiscard]] static bool holds(const std::optional<FailureInjection>& fault) noexcept;
 
 private:
@@ -138,6 +141,72 @@ private:
     CoordinateReader reader_;
     bool primed_ = false;
     std::int64_t last_count_ = 0;
+};
+
+// Catalog type load_cell. Senses exactly one of a payload (the magnitude of physics_outputs.payloads[payload].force,
+// the weld force on it) or a joint (generalized_force[0] of physics_outputs.joints[joint], signed along its axis).
+// Forces in N; fidelity.noise in N.
+struct LoadCellParams {
+    std::optional<std::size_t> payload;
+    std::optional<std::size_t> joint;
+    double capacity = 0.0;            // N, > 0
+    double sensitivity = 0.0;         // V/V at capacity, > 0
+    double excitation_voltage = 0.0;  // V, > 0
+    double resolution = 0.0;          // N, quantization step (round to nearest); 0 = none
+    double overload_limit = 0.0;      // N, > 0
+    double nonlinearity = 0.0;        // [0, 1], the nonlinear tier's coefficient; 0 = ideal
+    SensorFidelity fidelity;
+};
+
+// Output `signal`, V, an analog SampledSensor (SIG-014 source, LIB-019). F (plus part and fault noise) rounds to
+// resolution, or past +-overload_limit is held at the limit itself; V = sensitivity excitation F / capacity + nonlinearity (F / capacity)^2
+// sensitivity excitation. Saturation raises no error (overload is the firmware's business): the first saturated
+// sample of a run is noted once as an approximation line (take_notes).
+class LoadCell final : public SampledSensor {
+public:
+    // Throws SignalConfigError unless exactly one of payload and joint is set and the parameters are in range.
+    LoadCell(std::string instance, LoadCellParams params);
+
+private:
+    void measure(const PhysicalState& state, std::span<double> quantities) override;
+    void convert(std::span<const double> quantities, std::int64_t step, std::span<double> frame) override;
+    void on_sensor_start() override;
+
+    LoadCellParams params_;
+    bool noted_ = false;
+};
+
+// Catalog type imu (ruling 2 placeholder: one analog output per axis carrying the SI value itself, no volts).
+struct ImuParams {
+    std::size_t body = 0;
+    kernel::Vec3 gravity{0.0, 0.0, -9.81};  // m/s^2, world frame (the model's gravity)
+    double accel_range = 0.0;               // m/s^2, > 0, clamps each axis to +-range
+    double gyro_range = 0.0;                // rad/s, > 0
+    double resolution = 0.0;                // m/s^2, round to nearest; 0 = none
+    double gyro_resolution = 0.0;           // rad/s
+    double gyro_noise = 0.0;                // rad/s; fidelity.noise is the accelerometer's, m/s^2
+    SensorFidelity fidelity;
+};
+
+// Outputs accel_x, accel_y, accel_z (m/s^2), gyro_x, gyro_y, gyro_z (rad/s), an analog SampledSensor (LIB-019).
+// Specific force f = R^T (a - g), a = (v_n - v_{n-1}) / layer period from the body's world linear velocity (a = 0 at
+// the first step), R the body's orientation; gyro = R^T omega_world. Noise (fidelity.noise on the accelerometer,
+// gyro_noise on the gyro; a noisy fault's magnitude on all six in their own units), then clamp to range, then round
+// to resolution.
+class Imu final : public SampledSensor {
+public:
+    // Throws SignalConfigError on a non-positive range, a negative resolution or noise, or a non-finite gravity.
+    Imu(std::string instance, ImuParams params);
+
+private:
+    void measure(const PhysicalState& state, std::span<double> quantities) override;
+    void convert(std::span<const double> quantities, std::int64_t step, std::span<double> frame) override;
+    [[nodiscard]] double part_noise(std::size_t quantity) const override;
+    void on_sensor_start() override;
+
+    ImuParams params_;
+    bool primed_ = false;
+    kernel::Vec3 last_velocity_{};
 };
 
 }  // namespace mechsim::signals

@@ -94,6 +94,7 @@ public:
     void start(const ComponentClock& clock) override;
     void begin_tick(kernel::SimTime t) override;
     [[nodiscard]] const SignalRng& generator() const noexcept;
+    [[nodiscard]] std::vector<std::string> take_notes() override;
 
 protected:
     // Throws SignalNameError on a bad instance name; signal names are given without the instance part.
@@ -112,8 +113,10 @@ protected:
     [[nodiscard]] const ComponentClock& clock() const noexcept;
     [[nodiscard]] std::span<const FailureInjection> injections() const noexcept;
     virtual void on_start() {}
+    void note(std::string line);
 
 private:
+    std::vector<std::string> notes_;
     std::string instance_;
     std::vector<std::string> inputs_;
     std::vector<std::string> outputs_;

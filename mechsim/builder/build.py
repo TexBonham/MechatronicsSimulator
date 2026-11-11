@@ -29,7 +29,7 @@ def module_order(design: Design, registry: Registry) -> tuple[str, ...]:
 
     components = [component for component in design.components if registry.has_type(component.type)]
     order = ["physics", "integrity"]
-    order += [component.name for component in components if category(component.type) == "sensor"]
+    order += [component.name for component in components if category(component.type) in ("sensor", "front_end")]
     order += ["controller", "signals"]
     for group in COMPONENT_GROUPS:
         order += [component.name for component in components if category(component.type) in group]

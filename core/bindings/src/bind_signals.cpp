@@ -147,7 +147,8 @@ void bind_failures(py::module_& m) {
         .value("dropped", signals::FailureMode::dropped)
         .value("forced_level", signals::FailureMode::forced_level)
         .value("stall", signals::FailureMode::stall)
-        .value("slip", signals::FailureMode::slip);
+        .value("slip", signals::FailureMode::slip)
+        .value("power_loss", signals::FailureMode::power_loss);
 
     py::class_<signals::FailureInjection>(m, "FailureInjection", "Active for start <= t < end, in base ticks.")
         .def(py::init<>())
@@ -181,7 +182,13 @@ void bind_components(py::module_& m) {
              })
         .def("inject", &SignalComponent::inject, py::arg("injection"))
         .def("start", &SignalComponent::start, py::arg("clock"))
-        .def("begin_tick", &SignalComponent::begin_tick, py::arg("t"));
+        .def("begin_tick", &SignalComponent::begin_tick, py::arg("t"))
+        .def("joint_drives",
+             [](const SignalComponent& c) {
+                 const auto view = c.joint_drives();
+                 return std::vector<mechsim::kernel::JointDrive>(view.begin(), view.end());
+             })
+        .def("take_notes", &SignalComponent::take_notes);
     m.attr("PythonSlowPathComponent") = m.attr("SignalComponent");
 
     py::class_<signals::NullSignalComponent, SignalComponent, py::smart_holder>(m, "NullSignalComponent")
