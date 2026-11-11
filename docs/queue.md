@@ -38,6 +38,7 @@ origin round/04-milestone-2`) or adds a rule for `round/*` and `wip/*`.
 | 19 | B: CTL-020 latency counts whole control ticks; CTL-021 slow-down ticks the controller once per `factor` periods (tick skipping), outputs hold between. | as stated | coordinator ruling, for confirmation |
 | 20 | A2 review: SCO-013 widens to layer `approximation` events (the load cell's saturation line) so they reach the score report; spec edit and scoring change in X2. | widen | coordinator ruling, for confirmation |
 | 21 | F2: the browser client is verified without a browser (protocol-kind scan against the schema, same-origin check, vendored three.js hash, a coarse domain-logic screen) plus a manual checklist the owner runs once at the gate; a playwright-driven test and its dependency are deferred to M3 unless the owner wants them now. | deferred | open |
+| 22 | F2 review: `list_runs` and `advance` are added as request kinds in X2 (additive); until then the client plays back on its own clock issuing `scrub` per frame, and lists only runs it started. The X2 client fix also keeps the cursor's own sample in the decimated window. | X2 | coordinator ruling, for confirmation |
 | 6 | Placeholders set by the coordinator for the gantry team's slots: overload limit rated + 15 percent (3.45 kg), heartbeat period 10 ms, watchdog timeout 50 ms, brownout threshold 2.0 V, encoder mismatch threshold 2 mm, ADC 12 bits at 3.3 V | as listed | open |
 
 ## Next

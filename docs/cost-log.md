@@ -44,3 +44,4 @@ type live in the root `CLAUDE.md` dispatch table once measured.
 | 2026-11-10 | M2-B re-review | general-purpose (fable), resumed | ~20K | 3 calls; accept |
 | 2026-11-10 | M2-F2: browser client, serve command with static route, vendored three.js r170, browser-free checks; VIE-001, 012 converted (wip/04-f2 bb25d8f) | module-writer (opus), worktree | ~140K | 52 calls, 30 min; one foreign import-set test to fix at merge-back; no list_runs request yet |
 | 2026-11-10 | Invariant audit: F2 | invariant-auditor (sonnet) | ~25K | clean |
+| 2026-11-10 | M2 review: F2 | general-purpose (fable) | ~65K | 14 calls; accept, 2 medium to X2 (advance kind, cursor sample), coordinator import-set fix |
