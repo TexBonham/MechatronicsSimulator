@@ -18,8 +18,8 @@ namespace mechsim::physics::mujoco {
 //
 // Index spaces (neutral file order): bodies; joints (one per body); velocity DOFs (joint order, linear then
 // angular); springs (each revolute, prismatic and planar joint DOF in joint order, then each lumped-member node,
-// member order, root to tip); constraints; members; payloads are bodies. release_load() and
-// set_payload_attachment() have no MuJoCo mapping in milestone 1 and throw AdapterError.
+// member order, root to tip); constraints; members; transmissions; payloads and loads are bodies, and only the
+// translation's payloads (each welded to one carrier) can be released or re-attached (PHY-006, ENG-035).
 class MujocoAdapter final : public kernel::PhysicsAdapter {
 public:
     MujocoAdapter();
@@ -45,6 +45,7 @@ public:
     void release_load(std::size_t load) override;
     void set_payload_mass(std::size_t payload, double mass) override;
     void set_payload_attachment(std::size_t payload, std::size_t body) override;
+    void set_transmission_slip(std::size_t transmission, double fraction) override;
 
     // The integrator and step MuJoCo runs with after load(), for PHY-014 checks: "implicitfast" and seconds.
     [[nodiscard]] std::string integrator() const;

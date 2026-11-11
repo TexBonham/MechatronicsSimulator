@@ -24,9 +24,10 @@ only here (CI grep, `tests/invariant/test_phy_stubs.py`); the public header name
 | contacts | `mj_contactForce` in world, on body_a (geom1); world and member bodies are `kernel::kWorldBody` |
 | members | start: `cfrc_int` of the first segment moved to the root point; end: roller connect force on the tip, else zero |
 | ropes | empty (milestone 3) |
-| joint_positions | per neutral joint: revolute/prismatic q - qpos0; reflected shaft (q_driven - qpos0) / c; others 0 (PHY-034) |
+| joint_positions | per neutral joint: revolute/prismatic q - qpos0; reflected shaft (q_driven - qpos0) / c + (r_cmd - r_eff) (slip and play, below); others 0 (PHY-034) |
 | joint_drive_torques | one per input drive, in order: the drive equality's `efc_force` (times c on a shaft), 0 when disabled |
-| transmissions | per shaft, neutral order: `shaft_load_torque` (PHY-033, the joint's value, explicit torque plus drive torque), `force` = gain tau_load / c (gain eta driving, 1 / eta back-driven), `stretch` 0 (rigid), `power_flow` Static (tau qd = 0), Forward, Backward; `slip` 0 |
+| transmissions | per shaft, neutral order: `shaft_load_torque` (PHY-033, the joint's value, explicit torque plus drive torque), `force` = gain tau_load / c (gain eta driving, 1 / eta back-driven), `stretch` 0 (rigid), `power_flow` Static (tau qd = 0), Forward, Backward; `slip` = shaft travel lost to slip (rad), `slipping` = s > 0 |
+| payloads | per `mechsim:payloads` entry: body, carrier (`kWorldBody` released), attached = weld active, force = weld `efc_force` rows 0-2 (world, on the payload) |
 
 ## Transmissions (reflection, PHY-018, PHY-033)
 
@@ -36,6 +37,19 @@ F = eta tau / c when driving (tau qd_driven c >= 0, standing still included), F 
 Outputs: the shaft body's pose and velocity turn q_driven / c, qd_driven / c about its axis on its parent; the shaft
 joint's `generalized_force` is the load torque tau_load = tau - J (qd_driven' - qd_driven) / (h c). Body wrenches,
 springs and payload changes on a shaft body throw `AdapterError`.
+
+## Faults (PHY-006, milestone 2)
+
+| Call | Does |
+|---|---|
+| `set_transmission_slip(t, s)` | s in [0, 1] (0 clears), else `AdapterError`; drive rest gets (1 - s) of each commanded increment, `slip_accum += s Delta r_cmd` (kept when cleared); explicit shaft torque scaled by (1 - s), drive force unscaled, `force` = gain (tau_load - s tau_explicit) / c (approximation, ruling 9) |
+| backlash | numeric [13] = b / abs(c), shaft rad; play with memory on the drive rest (after slip), band centred on the first rest; torque-driven shafts pass torque without play (approximation) |
+| `release_load(p)`, `set_payload_attachment(p, kWorldBody)` | weld `<p>.attach` off; `p` must be a `mechsim:payloads` body |
+| `set_payload_attachment(p, carrier)` | weld on at the translated relative pose; any other carrier throws (no re-parenting) |
+
+Shaft output under slip or play: angle + (r_cmd - r_eff), rate + (Delta r_cmd - Delta r_eff) / h (`ShaftMap::receive`).
+A step with no enabled drive on the shaft ends tracking; the next enabled rest restarts there, no increment counted,
+band re-centred on rest - slip_accum, `slip_accum` kept (ruling 10).
 
 ## Joint drives (PHY-034)
 
@@ -48,9 +62,9 @@ sag and steady lag; above K_d A0 h^2 = 1 an apparent inertia m / (1 - d). Deriva
 ## Index spaces (neutral file order)
 
 Velocity DOFs: joint order, linear then angular (free: MuJoCo order, translation world, rotation local). Springs:
-each revolute, prismatic and planar DOF, then lumped-member nodes root to tip. Payloads are bodies; mass change
-rescales inertia and reruns `mj_setConst` on scratch data. `release_load` (no ropes) and `set_payload_attachment`
-(MuJoCo cannot re-parent) throw `AdapterError` in milestone 1.
+each revolute, prismatic and planar DOF, then lumped-member nodes root to tip. Transmissions: neutral order. Payloads
+and loads are bodies; mass change rescales inertia and reruns `mj_setConst` on scratch data; only `mechsim:payloads`
+bodies release or re-attach (no ropes).
 
 ## Section index, `src/mujoco_adapter.cpp`
 
@@ -58,13 +72,13 @@ rescales inertia and reruns `mj_setConst` on scratch data. `release_load` (no ro
 |---|---|
 | Supported elements | 35 |
 | Helpers | 61 |
-| Engine | 267 |
-| Element maps | 307 |
-| Shafts | 446 |
-| Outputs | 492 |
-| Inputs | 690 |
-| Adapter | 804 |
-| Mid-run changes | 949 |
+| Engine | 309 |
+| Element maps | 353 |
+| Shafts | 531 |
+| Outputs | 582 |
+| Inputs | 806 |
+| Adapter | 937 |
+| Mid-run changes | 1082 |
 
 ## Build notes
 

@@ -74,6 +74,12 @@ public:
     virtual void release_load(std::size_t load) = 0;                              // rope snap (ENG-034)
     virtual void set_payload_mass(std::size_t payload, double mass) = 0;          // kg (ENG-035)
     virtual void set_payload_attachment(std::size_t payload, std::size_t body) = 0;  // re-attach (ENG-035)
+
+    // Dynamic slip fault on a transmission (neutral order) for the fault window (PHY-006, TST-015): fraction in
+    // [0, 1] of the commanded shaft travel lost; 0 clears it. Adapters without a slip model refuse it.
+    virtual void set_transmission_slip(std::size_t transmission, double /*fraction*/) {
+        throw AdapterError(0, "transmission " + std::to_string(transmission) + ": this adapter has no slip model");
+    }
 };
 
 // Maps no element kind and publishes zero-sized outputs; the step count advances.
