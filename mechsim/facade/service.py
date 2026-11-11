@@ -393,7 +393,7 @@ class Facade:
                 data = None
             if isinstance(data, dict) and isinstance(data.get("version"), str):
                 version = data["version"]
-            entries.append(DesignEntry(name=path.parent.name, path=path.as_posix(), version=version, errors=errors))
+            entries.append(DesignEntry(name=path.parent.name, path=str(path), version=version, errors=errors))
         return DesignList(designs=entries)
 
     def list_runs(self) -> RunList:
@@ -418,7 +418,7 @@ class Facade:
         results: list[FileValidation] = []
         for file in files:
             kind, errors = validate_file(file, self._services.designs_root)
-            results.append(FileValidation(path=file.as_posix(), kind=kind, errors=errors))
+            results.append(FileValidation(path=str(file), kind=kind, errors=errors))
         return ValidationResult(files=results)
 
     def _inside(self, path: Path) -> Path:
