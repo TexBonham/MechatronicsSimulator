@@ -89,6 +89,8 @@ def test_every_kind_the_client_sends_is_a_request_kind_of_the_schema() -> None:
         "step",
         "probe",
         "value_at",
+        "list_runs",
+        "advance",
     }
     assert needed <= sent, f"the client never sends {sorted(needed - sent)}"
 
@@ -121,6 +123,59 @@ def test_the_tick_batch_decoder_checks_the_frame_length_from_the_header() -> Non
     assert "getFloat64(" in text
     assert ", true)" in text
     assert 'binaryType = "arraybuffer"' in text
+
+
+def app_function(name: str) -> str:
+    """The source of one top-level function of `web/app.js`, up to the next top-level declaration."""
+    text = (WEB / "app.js").read_text(encoding="utf-8")
+    found = re.search(
+        rf"^(?:async )?function {name}\(.*?(?=^(?://|(?:async function|function|const|element|client)\b))",
+        text,
+        re.M | re.S,
+    )
+    assert found is not None, f"app.js has no function {name}"
+    return found.group(0)
+
+
+@pytest.mark.req("VIE-009")
+@pytest.mark.req("FAC-016")
+def test_playback_advances_the_facade_cursor_and_keeps_no_clock() -> None:
+    """Ruling 22: a playing frame sends `advance` with the frame interval and draws the cursor the facade answers;
+    the play loop neither scrubs nor adds to a simulated time of its own."""
+    tick = app_function("tick")
+    assert scan(SENT, tick) == {"advance"}
+    assert "showCursor(cursor)" in tick
+    assert "cursor.index + 1 >= cursor.samples" in tick
+    play = app_function("play") + app_function("frameInterval") + tick
+    assert "cursorTo(" not in play
+    assert "clock" not in (WEB / "app.js").read_text(encoding="utf-8")
+    assert "cursor.t +" not in play
+    assert "t_last" not in play
+
+
+@pytest.mark.req("VIE-012")
+def test_the_run_list_comes_from_list_runs() -> None:
+    """Ruling 22: the runs shown are the facade's `list_runs`, refreshed after a run and an opened replay."""
+    assert scan(SENT, app_function("listRuns")) == {"list_runs"}
+    assert "listRuns()" in app_function("runCase")
+    assert "listRuns()" in app_function("openReplay")
+    assert "addRun" not in (WEB / "app.js").read_text(encoding="utf-8")
+
+
+@pytest.mark.req("VIE-009")
+@pytest.mark.req("FAC-016")
+def test_the_drawn_pose_is_the_cursor_sample() -> None:
+    """Ruling 22: a decimated window can drop the cursor's sample; the pose is drawn only from a window sample whose
+    time equals the cursor's, the window is narrowed until it holds one, and `value_at` reads it otherwise."""
+    exact = app_function("cursorSample")
+    assert "poses.times[index] !== t" in exact
+    pose = app_function("poseAt")
+    assert "cursorSample(poses, t)" in pose
+    assert "state.span / 2" in pose
+    assert scan(SENT, pose) == {"value_at"}
+    place = app_function("placeBodies")
+    assert "poseAt(body, t)" in place
+    assert "sampleAt(" not in place
 
 
 # ===== (b) own origin only =============================================

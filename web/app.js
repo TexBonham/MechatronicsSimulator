@@ -7,6 +7,7 @@ import { ProbePanel, sampleAt } from "./probes.js";
 
 const WINDOW_POINTS = 512;
 const WINDOW_PARTS = 8;
+const WINDOW_HALVINGS = 32;
 
 const element = (id) => document.getElementById(id);
 const client = new FacadeClient();
@@ -22,9 +23,9 @@ const state = {
   bodies: [],
   fixed: new Set(),
   windows: new Map(),
+  span: 0,
   cursor: null,
   playing: false,
-  clock: 0,
   wall: 0,
   busy: false,
 };
@@ -93,21 +94,32 @@ async function runCase() {
       mode: element("run-mode").value,
     },
   });
-  addRun(result.archive, `${result.run_id} ${result.status}`);
   status(`run ${result.run_id}: ${result.status}`);
+  await listRuns();
 }
 
-function addRun(archive, label) {
-  if (!archive) {
-    return;
+// Ruling 22: the run list is the facade's (`list_runs`): archives under its runs folder and every open replay.
+async function listRuns() {
+  const result = await client.request({ kind: "list_runs", payload: {} });
+  const list = element("runs");
+  list.replaceChildren();
+  for (const run of result.runs) {
+    const row = document.createElement("li");
+    const pick = document.createElement("button");
+    let label = run.run_id;
+    if (run.open) {
+      label = `${run.run_id} (open)`;
+    }
+    pick.textContent = label;
+    if (run.archive === null) {
+      pick.disabled = true;
+    } else {
+      pick.title = run.archive;
+      pick.addEventListener("click", () => openReplay(run.archive).catch(failure));
+    }
+    row.appendChild(pick);
+    list.appendChild(row);
   }
-  const row = document.createElement("li");
-  const pick = document.createElement("button");
-  pick.textContent = label;
-  pick.title = archive;
-  pick.addEventListener("click", () => openReplay(archive).catch(failure));
-  row.appendChild(pick);
-  element("runs").appendChild(row);
 }
 
 // ===== replay ==========================================================
@@ -121,6 +133,7 @@ async function openReplay(archive) {
   state.bodies = geometry.bodies.map((body) => body.body);
   state.fixed = new Set();
   state.windows = new Map();
+  state.span = (handle.t_last - handle.t_first) / WINDOW_PARTS;
   const undrawn = view.load(geometry.bodies);
   element("run-title").textContent =
     `${handle.run_id}: case ${handle.case_id}, design ${handle.design_name} ${handle.design_version}, ` +
@@ -143,21 +156,27 @@ async function openReplay(archive) {
   probes.clearProbe();
   await cursorTo(handle.t_first);
   status(`opened ${handle.run_id}`);
+  await listRuns();
 }
 
+// A window from the cursor forward (backward from the last sample); empty or degenerate spans widen to one second.
 async function poseWindow(body, t) {
   const handle = state.handle;
   let start = t;
-  let end = t + (handle.t_last - handle.t_first) / WINDOW_PARTS;
+  let end = t + state.span;
   if (end > handle.t_last) {
     end = handle.t_last;
   }
   if (end <= start) {
-    start = handle.t_first;
-    end = handle.t_last;
+    start = t - state.span;
+    end = t;
+    if (start < handle.t_first) {
+      start = handle.t_first;
+    }
   }
   if (end <= start) {
-    end = start + 1;
+    start = t;
+    end = t + 1;
   }
   const poses = await client.window(handle.run_id, poseSeries(body), start, end, WINDOW_POINTS);
   poses.start = start;
@@ -165,29 +184,61 @@ async function poseWindow(body, t) {
   return poses;
 }
 
+// The index of the cursor's own sample in a window, or -1 when decimation dropped it (ruling 22).
+function cursorSample(poses, t) {
+  if (poses === undefined || t < poses.start || t > poses.end) {
+    return -1;
+  }
+  const index = sampleAt(poses.times, t);
+  if (index < 0 || poses.times[index] !== t) {
+    return -1;
+  }
+  return index;
+}
+
+// The pose drawn is always the cursor's own sample: a window that dropped it is refetched with half the span (fewer
+// samples, so fewer or none decimated); after WINDOW_HALVINGS the six values are read through `value_at`.
+async function poseAt(body, t) {
+  const names = poseSeries(body);
+  let poses = state.windows.get(body);
+  let index = cursorSample(poses, t);
+  let halvings = 0;
+  while (index < 0 && halvings < WINDOW_HALVINGS) {
+    poses = await poseWindow(body, t);
+    state.windows.set(body, poses);
+    index = cursorSample(poses, t);
+    if (index < 0) {
+      state.span = state.span / 2;
+      halvings += 1;
+    }
+  }
+  if (index >= 0) {
+    return names.map((name) => poses.series[name][index]);
+  }
+  const values = [];
+  for (const ref of names) {
+    const value = await client.request({ kind: "value_at", payload: { run_id: state.handle.run_id, ref, t } });
+    values.push(value.value);
+  }
+  return values;
+}
+
 async function placeBodies(t) {
   for (const body of state.bodies) {
     if (state.fixed.has(body)) {
       continue;
     }
-    let poses = state.windows.get(body);
-    if (poses === undefined || t < poses.start || t > poses.end) {
-      try {
-        poses = await poseWindow(body, t);
-      } catch (error) {
-        if (error instanceof FacadeError && error.code === "not_found") {
-          state.fixed.add(body);
-          continue;
-        }
-        throw error;
+    let pose = null;
+    try {
+      pose = await poseAt(body, t);
+    } catch (error) {
+      if (error instanceof FacadeError && error.code === "not_found") {
+        state.fixed.add(body);
+        continue;
       }
-      state.windows.set(body, poses);
+      throw error;
     }
-    const index = sampleAt(poses.times, t);
-    if (index < 0) {
-      continue;
-    }
-    const [x, y, z, roll, pitch, yaw] = poseSeries(body).map((name) => poses.series[name][index]);
+    const [x, y, z, roll, pitch, yaw] = pose;
     view.setPose(body, { x, y, z, roll, pitch, yaw });
   }
   view.render();
@@ -240,14 +291,14 @@ function scrubFromSlider() {
   cursorTo(Number(element("scrub").value)).catch(failure);
 }
 
-// Playback moves the cursor by wall-clock time scaled by the chosen rate; the shown time is the facade's sample.
+// Playback (ruling 22): each frame sends `advance` with the frame interval scaled by the chosen rate; the facade moves
+// its cursor (VIE-009) and the client draws the cursor it answers with. Stops at the last sample or when paused.
 async function play() {
   if (state.handle === null || state.playing) {
     return;
   }
   await setPaused(false);
   state.playing = true;
-  state.clock = state.cursor.t;
   state.wall = performance.now();
   element("play").textContent = "Pause";
   requestAnimationFrame(tick);
@@ -262,21 +313,28 @@ function stopPlaying() {
   setPaused(true).catch(failure);
 }
 
+function frameInterval(now) {
+  const rate = Number(element("rate").value);
+  let dt = ((now - state.wall) / 1000) * rate;
+  state.wall = now;
+  if (!Number.isFinite(dt) || dt < 0) {
+    dt = 0;
+  }
+  return dt;
+}
+
 async function tick(now) {
   if (!state.playing) {
     return;
   }
   if (!state.busy) {
     state.busy = true;
-    const rate = Number(element("rate").value);
-    state.clock += ((now - state.wall) / 1000) * rate;
-    state.wall = now;
+    const dt = frameInterval(now);
     try {
-      if (state.clock >= state.handle.t_last) {
-        await cursorTo(state.handle.t_last);
+      const cursor = await client.request({ kind: "advance", payload: { run_id: state.handle.run_id, dt } });
+      await showCursor(cursor);
+      if (cursor.paused || cursor.index + 1 >= cursor.samples) {
         stopPlaying();
-      } else {
-        await cursorTo(state.clock);
       }
     } catch (error) {
       stopPlaying();
@@ -337,9 +395,7 @@ client.onEvent((message) => {
 element("refresh").addEventListener("click", () => listDesigns().catch(failure));
 element("run").addEventListener("click", () => runCase().catch(failure));
 element("open").addEventListener("click", () => {
-  const archive = element("archive").value;
-  addRun(archive, archive);
-  openReplay(archive).catch(failure);
+  openReplay(element("archive").value).catch(failure);
 });
 element("scrub").addEventListener("input", scrubFromSlider);
 element("back").addEventListener("click", () => step("backward").catch(failure));
@@ -358,6 +414,6 @@ client
   .connect(socketUrl())
   .then(() => {
     status("connected");
-    return listDesigns();
+    return listDesigns().then(listRuns);
   })
   .catch(failure);

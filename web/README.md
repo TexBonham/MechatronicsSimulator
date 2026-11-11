@@ -18,7 +18,7 @@ relative to `--files-root` (default the repository root).
 | File | Holds |
 |---|---|
 | `index.html`, `style.css` | Page and layout |
-| `app.js` | Designs, runs (`run_case`, or an archive path), `replay_open`, cursor (`scrub`, `pause`, `step`), playback, probe and `value_at` wiring |
+| `app.js` | Designs, runs (`run_case`; the list from `list_runs`, or an archive path), `replay_open`, cursor (`scrub`, `pause`, `step`), playback by `advance` (ruling 22), probe and `value_at` wiring; the pose drawn is always the cursor's own sample |
 | `protocol.js` | `FacadeClient`: envelope, version 1, message ids, request/response matching, events, `decodeTickBatch` (header + one binary frame to `Float64Array` columns, FAC-019) |
 | `replay.js` | three.js scene: bodies from `geometry` (box, sphere, cylinder, capsule, plane by sizes; convex hull as its vertices), posed from `pose:<body>.x y z roll pitch yaw` (Z-Y-X) over `subscribe_series` windows |
 | `timeline.js` | Marks from `timeline` entries |
@@ -40,14 +40,18 @@ lines.
 
 Without a browser (ruling 21): `tests/unit/test_web_client.py` checks the kinds the client sends and handles against
 `schemas/facade_protocol.json`, same-origin only, the vendored hash, a coarse domain-logic screen, no file writing, no
-design names, and the static route. A browser-driven test is deferred to M3.
+design names, playback by `advance` with no local simulated clock, the run list from `list_runs`, the drawn
+pose taken only from the cursor's own sample, and the static route. A browser-driven test is deferred to M3.
 
 ## Manual checklist (owner, once at the gate)
 
 - [ ] `uv run mechsim serve` prints the URL; opening it shows "connected" and the design list.
 - [ ] Run P1 from the page (design `designs/pendulum/design.yaml`, case from `test_cases/pendulum/`, seed and mode
       as the case states), or enter an existing P1 archive (`runs/<run id>.h5`) and press Open replay; the bodies draw.
+- [ ] The run list shows the archives under `--runs` and the open replays (marked open); a finished run appears in it.
 - [ ] Scrub with the slider; the cursor time and the body poses follow; Play, Pause and the step buttons work.
+- [ ] Play at each rate: the cursor time advances at about the rate times wall time, playback stops at the last sample,
+      and pausing on any frame shows the pose of the sample the readout names.
 - [ ] Timeline marks appear; clicking one moves the cursor to it.
 - [ ] Probe a joint (kind joint, its name): position, velocity and force columns show with their units at the cursor.
 - [ ] A wrong token in the URL leaves the page at an error, not connected.
