@@ -4,6 +4,9 @@
 #   tools/locked_build.sh core debug [ctest args...]        # e.g. -R 'signals|stepper'
 #   tools/locked_build.sh firmware host [ctest args...]
 #   tools/locked_build.sh sync                              # uv sync (builds the extension) under the same lock
+#   tools/locked_build.sh run uv run pytest -q ...          # any command under the lock (uv run rebuilds the
+#                                                           # extension after C++ edits, so the first uv run after
+#                                                           # a C++ change goes through here)
 set -euo pipefail
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 lock="${MECHSIM_BUILD_LOCK:-/tmp/mechsim-build.lock}"
@@ -14,6 +17,10 @@ case "$tree" in
     firmware) dir="$root/firmware" ;;
     sync)
         exec flock "$lock" bash -c "cd '$root' && uv sync"
+        ;;
+    run)
+        cd "$root"
+        exec flock "$lock" "$@"
         ;;
     *) echo "unknown tree: $tree" >&2; exit 2 ;;
 esac
