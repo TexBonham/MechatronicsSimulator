@@ -1,6 +1,7 @@
 #include <catch2/catch_test_macros.hpp>
 #include <cmath>
 #include <cstdint>
+#include <iostream>
 #include <memory>
 #include <numbers>
 #include <optional>
@@ -512,19 +513,130 @@ TEST_CASE("A power-on brake engages while powered with release low", "[SIG-020]"
 }
 
 TEST_CASE("The brake reads back its drive torque and slips past its brake torque", "[SIG-020]") {
-    // Engaged at theta 0, K_b = 50. A read-back of 0.3 N m holds: rest stays 0. A read-back of -0.6 N m slips with
-    // s = -1 while the joint moves +: rest = theta_p - 0.5 / 50. theta_p = theta + omega h + alpha h^2 from the
-    // readings 0, 0, 0.001: omega = 1 rad/s, alpha = 1000 rad/s^2, theta_p = 0.001 + 0.001 + 0.001 = 0.003.
-    Brake brake("brake", brake_params());
+    // Engaged at theta 0, K_b = 0.5 / 0.01 = 50, so K_s = 50 x 1e-5 = 5e-4. A read-back of 0.3 N m holds: rest stays 0.
+    // A read-back of -0.6 N m slips with s = -1 while the joint moves +: from the readings 0, 0, 0.001, omega = 1 rad/s
+    // and alpha = 1000 rad/s^2, omega + alpha h = 2 still against s, so rest = theta + omega h + s T_b / K_s
+    // = 0.001 + 0.001 - 0.5 / 5e-4 = 0.002 - 1000 at K_s, damping 0 (whatever damping the brake holds with).
+    BrakeParams p = brake_params();
+    p.damping = 0.2;
+    Brake brake("brake", p);
     Stepper run(brake);
     run.step(joint_at(0.0), {0.0, 24.0});
     CHECK(run.step(joint_at(0.0, 0.3), {0.0, 24.0})[1] == 0.3);
     CHECK(brake.joint_drives()[0].rest == 0.0);
+    CHECK(brake.joint_drives()[0].stiffness == 50.0);
     run.step(joint_at(0.001, -0.6), {0.0, 24.0});
-    CHECK(std::fabs(brake.joint_drives()[0].rest - (0.003 - 0.01)) < 1e-12);
-    // The joint stops (velocity 0 then back): predicted velocity no longer against s, so it sticks at theta_p.
+    const mechsim::kernel::JointDrive slipping = brake.joint_drives()[0];
+    CHECK(std::fabs(slipping.rest - (0.002 - 1000.0)) < 1e-9);
+    CHECK(std::fabs(slipping.stiffness - (50.0 * brake_slip_stiffness_ratio)) < 1e-15);
+    CHECK(slipping.damping == 0.0);
+    CHECK(slipping.enabled);
+    // The joint stops (omega 0): no longer moving against s, so it sticks where it is, at K_b with its damping.
     run.step(joint_at(0.001, -0.5), {0.0, 24.0});
-    CHECK(std::fabs(brake.joint_drives()[0].rest - 0.0) < 1e-12);
+    CHECK(brake.joint_drives()[0].rest == 0.001);
+    CHECK(brake.joint_drives()[0].stiffness == 50.0);
+    CHECK(brake.joint_drives()[0].damping == 0.2);
+}
+
+TEST_CASE("The brake slips at once when it engages on a moving joint and sticks before reversing it", "[SIG-020]") {
+    // Released for readings 0 and 0.01 (omega 10 rad/s), engaged (delay 0) at reading 0.02: moving, so it slips with
+    // s = -sign(omega) = -1 from that step: rest 0.02 + 0.01 - 0.5 / 5e-4. At reading 0.0295 omega = 9.5 and
+    // alpha = -500: omega + alpha h = 9.0, still against s, still slipping. At reading 0.0385 omega = 9 and
+    // alpha = -500 again; a reading of 0.0385 + 0.0001 gives omega 0.1, alpha -8900: omega + alpha h = -8.8 no longer
+    // against s, so it sticks there (rest = theta) instead of letting the Coulomb torque reverse the joint.
+    BrakeParams p = brake_params();
+    p.engage_delay = 0.0;
+    p.release_delay = 0.0;
+    Brake brake("brake", p);
+    Stepper run(brake);
+    CHECK(run.step(joint_at(0.0), {1.0, 24.0})[0] == 0.0);
+    CHECK(run.step(joint_at(0.01), {1.0, 24.0})[0] == 0.0);
+    CHECK(run.step(joint_at(0.02), {0.0, 24.0})[0] == 1.0);
+    CHECK(std::fabs(brake.joint_drives()[0].rest - (0.03 - 1000.0)) < 1e-9);
+    run.step(joint_at(0.0295, -0.5), {0.0, 24.0});
+    CHECK(brake.joint_drives()[0].stiffness < 50.0);
+    run.step(joint_at(0.0385, -0.5), {0.0, 24.0});
+    CHECK(brake.joint_drives()[0].stiffness < 50.0);
+    run.step(joint_at(0.0386, -0.5), {0.0, 24.0});
+    CHECK(brake.joint_drives()[0].rest == 0.0386);
+    CHECK(brake.joint_drives()[0].stiffness == 50.0);
+    // Engaging on a joint at rest holds at once.
+    Brake still("still", p);
+    Stepper held(still);
+    held.step(joint_at(0.5), {0.0, 24.0});
+    CHECK(still.joint_drives()[0].rest == 0.5);
+    CHECK(still.joint_drives()[0].stiffness == 50.0);
+}
+
+TEST_CASE("A brake catching a falling lift decelerates it at the Coulomb rate and stops it without overshoot",
+          "[SIG-020][PHY-034][reference]") {
+    // The lift (m = 2 kg on a lead c = 0.04 / 2 pi m/rad, rotor J = 5.4e-6 kg m^2) seen from the motor shaft:
+    // J_eff = m c^2 + J, gravity torque L = -m g c (falling is theta decreasing), emulated as the bridge's implicit
+    // drive (backward Euler, PHY-034): (J_eff + D h + K h^2) a = L - D w - K (theta + w h - rest), w' = w + a h,
+    // theta' = theta + w' h, read-back K (rest - theta') - D w'. A0 = 1 / J_eff, so K_b A0 h^2 = 100.
+    // Slipping, K_s = 1e-5 K_b and rest = theta + w h + s T_b / K_s give (J_eff + K_s h^2) a = L + T_b: the Coulomb
+    // deceleration (T_b - m g c) / J_eff (linear: (T_b / c - m g) / (m + J / c^2), the brake against gravity) to the
+    // relative apparent inertia K_s A0 h^2 = 1e-3, inside the 1 percent the brief sets. Stuck at theta_s (rest
+    // theta_s, K_b) the scheme's energy J_eff w^2 / 2 + K_b (theta - theta_e)^2 / 2 about theta_e = theta_s + L / K_b
+    // never grows, and the residual speed is below one step's Coulomb change |a| h, so every later angle lies within
+    // r = sqrt(J_eff (a h)^2 / K_b + (L / K_b)^2) of theta_e: no overshoot beyond that ball.
+    const double h = 0.001;
+    const double m = 2.0;
+    const double g = 9.81;
+    const double c = 0.04 / (2.0 * std::numbers::pi);
+    const double rotor = 5.4e-6;
+    const double inertia = (m * c * c) + rotor;
+    const double load = -m * g * c;
+    BrakeParams p = brake_params();
+    p.engage_delay = 0.0;
+    p.release_delay = 0.0;
+    p.inverse_inertia = 1.0 / inertia;
+    Brake brake("brake", p);
+    Stepper run(brake);
+    double theta = 0.0;
+    double w = -0.2 / c;
+    double readback = 0.0;
+    bool held = false;
+    double theta_stuck = 0.0;
+    std::vector<double> rates;
+    std::vector<double> after;
+    run.step(joint_at(theta - (2.0 * w * h)), {1.0, 24.0});
+    run.step(joint_at(theta - (w * h)), {1.0, 24.0});
+    REQUIRE(brake.joint_drives().empty());
+    for (int k = 0; k < 60; ++k) {
+        run.step(joint_at(theta, readback), {0.0, 24.0});
+        const mechsim::kernel::JointDrive drive = brake.joint_drives()[0];
+        const double stiff = drive.stiffness;
+        const double damp = drive.damping;
+        const double a = (load - (damp * w) - (stiff * (theta + (w * h) - drive.rest))) /
+                         (inertia + (damp * h) + (stiff * h * h));
+        w += a * h;
+        theta += w * h;
+        readback = (stiff * (drive.rest - theta)) - (damp * w);
+        if (stiff < brake.stiffness()) {
+            rates.push_back(a);
+        } else {
+            if (!held) {
+                theta_stuck = drive.rest;
+            }
+            held = true;
+            after.push_back(theta);
+        }
+    }
+    const double coulomb = (p.brake_torque + load) / inertia;
+    REQUIRE(rates.size() > 3);
+    REQUIRE(held);
+    for (double rate : rates) {
+        CHECK(std::fabs(rate - coulomb) <= 0.01 * coulomb);
+    }
+    const double linear = ((p.brake_torque / c) - (m * g)) / (m + (rotor / (c * c)));
+    std::cout << "brake catch: closed-form deceleration " << linear << " m/s^2, measured " << rates[1] * c << " m/s^2\n";
+    const double k_b = brake.stiffness();
+    const double centre = theta_stuck + (load / k_b);
+    const double radius = std::sqrt((inertia * coulomb * coulomb * h * h / k_b) + ((load / k_b) * (load / k_b)));
+    for (double angle : after) {
+        CHECK(std::fabs(angle - centre) <= radius * (1.0 + 1e-9));
+    }
 }
 
 // ===== Power loss ===================================================================================================

@@ -54,12 +54,16 @@ element; counter channels may sum several signals (A + B).
 | `brake` (safety, power stage in the wiring) | `Brake` | see the brake drive bound below |
 | `power_supply` | `PowerSupply` | `power_loss` fault: 0 V for [start, end) (SIG-019) |
 
-Brake drive bound (PHY-034 envelope K_d A0 h^2 < 400): K_b = `brake_envelope_product` / (A0 h^2) = 100 / (A0 h^2)
+Brake drive bound (PHY-034 envelope (K_d h^2 + D_d h) A0 <= 400): K_b = `brake_envelope_product` / (A0 h^2) = 100 / (A0 h^2)
 with A0 (`inverse_inertia`, the joint's `dof_invweight0`) given, so K_b A0 h^2 = 100; without it K_b = brake_torque /
 `brake_default_compliance` (0.01 rad), which the wiring must keep under the envelope. Hold: rest at the engagement
-coordinate (static sag L / K_b). Slip when |read-back torque| > brake_torque: rest = theta_p + s T_b / K_b with theta_p
-= theta + omega h + alpha h^2 (backward differences), exact at constant acceleration; stick when omega + alpha h no
-longer opposes s. In the power stage the brake reads its `vcc` rail one step late (rails update after that stage).
+coordinate or where it stuck (static sag L / K_b), K_b and the brake's damping. Slip (SIG-020, brief M2-C2) on
+engaging a moving joint (s = -sign omega) or when |read-back share| > brake_torque (s its sign): K_s =
+`brake_slip_stiffness_ratio` K_b = 1e-5 K_b, damping 0, rest = theta + omega h + s T_b / K_s, so the implicit drive
+applies s T_b at the step's end state to the apparent inertia K_s A0 h^2 <= 4e-3 (a pure Coulomb torque; the old
+rest theta + omega h + alpha h^2 at K_b grew 2.7x per step at K_b A0 h^2 = 100). Sticks (rest theta, K_b) once omega
+or omega + alpha h no longer opposes s. In the power stage the brake reads its `vcc` rail one step late (rails update
+after that stage).
 
 ## `src/signal_layer.cpp` sections
 
