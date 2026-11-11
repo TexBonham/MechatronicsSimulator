@@ -1,0 +1,11 @@
+name: gantry
+design:
+  name: gantry
+  version: 0.1.0
+cases:
+  - G1.yaml
+  - G2.yaml
+  - G3.yaml
+  - G4.yaml
+baseline: baseline.yaml
+note: "Milestone 1 cases G1 to G4 on the draft gantry; the example suite file (TST-008)"

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import io
+import json
 from fractions import Fraction
 from pathlib import Path
 from typing import Any
@@ -9,6 +11,11 @@ from typing import Any
 import numpy as np
 import pytest
 
+from mechsim.builder import build
+from mechsim.design import schema as design_schema
+from mechsim.design.schema import shipped_materials, yaml_loader
+from mechsim.library.registry import Registry, default_registry, load_registry
+from mechsim.library.schema import CATALOG_DIR
 from mechsim.testing.baseline import load_baseline
 from mechsim.testing.driver import MESSAGE_KIND, RecordedEvent
 from mechsim.testing.runner import (
@@ -26,6 +33,7 @@ from mechsim.testing.runner import (
     rational_lcm,
     run_case,
     run_suite,
+    sweep_runs,
 )
 from mechsim.testing.schema import Case
 from tests.unit.test_runner_fakes import (
@@ -611,3 +619,324 @@ def test_a_failing_case_fails_the_suite_and_both_still_run(tmp_path: Path) -> No
     run = run_suite(suite, services(designs, fake()), BIND)
     assert [case.status for case in run.score.cases] == ["pass", "fail"]
     assert run.score.status == "fail"
+
+
+# ===== Suite files =====================================================
+
+
+def _suite_yaml(cases: list[str], baseline: str = "baseline.yaml", version: str = "0.1.0") -> str:
+    lines = ["name: nightly", "design:", "  name: machine", f"  version: {version}", "cases:"]
+    lines.extend(f"  - {case}" for case in cases)
+    lines.append(f"baseline: {baseline}")
+    return "\n".join(lines) + "\n"
+
+
+def _suite_folder(tmp_path: Path) -> tuple[Path, Path]:
+    designs = write_designs(tmp_path)
+    suite = tmp_path / "suite"
+    write_case(suite, MACHINE_CASE)
+    write_case(suite, MACHINE_CASE.replace("id: M1", "id: M2"), "M2.yaml")
+    write_case(suite, MACHINE_CASE.replace("id: M1", "id: M3"), "M3.yaml")
+    (suite / "baseline.yaml").write_text(unrun_baseline("nightly", ["M1", "M2"]), encoding="utf-8")
+    return designs, suite
+
+
+@pytest.mark.req("TST-008", "TST-027")
+def test_a_suite_file_names_its_cases_and_the_baseline_it_is_diffed_against(tmp_path: Path) -> None:
+    designs, suite = _suite_folder(tmp_path)
+    (suite / "suite.yaml").write_text(_suite_yaml(["M2.yaml", "M1.yaml"]), encoding="utf-8")
+    for path in (suite / "suite.yaml", suite):
+        run = run_suite(path, services(designs, fake(), archiver=FakeArchiver()), BIND, tmp_path / "runs")
+        assert run.errors == ()
+        assert run.score.name == "nightly"
+        assert [case.case_id for case in run.score.cases] == ["M2", "M1"]
+        assert run.baseline_path == (suite / "baseline.yaml").resolve()
+        assert run.diff is not None
+        assert [(change.case, change.old, change.new) for change in run.diff.newly_passing] == [
+            ("M1", "not_run", "pass"),
+            ("M2", "not_run", "pass"),
+        ]
+        assert run.baseline is not None
+        assert [entry.case for entry in run.baseline.entries] == ["M1", "M2"]
+
+
+@pytest.mark.req("TST-027")
+def test_a_folder_without_a_suite_file_uses_its_baseline_yaml(tmp_path: Path) -> None:
+    designs, suite = _suite_folder(tmp_path)
+    (suite / "baseline.yaml").write_text(unrun_baseline("suite", ["M1", "M2", "M3"]), encoding="utf-8")
+    run = run_suite(suite, services(designs, fake(), archiver=FakeArchiver()), BIND, tmp_path / "runs")
+    assert run.errors == ()
+    assert run.baseline_path == (suite / "baseline.yaml").resolve()
+    assert run.diff is not None
+    assert [change.case for change in run.diff.newly_passing] == ["M1", "M2", "M3"]
+    (suite / "baseline.yaml").unlink()
+    run = run_suite(suite, services(designs, fake(), archiver=FakeArchiver()), BIND, tmp_path / "runs")
+    assert (run.errors, run.baseline_path, run.diff) == ((), None, None)
+
+
+@pytest.mark.req("TST-008")
+def test_a_suite_file_that_does_not_load_is_an_error(tmp_path: Path) -> None:
+    designs, suite = _suite_folder(tmp_path)
+    path = suite / "suite.yaml"
+    path.write_text(_suite_yaml(["M1.yaml", "M9.yaml"]), encoding="utf-8")
+    run = run_suite(path, services(designs, fake()), BIND)
+    assert run.errors == (f"{path}: cases[1]: missing test case file 'M9.yaml'",)
+    assert (run.score.cases, run.runs, run.score.status) == ((), (), "fail")
+
+
+@pytest.mark.req("TST-008")
+def test_a_case_of_another_design_version_is_an_error(tmp_path: Path) -> None:
+    designs, suite = _suite_folder(tmp_path)
+    (suite / "suite.yaml").write_text(_suite_yaml(["M1.yaml"], version="0.2.0"), encoding="utf-8")
+    run = run_suite(suite / "suite.yaml", services(designs, fake(), archiver=FakeArchiver()), BIND, tmp_path / "r")
+    assert run.errors[0] == (
+        "suite nightly: case M1 is written against machine 0.1.0, the suite file names machine 0.2.0"
+    )
+
+
+@pytest.mark.req("TST-008")
+def test_a_case_naming_another_baseline_than_its_suite_file_is_an_error(tmp_path: Path) -> None:
+    designs, suite = _suite_folder(tmp_path)
+    write_case(suite, MACHINE_CASE + "baseline: other.yaml\n")
+    (suite / "other.yaml").write_text(unrun_baseline("nightly", ["M1"]), encoding="utf-8")
+    (suite / "suite.yaml").write_text(_suite_yaml(["M1.yaml"]), encoding="utf-8")
+    run = run_suite(suite, services(designs, fake(), archiver=FakeArchiver()), BIND, tmp_path / "runs")
+    assert run.errors == (
+        f"suite nightly: a case names baseline {(suite / 'other.yaml').resolve()}, "
+        f"the suite file names {(suite / 'baseline.yaml').resolve()}",
+    )
+
+
+@pytest.mark.req("TST-027")
+def test_a_baseline_that_does_not_load_is_reported(tmp_path: Path) -> None:
+    designs, suite = _suite_folder(tmp_path)
+    (suite / "baseline.yaml").write_text("design: [\n", encoding="utf-8")
+    (suite / "suite.yaml").write_text(_suite_yaml(["M1.yaml"]), encoding="utf-8")
+    run = run_suite(suite, services(designs, fake(), archiver=FakeArchiver()), BIND, tmp_path / "runs")
+    assert len(run.errors) == 1
+    assert run.errors[0].startswith("baseline: ")
+    assert "YAML parse error" in run.errors[0]
+    assert (run.baseline, run.diff) == (None, None)
+
+
+@pytest.mark.req("TST-027")
+def test_a_baseline_of_another_suite_gives_no_diff(tmp_path: Path) -> None:
+    designs, suite = _suite_folder(tmp_path)
+    (suite / "baseline.yaml").write_text(unrun_baseline("weekly", ["M1"]), encoding="utf-8")
+    (suite / "suite.yaml").write_text(_suite_yaml(["M1.yaml"]), encoding="utf-8")
+    run = run_suite(suite, services(designs, fake(), archiver=FakeArchiver()), BIND, tmp_path / "runs")
+    assert run.errors == ("baseline: cannot diff suite 'nightly' against a baseline of suite 'weekly'",)
+    assert run.baseline is not None
+    assert run.diff is None
+
+
+# ===== Fault routing through the driver ================================
+
+
+GANTRY_DESIGNS = Path(__file__).resolve().parents[2] / "designs"
+GANTRY_CASE = Path(__file__).resolve().parents[2] / "test_cases" / "gantry" / "G1.yaml"
+
+
+def _gantry_case(tmp_path: Path, extra: str) -> Path:
+    text = GANTRY_CASE.read_text(encoding="utf-8").replace("baseline: baseline.yaml\n", "")
+    return write_case(tmp_path / "cases", text + extra, "G1.yaml")
+
+
+def _gantry_services(driver: InMemoryFakeDriver, builder: FakeBuilder | None = None, **extra: Any) -> Services:
+    root = Path(__file__).resolve().parents[2] / "designs"
+    return Services(lambda: driver, builder or FakeBuilder(), designs_root=root, **extra)
+
+
+@pytest.mark.req("TST-014", "TST-016", "TST-019", "TST-037")
+def test_signal_faults_reach_the_driver_with_their_windows(tmp_path: Path) -> None:
+    # 1 kHz base tick: a window [start, start + duration) of 0.1 s + 0.2 s is ticks [100, 300).
+    faults = """faults:
+  - {kind: sensor_stuck, target: x_min_switch, start: 0.1 s, duration: 0.2 s}
+  - {kind: sensor_noisy, target: x_encoder, standard_deviation: "0.1", start: 0.1 s, duration: 0.2 s}
+  - {kind: sensor_dropped, target: y_encoder, start: 0.1 s, duration: 0.2 s}
+  - {kind: sensor_forced, target: y_min_switch, level: high, start: 0.5 s, end: 0.75 s}
+  - {kind: motor_stall, target: x_motor, available_torque: "0.25", start: 1 s, duration: 0.5 s}
+  - {kind: estop_press, target: estop, start: 1.5 s, end: 1.6 s}
+"""
+    driver = fake(reported={"state": "not_homed"})
+    result = run_case(_gantry_case(tmp_path, faults), _gantry_services(driver), dry=True)
+    assert result.score.error == "dry run: configured, not run"
+    assert [(fault.owner, fault.kind, fault.target, fault.start_tick, fault.end_tick) for fault in driver.faults] == [
+        ("signals", "sensor_stuck", "x_min_switch", 100, 300),
+        ("signals", "sensor_noisy", "x_encoder", 100, 300),
+        ("signals", "sensor_dropped", "y_encoder", 100, 300),
+        ("signals", "sensor_forced", "y_min_switch", 500, 750),
+        ("signals", "motor_stall", "x_motor", 1000, 1500),
+        ("signals", "estop_press", "estop", 1500, 1600),
+    ]
+    assert driver.faults[3].parameters == (("level", "high"),)
+    assert driver.faults[4].parameters == (("available_torque", 0.25),)
+    assert all(command.message != "estop" for command in driver.commands)
+
+
+# ===== Overrides and part substitution =================================
+
+
+def _registry_with_second_stepper(tmp_path: Path) -> Registry:
+    """The shipped catalog plus `nema23_test`, a stepper of 1.2 N*m holding torque (its curve starts there, as the
+    catalog requires)."""
+    catalog = tmp_path / "catalog"
+    catalog.mkdir()
+    for path in CATALOG_DIR.glob("*.yaml"):
+        (catalog / path.name).write_text(path.read_text(encoding="utf-8"), encoding="utf-8")
+    stepper = catalog / "stepper_behavioral.yaml"
+    data = yaml_loader().load(stepper.read_text(encoding="utf-8"))
+    part = json.loads(json.dumps(data["parts"][0]))
+    part["name"] = "nema23_test"
+    part["values"]["holding_torque"] = "1.2 N*m"
+    part["torque_speed_curve"] = [{"speed": "0 rpm", "torque": "1.2 N*m"}, {"speed": "600 rpm", "torque": "0.6 N*m"}]
+    data["parts"].append(part)
+    stream = io.StringIO()
+    yaml_loader().dump(data, stream)
+    stepper.write_text(stream.getvalue(), encoding="utf-8")
+    return load_registry(catalog)
+
+
+def _instance(design: Any, name: str) -> Any:
+    return next(component for component in design.components if component.name == name)
+
+
+@pytest.mark.req("LIB-017")
+def test_a_substituted_stepper_reaches_the_built_instance_parameters(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    registry = _registry_with_second_stepper(tmp_path)
+    # The builder revalidates its design against the shipped registry; the test part lives only in this one.
+    monkeypatch.setattr(design_schema, "default_registry", lambda: registry)
+    prepared = prepare(
+        _gantry_case(tmp_path, ""), {"instance:x_motor.part": "nema23_test"}, GANTRY_DESIGNS, registry=registry
+    )
+    assert (_instance(prepared.design, "x_motor").part, _instance(prepared.design, "y_motor").part) == (
+        "nema23_test",
+        "nema17_class_generic",
+    )
+    assert ("instance:x_motor.part", "nema23_test") in prepared.bindings
+    built = build(prepared.design, registry, shipped_materials(), rigid_members=True)
+    torques = {
+        item.name: item.parameters["holding_torque"]
+        for item in built.wiring.instances
+        if item.type == "stepper_behavioral"
+    }
+    assert torques == {"x_motor": 1.2, "y_motor": 0.4, "lift_motor": 0.4}
+
+
+@pytest.mark.req("LIB-016")
+def test_an_instance_parameter_is_overridden_for_one_run_in_si(tmp_path: Path) -> None:
+    # 60 g*cm**2 = 60e-3 kg * 1e-4 m**2 = 6e-6 kg*m**2.
+    prepared = prepare(
+        _gantry_case(tmp_path, ""),
+        {"instance:x_motor.rotor_inertia": "60 g*cm**2", "instance:estop.manual_reset": "false"},
+        GANTRY_DESIGNS,
+    )
+    assert _instance(prepared.design, "x_motor").overrides == {"rotor_inertia": "60 g*cm**2"}
+    assert _instance(prepared.design, "estop").overrides == {"manual_reset": False}
+    built = build(prepared.design, default_registry(), shipped_materials(), rigid_members=True)
+    inertia = {
+        item.name: item.parameters["rotor_inertia"]
+        for item in built.wiring.instances
+        if item.type == "stepper_behavioral"
+    }
+    assert inertia["x_motor"] == pytest.approx(6e-6, rel=1e-12)
+    assert inertia["y_motor"] == pytest.approx(54e-7, rel=1e-12)
+    assert ("instance:x_motor.rotor_inertia", "60 g*cm**2") in prepared.bindings
+
+
+@pytest.mark.req("LIB-016")
+def test_set_overrides_the_cases_instance_parameter_and_the_archive_records_it(tmp_path: Path) -> None:
+    case = _gantry_case(tmp_path, "parameters:\n  instance:x_motor.rotor_inertia: 50 g*cm**2\n")
+    from_case = prepare(case, {}, GANTRY_DESIGNS)
+    assert _instance(from_case.design, "x_motor").overrides == {"rotor_inertia": "50 g*cm**2"}
+    driver = fake(reported={"state": "not_homed"}, script=lambda n, t: Row({}))
+    result = run_case(
+        case, _gantry_services(driver), {"instance:x_motor.rotor_inertia": "70 g*cm**2"}, tmp_path / "runs"
+    )
+    assert result.metadata is not None
+    assert ("instance:x_motor.rotor_inertia", "70 g*cm**2") in result.metadata.bindings
+
+
+@pytest.mark.req("LIB-016", "LIB-017")
+def test_a_sweep_over_an_instance_part_runs_once_per_part(tmp_path: Path) -> None:
+    registry = _registry_with_second_stepper(tmp_path)
+    case = _gantry_case(
+        tmp_path, "sweeps:\n  - parameter: instance:x_motor.part\n    values: [nema23_test, nema17_class_generic]\n"
+    )
+    builder = FakeBuilder()
+    driver = fake(reported={"state": "not_homed"}, script=lambda n, t: Row({}))
+    runs = sweep_runs(case, _gantry_services(driver, builder, registry=registry), None, None)
+    assert [run.score.sweep for run in runs] == [
+        ("instance:x_motor.part", "nema23_test"),
+        ("instance:x_motor.part", "nema17_class_generic"),
+    ]
+    assert [_instance(design, "x_motor").part for design in builder.built] == ["nema23_test", "nema17_class_generic"]
+
+
+@pytest.mark.req("LIB-016", "LIB-017")
+@pytest.mark.parametrize(
+    ("key", "value", "fragment"),
+    [
+        (
+            "instance:z_motor.part",
+            "nema17_class_generic",
+            "instance:z_motor.part: unknown component instance 'z_motor'",
+        ),
+        (
+            "instance:x_motor.colour",
+            "red",
+            "instance:x_motor.colour: instance 'x_motor': component type 'stepper_behavioral' has no parameter "
+            "'colour'",
+        ),
+        (
+            "instance:x_motor.rotor_inertia",
+            "60 g",
+            "instance:x_motor.rotor_inertia: instance 'x_motor': stepper_behavioral.rotor_inertia "
+            "([mass] * [length] ** 2)",
+        ),
+        ("instance:estop.manual_reset", "yes", "estop_relay.manual_reset is a flag: give true or false, got 'yes'"),
+        (
+            "instance:x_motor.part",
+            "nema99",
+            "instance:x_motor.part: instance 'x_motor': no catalog part 'nema99' in the catalog "
+            "(instance type 'stepper_behavioral')",
+        ),
+        (
+            "instance:x_motor.part",
+            "gt2_20t_6mm_generic",
+            "instance:x_motor.part: instance 'x_motor': part 'gt2_20t_6mm_generic' is a 'belt_pulley', "
+            "not a 'stepper_behavioral'",
+        ),
+        ("instance:x_motor", "1 kg", "instance:x_motor: expected instance:<name>.<parameter> or instance:<name>.part"),
+        ("instance:x_motor.a.b", "1 kg", "expected instance:<name>.<parameter>"),
+        ("instance:.part", "x", "expected instance:<name>.<parameter>"),
+    ],
+    ids=[
+        "unknown_instance",
+        "unknown_parameter",
+        "dimension",
+        "flag",
+        "unknown_part",
+        "other_type",
+        "no_field",
+        "nested",
+        "no_instance",
+    ],
+)
+def test_a_bad_override_is_an_error_naming_it(tmp_path: Path, key: str, value: str, fragment: str) -> None:
+    case = _gantry_case(tmp_path, "")
+    with pytest.raises(RunnerError) as raised:
+        prepare(case, {key: value}, GANTRY_DESIGNS)
+    assert fragment in str(raised.value)
+    assert str(raised.value).startswith(f"{case}: ")
+    result = run_case(case, _gantry_services(fake(reported={"state": "not_homed"})), {key: value})
+    assert (result.score.status, result.score.ran) == ("error", False)
+
+
+@pytest.mark.req("LIB-016")
+def test_a_bad_override_in_the_cases_parameters_is_an_error(tmp_path: Path) -> None:
+    case = _gantry_case(tmp_path, "parameters:\n  instance:x_motor.rotor_inertia: 5 kg\n")
+    with pytest.raises(RunnerError, match=r"stepper_behavioral\.rotor_inertia"):
+        prepare(case, {}, GANTRY_DESIGNS)

@@ -3,13 +3,6 @@
 import pytest
 
 
-@pytest.mark.req("TST-008")
-@pytest.mark.xfail(strict=True, reason="stub")
-def test_tst_008() -> None:
-    """A suite file shall name the regression baseline it is compared against."""
-    raise NotImplementedError
-
-
 @pytest.mark.req("TST-026")
 @pytest.mark.xfail(strict=True, reason="stub")
 def test_tst_026() -> None:

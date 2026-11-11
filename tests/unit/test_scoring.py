@@ -12,7 +12,10 @@ from mechsim.scoring.score import (
     CaseScore,
     ScoringError,
     SuiteScore,
+    diff_sections,
     not_run,
+    regression_diff,
+    report_markdown,
     report_text,
     score_run,
     suite_baseline,
@@ -286,10 +289,60 @@ def test_the_interval_between_two_events() -> None:
     assert (result.status, result.measured, result.unit, result.worst_time) == ("pass", 1.0, "s", 2.0)
     criterion["comparison"] = "below"
     assert score_one(criterion, _events_recording()).status == "fail"
-    criterion["end_event"] = "state:fault"
-    assert score_one(criterion, _events_recording()).status == "error"
-    criterion["start_event"] = "message:target"
-    assert score_one(criterion, _events_recording()).status == "error"
+
+
+@pytest.mark.req("SCO-021")
+@pytest.mark.parametrize(
+    ("start", "end", "note"),
+    [
+        ("message:target", "state:ready", "start event message:target never recorded"),
+        ("message:home", "state:fault", "end event state:fault never recorded"),
+        (
+            "state:ready",
+            "event:safety_early",
+            "end event event:safety_early recorded only before the first start event state:ready at 2 s",
+        ),
+    ],
+    ids=["missing_first", "missing_second", "second_before_first"],
+)
+def test_an_interval_that_cannot_be_measured_is_an_error_naming_the_ref(start: str, end: str, note: str) -> None:
+    rows = [
+        Row({}, "idle", [RecordedEvent(0.0, "controller", "safety_early", "x")]),
+        Row({}, "homing", [RecordedEvent(1.0, "operator", MESSAGE_KIND, "home")]),
+        Row({}, "ready"),
+        Row({}, "ready"),
+    ]
+    criterion = {
+        "name": "i",
+        "check": "interval",
+        "start_event": start,
+        "end_event": end,
+        "comparison": "at_most",
+        "limit": "1 s",
+    }
+    result = score_one(criterion, FakeRecording(TIMES, rows, {}))
+    assert (result.status, result.note) == ("error", note)
+
+
+@pytest.mark.req("SCO-021")
+def test_an_interval_between_firmware_events() -> None:
+    # motion_start at 1 s, motion_end at 1 s and 3 s: the first end at or after the first start is at 1 s, so 0 s.
+    rows = [
+        Row({}),
+        Row({}, "", [RecordedEvent(1.0, "controller", "motion_start", "x_motor")]),
+        Row({}, "", [RecordedEvent(1.0, "controller", "motion_end", "x_motor")]),
+        Row({}, "", [RecordedEvent(3.0, "controller", "motion_end", "x_motor")]),
+    ]
+    criterion = {
+        "name": "i",
+        "check": "interval",
+        "start_event": "event:motion_start",
+        "end_event": "event:motion_end",
+        "comparison": "at_most",
+        "limit": "0 s",
+    }
+    result = score_one(criterion, FakeRecording(TIMES, rows, {}))
+    assert (result.status, result.measured, result.worst_time) == ("pass", 0.0, 1.0)
 
 
 def _settle(values: list[float], comparison: str = "at_most", limit: str = "2 s", **extra: Any) -> Any:
@@ -367,10 +420,106 @@ def test_hold_band_measures_each_joints_excursion_from_its_first_sample() -> Non
     assert result.measured == pytest.approx(0.0011)
 
 
-def test_no_overlap_is_not_evaluated_and_never_passes() -> None:
-    result = score_one({"name": "o", "check": "no_overlap", "actuators": ["a"]}, recording_from(TIMES, {}))
-    assert result.status == "error"
-    assert "SCO-025" in str(result.note)
+def _motion(*events: tuple[float, str, str]) -> FakeRecording:
+    """Rows at TIMES; each (time, kind, actuator) event lands in its row in the order given."""
+    rows = [Row({}) for _ in TIMES]
+    for time, kind, actuator in events:
+        rows[TIMES.index(time)].events.append(RecordedEvent(time, "controller", kind, actuator))
+    return FakeRecording(TIMES, rows, {})
+
+
+def _no_overlap(recording: FakeRecording, closed: bool = False) -> Any:
+    criterion = {
+        "name": "o",
+        "check": "no_overlap",
+        "actuator": "a",
+        "start_event": "event:motion_start",
+        "end_event": "event:motion_end",
+        "closed": closed,
+    }
+    return score_one(criterion, recording)
+
+
+@pytest.mark.req("SCO-025")
+def test_no_overlap_passes_when_every_start_follows_the_previous_end() -> None:
+    # Pairs (0, 1) and (1, 2) on a: the second start is recorded after the end at the same time, so not before it.
+    # b's start at 1 s lies inside a's pair but is another actuator.
+    recording = _motion(
+        (0.0, "motion_start", "a"),
+        (1.0, "motion_end", "a"),
+        (1.0, "motion_start", "b"),
+        (1.0, "motion_start", "a"),
+        (2.0, "motion_end", "a"),
+    )
+    result = _no_overlap(recording, closed=True)
+    assert (result.status, result.measured, result.worst_time) == ("pass", 0.0, None)
+    assert result.limit == "no overlap of event:motion_start to event:motion_end on a, closed at the end"
+
+
+@pytest.mark.req("SCO-025")
+@pytest.mark.parametrize(
+    ("events", "worst"),
+    [
+        (
+            [
+                (0.0, "motion_start", "a"),
+                (1.0, "motion_start", "a"),
+                (2.0, "motion_end", "a"),
+                (3.0, "motion_end", "a"),
+            ],
+            1.0,
+        ),
+        (
+            [
+                (0.0, "motion_start", "a"),
+                (2.0, "motion_start", "a"),
+                (2.0, "motion_end", "a"),
+                (3.0, "motion_end", "a"),
+            ],
+            2.0,
+        ),
+    ],
+    ids=["start_before_previous_end", "start_recorded_before_the_end_at_the_same_time"],
+)
+def test_a_start_before_the_previous_end_on_the_same_actuator_fails(
+    events: list[tuple[float, str, str]], worst: float
+) -> None:
+    result = _no_overlap(_motion(*events))
+    assert (result.status, result.measured, result.worst_time) == ("fail", 1.0, worst)
+
+
+@pytest.mark.req("SCO-025")
+def test_an_unpaired_start_at_the_end_fails_only_when_the_case_says_closed() -> None:
+    recording = _motion((0.0, "motion_start", "a"), (1.0, "motion_end", "a"), (2.0, "motion_start", "a"))
+    assert _no_overlap(recording).status == "pass"
+    closed = _no_overlap(recording, closed=True)
+    assert (closed.status, closed.measured, closed.worst_time) == ("fail", 1.0, 3.0)
+
+
+@pytest.mark.req("SCO-025")
+@pytest.mark.parametrize(
+    ("events", "note"),
+    [
+        ([(0.0, "motion_start", "b"), (1.0, "motion_end", "b")], "start event event:motion_start never recorded on a"),
+        (
+            [(0.0, "motion_end", "a"), (1.0, "motion_start", "a")],
+            "end event event:motion_end on a at 0 s has no open start event event:motion_start",
+        ),
+    ],
+    ids=["no_start", "end_without_start"],
+)
+def test_no_overlap_without_its_pairing_is_an_error_naming_the_ref(
+    events: list[tuple[float, str, str]], note: str
+) -> None:
+    result = _no_overlap(_motion(*events))
+    assert (result.status, result.note) == ("error", note)
+
+
+@pytest.mark.req("SCO-025")
+def test_the_event_criterion_counts_firmware_events_by_kind() -> None:
+    recording = _motion((0.0, "motion_start", "a"), (2.0, "motion_start", "b"))
+    result = score_one({"name": "e", "check": "event", "event": "event:motion_start", "expect": "present"}, recording)
+    assert (result.status, result.measured, result.worst_time) == ("pass", 2.0, 0.0)
 
 
 def test_a_series_the_recording_lacks_is_an_error() -> None:
@@ -523,3 +672,64 @@ def test_baseline_entries_for_unrun_errored_and_sweep_runs() -> None:
         suite_baseline(_suite(_scored("a", "3 V", run=None)))
     with pytest.raises(ScoringError, match="no criteria"):
         suite_baseline(_suite(swept))
+
+
+@pytest.mark.req("SCO-009", "SCO-010")
+def test_the_regression_diff_lists_what_changed_first() -> None:
+    old = suite_baseline(
+        _suite(_scored("b", "2 V"), _scored("a", "3 V", case_id="X10"), _scored("c", "3 V", case_id="X2"))
+    )
+    new = _suite(_scored("b", "3 V"), _scored("a", "2 V", case_id="X10"), _scored("d", "3 V", case_id="X3"))
+    diff = regression_diff(new, old)
+    assert diff == diff_baselines(old, suite_baseline(new))
+    sections = [
+        (title, [(change.case, change.criterion) for change in changes]) for title, changes in diff_sections(diff)
+    ]
+    assert sections == [
+        ("newly passing", [("X1", "b")]),
+        ("newly failing", [("X10", "a")]),
+        ("unchanged", []),
+        ("missing", [("X2", "c")]),
+        ("added", [("X3", "d")]),
+    ]
+    with pytest.raises(ValueError, match="cannot diff suite"):
+        regression_diff(SuiteScore("other", new.design, new.cases), old)
+
+
+@pytest.mark.req("SCO-012")
+def test_the_shareable_report_is_a_self_contained_markdown_document() -> None:
+    passing = CaseScore(**{**_scored("a", "3 V").__dict__, "approximations": ("friction | lumped",)})
+    unrun = not_run(None, "X3", DesignRef(name="machine", version="0.1.0"), 0, "invalid")
+    suite = _suite(passing, unrun)
+    diff = regression_diff(_suite(_scored("a", "3 V")), suite_baseline(_suite(_scored("a", "2 V"))))
+    text = report_markdown(suite, diff)
+    assert text == report_markdown(suite, diff)
+    assert text.startswith("# Suite demo: ERROR\n\n- Design: machine 0.1.0\n- Runs: 2: 1 passed, 0 failed, 1 errored\n")
+    assert (
+        "## Case X1: PASS\n\n- Seed 11, design machine 0.1.0, controller mode native\n"
+        f"- Run X1-seed0: design blob `{'b' * 40}`, case blob `{'c' * 40}`, archive sha256 `{'a' * 64}`\n"
+        "- Ended: end_time at 3 s\n- Approximation: friction | lumped\n\n"
+        "| Criterion | Status | Measured | Limit | Worst at | Note |\n|---|---|---|---|---|---|\n"
+        "| a | pass | 3 V | maximum at_most 3 V | 1 s |  |\n"
+    ) in text
+    assert "## Case X3: ERROR\n\n- Seed 0, design machine 0.1.0, controller mode none\n- Run: no archive\n" in text
+    assert "- Not run\n- Error: invalid\n" in text
+    assert text.endswith(
+        "## Regression diff\n\n### Newly passing (1)\n\n- X1 / a: fail -> pass\n\n### Newly failing (0)\n\nNone.\n\n"
+        "### Unchanged (0)\n\nNone.\n\n### Missing (0)\n\nNone.\n\n### Added (0)\n\nNone.\n"
+    )
+    assert report_markdown(suite, None).endswith("## Regression diff\n\nNo baseline diff for this run.\n")
+
+
+@pytest.mark.req("SCO-012")
+def test_a_table_cell_escapes_pipes_and_a_run_error_is_stated() -> None:
+    errored = score_run(
+        case_with(value("final", "at_most", "1 V", name="e"), id="X4"),
+        recording_from([0.0], {}),
+        RunReport("run_error", 0, Fraction(1000), "a | b"),
+        run=IDENTITY,
+    )
+    text = report_markdown(_suite(errored), None)
+    assert "| e | error | n/a | final at_most 1 V |  | run error: a \\| b |\n" in text
+    failed = CaseScore(**{**errored.__dict__, "ran": False, "end_reason": "run_error", "run": None})
+    assert "- Ended: run_error, no recording\n" in report_markdown(_suite(failed), None)

@@ -1,4 +1,5 @@
-"""Scoring a run (SCO-001 to SCO-008, SCO-013, SCO-016, SCO-017, SCO-020 to SCO-024) and a suite.
+"""Scoring a run (SCO-001 to SCO-008, SCO-013, SCO-016, SCO-017, SCO-020 to SCO-025) and a suite (SCO-009 to
+SCO-012).
 
 Every criterion is evaluated from the recording alone, with the measure and limit the case states. A run that ended in
 a run error is scored as errored, every criterion with it (SCO-007, TST-023). A criterion that cannot be evaluated
@@ -13,7 +14,7 @@ from typing import Any, Literal
 
 from mechsim.design.schema import OpenValue
 from mechsim.scoring.statistics import StatisticError, compare, statistic, window_indices, within
-from mechsim.testing.baseline import Baseline, Entry, RunIdentity, entry_key
+from mechsim.testing.baseline import Baseline, BaselineDiff, Change, Entry, RunIdentity, diff_baselines, entry_key
 from mechsim.testing.driver import MESSAGE_KIND, RecordView, RunReport, Series
 from mechsim.testing.schema import (
     Case,
@@ -194,7 +195,7 @@ def _evaluate(criterion: Any, recording: RecordView, limit: str) -> CriterionRes
     if isinstance(criterion, HoldBandCriterion):
         return _hold_band(criterion, recording, limit)
     if isinstance(criterion, NoOverlapCriterion):
-        raise _UnevaluableError("no_overlap needs actuator command records, not evaluated in milestone 1 (SCO-025)")
+        return _no_overlap(criterion, recording, limit)
     raise _UnevaluableError(f"unknown criterion {criterion!r}")
 
 
@@ -245,10 +246,13 @@ def _series(reference: str, recording: RecordView) -> Series:
 
 
 def _occurrences(event: str, recording: RecordView) -> list[float]:
-    """Times of `message:<name>` (an operator message event) or `state:<name>` (each entry into the state)."""
+    """Times of `message:<name>` (an operator message event), `event:<name>` (a recorded event of kind `name`, such
+    as a firmware log event) or `state:<name>` (each entry into the state)."""
     kind, _, name = event.partition(":")
     if kind == "message":
         return sorted(item.time for item in recording.events() if item.kind == MESSAGE_KIND and item.detail == name)
+    if kind == "event":
+        return sorted(item.time for item in recording.events() if item.kind == name)
     times = recording.times()
     states = recording.controller_states()
     entries: list[float] = []
@@ -303,12 +307,58 @@ def _interval(criterion: IntervalCriterion, recording: RecordView, limit: str) -
     starts = _occurrences(criterion.start_event, recording)
     if len(starts) == 0:
         raise _UnevaluableError(f"start event {criterion.start_event} never recorded")
-    ends = [time for time in _occurrences(criterion.end_event, recording) if time >= starts[0]]
+    every_end = _occurrences(criterion.end_event, recording)
+    if len(every_end) == 0:
+        raise _UnevaluableError(f"end event {criterion.end_event} never recorded")
+    ends = [time for time in every_end if time >= starts[0]]
     if len(ends) == 0:
-        raise _UnevaluableError(f"end event {criterion.end_event} never recorded after {criterion.start_event}")
+        raise _UnevaluableError(
+            f"end event {criterion.end_event} recorded only before the first start event {criterion.start_event} "
+            f"at {starts[0]:.12g} s"
+        )
     measured = ends[0] - starts[0]
     passed = compare(measured, criterion.comparison, _number(criterion.limit, "limit"))
     return CriterionResult(criterion.name, _status(passed), limit, measured, "s", ends[0])
+
+
+def _no_overlap(criterion: NoOverlapCriterion, recording: RecordView, limit: str) -> CriterionResult:
+    """Start and end events whose detail is the actuator, in time order (record order within one time): a start while
+    another is open is an overlap; with `closed`, each start still open when the run ends is one too. Measured is the
+    count of violations, worst time the first of them. No start at all, or an end with no open start, is
+    unevaluable: the pairing the criterion rests on is not there."""
+    start = criterion.start_event.partition(":")[2]
+    end = criterion.end_event.partition(":")[2]
+    ordered = sorted(
+        (item.time, index, item.kind)
+        for index, item in enumerate(recording.events())
+        if item.detail == criterion.actuator and item.kind in (start, end)
+    )
+    if not any(kind == start for _, _, kind in ordered):
+        raise _UnevaluableError(f"start event {criterion.start_event} never recorded on {criterion.actuator}")
+    open_starts = 0
+    violations = 0
+    worst: float | None = None
+    for time, _, kind in ordered:
+        if kind == start:
+            if open_starts > 0:
+                violations += 1
+                if worst is None:
+                    worst = time
+            open_starts += 1
+        else:
+            if open_starts == 0:
+                raise _UnevaluableError(
+                    f"end event {criterion.end_event} on {criterion.actuator} at {time:.12g} s has no open start "
+                    f"event {criterion.start_event}"
+                )
+            open_starts -= 1
+    if criterion.closed and open_starts > 0:
+        violations += open_starts
+        if worst is None:
+            times = recording.times()
+            if len(times) > 0:
+                worst = times[-1]
+    return CriterionResult(criterion.name, _status(violations == 0), limit, float(violations), "", worst)
 
 
 def _settle(criterion: SettleCriterion, recording: RecordView, limit: str) -> CriterionResult:
@@ -404,6 +454,114 @@ def _entry(case: CaseScore, result: CriterionResult) -> Entry:
     if result.worst_time is not None:
         data["worst_time"] = f"{result.worst_time:.12g} s"
     return Entry.model_validate(data)
+
+
+def regression_diff(suite: SuiteScore, baseline: Baseline) -> BaselineDiff:
+    """The suite's results against its regression baseline (SCO-009, SCO-010): newly passing, newly failing,
+    unchanged, missing, added, per case and criterion."""
+    return diff_baselines(baseline, suite_baseline(suite))
+
+
+_DIFF_SECTIONS = ("newly passing", "newly failing", "unchanged", "missing", "added")
+
+
+def diff_sections(diff: BaselineDiff) -> tuple[tuple[str, tuple[Change, ...]], ...]:
+    """The diff's groups in report order: what changed first (SCO-010)."""
+    groups = (diff.newly_passing, diff.newly_failing, diff.unchanged, diff.missing, diff.added)
+    return tuple(zip(_DIFF_SECTIONS, groups, strict=True))
+
+
+def _status_word(status: str | None) -> str:
+    if status is None:
+        return "absent"
+    return status
+
+
+def report_markdown(suite: SuiteScore, diff: BaselineDiff | None) -> str:
+    """The pass/fail report as a self-contained Markdown document (SCO-012): verdict, design and version, per run its
+    identity with the archive's git blob hashes, a table of criteria, the approximation lines and the end reason,
+    then the regression diff. Deterministic text (SCO-016)."""
+    counts = {"pass": 0, "fail": 0, "error": 0}
+    for case in suite.cases:
+        counts[case.status] += 1
+    lines = [
+        f"# Suite {suite.name}: {suite.status.upper()}",
+        "",
+        f"- Design: {suite.design.name} {suite.design.version}",
+        f"- Runs: {len(suite.cases)}: {counts['pass']} passed, {counts['fail']} failed, {counts['error']} errored",
+    ]
+    for case in suite.cases:
+        lines.append("")
+        lines.extend(_case_markdown(case))
+    lines.append("")
+    lines.append("## Regression diff")
+    lines.append("")
+    if diff is None:
+        lines.append("No baseline diff for this run.")
+    else:
+        for title, changes in diff_sections(diff):
+            lines.append(f"### {title.capitalize()} ({len(changes)})")
+            lines.append("")
+            if len(changes) == 0:
+                lines.append("None.")
+            for change in changes:
+                lines.append(
+                    f"- {change.case} / {change.criterion}: {_status_word(change.old)} -> {_status_word(change.new)}"
+                )
+            lines.append("")
+        lines.pop()
+    return "\n".join(lines) + "\n"
+
+
+def _cell_text(text: str) -> str:
+    return text.replace("|", "\\|").replace("\n", " ")
+
+
+def _case_markdown(case: CaseScore) -> list[str]:
+    mode = "none"
+    if case.controller_mode is not None:
+        mode = case.controller_mode
+    title = f"## Case {case.case_id}"
+    if case.sweep is not None:
+        title = f"{title} [{case.sweep[0]} = {case.sweep[1]}]"
+    lines = [
+        f"{title}: {case.status.upper()}",
+        "",
+        f"- Seed {case.seed}, design {case.design.name} {case.design.version}, controller mode {mode}",
+    ]
+    if case.run is not None:
+        lines.append(
+            f"- Run {case.run.run_id}: design blob `{case.run.design_hash}`, case blob `{case.run.case_hash}`, "
+            f"archive sha256 `{case.run.archive_sha256}`"
+        )
+    else:
+        lines.append("- Run: no archive")
+    if case.ran and case.end_time is not None:
+        lines.append(f"- Ended: {case.end_reason} at {case.end_time:.12g} s")
+    elif case.end_reason == "run_error":
+        lines.append("- Ended: run_error, no recording")
+    else:
+        lines.append("- Not run")
+    if case.error is not None:
+        lines.append(f"- Error: {_cell_text(case.error)}")
+    for line in case.approximations:
+        lines.append(f"- Approximation: {line}")
+    if len(case.criteria) == 0:
+        return lines
+    lines.extend(["", "| Criterion | Status | Measured | Limit | Worst at | Note |", "|---|---|---|---|---|---|"])
+    for result in case.criteria:
+        measured = result.measured_text()
+        if measured is None:
+            measured = "n/a"
+        worst = ""
+        if result.worst_time is not None:
+            worst = f"{result.worst_time:.12g} s"
+        note = ""
+        if result.note is not None:
+            note = result.note
+        cells = [result.name, result.status, measured, result.limit, worst, note]
+        lines.append("| " + " | ".join(_cell_text(cell) for cell in cells) + " |")
+    return lines
 
 
 def report_text(suite: SuiteScore) -> str:

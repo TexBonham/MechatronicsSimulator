@@ -30,24 +30,6 @@ def test_lib_009() -> None:
     raise NotImplementedError
 
 
-@pytest.mark.req("LIB-016")
-@pytest.mark.xfail(strict=True, reason="stub")
-def test_lib_016() -> None:
-    """Every parameter of every component type shall be addressable by a sweep or variation definition and overridable
-    for one run without editing the catalog.
-    """
-    raise NotImplementedError
-
-
-@pytest.mark.req("LIB-017")
-@pytest.mark.xfail(strict=True, reason="stub")
-def test_lib_017() -> None:
-    """A sweep shall be able to substitute one catalog part for another of the same component type, such as one stepper
-    size for another.
-    """
-    raise NotImplementedError
-
-
 @pytest.mark.req("LIB-018")
 @pytest.mark.xfail(strict=True, reason="stub")
 def test_lib_018() -> None:

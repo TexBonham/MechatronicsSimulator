@@ -75,6 +75,7 @@ proposed <value>)".
 | Strict lower bounds | a quantity parameter may set `minimum_exclusive: true`, so a value equal to its minimum is rejected (used for the strictly positive parameters of the milestone 2 types) | set (brief M2-G) |
 | Rope parameters and model detail | not set | milestone 3 ADR (ruling P4) |
 | Datasheet curve source for each shipped stepper part | not set | owner |
+| One-run override and part substitution form (LIB-016, LIB-017) | `instance:<instance>.<parameter>` and `instance:<instance>.part` in `--set`, a case's `parameters`, sweeps and variations; checked by `Registry.parameter_override` and `Registry.substitute_part`; stored in the design instance's `overrides`/`part`, resolved to SI by the catalog; the shipped catalog has one stepper part, so a substitution needs a second part of the type | M2-D; second stepper part owed by the gantry team |
 
 ## Out of scope
 
