@@ -57,8 +57,8 @@ tolerance miss; the 13-case suite passes with a 74-entry baseline; G3 byte-ident
 ctest cases; firmware host 92; Python 3707 passed, 191 xfailed. Round cost about 6.0M tokens against the 5.5M to
 6.1M estimate (the integration wave cost 2.5M against a planned 1.0M: the drive-mapping and payload rework).
 
-Blocking until done, owner action: push `round/04-milestone-2` and get one green CI run on it (Windows jobs included)
-before the gate commit is accepted; the session cannot push.
+CI on the merged round branch: green on all three workflows, both runners, at feb19dd (2026-11-11) after three
+Windows-only fixes in the facade's file handling and its tests (path form and line endings). The gate's CI condition is met.
 
 Owner confirmations needed (change milestone 1 behaviour or the architecture): rulings 33, 23, 11, 24, 25, 29, 12,
 15, 17, 18, 32. Confirm in a batch: 9, 10, 13, 14, 16, 19, 20, 22, 27, 28, 30. Gantry team placeholders: 1, 2, 6, 7,
