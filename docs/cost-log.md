@@ -63,3 +63,4 @@ type live in the root `CLAUDE.md` dispatch table once measured.
 | 2026-11-11 | Gate audit: integration wave part 2 (X4, A4, X5) | invariant-auditor (opus) | ~55K | first-part majors closed; 1 R-18 blocker (BLD-035 text), 2 minor; to the X5 fix round |
 | 2026-11-11 | M2 review: integration wave part 2 (X4, A4, X5) | general-purpose (fable) | 142K | 19 calls; accept, 3 low; first-part high closed |
 | 2026-11-11 | M2-X5 fix round: BLD-035 row, catalog-driven core type, linear_encoder comment, load-cell target errors, tidy, ruff, mypy (wip/04-x1 a0e2fd3) | module-writer (opus), resumed | ~45K | est. |
+| 2026-11-11 | Integration-wave stage landed: wip/04-x1 merged twice (E, X1 to X5, A3, A4, C2), debug-sanitize 347 passed, firmware 92, full suite 3707 passed with G1 to G11, G13, G14 in the acceptance tier | inline | ~60K | coordinator |
