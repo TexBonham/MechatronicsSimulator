@@ -57,6 +57,7 @@ versions below are the ones milestone 1 was gated on.
 | Ninja | 1.11.1 | `sudo apt install ninja-build` |
 | clang-tidy | 18 (Ubuntu 24.04 default) | `sudo apt install clang-tidy` |
 | Python | 3.12 or newer (3.13 in CI) | `sudo apt install python3 python3-venv` or let uv manage it |
+| Python headers (`Python.h`, pybind11 extension build) | matching the interpreter | `sudo apt install python3-dev` (uv-managed Pythons ship them) |
 | uv | 0.11 or newer | `curl -LsSf https://astral.sh/uv/install.sh \| sh` |
 | arm-none-eabi GCC (optional, cross preset only) | any 12+ | `sudo apt install gcc-arm-none-eabi` |
 

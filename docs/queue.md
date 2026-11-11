@@ -4,19 +4,25 @@ State for the coordinating session. A new session reads this, then `docs/rulings
 
 ## Current checkpoint
 
-Paused (W-03) after the milestone 1 gate, 2026-11-05, until the weekly token reset. Round 3 closed on
-`round/03-milestone-1`: G1 to G4 and P1 pass on the real stack, the G3 archive is byte-identical on a second run,
-reference tier clean, CI green; PR to main open (merge commit). No worktree or brief is in flight. Owner rulings at
-the gate: transmission loss on the rotor side (bridge reading stands; own engine aligned at PHY-020); BLD-010 at
-1e-12 relative and SIG-011 exact count (T4 rows set); G4 criteria window from `${homing_time}` confirmed;
-placeholders stay owed by the gantry team; every coordinator ruling in the sections below confirmed.
+Round 4 (milestone 2) in flight on `round/04-milestone-2`, cut from main at 46cbfe6 on 2026-11-10. Plan of record:
+`docs/briefs/round-04/plan.md` (signed off 2026-11-10). Wave 0 done inline: `debug` preset without clang-tidy,
+`jobs: 2` on every preset, `tools/locked_build.sh` (one build at a time), README `python3-dev` row. Briefs of record
+in `docs/briefs/round-04/`. Worktrees `../MechatronicsSimulator-04-<letter>` on `wip/04-<letter>`.
+
+## Round 4 open rulings (owner answers when available; the planned default applies until then)
+
+| # | Question | Planned default | Status |
+|---|---|---|---|
+| 1 | G9 hold on the bridge: the self-locking screw is refused by the bridge, so a de-energised lift falls. Brake on the lift as the `power_loss_hold` placeholder (a), a bridge self-locking approximation (b), or both (c)? | (a) brake | open |
+| 2 | IMU electrical interface: the chip vocabulary has no I2C or SPI mode. Model the IMU with analog outputs (accel x, y, z; gyro x, y, z) until a serial peripheral mode exists? | analog outputs, placeholder | open |
+| 3 | FW-008 identical warning flags: on MSVC the host preset cannot share GCC flags. Read FW-008 as GCC host versus arm-none-eabi only, with the closest MSVC equivalent (`/W4 /WX`) on Windows? | yes | open |
+| 4 | Re-tag ENG-016 to 021 (own-engine collision and contact) and LIB-009 (Python slow-path plugin) from M2 to M3? | re-tag | open |
+| 5 | macOS stays out of the CI matrix for milestone 2 (R1 names Windows; the MuJoCo dmg cannot be extracted by CMake)? | out | open |
+| 6 | Placeholders set by the coordinator for the gantry team's slots: overload limit rated + 15 percent (3.45 kg), heartbeat period 10 ms, watchdog timeout 50 ms, brownout threshold 2.0 V, encoder mismatch threshold 2 mm, ADC 12 bits at 3.3 V | as listed | open |
 
 ## Next
 
-1. Resume: cut `round/04-milestone-2` from main after the PR merges; plan milestone 2 for sign-off
-   (`docs/milestones.md`): fault fan-out (G5 to G8), slip and payload faults (PHY-006), controller freeze and brownout
-   cases, facade service and browser viewer (ADR 0015, invariant 9), chip definitions beyond the placeholder,
-   stepper sinusoidal detent, recorded joint positions and drive torques.
+1. Wave 0 dispatch: G (schema-author) and W (Windows CI) in parallel. Then wave 1: A1, C, D, E.
 2. Owner ruling 2026-11-05: the implicit joint drive stays while the MuJoCo bridge is the physics carrier; the
    question of how the stepper hold is applied (drive input versus the own engine's implicit springs, ADR 0013) is
    re-decided when the native adapter replaces the bridge (PHY-020, ADR 0004 retirement).
