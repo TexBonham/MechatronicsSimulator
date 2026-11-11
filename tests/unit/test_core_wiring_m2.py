@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import math
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 import pytest
@@ -43,9 +44,44 @@ def test_payload_body_hangs_below_its_carrier_with_box_inertia(built: object) ->
     assert (body.name, body.parent, body.joint.type) == ("payload", "world", "free")
     assert body.mass == 2.0
     assert body.inertia.ixx == pytest.approx(2.0 * PAYLOAD_EDGE**2 / 6.0, rel=1e-15)
-    # hook origin (0.1, 0.1, 0.69) at the reference configuration; hook box 0.04 m: extent sqrt(3) 0.02.
+    # hook origin (0.1, 0.1, 0.34) at the reference configuration; hook box 0.04 m: extent sqrt(3) 0.02.
     drop = math.sqrt(3.0) * 0.02 + PAYLOAD_EDGE / 2.0 + PAYLOAD_CLEARANCE
-    assert body.joint.position == pytest.approx((0.1, 0.1, 0.69 - drop), abs=1e-12)
+    assert body.joint.position == pytest.approx((0.1, 0.1, 0.34 - drop), abs=1e-12)
+
+
+@pytest.mark.req("BLD-036")
+def test_payload_attached_at_the_start_is_a_fixed_child_of_its_carrier(built: object) -> None:
+    # Ruling 24: rigid on a fixed joint, placed in the carrier's frame. The hook's reference orientation is the
+    # identity, so the joint position is the world drop (0, 0, -drop) itself.
+    model = built.physics  # type: ignore[attr-defined]
+    loaded = with_payload(model, "payload", "hook", 2.0, fixed=True)
+    body = loaded.bodies[-1]
+    assert body.joint is not None
+    assert (body.name, body.parent, body.joint.type, body.joint.name) == ("payload", "hook", "fixed", "payload_fixed")
+    assert body.mass == 2.0
+    drop = math.sqrt(3.0) * 0.02 + PAYLOAD_EDGE / 2.0 + PAYLOAD_CLEARANCE
+    assert body.joint.position == pytest.approx((0.0, 0.0, -drop), abs=1e-12)
+    places, _ = core_wiring.joint_places(loaded)
+    cell = core_wiring.component_parameters(_instances(built)["load_cell"], places, loaded, [], None)  # type: ignore[arg-type]
+    assert cell["joint_reaction"] == len(loaded.bodies) - 1
+    assert "payload" not in cell
+
+
+@pytest.mark.req("BLD-036")
+def test_fixed_payload_is_placed_in_a_rotated_carriers_frame(built: object) -> None:
+    # A carrier rotated a quarter turn about x (q = (cos 45, sin 45, 0, 0)) maps its local -y onto world -z, so the
+    # world drop (0, 0, -d) is (0, -d, 0) in its frame.
+    model = built.physics  # type: ignore[attr-defined]
+    data = model.model_dump(mode="json")
+    half = math.sqrt(0.5)
+    for body in data["bodies"]:
+        if body["name"] == "hook":
+            body["joint"]["orientation"] = [half, half, 0.0, 0.0]
+    rotated = type(model).model_validate(data)
+    body = with_payload(rotated, "payload", "hook", 1.0, fixed=True).bodies[-1]
+    assert body.joint is not None
+    drop = math.sqrt(3.0) * 0.02 + PAYLOAD_EDGE / 2.0 + PAYLOAD_CLEARANCE
+    assert body.joint.position == pytest.approx((0.0, -drop, 0.0), abs=1e-12)
 
 
 @pytest.mark.req("BLD-036")
@@ -131,8 +167,14 @@ def test_load_cell_reads_its_payload_and_the_amplifier_the_chip_adc(built: objec
     assert cell["capacity"] == pytest.approx(49.05)
     amp = core_wiring.component_parameters(_instances(built)["load_amp"], places, model, ["payload"], chip)  # type: ignore[arg-type]
     assert (amp["adc_bits"], amp["adc_reference"], amp["gain"]) == (12, pytest.approx(3.3), pytest.approx(403.0))
-    with pytest.raises(core_wiring.WiringError, match="no payload 'payload'"):
+    with pytest.raises(core_wiring.WiringError, match="no joint or payload 'payload'"):
         core_wiring.component_parameters(_instances(built)["load_cell"], places, model, [], chip)  # type: ignore[arg-type]
+    original: Any = _instances(built)["load_cell"]
+    reaction = original.model_copy(
+        update={"senses": original.senses.model_copy(update={"joint_reaction": "hook_swing"})}
+    )
+    found = core_wiring.component_parameters(reaction, places, model, [], chip)
+    assert found["joint_reaction"] == places["hook_swing"].body
     with pytest.raises(core_wiring.WiringError, match="no chip"):
         core_wiring.component_parameters(_instances(built)["load_amp"], places, model, [], None)  # type: ignore[arg-type]
 

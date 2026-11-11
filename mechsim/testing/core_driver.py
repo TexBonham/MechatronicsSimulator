@@ -320,11 +320,20 @@ class CoreDriver:
         """(payload name, the sensing instance's mounted body) of the first load cell reading a payload."""
         if self._build is None:
             return None
+        joints: set[str] = set()
+        if self._model is not None:
+            joints = {body.joint.name for body in self._model.bodies if body.joint is not None}
         for instance in self._build.wiring.instances:
-            if instance.senses is not None and instance.senses.payload is not None:
+            senses = instance.senses
+            if senses is None:
+                continue
+            name = senses.payload
+            if senses.joint_reaction is not None and senses.joint_reaction not in joints:
+                name = senses.joint_reaction
+            if name is not None:
                 for mount in instance.mounts:
                     if mount.body is not None:
-                        return instance.senses.payload, mount.body
+                        return name, mount.body
                 raise DriverError(f"load cell '{instance.name}': senses a payload but is mounted on no body")
         return None
 
@@ -394,11 +403,13 @@ class CoreDriver:
         payloads: dict[str, str] = {}
         if self._payload is not None:
             name, carrier, mass, _ = self._payload
+            fixed = self._payload_fixed()
             try:
-                model = with_payload(model, name, carrier, mass)
+                model = with_payload(model, name, carrier, mass, fixed)
             except BuildError as failure:
                 raise DriverError(str(failure)) from failure
-            payloads[name] = carrier
+            if not fixed:
+                payloads[name] = carrier
         artifacts = prepare_model(model, self._starts, float(1 / config.physics_rate), payloads)
         self.approximations = artifacts.report
         adapter = core.make_physics_adapter("mujoco")
@@ -486,6 +497,16 @@ class CoreDriver:
                     if mount.kind == "shaft" and mount.joint is not None:
                         actuators[instance.name] = mount.joint
         return actuators
+
+    def _payload_fixed(self) -> bool:
+        """Ruling 24: a payload attached at t = 0 that no fault releases is a fixed child of its carrier; a released
+        or never-attached one is welded (BLD-036)."""
+        if self._payload is None or not self._payload[3]:
+            return False
+        for fault in self._physics_faults:
+            if fault.kind == "payload_change" and float(dict(fault.parameters)["mass"]) == 0.0:
+                return False
+        return True
 
     def _schedule_physics(self, physics: Any, model: PhysicsModel) -> None:
         """Slip on the transmission named by its instance, payload changes on the payload carried by the target body

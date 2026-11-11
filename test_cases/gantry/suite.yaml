@@ -7,5 +7,11 @@ cases:
   - G2.yaml
   - G3.yaml
   - G4.yaml
+  - G5.yaml
+  - G6.yaml
+  - G7.yaml
+  - G8.yaml
+  - G9.yaml
+  - G11.yaml
 baseline: baseline.yaml
-note: "Milestone 1 cases G1 to G4 on the draft gantry; the example suite file (TST-008)"
+note: "Cases G1 to G9 and G11 on the draft gantry (G10 out until the bridge slip fix); the example suite file (TST-008)"

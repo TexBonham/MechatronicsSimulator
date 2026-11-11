@@ -315,9 +315,10 @@ def test_forced_switch_level_holds_for_its_window(delivered: tuple[CoreDriver, A
 @pytest.mark.req("KER-023")
 def test_estop_press_opens_motor_power_within_the_cutoff(delivered: tuple[CoreDriver, Any, Path]) -> None:
     """Pressed at 1 s: the relay opens floor(0.02 s / 1 ms) = 20 samples after the press is seen at tick 1000, so the
-    rail is off from the row of tick 1020, stamped 1.021 s; manual reset (part value) keeps it off after release."""
+    rail is off from the row of tick 1020, stamped 1.021 s. The gantry relay runs `manual_reset: false` (round 4
+    ruling 25): the loop closes at the release, tick 1500, and the contacts close in that step, stamped 1.501 s."""
     driver, _, _ = delivered
-    assert _changes(driver, "signal:motor_power.on") == [(1.021, 0.0)]
+    assert _changes(driver, "signal:motor_power.on") == [(1.021, 0.0), (1.501, 1.0)]
 
 
 @pytest.mark.req("KER-023")

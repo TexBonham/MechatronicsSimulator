@@ -207,9 +207,13 @@ environment:
 # chosen only so the rigid milestone 1 gantry builds; none of it is gantry data. Placeholder sizes: workspace x 1.0 m
 # (rail_x 1.2 m long), workspace y 0.8 m (rail_y 1.0 m long), lift travel 0.5 m, rail_x 1.0 m above the floor.
 # Reference configuration (all joint coordinates zero), world positions of the body frames: frame (0, 0, 0),
-# rail_x (0, 0, 1), rail_y (0.1, 0, 1.04), trolley (0.1, 0.1, 1.09), lift_carriage (0.1, 0.1, 0.79), hook
-# (0.1, 0.1, 0.69), x_motor_shaft (-0.05, -0.1, 1), y_motor_shaft (0.1, -0.05, 1.04), lift_motor_shaft
-# (0.1, 0.1, 1.14); no two bodies not joined to each other overlap there (BLD-022).
+# rail_x (0, 0, 1), rail_y (0.1, 0, 1.04), trolley (0.1, 0.1, 1.09), lift_carriage (0.1, 0.1, 0.44), hook
+# (0.1, 0.1, 0.34), x_motor_shaft (-0.05, -0.1, 1), y_motor_shaft (0.1, -0.05, 1.04), lift_motor_shaft
+# (0.1, 0.1, 1.14); no two bodies not joined to each other overlap there (BLD-022). The lift carriage hangs 0.65 m
+# below the trolley so the full 0.5 m lift travel keeps its top (0.96 m) below rail_x (1.02 m); at 0.3 m it struck
+# rail_x at 0.21 m of travel (M2-X3). x_axis and y_axis carry 5 N of placeholder Coulomb friction (M2-X3): without it
+# an axis cut off mid-move by the E-stop coasted at 0.2 m/s to its far limit (G7); 5 N stops it within v^2 m / (2 F)
+# = 2 cm for 5 kg moving and costs the motor 5 N x 6.37 mm = 0.03 N m.
 bodies:
   - name: frame
     material: aluminium_6063_t5_extrusion
@@ -350,7 +354,7 @@ joints:
       - limits:
           lower: 0 m
           upper: 1 m
-        friction: 0 N
+        friction: 5 N
         damping: 0 N*s/m
         backlash: 0 m
   - name: y_axis
@@ -364,7 +368,7 @@ joints:
       - limits:
           lower: 0 m
           upper: 0.8 m
-        friction: 0 N
+        friction: 5 N
         damping: 0 N*s/m
         backlash: 0 m
   - name: lift_axis
@@ -372,7 +376,7 @@ joints:
     parent: trolley
     child: lift_carriage
     placement:
-      position: [0 m, 0 m, -0.3 m]
+      position: [0 m, 0 m, -0.65 m]
     axis: [0.0, 0.0, 1.0]
     linear:
       - limits:
@@ -657,8 +661,9 @@ components:
         direction: emits
     senses:
       joint: lift_motor_spin
-  # PLACEHOLDER load cell chain (open parameter load_cell_type): the cell reads the case payload's attachment force
-  # (DES-043 senses.payload); the amplifier gain is set so 1 kg reads 1000 ADC counts on the placeholder chip.
+  # PLACEHOLDER load cell chain (open parameter load_cell_type): the cell reads the reaction at the case payload's
+  # fixed joint to the hook (DES-043 senses.joint_reaction, ruling 24); the amplifier gain is set so 1 kg reads 1000
+  # ADC counts on the placeholder chip.
   - name: load_cell
     type: load_cell
     part: load_cell_5kg_generic
@@ -666,7 +671,7 @@ components:
       - mount: body
         body: hook
     senses:
-      payload: payload
+      joint_reaction: payload
   - name: load_amp
     type: load_cell_amplifier
     part: load_cell_amplifier_generic

@@ -862,6 +862,8 @@ def test_value_criterion_field_missing_rejected(field: str) -> None:
         {"quantity": "signal:x_encoder.channel_a", "limit": "1"},
         {"quantity": "count:message.status", "statistic": "final", "comparison": "at_most", "limit": "1"},
         {"quantity": "state:ready", "statistic": "final", "limit": "1"},
+        {"quantity": "rail:motor_power", "limit": "0"},
+        {"quantity": "rail:logic.voltage", "limit": "2 V"},
         {"quantity": "joint:x_axis.position", "statistic": "period", "limit": "2 s"},
         {"statistic": "peak_absolute", "window": {"start": "1 s", "end": "2 s"}},
         {"statistic": "minimum", "window": {"end": "2 s"}},
@@ -904,6 +906,9 @@ def test_value_criterion_forms_accepted(fields: dict[str, Any]) -> None:
         ({"quantity": "pose:hook.w"}, "quantity"),
         ({"quantity": "hook.x"}, "quantity"),
         ({"quantity": "joint:x_axis.force"}, "quantity"),
+        ({"quantity": "rail:motor_power.on"}, "quantity"),
+        ({"quantity": "rail:motor_power", "limit": "1 V"}, "expected dimensionless"),
+        ({"quantity": "rail:motor_power.voltage", "limit": "1 m"}, "expected [mass] * [length] ** 2"),
         ({"limit": 1.0}, "must be a string with a unit"),
         ({"limit": "m"}, "must start with a number"),
         ({"name": "Final"}, "name"),
@@ -921,6 +926,7 @@ def test_value_criterion_bad_rejected(fields: dict[str, Any], fragment: str) -> 
         ({"quantity": "joint:z_axis.position"}, "unknown joint 'z_axis'"),
         ({"quantity": "signal:x_encoder.index"}, "unknown signal 'x_encoder.index'"),
         ({"quantity": "count:message.done", "limit": "1"}, "unknown operator message 'done'"),
+        ({"quantity": "rail:mains", "limit": "0"}, "unknown power rail 'mains'"),
         ({"quantity": "joint:x_axis.position", "limit": "1 rad"}, "expected [length]"),
         ({"quantity": "joint:x_axis.velocity", "limit": "1 m"}, "expected [length] / [time]"),
     ],
@@ -1255,7 +1261,8 @@ def _suite_data(**fields: Any) -> dict[str, Any]:
 def test_the_shipped_suite_file_names_its_cases_and_baseline() -> None:
     path = ROOT / "test_cases" / "gantry" / "suite.yaml"
     suite = load_suite_file(path)
-    assert suite.cases == ["G1.yaml", "G2.yaml", "G3.yaml", "G4.yaml"]
+    # G10 stays out of the suite until the bridge slip defect is fixed (M2-X3).
+    assert suite.cases == [f"G{index}.yaml" for index in (1, 2, 3, 4, 5, 6, 7, 8, 9, 11)]
     assert suite.baseline == "baseline.yaml"
     assert suite.design.version == load_design(GANTRY).version
     assert SUITE_SCHEMA_PATH.read_text(encoding="utf-8") == suite_schema_text()

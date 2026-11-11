@@ -1,11 +1,13 @@
-"""The case payload as a neutral body (BLD-036): a free body under world welded to its carrier by the adapter.
+"""The case payload as a neutral body (BLD-036, ruling 24).
 
-`with_payload(model, name, carrier, mass)` appends body `name`: mass `mass`, a placeholder solid box of edge
-`PAYLOAD_EDGE` (inertia m a^2 / 6 about each axis), on a free joint `<name>_free` under world, its center hung below the
-carrier's
-reference-configuration origin along gravity by the carrier's shape extent (the largest |shape position| plus the
-shape's half diagonal) plus half the box and `PAYLOAD_CLEARANCE`, so the two never overlap. The run's payload argument
-maps the body to its carrier (`prepare_model(..., payloads=)`).
+`with_payload(model, name, carrier, mass, fixed=False)` appends body `name`: mass `mass`, a placeholder solid box of
+edge `PAYLOAD_EDGE` (inertia m a^2 / 6 about each axis), its center hung below the carrier's reference-configuration
+origin along gravity by the carrier's shape extent (the largest |shape position| plus the shape's half diagonal) plus
+half the box and `PAYLOAD_CLEARANCE`, so the two never overlap. `fixed=True` (a payload attached at t = 0 that is never
+released, ruling 24) makes it a child of the carrier on a fixed joint `<name>_fixed`, placed in the carrier's frame
+(the world drop rotated by the inverse of the carrier's reference orientation): rigid, no equality, and a load cell
+reads that joint's reaction. Otherwise it is a free body on `<name>_free` under world and the run's payload argument
+welds it to its carrier (`prepare_model(..., payloads=)`), for a mid-run attach or release.
 """
 
 from __future__ import annotations
@@ -44,7 +46,7 @@ def _q_mul(a: Sequence[float], b: Sequence[float]) -> tuple[float, float, float,
     )
 
 
-def _origin(model: PhysicsModel, name: str) -> tuple[float, float, float]:
+def _pose(model: PhysicsModel, name: str) -> tuple[tuple[float, float, float], tuple[float, float, float, float]]:
     poses: dict[str, tuple[tuple[float, float, float], tuple[float, float, float, float]]] = {}
     for body in model.bodies:
         joint = body.joint
@@ -57,7 +59,7 @@ def _origin(model: PhysicsModel, name: str) -> tuple[float, float, float]:
             position = (position[0] + offset[0], position[1] + offset[1], position[2] + offset[2])
             orientation = _q_mul(orientation, joint.orientation)
         poses[body.name] = (position, orientation)
-    return poses[name][0]
+    return poses[name]
 
 
 def _extent(body: Body) -> float:
@@ -77,7 +79,7 @@ def _extent(body: Body) -> float:
     return extent
 
 
-def with_payload(model: PhysicsModel, name: str, carrier: str, mass: float) -> PhysicsModel:
+def with_payload(model: PhysicsModel, name: str, carrier: str, mass: float, fixed: bool = False) -> PhysicsModel:
     bodies = {body.name: body for body in model.bodies}
     if name in bodies:
         raise BuildError([f"payload '{name}': the model already has a body of that name"])
@@ -90,9 +92,16 @@ def with_payload(model: PhysicsModel, name: str, carrier: str, mass: float) -> P
     down = (0.0, 0.0, -1.0)
     if norm > 0.0:
         down = (gravity[0] / norm, gravity[1] / norm, gravity[2] / norm)
-    origin = _origin(model, carrier)
+    origin, orientation = _pose(model, carrier)
     drop = _extent(bodies[carrier]) + PAYLOAD_EDGE / 2.0 + PAYLOAD_CLEARANCE
     position = [origin[index] + drop * down[index] for index in range(3)]
+    parent = "world"
+    joint = {"name": f"{name}_free", "type": "free"}
+    if fixed:
+        inverse = (orientation[0], -orientation[1], -orientation[2], -orientation[3])
+        position = list(_q_rot(inverse, (drop * down[0], drop * down[1], drop * down[2])))
+        parent = carrier
+        joint = {"name": f"{name}_fixed", "type": "fixed"}
     material = "payload"
     for shape in bodies[carrier].shapes:
         material = shape.material
@@ -104,8 +113,8 @@ def with_payload(model: PhysicsModel, name: str, carrier: str, mass: float) -> P
         "com": ["0.0 m", "0.0 m", "0.0 m"],
         "inertia": {"ixx": f"{inertia!r} kg*m**2", "iyy": f"{inertia!r} kg*m**2", "izz": f"{inertia!r} kg*m**2"},
         "material": bodies[carrier].material,
-        "parent": "world",
-        "joint": {"name": f"{name}_free", "type": "free", "position": [f"{value!r} m" for value in position]},
+        "parent": parent,
+        "joint": {**joint, "position": [f"{value!r} m" for value in position]},
         "shapes": [
             {"shape": "box", "size": [f"{PAYLOAD_EDGE!r} m"] * 3, "material": material},
         ],

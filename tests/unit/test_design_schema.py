@@ -2077,7 +2077,7 @@ def _m2_errors(data: dict[str, Any]) -> list[str]:
 def test_shipped_gantry_load_cell_senses_the_payload_and_the_brake_acts_on_the_lift_motor_shaft() -> None:
     data = gantry()
     assert _m2_errors(data) == []
-    assert component(data, "load_cell")["senses"] == {"payload": "payload"}
+    assert component(data, "load_cell")["senses"] == {"joint_reaction": "payload"}
     assert component(data, "lift_brake")["acts_on"] == {"joint": "lift_motor_spin"}
 
 
@@ -2085,9 +2085,13 @@ def test_shipped_gantry_load_cell_senses_the_payload_and_the_brake_acts_on_the_l
 @pytest.mark.parametrize(
     ("name", "senses", "message"),
     [
-        ("load_cell", None, "must name the joint or payload it senses"),
-        ("load_cell", {}, "must name one of joint, payload"),
+        ("load_cell", None, "must name the joint or payload or joint_reaction it senses"),
+        ("load_cell", {}, "must name one of joint, payload, joint_reaction"),
         ("load_cell", {"payload": "payload", "joint": "lift_axis"}, "exactly one is allowed"),
+        ("load_cell", {"joint_reaction": "payload", "payload": "payload"}, "exactly one is allowed"),
+        ("load_cell", {"joint_reaction": 3}, "Input should be a valid string"),
+        ("x_encoder", {"joint_reaction": "payload"}, "takes no joint_reaction"),
+        ("load_cell", {"joint_reaction": "payload", "position": "0 m"}, "takes no position"),
         ("load_cell", {"body": "hook"}, "takes no body"),
         ("load_cell", {"payload": 3}, "Input should be a valid string"),
         ("load_cell", {"joint": "nowhere"}, "unknown joint 'nowhere'"),
@@ -2107,9 +2111,15 @@ def test_payload_and_body_senses_rules(name: str, senses: dict[str, Any] | None,
 
 
 @pytest.mark.req("DES-043")
-def test_load_cell_may_sense_a_joint_instead_of_the_payload() -> None:
+@pytest.mark.parametrize(
+    "senses",
+    [{"joint": "lift_axis"}, {"payload": "payload"}, {"joint_reaction": "hook_swing"}, {"joint_reaction": "payload"}],
+)
+def test_load_cell_may_sense_a_joint_a_payload_or_a_joint_reaction(senses: dict[str, Any]) -> None:
+    # joint_reaction names a design joint or, when it is none, a case payload (its fixed joint, ruling 24); the
+    # payload is case data, so the design check accepts any name there.
     data = gantry()
-    component(data, "load_cell")["senses"] = {"joint": "lift_axis"}
+    component(data, "load_cell")["senses"] = senses
     assert _m2_errors(data) == []
 
 

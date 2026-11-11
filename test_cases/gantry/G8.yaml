@@ -48,9 +48,19 @@ end:
   at: 12 s
   max_duration: 12 s
 criteria:
-  # ACC-016: the motors stop: no driver gets a step pulse once the heartbeat timeout plus the cutoff delay (50 ms +
-  # 20 ms placeholders) has passed, the watchdog having dropped the motor rail. A carriage on frictionless joints may
-  # coast on once its motor is off; that motion is not the motor's, so shaft motion is not the criterion.
+  # ACC-016: the motors stop: the watchdog has dropped the motor rail (`rail:motor_power`, round 4 ruling 27) and no
+  # driver gets a step pulse once the heartbeat timeout plus the watchdog's cutoff delay (50 ms + 10 ms placeholders)
+  # and one heartbeat period have passed. A carriage may coast a little once its motor is off; that motion is not the
+  # motor's, so shaft motion is not the criterion.
+  - name: motor_power_off
+    check: value
+    quantity: rail:motor_power
+    statistic: maximum
+    comparison: at_most
+    limit: "0"
+    window:
+      start: 9.07 s
+      end: 10 s
   - name: x_no_steps
     check: value
     quantity: signal:x_driver.step

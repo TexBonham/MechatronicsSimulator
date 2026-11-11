@@ -70,7 +70,7 @@ CASE_ID_PATTERN = r"^[A-Z][A-Z0-9_]*[0-9]+$"
 _N = r"[a-z][a-z0-9_]*"
 QUANTITY_REF_PATTERN = (
     rf"^(signal:{_N}\.{_N}|pose:{_N}\.(x|y|z|roll|pitch|yaw)|joint:{_N}\.(position|velocity)"
-    rf"|state:{_N}|count:(message|state)\.{_N})$"
+    rf"|rail:{_N}(\.voltage)?|state:{_N}|count:(message|state)\.{_N})$"
 )
 EVENT_REF_PATTERN = rf"^(message|state|event):{_N}$"
 INSTANCE_PREFIX = "instance:"
@@ -484,6 +484,10 @@ def reference_dimension(reference: str) -> str | None:
             return LENGTH
         return ANGLE
     if kind in ("state", "count"):
+        return ANGLE
+    if kind == "rail":
+        if rest.endswith(".voltage"):
+            return "[mass] * [length] ** 2 / [time] ** 3 / [current]"
         return ANGLE
     return None
 
@@ -1004,6 +1008,12 @@ def _check_reference(
         kind, _, rest = rest.partition(".")
     if kind == "signal" and rest not in design.signal_names():
         errors.append(f"{path}: unknown signal {rest!r}")
+    if kind == "rail":
+        rails: list[str] = []
+        if design.power is not None:
+            rails = [rail.name for rail in design.power.rails]
+        if rest.partition(".")[0] not in rails:
+            errors.append(f"{path}: unknown power rail {rest.partition('.')[0]!r}")
     if kind == "pose" and rest.partition(".")[0] not in bodies:
         errors.append(f"{path}: unknown body {rest.partition('.')[0]!r}")
     if kind == "joint" and rest.partition(".")[0] not in joints:

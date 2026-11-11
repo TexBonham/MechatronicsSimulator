@@ -1,10 +1,16 @@
 # G7 (Requirements doc, Test cases, gantry suite): E-stop pressed mid-move with a 2 kg load. Motor power is cut within
-# the relay delay (ACC-013: the relay's status output, bound to the controller and equal to its contacts, is 0 from
-# press + cutoff_delay, 20 ms for estop_relay_24v_generic, to the release); the hook does not drop (ACC-014: the lift
+# the relay delay (ACC-013: `rail:motor_power` reads 0 from the cutoff to the release, round 4 ruling 27; the relay's
+# status output, bound to the controller and equal to its contacts, too); the hook does not drop (ACC-014: the lift
 # stays within the hold band of its position at the press until the reset); motion resumes only after a reset and a
-# new command (ACC-015, FW-024: no step pulses on any axis from the press until the new command, the target reached
-# after). The release at the window end also resets the relay (TST-019); `reset` returns the firmware to not_homed
-# (round 4 ruling 7), so the new command is `home` and then the target again.
+# new command (ACC-015, FW-024: no step pulses on any axis from the cutoff until the new command, the target reached
+# after). The release at the window end closes the E-stop loop and the relay returns the rail (`manual_reset: false`,
+# round 4 ruling 25); `reset` returns the firmware to not_homed (round 4 ruling 7), so `home` precedes the target.
+# Windows after the press at 9 s (press + 20 ms cutoff_delay of estop_relay_24v_generic): the relay opens in the
+# layer step at 9.020 s and rows are stamped at the end of their step (KER-009), so the rail and the status are
+# recorded off from 9.021 s; the firmware reads the
+# status input one control tick after the rail drops, so the axes' last pulses (16 per axis) fall in the 9.021 s tick
+# and the no-step windows start at 9.022 s. Those pulses are physical latency (the motors are already unpowered), not
+# a defect.
 id: G7
 title: E-stop mid-move with a load
 design:
@@ -68,12 +74,21 @@ end:
 criteria:
   - name: power_cut
     check: value
+    quantity: rail:motor_power
+    statistic: maximum
+    comparison: at_most
+    limit: "0"
+    window:
+      start: 9.021 s
+      end: 10 s
+  - name: relay_open
+    check: value
     quantity: signal:estop.status
     statistic: maximum
     comparison: at_most
     limit: "0"
     window:
-      start: 9.02 s
+      start: 9.021 s
       end: 10 s
   - name: hook_held
     check: hold_band
@@ -89,7 +104,7 @@ criteria:
     comparison: at_most
     limit: "0"
     window:
-      start: 9.02 s
+      start: 9.022 s
       end: 12 s
   - name: no_steps_y_until_command
     check: value
@@ -98,7 +113,7 @@ criteria:
     comparison: at_most
     limit: "0"
     window:
-      start: 9.02 s
+      start: 9.022 s
       end: 12 s
   - name: resumed_x
     check: value

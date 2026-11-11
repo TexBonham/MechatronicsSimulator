@@ -12,7 +12,7 @@ to source_hash, zeros when unset; `rigid_members` builds flexible bodies rigid, 
 |---|---|
 | `design`, `module_instances` | the Design; instances in KER-009 tick order (`build.module_order`, D1 seeding) |
 | `physics` | neutral `PhysicsModel`; None for a draft with open physics (run step stays the 1 ms default) |
-| `wiring` | instances (parameters, emits, consumes, mounts, rails, `senses` `Sensing(joint, payload, body, position, actuate_above, reversed)`, `acts_on` joint, `torque_speed` ((rad/s, N m), ...) from the part curve; BLD-035), bindings (pin, mode, channel), rails, gating, operator_links |
+| `wiring` | instances (parameters, emits, consumes, mounts, rails, `senses` `Sensing(joint, payload, joint_reaction, body, position, actuate_above, reversed)`, `acts_on` joint, `torque_speed` ((rad/s, N m), ...) from the part curve; BLD-035), bindings (pin, mode, channel), rails, gating, operator_links |
 | `chip` | name, placeholder, bindings, `channels_header` (`channels.h`) |
 | `members`, `lumped` | structural members; `LumpedRecord` (spans, masses, E I / l, calibration) |
 | `pending`, `notes` | open-value paths (sorted); non-fatal notes |
@@ -29,7 +29,7 @@ to source_hash, zeros when unset; `rigid_members` builds flexible bodies rigid, 
 
 ## Files
 
-`build.py` (`build`, `module_order`); `payload.py` (`with_payload(model, name, carrier, mass)`, BLD-036: free box body under world below the carrier); `physics.py` (`build_physics`, `primitive_mass`, `lumped_record`,
+`build.py` (`build`, `module_order`); `payload.py` (`with_payload(model, name, carrier, mass, fixed=False)`, BLD-036: box body below the carrier, a fixed child `<name>_fixed` of it when `fixed` (attached at t = 0, never released, ruling 24), else free under world and welded by the adapter); `physics.py` (`build_physics`, `primitive_mass`, `lumped_record`,
 `element_kinds`); `mass.py` (closed forms, frames, `z_to`); `wiring.py`; `result.py`.
 
 `physics.py` sections: Checks 80, Bodies and joints 191, Overlap 317, Lumped members 373, Transmissions and

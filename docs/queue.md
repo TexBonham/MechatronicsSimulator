@@ -6,12 +6,13 @@ State for the coordinating session. A new session reads this, then `docs/rulings
 
 Round 4 (milestone 2) in flight on `round/04-milestone-2`, cut from main at 46cbfe6 on 2026-11-10. Plan of record:
 `docs/briefs/round-04/plan.md`. Stage commits landed: prep 8aa11f3, G b99aba9, D 7b98dda, C and A1 fea1b9c, W
-e0d817e, F1 76e5738, A2 and B 66f6127; F2 merged at 9100c8b (verification running, stage commit next). E (gantry
-firmware G5 to G14, accepted) is merged into `wip/04-x1` and lands with X1. In flight: X1 (`wip/04-x1` from 58725e9,
-integration G5 to G8). Next: X2 (G9 to G11 plus the review carry-overs listed in `m2-x2.md`), X3 (G13, G14), gate.
-Worktrees `../MechatronicsSimulator-04-<letter>`; finished ones (g, c, a1, w, d, e, a2, b, f1, f2) can be removed at
-the round close. The round branch is not pushed: the session's permission classifier refuses `git push`; the owner
-pushes (`! git push -u origin round/04-milestone-2`) or adds a rule for `round/*` and `wip/*`.
+e0d817e, F1 76e5738, A2 and B 66f6127, F2 ee5448b. Integration wave on `wip/04-x1` (E merged in; X1 d774e4f, X2
+9030952: G1 to G4 and G8 pass on the CLI, G5 to G7 diverge). In flight: A3 (`wip/04-a3` from 9030952: stepper
+re-synchronization runaway, drive torque apportioning, load cell on a fixed joint). Next: merge A3 into `wip/04-x1`,
+X3 (ruling 24 payload build, G5 to G7, G9 to G11, conversions, carry-overs in `m2-x2.md` section 7), the grouped X-wave
+review, X4 for G13 and G14 if needed, the gate (reference-validator, Opus auditor, Fable gate review, owner). The
+round branch is not pushed: the session's permission classifier refuses `git push`; the owner pushes (`! git push
+-u origin round/04-milestone-2`) or adds a rule for `round/*` and `wip/*`.
 
 ## Round 4 open rulings (owner answers when available; the planned default applies until then)
 

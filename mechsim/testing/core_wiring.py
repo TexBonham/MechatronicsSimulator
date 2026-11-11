@@ -10,7 +10,9 @@ inside it.
 
 Milestone 2 instances (BLD-035): a signal wire between two layer instances (an output port to an input port, not
 power, ground or a driver-to-motor coil) is a layer connection; a load cell reads its payload's attachment force by the
-payload's index among the model's payload bodies; the amplifier converts with the design chip's ADC (`Chip.adc`); a
+payload's index among the model's welded payload bodies, or with `senses.joint_reaction` the reaction of that joint
+(a payload attached at t = 0 is a fixed child on `<payload>_fixed`, ruling 24; a welded one falls back to its weld
+force); the amplifier converts with the design chip's ADC (`Chip.adc`); a
 brake registers at the actuator stage by type and acts on its `acts_on` joint. On a motor shaft joint (a revolute
 joint some transmission is driven from, ruling 23) the brake torque applies as given and its drive's inverse inertia is
 A0 = 1 / (J + m c^2), J the shaft body's axial inertia (the rotor inertia, BLD-034), m the mass of the driven joint's
@@ -20,11 +22,12 @@ configuration with the driven mass reflected rigidly onto it. The layer combines
 that joint as parallel springs (SIG-020, ruling 23) and the bridge applies it through its shaft reflection. On a
 prismatic joint driven by a transmission the holding force is brake_torque / c and A0 = 1 / (m + sum J / c^2) over its
 driving shafts (the bridge refuses a drive there; kept for an engine that takes one). On any other revolute joint the
-brake torque applies as given and A0 is not set. A payload welded to a carrier is a separate free body and enters no m.
+brake torque applies as given and A0 is not set. A payload welded to a carrier (mid-run attach or release) is a
+separate free body and enters no m.
 
-Firmware event-log entries whose code the design names in `firmware.event_codes` are
-collected by the runner party from `controller.pin_outputs` and recorded as `controller` events of that name, the
-argument read as an axis: the instance of the pulse_output binding with that channel, else the number.
+Firmware event-log entries whose code the design names in `firmware.event_codes` are collected by the runner party
+from `controller.pin_outputs` and recorded as `controller` events of that name, the argument read as an axis: the
+instance of the pulse_output binding with that channel, else the number.
 """
 
 from __future__ import annotations
@@ -376,6 +379,19 @@ def component_parameters(
             if name in values
         }
         _fidelity(values, cell)
+        reaction = senses.joint_reaction
+        if reaction is not None:
+            places_of = joint_places(model)[0]
+            if reaction in places_of:
+                cell["joint_reaction"] = places_of[reaction].body
+                return cell
+            if f"{reaction}_fixed" in places_of:
+                cell["joint_reaction"] = places_of[f"{reaction}_fixed"].body
+                return cell
+            if reaction in payloads:
+                cell["payload"] = list(payloads).index(reaction)
+                return cell
+            raise WiringError(f"load cell '{instance.name}': the run has no joint or payload '{reaction}'")
         if senses.payload is not None:
             if senses.payload not in payloads:
                 raise WiringError(f"load cell '{instance.name}': the run has no payload '{senses.payload}'")

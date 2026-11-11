@@ -104,6 +104,7 @@ def _sensing(index: int, component: ComponentInstance, collector: Collector) -> 
     return Sensing(
         joint=joint,
         payload=senses.payload,
+        joint_reaction=senses.joint_reaction,
         body=body,
         position=position,
         actuate_above=senses.actuate_above,

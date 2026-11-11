@@ -1,8 +1,14 @@
 # G5 (Requirements doc, Test cases, gantry suite): a load over the limit attached before a move; lift commands are
 # ignored (ACC-009, FW-018) and lower commands work (ACC-010). The hook is homed with a 1 kg payload, lifted to 30 cm,
-# and the payload becomes 4 kg (over the 3.45 kg placeholder limit, rated 3 kg + 15 percent, round 4 ruling 6) while
-# the lift stands still, so the load is over the limit before the next move. `lift 0.4` is then refused with a status
-# and a `refused` event (fault overload) and the lift holds; `lift 0.1` lowers it by 20 cm, ending within 1 cm of
+# and the payload is loaded in steps of at most 1 kg to 3.6 kg (over the 3.45 kg placeholder limit, rated 3 kg + 15 percent, round
+# 4 ruling 6) while the lift stands still, so the load is over the limit before the next move. Why in steps: the
+# payload is a fixed child of the hook (ruling 24) and each change is a step load on the stepper's hold. On the 40 mm
+# placeholder lead (ruling 26) the hold needs (m_stack + m) g c, c = lead / 2 pi = 6.37 mm, m_stack about 0.86 kg of
+# carriage and hook; an undamped step from m0 to m1 peaks at (m_stack + m0 + 2 (m1 - m0)) g c, which stays under the
+# 0.40 N m holding torque only for m1 - m0 below about 1.9 kg at m1 = 3.6 kg (one 1 to 4 kg step lost synchronism and
+# dropped the hook; starting at the rated 3 kg instead tripped the overload check on the lift's acceleration). The
+# lift `lift 0.4` is then refused with a status and a `refused` event (fault overload) and the lift holds; `lift 0.1`
+# lowers it by 20 cm, ending within 1 cm of
 # 10 cm (the 1 cm position accuracy, G2 and G3). Times are open parameters with placeholder defaults (DES-044):
 # homing from the start positions takes at most 0.1 m / 0.02 m/s = 5 s per axis, all axes at once.
 id: G5
@@ -21,8 +27,12 @@ open_parameters:
   - name: overweight_mass
     dimension: "[mass]"
     owed_by: gantry team
-    note: Payload mass over the overload limit (3.45 kg placeholder).
-    default: "4 kg"
+    note: >-
+      Payload mass over the overload limit (3.45 kg placeholder). 3.6 kg, not 4 kg: lowering 4 kg on the 40 mm
+      placeholder lead needs (0.86 + 4) kg x (9.81 + 0.5) m/s^2 x 6.37 mm = 0.32 N m against 0.36 N m of the
+      placeholder curve at the 0.2 m/s lift speed (300 rpm), and the deceleration transient pulled the motor out; 3.6 kg
+      needs 0.29 N m.
+    default: "3.6 kg"
   - name: hold_band
     dimension: "[length]"
     owed_by: gantry team
@@ -61,6 +71,14 @@ commands:
     payload:
       z: 10 cm
 faults:
+  - kind: payload_change
+    start: 11 s
+    target: hook
+    mass: 2 kg
+  - kind: payload_change
+    start: 11.5 s
+    target: hook
+    mass: 3 kg
   - kind: payload_change
     start: 12 s
     target: hook

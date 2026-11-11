@@ -135,8 +135,20 @@ def score_run(
         error=report.error,
         sweep=sweep,
         run=run,
-        approximations=report.approximations,
+        approximations=report.approximations + _layer_approximations(recording),
     )
+
+
+def _layer_approximations(recording: RecordView) -> tuple[str, ...]:
+    """Recorded `approximation` events (the signal layer's component notes, such as a load cell saturating; ruling
+    20) as `<source>: <detail>` lines, each once, in record order (SCO-013)."""
+    lines: list[str] = []
+    for event in recording.events():
+        if event.kind == "approximation":
+            line = f"{event.source}: {event.detail}"
+            if line not in lines:
+                lines.append(line)
+    return tuple(lines)
 
 
 def not_run(
@@ -242,6 +254,11 @@ def _series(reference: str, recording: RecordView) -> Series:
                 seen += 1
             values.append(float(seen))
         return Series(tuple(times), tuple(values), "")
+    if kind == "rail":
+        name, _, field = rest.partition(".")
+        if field == "":
+            field = "on"
+        return recording.series(f"signal:{name}.{field}")
     return recording.series(reference)
 
 

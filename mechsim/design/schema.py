@@ -614,10 +614,13 @@ class SignalDeclaration(_Strict):
 class Senses(_Strict):
     """What a sensor instance reads (DES-043): the joint coordinate, and per type the switch position along the joint
     and its actuation side (limit_switch) or the count direction (incremental_encoder); a load cell may read the case
-    payload by name instead of a joint, an IMU reads a body. Exactly one of joint, payload and body."""
+    payload by name instead of a joint, or the reaction of a joint (`joint_reaction`: a design joint, or a case payload
+    by name, read at its fixed joint to the carrier; ruling 24), an IMU reads a body. Exactly one of joint, payload,
+    joint_reaction and body."""
 
     joint: OpenName | None = None
     payload: Name | None = None
+    joint_reaction: Name | None = None
     body: OpenName | None = None
     position: Length | None = None
     actuate_above: bool | None = None
@@ -629,7 +632,10 @@ SENSES_FIELDS: dict[str, tuple[str, ...]] = {
     "incremental_encoder": ("reversed",),
 }
 SENSES_REQUIRED: dict[str, tuple[str, ...]] = {"limit_switch": ("position", "actuate_above")}
-SENSES_TARGETS: dict[str, tuple[str, ...]] = {"load_cell": ("joint", "payload"), "imu": ("body",)}
+SENSES_TARGETS: dict[str, tuple[str, ...]] = {
+    "load_cell": ("joint", "payload", "joint_reaction"),
+    "imu": ("body",),
+}
 SENSES_DEFAULT_TARGETS: tuple[str, ...] = ("joint",)
 ACTS_ON_TYPES: tuple[str, ...] = ("brake",)
 
@@ -1144,7 +1150,7 @@ def _check_senses(
             f"{path}.senses: sensor instance {component.name!r} must name the {' or '.join(targets)} it senses"
         )
         return
-    given = [name for name in ("joint", "payload", "body") if getattr(senses, name) is not None]
+    given = [name for name in ("joint", "payload", "joint_reaction", "body") if getattr(senses, name) is not None]
     for name in given:
         if name not in targets:
             errors.append(f"{path}.senses.{name}: type {component.type!r} takes no {name}")

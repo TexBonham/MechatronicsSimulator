@@ -733,3 +733,37 @@ def test_a_table_cell_escapes_pipes_and_a_run_error_is_stated() -> None:
     assert "| e | error | n/a | final at_most 1 V |  | run error: a \\| b |\n" in text
     failed = CaseScore(**{**errored.__dict__, "ran": False, "end_reason": "run_error", "run": None})
     assert "- Ended: run_error, no recording\n" in report_markdown(_suite(failed), None)
+
+
+@pytest.mark.req("SCO-020")
+def test_rail_references_read_the_rail_state_and_voltage() -> None:
+    # Ruling 27: rail:<name> is the recorded on/off series of the rail, rail:<name>.voltage its voltage.
+    recording = recording_from(
+        TIMES, {"signal:motor_power.on": [1.0, 1.0, 0.0, 0.0], "signal:motor_power.voltage": [24.0, 24.0, 0.0, 0.0]}
+    )
+    off = score_one(
+        value("maximum", "at_most", "0", quantity="rail:motor_power", window={"start": "2 s"}),
+        recording,
+    )
+    on = score_one(value("maximum", "at_most", "0", quantity="rail:motor_power"), recording)
+    volts = score_one(value("minimum", "at_most", "0 V", quantity="rail:motor_power.voltage"), recording)
+    assert (off.status, off.measured) == ("pass", 0.0)
+    assert (on.status, on.measured) == ("fail", 1.0)
+    assert (volts.status, volts.measured) == ("pass", 0.0)
+
+
+@pytest.mark.req("SCO-013")
+def test_layer_approximation_events_reach_the_score_once_each_after_the_bridge_lines() -> None:
+    note = RecordedEvent(1.0, "load_cell", "approximation", "load past its overload limit, held at the limit")
+    rows = [
+        Row({"signal:a": 0.0}),
+        Row({"signal:a": 1.0}, events=[note, RecordedEvent(1.0, "controller", "refused", "10")]),
+        Row({"signal:a": 2.0}, events=[note]),
+        Row({"signal:a": 3.0}),
+    ]
+    report = RunReport("end_time", 3, Fraction(1), None, (), (), ("bridge line",))
+    scored = score_run(case_with(value("maximum", "at_most", "3")), FakeRecording(TIMES, rows, {}), report)
+    assert scored.approximations == (
+        "bridge line",
+        "load_cell: load past its overload limit, held at the limit",
+    )

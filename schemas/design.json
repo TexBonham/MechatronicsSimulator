@@ -1944,7 +1944,7 @@
     },
     "Senses": {
       "additionalProperties": false,
-      "description": "What a sensor instance reads (DES-043): the joint coordinate, and per type the switch position along the joint\nand its actuation side (limit_switch) or the count direction (incremental_encoder); a load cell may read the case\npayload by name instead of a joint, an IMU reads a body. Exactly one of joint, payload and body.",
+      "description": "What a sensor instance reads (DES-043): the joint coordinate, and per type the switch position along the joint\nand its actuation side (limit_switch) or the count direction (incremental_encoder); a load cell may read the case\npayload by name instead of a joint, or the reaction of a joint (`joint_reaction`: a design joint, or a case payload\nby name, read at its fixed joint to the carrier; ruling 24), an IMU reads a body. Exactly one of joint, payload,\njoint_reaction and body.",
       "properties": {
         "actuate_above": {
           "anyOf": [
@@ -1991,6 +1991,19 @@
           ],
           "default": null,
           "title": "Joint"
+        },
+        "joint_reaction": {
+          "anyOf": [
+            {
+              "pattern": "^[a-z][a-z0-9_]*$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Joint Reaction"
         },
         "payload": {
           "anyOf": [

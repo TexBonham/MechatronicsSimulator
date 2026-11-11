@@ -7,6 +7,9 @@ slot in a data file; a value drops in by editing the file named, never code. Pla
 |---|---|---|---|
 | Geometry | Fusion 360 model: bodies, mass properties, joint placements, motor shaft axes | primitive solids | `designs/gantry/design.yaml` (`cad_model`) |
 | Geometry | Workspace X and Y travel, lift travel | 1 m, 0.8 m, 0.5 m | design open parameters |
+| Geometry | Lift carriage hang below the trolley (lift travel fits under rail_x) | 0.65 m (0.3 m struck rail_x at 0.21 m of travel, M2-X3) | `designs/gantry/design.yaml` `lift_axis` placement |
+| Mechanics | Joint friction on the X and Y axes | 5 N Coulomb each (M2-X3: without it an E-stopped axis coasts to its far limit) | `designs/gantry/design.yaml` `x_axis`, `y_axis` |
+| Loads | Overweight payload in G5 and G6, and the loading steps | 3.6 kg reached in steps of at most 1 kg (G5) or from 2.5 kg (G6): the 40 mm placeholder lead leaves the NEMA 17 placeholder too little margin for 4 kg (case headers) | `overweight_mass` in `test_cases/gantry/G5.yaml`, `G6.yaml` |
 | Structure | Rail extrusion section area and second moment; rail end conditions | 1.5e-4 m², 2e-8 m⁴; row 17 defaults | design open parameters, member declarations |
 | Structure | Rail calibration: known deflection and first natural frequency per rail | none | `rail_calibration` |
 | Structure | Body materials and process | aluminium 6063-T5 extrusion | `body_materials` |
@@ -26,7 +29,7 @@ slot in a data file; a value drops in by editing the file named, never code. Pla
 | Motors | Stepper datasheet: holding torque, torque-speed curve, rotor inertia, viscous damping, rated current, max voltage, phase R and L | catalog placeholders | `mechsim/library/catalog/stepper_behavioral.yaml` |
 | Transmissions | Lead screw lead, efficiency, stiffness, backlash, max axial load; belt efficiency, stiffness, max tension | catalog placeholders | `lead_screw.yaml`, `belt_pulley.yaml` |
 | Components | Limit switch, driver, supply, relay, watchdog, UART link ratings | catalog placeholders | each catalog file's `placeholders` list |
-| Components | Load cell type, if a weight sensor exists | load_cell_5kg_generic on the hook, sensing the case payload | `load_cell_type`; `designs/gantry/design.yaml` `load_cell` |
+| Components | Load cell type, if a weight sensor exists | load_cell_5kg_generic on the hook, reading the reaction at the case payload's fixed joint (ruling 24) | `load_cell_type`; `designs/gantry/design.yaml` `load_cell` |
 | Components | Load cell amplifier part and gain; load scale and zero in counts | load_cell_amplifier_generic at gain 403 (1000 counts per kg on a 12-bit 3.3 V ADC); 1000 counts/kg, zero 0 | `load_amp` overrides; `gantry_config.h` `GANTRY_LOAD_COUNTS_PER_KG`, `GANTRY_LOAD_ZERO_COUNTS` |
 | Controller | Overload limit, heartbeat period, watchdog timeout, encoder mismatch threshold (round 4 ruling 6) | 3.45 kg, 10 ms, 50 ms, 2 mm | `gantry_config.h`; catalog watchdog |
 | Controller | Lift wait after the brake release output goes high (brief M2-X2) | 50 ms | `gantry_config.h` `GANTRY_BRAKE_RELEASE_WAIT_MS` |
