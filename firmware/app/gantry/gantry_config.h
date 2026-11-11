@@ -76,6 +76,58 @@
 #define GANTRY_NEW_TARGET_POLICY GANTRY_POLICY_REJECT
 #endif
 
+/* PLACEHOLDER: lift while X or Y (or the lift) is MOVING (FW-027 owed by the gantry team), same shape as FW-026. It
+ * follows the new-target policy unless set on its own; both share the one queue slot. */
+#ifndef GANTRY_LIFT_WHILE_MOVING_POLICY
+#define GANTRY_LIFT_WHILE_MOVING_POLICY GANTRY_NEW_TARGET_POLICY
+#endif
+
+/* PLACEHOLDER (ruling 6): lift workspace from the lift home (min) switch, positive up. */
+#ifndef GANTRY_LIFT_TRAVEL_UM
+#define GANTRY_LIFT_TRAVEL_UM 500000
+#endif
+
+/* PLACEHOLDER channels the design does not bind yet (ruling 6). The integration wave points each at the generated
+ * MECHSIM_CH_<SIGNAL> named beside it once designs/gantry declares the instance. */
+#ifndef GANTRY_CH_LOAD_ADC
+#define GANTRY_CH_LOAD_ADC 0 /* adc channel; will alias MECHSIM_CH_LOAD_CELL_AMP_OUT */
+#endif
+#ifndef GANTRY_CH_ESTOP_STATUS_IN
+#define GANTRY_CH_ESTOP_STATUS_IN 6 /* digital in, 1 = motor rail live; will alias MECHSIM_CH_ESTOP_RELAY_STATUS */
+#endif
+#ifndef GANTRY_CH_BRAKE_RELEASE_OUT
+#define GANTRY_CH_BRAKE_RELEASE_OUT 7 /* digital out, 1 = released; will alias MECHSIM_CH_LIFT_BRAKE_RELEASE */
+#endif
+/* The design already binds the watchdog heartbeat, so this aliases the generated channel. */
+#ifndef GANTRY_CH_HEARTBEAT_OUT
+#define GANTRY_CH_HEARTBEAT_OUT MECHSIM_CH_WATCHDOG_HEARTBEAT
+#endif
+
+/* PLACEHOLDER (ruling 6): load cell scale in integer ADC counts, and the overload limit, rated 3 kg + 15 percent
+ * (FW-018, FW-019). Over the limit means strictly above it; mid-lift it must hold for GANTRY_OVERLOAD_TICKS ticks. */
+#ifndef GANTRY_LOAD_COUNTS_PER_KG
+#define GANTRY_LOAD_COUNTS_PER_KG 1000
+#endif
+#ifndef GANTRY_LOAD_ZERO_COUNTS
+#define GANTRY_LOAD_ZERO_COUNTS 0
+#endif
+#ifndef GANTRY_OVERLOAD_LIMIT_MILLIKG
+#define GANTRY_OVERLOAD_LIMIT_MILLIKG 3450
+#endif
+#ifndef GANTRY_OVERLOAD_TICKS
+#define GANTRY_OVERLOAD_TICKS 2u
+#endif
+
+/* PLACEHOLDER (ruling 6): heartbeat toggle period, 10 ms at 1 kHz (FW-025). */
+#ifndef GANTRY_HEARTBEAT_PERIOD_TICKS
+#define GANTRY_HEARTBEAT_PERIOD_TICKS 10u
+#endif
+
+/* PLACEHOLDER (ruling 6): encoder against commanded position, 2 mm at 60000 counts/m (FW-020); over it faults. */
+#ifndef GANTRY_ENCODER_MISMATCH_COUNTS
+#define GANTRY_ENCODER_MISMATCH_COUNTS 120
+#endif
+
 /* Buffer sizes: longest accepted command line, queued transmit bytes and queued events across ticks. */
 #ifndef GANTRY_LINE_MAX
 #define GANTRY_LINE_MAX 48u
@@ -104,19 +156,29 @@
 #define GANTRY_FAULT_HOMING_FAILED 7u
 #define GANTRY_FAULT_EVENT_OVERFLOW 8u
 #define GANTRY_FAULT_TX_OVERFLOW 9u
+#define GANTRY_FAULT_OVERLOAD 10u         /* refusal: lift up over the load limit (FW-018, FW-019) */
+#define GANTRY_FAULT_ESTOP 11u            /* latched until `reset` with the rail live; refusal while it is not */
+#define GANTRY_FAULT_ENCODER_MISMATCH 12u /* latched until `home` (FW-020) */
+#define GANTRY_FAULT_LIMIT_TRIP 13u       /* latched until `home` (FW-021) */
+#define GANTRY_FAULT_NOTHING_TO_RESET 14u /* refusal: `reset` outside FAULT */
 
 #define GANTRY_EVENT_STATE 1u   /* arg: (from << 8) | to */
 #define GANTRY_EVENT_COMMAND 2u /* arg: GANTRY_COMMAND_* */
 #define GANTRY_EVENT_REFUSED 3u /* arg: fault code of the refusal */
 #define GANTRY_EVENT_FAULT 4u   /* arg: latched fault code */
 #define GANTRY_EVENT_ORIGIN 5u  /* arg: GANTRY_AXIS_* whose origin was set */
+#define GANTRY_EVENT_MOTION_START 6u /* arg: GANTRY_AXIS_* whose profile started (FW-028) */
+#define GANTRY_EVENT_MOTION_END 7u   /* arg: GANTRY_AXIS_* whose profile reached zero velocity (FW-028) */
 
 #define GANTRY_COMMAND_TARGET 1u
 #define GANTRY_COMMAND_HOME 2u
 #define GANTRY_COMMAND_UNKNOWN 3u
+#define GANTRY_COMMAND_LIFT 4u
+#define GANTRY_COMMAND_RESET 5u
 
 #define GANTRY_AXIS_X 0u
 #define GANTRY_AXIS_Y 1u
-#define GANTRY_AXIS_COUNT 2u
+#define GANTRY_AXIS_LIFT 2u
+#define GANTRY_AXIS_COUNT 3u
 
 #endif

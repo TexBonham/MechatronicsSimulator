@@ -21,7 +21,20 @@ constexpr std::int64_t steps_per_m = 80000;
 constexpr std::int64_t counts_per_m = 60000;
 constexpr std::int64_t workspace_x_steps = 80000;
 constexpr std::int64_t workspace_y_steps = 64000;
+constexpr std::int64_t lift_travel_steps = 40000;
 constexpr std::int64_t max_switch_margin_steps = 80;
+constexpr std::uint32_t axis_count = 3U;
+constexpr std::uint32_t step_channel[axis_count] = {
+    MECHSIM_CH_X_DRIVER_STEP, MECHSIM_CH_Y_DRIVER_STEP, MECHSIM_CH_LIFT_DRIVER_STEP};
+constexpr std::uint32_t dir_channel[axis_count] = {
+    MECHSIM_CH_X_DRIVER_DIR, MECHSIM_CH_Y_DRIVER_DIR, MECHSIM_CH_LIFT_DRIVER_DIR};
+constexpr std::uint32_t enable_channel[axis_count] = {
+    MECHSIM_CH_X_DRIVER_ENABLE, MECHSIM_CH_Y_DRIVER_ENABLE, MECHSIM_CH_LIFT_DRIVER_ENABLE};
+// Load-cell counts for a mass in grams at the placeholder scale (GANTRY_LOAD_COUNTS_PER_KG per kilogram).
+constexpr std::uint16_t load_counts(std::int64_t grams)
+{
+    return static_cast<std::uint16_t>(GANTRY_LOAD_ZERO_COUNTS + (grams * GANTRY_LOAD_COUNTS_PER_KG) / 1000);
+}
 
 struct Event {
     std::uint8_t code;
@@ -37,13 +50,16 @@ std::int64_t counts_of(std::int64_t steps)
     return scaled / steps_per_m;
 }
 
-// Integrates step pulses into true position, emits encoder deltas on channel A and trips the switches at the ends.
+// Integrates step pulses into true carriage position on X, Y and the lift, emits frame-side encoder deltas on channel
+// A and trips the switches at the ends. A stalled axis ignores its steps; a slipping axis loses slip_permille of them.
+// load_adc feeds the load cell; rail_live is the E-stop relay status (motor rail powered).
 class Plant {
 public:
-    Plant(std::int64_t x_steps, std::int64_t y_steps)
+    Plant(std::int64_t x_steps, std::int64_t y_steps, std::int64_t lift_steps = 0)
     {
         position[0] = x_steps;
         position[1] = y_steps;
+        position[2] = lift_steps;
         mechsim_app_init();
         std::memset(&last, 0, sizeof(last));
     }
@@ -110,8 +126,15 @@ public:
         take_events();
     }
 
-    std::int64_t position[2]{};
-    std::int64_t extra_counts[2]{};
+    std::int64_t position[axis_count]{};
+    std::int64_t extra_counts[axis_count]{};
+    bool stalled[axis_count]{};
+    std::int64_t slip_permille[axis_count]{};
+    std::int64_t slip_remainder[axis_count]{};
+    bool max_switch_override[axis_count]{};
+    bool min_switch_override_axis[axis_count]{};
+    std::uint16_t load_adc = 0U;
+    bool rail_live = true;
     bool switches_work = true;
     bool on_min_switch_override = false;
     std::int64_t ticks = 0;
@@ -122,15 +145,23 @@ public:
 private:
     void apply(mechsim_board_inputs& inputs)
     {
-        static constexpr std::uint32_t step_channel[2] = {MECHSIM_CH_X_DRIVER_STEP, MECHSIM_CH_Y_DRIVER_STEP};
-        static constexpr std::uint32_t dir_channel[2] = {MECHSIM_CH_X_DRIVER_DIR, MECHSIM_CH_Y_DRIVER_DIR};
-        static constexpr std::uint32_t enc_channel[2] = {MECHSIM_CH_X_ENCODER_CHANNEL_A, MECHSIM_CH_Y_ENCODER_CHANNEL_A};
-        static constexpr std::uint32_t min_channel[2] = {MECHSIM_CH_X_MIN_SWITCH_OUT, MECHSIM_CH_Y_MIN_SWITCH_OUT};
-        static constexpr std::uint32_t max_channel[2] = {MECHSIM_CH_X_MAX_SWITCH_OUT, MECHSIM_CH_Y_MAX_SWITCH_OUT};
-        static constexpr std::int64_t workspace[2] = {workspace_x_steps, workspace_y_steps};
-        for (std::uint32_t axis = 0U; axis < 2U; ++axis) {
+        static constexpr std::uint32_t enc_channel[axis_count] = {
+            MECHSIM_CH_X_ENCODER_CHANNEL_A, MECHSIM_CH_Y_ENCODER_CHANNEL_A, MECHSIM_CH_LIFT_ENCODER_CHANNEL_A};
+        static constexpr std::uint32_t min_channel[axis_count] = {
+            MECHSIM_CH_X_MIN_SWITCH_OUT, MECHSIM_CH_Y_MIN_SWITCH_OUT, MECHSIM_CH_LIFT_MIN_SWITCH_OUT};
+        static constexpr std::uint32_t max_channel[axis_count] = {
+            MECHSIM_CH_X_MAX_SWITCH_OUT, MECHSIM_CH_Y_MAX_SWITCH_OUT, MECHSIM_CH_LIFT_MAX_SWITCH_OUT};
+        static constexpr std::int64_t workspace[axis_count] = {workspace_x_steps, workspace_y_steps, lift_travel_steps};
+        for (std::uint32_t axis = 0U; axis < axis_count; ++axis) {
             std::int64_t before = counts_of(position[axis]);
             std::int64_t steps = static_cast<std::int64_t>(last.step_count[step_channel[axis]]);
+            if (stalled[axis]) {
+                steps = 0;
+            } else if (slip_permille[axis] > 0) {
+                std::int64_t kept = steps * (1000 - slip_permille[axis]) + slip_remainder[axis];
+                steps = kept / 1000;
+                slip_remainder[axis] = kept % 1000;
+            }
             if (last.digital_out[dir_channel[axis]] == GANTRY_DIR_POSITIVE_LEVEL) {
                 position[axis] = position[axis] + steps;
             } else {
@@ -139,16 +170,25 @@ private:
             inputs.counter_delta[enc_channel[axis]] =
                 static_cast<std::int32_t>(counts_of(position[axis]) - before + extra_counts[axis]);
             extra_counts[axis] = 0;
-            if (switches_work && ((position[axis] <= 0) || on_min_switch_override)) {
+            if (switches_work
+                && ((position[axis] <= 0) || on_min_switch_override || min_switch_override_axis[axis])) {
                 inputs.digital_in[min_channel[axis]] = GANTRY_SWITCH_ACTIVE_LEVEL;
             }
-            if (switches_work && (position[axis] >= workspace[axis] + max_switch_margin_steps)) {
+            if (switches_work
+                && ((position[axis] >= workspace[axis] + max_switch_margin_steps) || max_switch_override[axis])) {
                 inputs.digital_in[max_channel[axis]] = GANTRY_SWITCH_ACTIVE_LEVEL;
             }
         }
+        inputs.adc_sample[GANTRY_CH_LOAD_ADC] = load_adc;
+        if (rail_live) {
+            inputs.digital_in[GANTRY_CH_ESTOP_STATUS_IN] = MECHSIM_LEVEL_HIGH;
+        }
+        rail_live_in = rail_live;
     }
 
-    static void check_invariants(const mechsim_board_outputs& outputs)
+    bool rail_live_in = true;
+
+    void check_invariants(const mechsim_board_outputs& outputs) const
     {
         REQUIRE(outputs.uart_tx_count <= MECHSIM_UART_TX_BYTES);
         REQUIRE(outputs.event_count <= MECHSIM_EVENT_LOG_COUNT);
@@ -159,25 +199,26 @@ private:
             REQUIRE(outputs.event_log[index].code == 0U);
             REQUIRE(outputs.event_log[index].arg == 0U);
         }
-        if (outputs.step_count[MECHSIM_CH_X_DRIVER_STEP] != 0U) {
-            REQUIRE(outputs.digital_out[MECHSIM_CH_X_DRIVER_ENABLE] == GANTRY_ENABLE_ACTIVE_LEVEL);
-        }
-        if (outputs.step_count[MECHSIM_CH_Y_DRIVER_STEP] != 0U) {
-            REQUIRE(outputs.digital_out[MECHSIM_CH_Y_DRIVER_ENABLE] == GANTRY_ENABLE_ACTIVE_LEVEL);
+        for (std::uint32_t axis = 0U; axis < axis_count; ++axis) {
+            if (outputs.step_count[step_channel[axis]] != 0U) {
+                REQUIRE(outputs.digital_out[enable_channel[axis]] == GANTRY_ENABLE_ACTIVE_LEVEL);
+                REQUIRE(rail_live_in);
+            }
         }
         for (std::uint32_t axis = 0U; axis < MECHSIM_AXIS_COUNT; ++axis) {
             REQUIRE(outputs.direction[axis] == MECHSIM_LEVEL_LOW);
             REQUIRE(outputs.enable[axis] == MECHSIM_LEVEL_LOW);
-            if ((axis != MECHSIM_CH_X_DRIVER_STEP) && (axis != MECHSIM_CH_Y_DRIVER_STEP)) {
+            if ((axis != MECHSIM_CH_X_DRIVER_STEP) && (axis != MECHSIM_CH_Y_DRIVER_STEP)
+                && (axis != MECHSIM_CH_LIFT_DRIVER_STEP)) {
                 REQUIRE(outputs.step_count[axis] == 0U);
             }
         }
+        const bool lift_enabled = outputs.digital_out[MECHSIM_CH_LIFT_DRIVER_ENABLE] == GANTRY_ENABLE_ACTIVE_LEVEL;
+        const bool brake_released = outputs.digital_out[GANTRY_CH_BRAKE_RELEASE_OUT] == MECHSIM_LEVEL_HIGH;
+        REQUIRE(brake_released == (lift_enabled && (outputs.state_code != GANTRY_STATE_FAULT)));
         for (std::uint32_t pin = 0U; pin < MECHSIM_DIGITAL_OUT_COUNT; ++pin) {
-            if ((pin > MECHSIM_CH_WATCHDOG_HEARTBEAT) || (pin == MECHSIM_CH_LIFT_DRIVER_DIR)) {
+            if ((pin > MECHSIM_CH_WATCHDOG_HEARTBEAT) && (pin != GANTRY_CH_BRAKE_RELEASE_OUT)) {
                 REQUIRE(outputs.digital_out[pin] == MECHSIM_LEVEL_LOW);
-            }
-            if (pin == MECHSIM_CH_LIFT_DRIVER_ENABLE) {
-                REQUIRE(outputs.digital_out[pin] == GANTRY_ENABLE_ACTIVE_LEVEL);
             }
         }
     }
