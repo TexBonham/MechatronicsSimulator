@@ -20,6 +20,8 @@ in `docs/briefs/round-04/`. Worktrees `../MechatronicsSimulator-04-<letter>` on 
 | 5 | macOS stays out of the CI matrix for milestone 2 (R1 names Windows; the MuJoCo dmg cannot be extracted by CMake)? | out | open |
 | 7 | After an E-stop `reset` the firmware returns to NOT_HOMED (steps may be lost while power was cut), not READY? | NOT_HOMED | open |
 | 8 | Lift operator message is `lift <z>`, z in metres from the lift home switch; lowering is a lower z? | yes | open |
+| 9 | C review: for a drive-driven shaft under slip, only the explicit-torque path is scaled by (1 - s); the reported transmission force is the force actually applied. Recorded as an approximation. | as stated | coordinator ruling, for confirmation |
+| 10 | C review: a drive disabled then re-enabled under slip or backlash resets the slip and play references to the new rest, counting no increment. | as stated | coordinator ruling, for confirmation |
 | 6 | Placeholders set by the coordinator for the gantry team's slots: overload limit rated + 15 percent (3.45 kg), heartbeat period 10 ms, watchdog timeout 50 ms, brownout threshold 2.0 V, encoder mismatch threshold 2 mm, ADC 12 bits at 3.3 V | as listed | open |
 
 ## Next
