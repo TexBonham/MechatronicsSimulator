@@ -124,13 +124,13 @@ FailureInjection window(FailureMode mode, std::int64_t start, std::int64_t end) 
 
 // ===== Load cell ====================================================================================================
 
-TEST_CASE("A load cell senses exactly one of a payload and a joint, with parameters in range", "[SIG-014][LIB-019]") {
+TEST_CASE("A load cell senses at most one of a payload, a joint and a reaction, with parameters in range", "[SIG-014][LIB-019]") {
     LoadCellParams both = cell_on_joint();
     both.payload = 0;
     CHECK_THROWS_AS(LoadCell("cell", both), SignalConfigError);
     LoadCellParams none = cell_on_joint();
     none.joint.reset();
-    CHECK_THROWS_AS(LoadCell("cell", none), SignalConfigError);
+    CHECK_NOTHROW(LoadCell("cell", none));
     LoadCellParams zero_capacity = cell_on_joint();
     zero_capacity.capacity = 0.0;
     CHECK_THROWS_AS(LoadCell("cell", zero_capacity), SignalConfigError);
@@ -218,6 +218,68 @@ TEST_CASE("A load cell on a payload reads the weld force magnitude", "[SIG-014][
     Stepper run(cell);
     const std::span<const double> out = run.step(payload_force({3.0, -4.0, 0.0}));
     CHECK(std::fabs(out[0] - (full_scale_output * 5.0 / capacity)) < 1e-15);
+}
+
+TEST_CASE("A load cell with no target reads the zero-force conversion every sample", "[SIG-014][LIB-025]") {
+    // BLD-036 amendment: no payload, joint or reaction. F = 0 rounds to 0 at any resolution and V = FSO x 0 / C + 0 = 0
+    // exactly, whatever the published state carries (here a 10 N joint force and a 5 N weld force it must ignore).
+    LoadCellParams p = cell_on_joint(0.01);
+    p.joint.reset();
+    p.nonlinearity = 0.01;
+    LoadCell cell("cell", p);
+    Stepper run(cell);
+    PhysicalState state = joint_force(10.0);
+    state.payloads = payload_force({3.0, -4.0, 0.0}).payloads;
+    for (int k = 0; k < 5; ++k) {
+        CHECK(run.step(state)[0] == 0.0);
+    }
+    PhysicalState empty;
+    CHECK(run.step(empty)[0] == 0.0);
+
+    // Quantization still applies to the noisy zero: each reading back-converts to a whole number of 0.01 N steps
+    // (the 1e-9 step slack covers the V -> F round trip, ~1e-14 N).
+    LoadCellParams q = cell_on_joint(0.01);
+    q.joint.reset();
+    q.fidelity.noise = 0.5;
+    LoadCell noisy("cell", q);
+    Stepper noisy_run(noisy);
+    int nonzero = 0;
+    for (int k = 0; k < 100; ++k) {
+        const double steps = noisy_run.step(empty)[0] * capacity / full_scale_output / 0.01;
+        CHECK(std::fabs(steps - std::round(steps)) < 1e-9);
+        nonzero += static_cast<int>(std::round(steps) != 0.0);
+    }
+    // P(|N(0, 0.5)| < 0.005) < 0.008 per sample, so at least one of 100 is non-zero but for odds below 1e-200.
+    CHECK(nonzero > 0);
+}
+
+TEST_CASE("A load cell with no target still applies its noise: the mean is 0 N within 4 sigma / sqrt(N)",
+          "[SIG-014][SIG-002][LIB-025]") {
+    // Measured F = 0 plus N(0, sigma) per sample, resolution 0 and nonlinearity 0, so V_k = FSO e_k / C with e_k iid
+    // N(0, sigma). The sample mean of e over N = 20000 is N(0, sigma / sqrt(N)); |mean| < 4 sigma / sqrt(N) holds
+    // with probability 1 - 6.3e-5 (and the seeded generator makes the run deterministic). The sample standard
+    // deviation of e is within 10% of sigma: its standard error is sigma / sqrt(2 N) = 0.005 sigma, 20 of them.
+    constexpr int samples = 20000;
+    constexpr double sigma = 0.5;
+    LoadCellParams p = cell_on_joint();
+    p.joint.reset();
+    p.fidelity.noise = sigma;
+    LoadCell cell("cell", p);
+    Stepper run(cell);
+    const PhysicalState empty;
+    double sum = 0.0;
+    double sum_sq = 0.0;
+    for (int k = 0; k < samples; ++k) {
+        const double force = run.step(empty)[0] * capacity / full_scale_output;
+        sum += force;
+        sum_sq += force * force;
+    }
+    const double mean = sum / samples;
+    const double sd = std::sqrt((sum_sq / samples) - (mean * mean));
+    std::cout << "no-target load cell: mean " << mean << " N (bound " << 4.0 * sigma / std::sqrt(samples)
+              << "), sd " << sd << " N (sigma " << sigma << ")\n";
+    CHECK(std::fabs(mean) < 4.0 * sigma / std::sqrt(static_cast<double>(samples)));
+    CHECK(std::fabs(sd - sigma) < 0.1 * sigma);
 }
 
 TEST_CASE("A load cell outside the published state ends the run", "[SIG-014]") {

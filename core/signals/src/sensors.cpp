@@ -272,11 +272,15 @@ IncrementalEncoder::IncrementalEncoder(std::string instance, EncoderParams param
     : SampledSensor(std::move(instance), {"channel_a", "channel_b"}, SensorOutputKind::counter, 1, 1,
                     params.fidelity),
       params_(params), reader_(params_.coordinate) {
+    const std::string name = "encoder '" + std::string(instance_name()) + "' ";
     if (!std::isfinite(params_.resolution) || params_.resolution <= 0.0) {
-        throw SignalConfigError("encoder resolution must be finite and positive");
+        throw SignalConfigError(name + "resolution must be finite and positive");
     }
-    if (params_.coordinate.kind != CoordinateKind::angular) {
-        throw SignalConfigError("an incremental encoder reads an angular coordinate");
+    if (params_.linear && params_.coordinate.kind != CoordinateKind::linear) {
+        throw SignalConfigError(name + "has a linear resolution (m per count) on an angular coordinate");
+    }
+    if (!params_.linear && params_.coordinate.kind != CoordinateKind::angular) {
+        throw SignalConfigError(name + "has an angular resolution (rad per count) on a linear (prismatic) coordinate");
     }
 }
 
@@ -290,11 +294,11 @@ void IncrementalEncoder::measure(const PhysicalState& state, std::span<double> q
 }
 
 void IncrementalEncoder::convert(std::span<const double> quantities, std::int64_t /*step*/, std::span<double> frame) {
-    double angle = quantities[0];
+    double position = quantities[0];
     if (params_.reversed) {
-        angle = -angle;
+        position = -position;
     }
-    frame[0] = std::floor(angle / params_.resolution);
+    frame[0] = std::floor(position / params_.resolution);
 }
 
 void IncrementalEncoder::present(std::span<const double> delivered, const std::optional<FailureInjection>& fault) {
@@ -333,8 +337,8 @@ LoadCell::LoadCell(std::string instance, LoadCellParams params)
     const std::string name = "load cell '" + std::string(instance_name()) + "' ";
     const int targets = static_cast<int>(params_.payload.has_value()) + static_cast<int>(params_.joint.has_value()) +
                         static_cast<int>(params_.joint_reaction.has_value());
-    if (targets != 1) {
-        throw SignalConfigError(name + "senses exactly one of a payload, a joint and a joint reaction");
+    if (targets > 1) {
+        throw SignalConfigError(name + "senses at most one of a payload, a joint and a joint reaction");
     }
     require_positive(params_.capacity, name + "capacity");
     require_positive(params_.sensitivity, name + "sensitivity");
@@ -373,7 +377,8 @@ void LoadCell::measure(const PhysicalState& state, std::span<double> quantities)
         return;
     }
     if (!params_.joint.has_value()) {
-        throw SignalRunError("load cell '" + std::string(instance_name()) + "': senses neither a payload nor a joint");
+        quantities[0] = 0.0;
+        return;
     }
     const std::size_t index = *params_.joint;
     if (index >= state.joints.size() || state.joints[index].generalized_force.empty()) {
