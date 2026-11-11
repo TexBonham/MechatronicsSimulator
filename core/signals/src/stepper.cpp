@@ -58,6 +58,19 @@ TorqueSpeedTable::TorqueSpeedTable(std::vector<TorqueSpeedPoint> points) : point
     }
 }
 
+DetentTangent detent_tangent(double holding_torque, double step_angle, double delta) {
+    const double phase = std::numbers::pi * delta / (2.0 * step_angle);
+    const double k_hold = std::numbers::pi * holding_torque / (2.0 * step_angle);
+    const double stiffness = std::max(k_hold * std::cos(phase), detent_stiffness_floor * k_hold);
+    DetentTangent tangent;
+    tangent.torque = holding_torque * std::sin(phase);
+    tangent.stiffness = stiffness;
+    if (stiffness > 0.0) {
+        tangent.offset = tangent.torque / stiffness;
+    }
+    return tangent;
+}
+
 double TorqueSpeedTable::available(double speed) const {
     const double s = std::fabs(speed);
     if (s > points_.back().speed) {
@@ -156,7 +169,8 @@ void BehavioralStepper::latch_outputs() {
         return;
     }
     theta_cmd_ += steps * step;
-    const double delta = theta_cmd_ - theta_;
+    const double predicted = theta_ + (omega * dt);
+    const double delta = theta_cmd_ - predicted;
     const double available = scale * table_.available(omega);
     bool stalled = false;
     const bool above_curve = std::fabs(drive_torque_) > available;
@@ -173,8 +187,8 @@ void BehavioralStepper::latch_outputs() {
         missed += std::fabs(lost);
         stalled = steps == 0.0;
     }
-    const double stiffness = scale * params_.holding_torque * std::numbers::pi / (2.0 * step);
-    drive = kernel::JointDrive{params_.joint, theta_cmd_, stiffness, params_.damping, true};
+    const DetentTangent tangent = detent_tangent(scale * params_.holding_torque, step, theta_cmd_ - predicted);
+    drive = kernel::JointDrive{params_.joint, predicted + tangent.offset, tangent.stiffness, params_.damping, true};
     set_output(1, static_cast<double>(stalled));
     set_output(2, missed);
 }

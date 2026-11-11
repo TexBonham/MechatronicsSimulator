@@ -70,17 +70,31 @@ struct BehavioralStepperParams {
 };
 
 inline constexpr double rotor_inertia_tolerance = 1e-9;
+inline constexpr double detent_stiffness_floor = 0.05;  // K_t floor as a fraction of K_hold
+
+// The sinusoidal detent tau(delta) = holding sin(pi delta / (2 step_angle)) on delta = theta_cmd - theta, linearized
+// at delta for the implicit drive (SIG-033): stiffness K_t = K_hold cos(pi delta / (2 step_angle)), floored at
+// detent_stiffness_floor K_hold, K_hold = pi holding / (2 step_angle); offset = tau / K_t, so the drive's rest theta +
+// offset makes the linear spring's torque at theta equal tau. delta = 0 gives K_hold and offset 0. holding 0 gives
+// stiffness 0 and offset 0.
+struct DetentTangent {
+    double torque = 0.0;     // N m
+    double stiffness = 0.0;  // N m/rad
+    double offset = 0.0;     // rad
+};
+[[nodiscard]] DetentTangent detent_tangent(double holding_torque, double step_angle, double delta);
 inline constexpr double pull_out_steps = 2.0;  // |theta_cmd - theta| beyond which synchronism is lost
 
 // Inputs `full_steps`, `direction`, `enabled`, `supply` (from the driver). Outputs `torque` (N m, the drive torque
 // physics applied on the shaft in the step just taken, read back), `stalled` (level), `missed_steps` (full steps this
 // tick) (SIG-032, SIG-033).
-// Per tick: theta_cmd += n step_angle (n = +-full_steps), omega = (theta - theta_last) / dt. Pull-out when
-// |theta_cmd - theta| > pull_out_steps step angles or |drive torque| > table(|omega|): theta_cmd re-synchronizes to
-// the step nearest theta on its grid, the lost steps are missed, and stalled is set when no steps were commanded.
-// Then the drive {joint, rest theta_cmd, stiffness K_hold = holding pi / (2 step_angle), damping} is published: the
-// linearized detent, its sinusoid a milestone 2 refinement. Disabled or no supply: the drive is disabled, theta_cmd
-// follows theta, commanded steps are missed and stalled is set. Faults (SIG-034): stall scales holding (so K_hold)
+// Per tick: theta_cmd += n step_angle (n = +-full_steps), omega = (theta - theta_last) / dt, predicted shaft angle
+// theta_p = theta + omega dt and lead delta_p = theta_cmd - theta_p. Pull-out when |delta_p| > pull_out_steps step
+// angles or |drive torque| > table(|omega|): theta_cmd re-synchronizes to the step nearest theta_p on its grid, the
+// lost steps are missed, and stalled is set when no steps were commanded. Then the drive {joint, rest theta_p +
+// offset, stiffness K_t, damping} is published, the tangent of the sinusoidal detent at delta_p (detent_tangent):
+// exact in steady tracking, where delta_p is the end-of-tick lead, and at rest. Disabled or no supply: the drive is disabled, theta_cmd
+// follows theta, commanded steps are missed and stalled is set. Faults (SIG-034): stall scales holding (so the detent)
 // and the table by fraction; slip misses fraction of the commanded steps.
 class BehavioralStepper final : public BuiltinComponent {
 public:

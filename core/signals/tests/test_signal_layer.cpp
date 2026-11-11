@@ -131,8 +131,11 @@ void step(SignalLayer& layer, std::int64_t tick, const PhysicalState& state, con
 
 TEST_CASE("Pulses on the step pin become a shaft drive gated by the motor rail; an E-stop press cuts it",
           "[SIG-029][SIG-013][SIG-015][SIG-016][SIG-017][SIG-032][SIG-033][KER-027]") {
-    // One full step per tick; the shaft follows one step behind, inside the pull-out angle, so the drive's rest is the
-    // integrated command (k + 1) steps with K_hold = pi 0.40 / (2 step) = 20 N m/rad. The stepper torque is a
+    // One full step per tick; the shaft follows one step behind, inside the pull-out angle. From step 1 the shaft moves
+    // a step per tick, so the predicted angle theta + omega h is the command (k + 1) steps: lead 0, rest the command,
+    // K_hold = pi 0.40 / (2 step) = 20 N m/rad. At step 0 the shaft is still, the lead is one step, where the tangent
+    // K_hold cos(pi / 2) sits on its floor 0.05 K_hold = 1 N m/rad and the rest is tau / K_t = 0.40 rad past the shaft
+    // at 0. The stepper torque is a
     // read-back, recorded and never added to the generalized forces. The press is seen at step 100; the relay's 20 ms
     // at 1 kHz opens the contacts at step 120, from when the drive is disabled.
     const std::unique_ptr<SignalLayer> layer = make_layer(1);
@@ -148,8 +151,13 @@ TEST_CASE("Pulses on the step pin become a shaft drive gated by the motor rail; 
         CHECK(hold.joint == 0);
         if (k < 120) {
             CHECK(hold.enabled);
-            CHECK(std::fabs(hold.rest - (static_cast<double>(k + 1) * full_step)) < 1e-12);
-            CHECK(std::fabs(hold.stiffness - 20.0) < 1e-12);
+            if (k == 0) {
+                CHECK(std::fabs(hold.rest - 0.40) < 1e-12);
+                CHECK(std::fabs(hold.stiffness - 1.0) < 1e-12);
+            } else {
+                CHECK(std::fabs(hold.rest - (static_cast<double>(k + 1) * full_step)) < 1e-12);
+                CHECK(std::fabs(hold.stiffness - 20.0) < 1e-12);
+            }
             CHECK(layer->rails()[0].on);
             CHECK(layer->rails()[0].voltage == 24.0);
             CHECK(layer->signal_value("x_driver.vmot") == 24.0);
@@ -315,9 +323,9 @@ TEST_CASE("Every bound pin signal, rail and actuator effort is recorded each tic
 }
 
 TEST_CASE("Two runs with one seed give identical layer outputs; noise follows the child seed", "[SIG-005]") {
-    // A noisy encoder (sigma 3 counts) over 200 ticks of rotation: the same run seed must reproduce every pin input
-    // bit for bit (invariant 4); another seed changes the child generator's draws.
-    const Faults faults{{FailureInjection{FailureMode::noisy, SimTime(10), SimTime(190), 3.0, 0.0}}};
+    // A noisy encoder (sigma 3 counts of angle) over 200 ticks of rotation: the same run seed must reproduce every pin
+    // input bit for bit (invariant 4); another seed changes the child generator's draws.
+    const Faults faults{{FailureInjection{FailureMode::noisy, SimTime(10), SimTime(190), 3.0 * resolution, 0.0}}};
     const auto run = [&faults](std::uint64_t seed) {
         const std::unique_ptr<SignalLayer> layer = make_layer(seed, faults);
         layer->start(Rate(1000));
