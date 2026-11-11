@@ -106,3 +106,33 @@ parts:
       - {speed: "600 rpm", torque: "0.30 N*m"}
       - {speed: "1200 rpm", torque: "0.18 N*m"}
       - {speed: "1800 rpm", torque: "0.10 N*m"}
+  - name: nema23_class_generic
+    type: stepper_behavioral
+    tier: behavioral
+    description: NEMA 23 frame class stepper, 1.8 degree, 56 mm body.
+    source: >-
+      PLACEHOLDER datasheet values and placeholder torque-speed curve until the gantry team's datasheet (round 4 ruling
+      31). Sizing on the gantry lift belt (40 mm/turn, c = 0.04 m / 2 pi = 6.366 mm): design load (5.216 kg overload
+      limit x 1.15 + 0.44 kg carriage, hook and cell) = 6.438 kg at (9.81 + 0.05) m/s^2 through the 0.95 belt
+      efficiency is 0.425 N m, plus the viscous damping at the 0.1 m/s lift cruise (150 rpm, 15.71 rad/s) 0.126 N m,
+      0.551 N m; with a pull-out margin of 2 the curve must give 1.10 N m at 150 rpm, and gives 1.205 N m (holding
+      1.26 N m). Viscous damping 8e-3 N m s/rad is a damping ratio near 0.1 on the rotor alone (D = 2 zeta sqrt(K J),
+      K = 1.26 N m x pi / (2 x 1.8 deg) = 63 N m/rad, J = 2.8e-5 kg m^2).
+    values:
+      mass: "1.0 kg"
+      step_angle: "1.8 deg"
+      holding_torque: "1.26 N*m"
+      rotor_inertia: "280 g*cm**2"
+      viscous_damping: "8e-3 N*m*s"
+      rated_current: "2.8 A"
+      max_voltage: "24 V"
+      phase_resistance: "0.9 ohm"
+      phase_inductance: "2.5 mH"
+    placeholders: [mass, holding_torque, rotor_inertia, viscous_damping, rated_current, max_voltage, phase_resistance, 
+          phase_inductance]
+    torque_speed_curve:
+      - {speed: "0 rpm", torque: "1.26 N*m"}
+      - {speed: "300 rpm", torque: "1.15 N*m"}
+      - {speed: "600 rpm", torque: "0.95 N*m"}
+      - {speed: "1200 rpm", torque: "0.60 N*m"}
+      - {speed: "1800 rpm", torque: "0.35 N*m"}

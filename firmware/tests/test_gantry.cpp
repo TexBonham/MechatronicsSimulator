@@ -13,9 +13,12 @@ using gantry_test::transition;
 namespace {
 
 constexpr std::int64_t accuracy_um = 10000;
-constexpr std::uint32_t max_steps_per_tick = 16U;
+// The cruise speed at the X scale: GANTRY_MAX_SPEED_UM_S x GANTRY_STEPS_PER_M_X / 1000 Hz steps per tick (8 at the
+// gantry team's 0.1 m/s and the 80000 steps/m placeholder).
+constexpr std::uint32_t max_steps_per_tick =
+    static_cast<std::uint32_t>(GANTRY_MAX_SPEED_UM_S * gantry_test::steps_per_m / 1000000 / 1000);
 constexpr std::uint32_t slow_steps_per_tick = 4U;
-// The lift at its own scale: 0.2 m/s x GANTRY_STEPS_PER_M_LIFT / 1000 Hz steps per tick.
+// The lift at its own scale: GANTRY_MAX_SPEED_UM_S x GANTRY_STEPS_PER_M_LIFT / 1000 Hz steps per tick.
 constexpr std::uint32_t lift_max_steps_per_tick =
     static_cast<std::uint32_t>(GANTRY_MAX_SPEED_UM_S * gantry_test::lift_steps_per_m / 1000000 / 1000);
 constexpr std::int64_t lift_mm = gantry_test::lift_steps_per_m / 1000;
@@ -211,7 +214,9 @@ TEST_CASE("G2: a switch that never trips faults the homing", "[FW-014][FW-030]")
     const std::int64_t ticks =
         plant.run_until([](const mechsim_board_outputs& o) { return o.state_code == GANTRY_STATE_FAULT; }, 200000);
     REQUIRE(ticks > 0);
-    REQUIRE(plant.position[0] <= 800 - 96000);
+    const std::int64_t homing_travel_steps =
+        std::int64_t{GANTRY_HOMING_MAX_TRAVEL_UM} * gantry_test::steps_per_m / 1000000;
+    REQUIRE(plant.position[0] <= 800 - homing_travel_steps);
     mechsim_board_outputs out = plant.last;
     REQUIRE(out.fault_code == GANTRY_FAULT_HOMING_FAILED);
     REQUIRE(steps_x(out) == 0U);
@@ -295,7 +300,7 @@ TEST_CASE("G3: moves into the slow zones at both travel ends stay below the slow
 {
     Plant plant(0, 0);
     plant.home();
-    MoveTrace trace = run_move(plant, "target 1.0 0\n");
+    MoveTrace trace = run_move(plant, "target 0.5 0\n");
     for (std::size_t index = 1U; index < trace.x.size(); ++index) {
         if (trace.x_position[index - 1U] >= gantry_test::workspace_x_steps - slow_zone_steps) {
             REQUIRE(trace.x[index] <= slow_steps_per_tick + 1U);
@@ -350,7 +355,7 @@ TEST_CASE("G3: a target at the workspace corner is accepted and reached", "[FW-0
 {
     Plant plant(0, 0);
     plant.home();
-    run_move(plant, "target 1.000000 0.800000\n");
+    run_move(plant, "target 0.500000 0.500000\n");
     REQUIRE(plant.position[0] == gantry_test::workspace_x_steps);
     REQUIRE(plant.position[1] == gantry_test::workspace_y_steps);
     REQUIRE(plant.take_lines().back() == "status 3 0");
@@ -763,10 +768,12 @@ TEST_CASE("lift: a lift and a lower inside the travel are reached within the lim
 {
     Plant plant(0, 0, 0);
     plant.home();
-    std::vector<std::uint32_t> trace = run_lift(plant, "lift 0.1\n");
+    // 0.3 m reaches the cruise: the slow zone to 50 mm, then 0.05 to 0.1 m/s over 75 mm at 0.05 m/s^2, and the 0.1 m
+    // stop (v^2 / 2a) from 0.2 m.
+    std::vector<std::uint32_t> trace = run_lift(plant, "lift 0.3\n");
     require_profile_limits(trace, lift_max_steps_per_tick);
     REQUIRE(*std::max_element(trace.begin(), trace.end()) == lift_max_steps_per_tick);
-    REQUIRE(plant.position[2] == 100 * lift_mm);
+    REQUIRE(plant.position[2] == 300 * lift_mm);
     REQUIRE(plant.position[0] == 0);
     REQUIRE(plant.take_lines().back() == "status 3 0");
 
@@ -856,8 +863,10 @@ TEST_CASE("G6: an overload for two consecutive ticks mid-lift stops the lift and
     Plant plant(0, 0, 0);
     plant.home();
     std::vector<std::uint32_t> trace;
+    // The cruise is reached 2.55 s in (50 ms brake wait, 1 s to 0.05 m/s, 0.5 s across the slow zone, 1 s to 0.1 m/s,
+    // at 0.125 m), so 3000 ticks are at cruise, at 0.175 m, before the 0.3 m start of the stop for 0.4 m.
     mechsim_board_outputs out = plant.tick("lift 0.4\n");
-    for (int tick = 0; tick < 500; ++tick) {
+    for (int tick = 0; tick < 3000; ++tick) {
         trace.push_back(steps_lift(out));
         out = plant.tick();
     }
@@ -882,12 +891,12 @@ TEST_CASE("G6: an overload for two consecutive ticks mid-lift stops the lift and
     REQUIRE(out.state_code == GANTRY_STATE_READY);
     require_profile_limits(trace, lift_max_steps_per_tick);
     REQUIRE(plant.position[2] < 400 * lift_mm);
-    // At 0.2 m/s and 0.5 m/s^2 the stop takes v^2 / 2a = 40 mm on any scale: 3200 steps at 80000 steps/m (v = 16,
-    // a = 0.04 steps per tick), 16000 at 400000 (v = 80, a = 0.2). The second overloaded tick still steps at v before
+    // At 0.1 m/s and 0.05 m/s^2 the stop takes v^2 / 2a = 100 mm on any scale: 8000 steps at 80000 steps/m (v = 8,
+    // a = 0.004 steps per tick), 40000 at 400000 (v = 40, a = 0.02). The second overloaded tick still steps at v before
     // the stop begins and the shortened profile is (v - a) v / 2a = v^2 / 2a - v / 2, so the travel after detection
-    // lies within 40 mm +- v; the window +-1.25 mm (40 mm / 32: 100 or 500 steps) holds v (16 or 80 steps) and the
+    // lies within 100 mm +- v; the window +-3.125 mm (100 mm / 32: 250 or 1250 steps) holds v (8 or 40 steps) and the
     // Q16 rounding of a.
-    const std::int64_t stop_steps = 40 * lift_mm;
+    const std::int64_t stop_steps = 100 * lift_mm;
     REQUIRE(plant.position[2] - detected_at > stop_steps - stop_steps / 32);
     REQUIRE(plant.position[2] - detected_at < stop_steps + stop_steps / 32);
     const std::int64_t stopped_at = plant.position[2];
@@ -1157,7 +1166,7 @@ TEST_CASE("G10: a slipping belt faults with an encoder mismatch", "[FW-020]")
     Plant plant(0, 0, 0);
     plant.home();
     plant.slip_permille[1] = 300;
-    plant.tick("target 0 0.6\n");
+    plant.tick("target 0 0.5\n");
     run_until_fault(plant, MECHSIM_CH_Y_DRIVER_STEP);
     REQUIRE(plant.last.fault_code == GANTRY_FAULT_ENCODER_MISMATCH);
     plant.slip_permille[1] = 0;
@@ -1203,8 +1212,11 @@ TEST_CASE("G11: a limit switch mid-workspace during a move stops within the dece
 {
     Plant plant(0, 0, 0);
     plant.home();
-    plant.tick("target 0.5 0.2\n");
-    for (int tick = 0; tick < 600; ++tick) {
+    // A target inside the 10 cm homing travel so the re-home succeeds: on the triangular profile to 90 mm at
+    // 0.05 m/s^2 the peak is at 45 mm (1.34 s, 0.067 m/s); after 1600 ticks X is past the 50 mm slow zone, about
+    // 61 mm at 0.054 m/s, with about 1 s of stop left.
+    plant.tick("target 0.09 0.05\n");
+    for (int tick = 0; tick < 1600; ++tick) {
         plant.tick();
     }
     REQUIRE(plant.position[0] > 4000);
@@ -1223,7 +1235,8 @@ TEST_CASE("G11: a limit switch mid-workspace while READY faults at once", "[FW-0
 {
     Plant plant(0, 0, 0);
     plant.home();
-    run_move(plant, "target 0.2 0.2\n");
+    // Outside the 50 mm slow zone and inside the 10 cm homing travel, so the re-home succeeds.
+    run_move(plant, "target 0.09 0.09\n");
     plant.max_switch_override[1] = true;
     const mechsim_board_outputs out = plant.tick();
     REQUIRE(out.state_code == GANTRY_STATE_FAULT);
@@ -1242,7 +1255,7 @@ TEST_CASE("G11: a limit switch moving toward its end outside the slow zone fault
 {
     Plant plant(0, 0, 0);
     plant.home();
-    run_move(plant, "target 0.6 0\n");
+    run_move(plant, "target 0.5 0\n");
     plant.tick("target 0 0\n");
     for (int tick = 0; tick < 300; ++tick) {
         plant.tick();
@@ -1256,7 +1269,7 @@ TEST_CASE("G11: a switch active inside the slow zone of its own end is not a tri
 {
     Plant plant(0, 0, 0);
     plant.home();
-    run_move(plant, "target 1.0 0.8\n");
+    run_move(plant, "target 0.5 0.5\n");
     plant.max_switch_override[0] = true;
     plant.max_switch_override[1] = true;
     for (int tick = 0; tick < 50; ++tick) {
@@ -1264,7 +1277,7 @@ TEST_CASE("G11: a switch active inside the slow zone of its own end is not a tri
     }
     plant.max_switch_override[0] = false;
     plant.max_switch_override[1] = false;
-    run_move(plant, "target 0.96 0.8\n");
+    run_move(plant, "target 0.46 0.5\n");
     plant.min_switch_override_axis[2] = true;
     for (int tick = 0; tick < 50; ++tick) {
         REQUIRE(plant.tick().state_code == GANTRY_STATE_READY);
@@ -1291,19 +1304,20 @@ Recording run_lift_while_moving()
     const std::vector<std::pair<int, std::string>> script = {
         {0, "target 0.2 0.1\n"}, {50, "lift 0.1\n"}, {60, "target 0.3 0\n"}};
     int next = 0;
-    for (int tick = 0; tick < 6000; ++tick) {
+    // The XY move ends about 4.3 s in at 0.05 m/s^2 (0.2 m on X), so the lift phase starts at tick 6000.
+    for (int tick = 0; tick < 10000; ++tick) {
         std::string rx;
         if ((next < static_cast<int>(script.size())) && (script[static_cast<std::size_t>(next)].first == tick)) {
             rx = script[static_cast<std::size_t>(next)].second;
             next = next + 1;
         }
-        if (tick == 3000) {
+        if (tick == 6000) {
             rx = "lift 0.1\n";
         }
-        if (tick == 3050) {
+        if (tick == 6050) {
             rx = "target 0.1 0.1\n";
         }
-        if (tick == 3060) {
+        if (tick == 6060) {
             rx = "lift 0.2\n";
         }
         const mechsim_board_outputs out = plant.tick(rx);
@@ -1325,13 +1339,13 @@ TEST_CASE("G13: under the reject policy a lift while moving is refused as busy, 
     REQUIRE(first.states[50] == GANTRY_STATE_MOVING);
     REQUIRE(first.faults[50] == GANTRY_FAULT_BUSY);
     REQUIRE(first.faults[60] == GANTRY_FAULT_BUSY);
-    REQUIRE(first.states[3000] == GANTRY_STATE_MOVING);
-    REQUIRE(first.faults[3050] == GANTRY_FAULT_BUSY);
-    REQUIRE(first.faults[3060] == GANTRY_FAULT_BUSY);
-    for (std::size_t tick = 0U; tick < 3000U; ++tick) {
+    REQUIRE(first.states[6000] == GANTRY_STATE_MOVING);
+    REQUIRE(first.faults[6050] == GANTRY_FAULT_BUSY);
+    REQUIRE(first.faults[6060] == GANTRY_FAULT_BUSY);
+    for (std::size_t tick = 0U; tick < 6000U; ++tick) {
         REQUIRE((first.steps[tick] >> 16U) == 0U);
     }
-    for (std::size_t tick = 3000U; tick < first.steps.size(); ++tick) {
+    for (std::size_t tick = 6000U; tick < first.steps.size(); ++tick) {
         REQUIRE((first.steps[tick] & 0xFFFFU) == 0U);
     }
     const Recording second = run_lift_while_moving();

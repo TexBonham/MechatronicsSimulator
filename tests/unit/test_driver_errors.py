@@ -3,6 +3,7 @@ stepper's rotor inertia checked from the Python side (SIG-037, BLD-034), the arc
 
 from __future__ import annotations
 
+import math
 from dataclasses import replace
 from fractions import Fraction
 from pathlib import Path
@@ -14,7 +15,7 @@ from mechsim import _core as core
 from mechsim.builder.result import BuildResult
 from mechsim.design.schema import Design
 from mechsim.physics.mujoco.translate import UnmappableElementError
-from mechsim.physics.neutral import LeadScrew
+from mechsim.physics.neutral import BeltPulley, LeadScrew
 from mechsim.record.archive import RunArchive
 from mechsim.scoring.score import SuiteScore, report_text
 from mechsim.testing import core_driver, core_wiring
@@ -55,13 +56,27 @@ def _run_failed(result: RunResult, *fragments: str) -> None:
     assert f"error: {score.error}" in text
 
 
+def _self_locking_lift(transmissions: tuple[Any, ...]) -> tuple[Any, ...]:
+    """The lift belt swapped for a self-locking lead screw of the same travel per turn: the gantry has had no lead
+    screw since 2026-11-11, and a self-locking screw is the element the MuJoCo bridge cannot map."""
+    swapped = []
+    for item in transmissions:
+        if isinstance(item, BeltPulley) and item.name == "lift_belt":
+            data = item.model_dump()
+            data.pop("pulley_radius")
+            data.update(
+                {"type": "lead_screw", "lead": f"{2.0 * math.pi * item.pulley_radius!r} m", "self_locking": True}
+            )
+            swapped.append(LeadScrew.model_validate(data))
+        else:
+            swapped.append(item)
+    return tuple(swapped)
+
+
 def _lashed(design: Design) -> BuildResult:
     built = core_builder(design)
     assert built.physics is not None
-    locked = tuple(
-        item.model_copy(update={"self_locking": True}) if isinstance(item, LeadScrew) else item
-        for item in built.physics.transmissions
-    )
+    locked = _self_locking_lift(built.physics.transmissions)
     return built.model_copy(update={"physics": built.physics.model_copy(update={"transmissions": locked})})
 
 
@@ -147,7 +162,7 @@ def test_a_shaft_inertia_off_the_rotor_inertia_is_refused_by_the_signal_layer() 
 
 
 def _brake_on_the_lift_axis(design: Design) -> BuildResult:
-    """The lift brake moved from the motor shaft joint to the screw-driven lift_axis, where the bridge carries no
+    """The lift brake moved from the motor shaft joint to the belt-driven lift_axis, where the bridge carries no
     second drive (PHY-034)."""
     built = core_builder(design)
     instances = []
@@ -165,7 +180,7 @@ def test_a_brake_the_bridge_cannot_apply_ends_the_build_naming_brake_and_joint()
     driver = _prepared_driver(G3, _brake_on_the_lift_axis)
     with pytest.raises(DriverError, match="brake 'lift_brake': cannot be applied on joint 'lift_axis'"):
         driver.run(EndSpec(max_tick=TICKS, at_tick=TICKS))
-    _run_failed(run_case(G3, _services(_brake_on_the_lift_axis)), "lift_brake", "'lift_axis'", "lift_screw")
+    _run_failed(run_case(G3, _services(_brake_on_the_lift_axis)), "lift_brake", "'lift_axis'", "lift_belt")
 
 
 # ===== Rotor inertia from the Python side (SIG-037, BLD-034) ===========
@@ -175,7 +190,8 @@ def test_a_brake_the_bridge_cannot_apply_ends_the_build_naming_brake_and_joint()
 @pytest.mark.req("BLD-034")
 def test_every_stepper_gets_its_shaft_body_and_axial_inertia() -> None:
     """The builder sets the shaft body's axial inertia to the rotor inertia (BLD-034), so the value passed is the
-    catalog's 5.4e-6 kg m^2 to the round-off of a^T I a over a z axis (one product and a few zero sums)."""
+    catalog's 2.8e-5 kg m^2 (the NEMA 23 placeholder, 280 g cm^2) to the round-off of a^T I a over a z axis (one
+    product and a few zero sums)."""
     built = core_builder(prepare(G3).design)
     assert built.physics is not None
     places, _ = core_wiring.joint_places(built.physics)
@@ -186,7 +202,7 @@ def test_every_stepper_gets_its_shaft_body_and_axial_inertia() -> None:
         assert params["shaft_body"] == f"{instance.name}_shaft"
         print(f"{instance.name}: rotor {params['rotor_inertia']!r}, shaft {params['shaft_axial_inertia']!r}")
         assert params["shaft_axial_inertia"] == pytest.approx(params["rotor_inertia"], rel=1e-12)
-        assert params["rotor_inertia"] == pytest.approx(5.4e-6, rel=1e-12)
+        assert params["rotor_inertia"] == pytest.approx(2.8e-5, rel=1e-12)
 
 
 # ===== Approximations and control rate (SCO-013, TST-033) ==============

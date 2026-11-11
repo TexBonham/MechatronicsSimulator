@@ -9,4 +9,6 @@ chip lists (DES-029).
 
 `stm32_placeholder/` stands in for the gantry's unselected STM32 part; its electrical facts are placeholders, each
 marked in the file, owed by the gantry team. A real part replaces it by dropping in its SVD,
-platform description and pin map and setting `status: verified`.
+platform description and pin map and setting `status: verified`. The gantry team selected the NUCLEO-G474RE
+(STM32G474RE, 2026-11-11): `stm32_placeholder/` stands in for the STM32G474RE until the milestone 4 peripheral smoke
+test; no chip file changes before then.

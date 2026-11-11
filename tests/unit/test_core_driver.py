@@ -14,7 +14,7 @@ import pytest
 from mechsim import _core as core
 from mechsim.physics.mujoco.prepare import StartStateError, prepare_model
 from mechsim.physics.mujoco.translate import UnmappableElementError
-from mechsim.physics.neutral import LeadScrew
+from mechsim.physics.neutral import BeltPulley, LeadScrew
 from mechsim.record import Recorder, RunArchive, archives_identical
 from mechsim.record.tick import CouplingSample, RecordError, TickRecord
 from mechsim.testing.core_driver import (
@@ -266,18 +266,32 @@ def test_services_wire_the_real_driver() -> None:
     assert isinstance(services.archiver, RecordArchiver)
 
 
+def _self_locking_lift(transmissions: tuple[Any, ...]) -> tuple[Any, ...]:
+    """The lift belt swapped for a self-locking lead screw of the same travel per turn: the gantry has had no lead
+    screw since 2026-11-11, and a self-locking screw is the element the MuJoCo bridge cannot map."""
+    swapped = []
+    for item in transmissions:
+        if isinstance(item, BeltPulley) and item.name == "lift_belt":
+            data = item.model_dump()
+            data.pop("pulley_radius")
+            data.update(
+                {"type": "lead_screw", "lead": f"{2.0 * math.pi * item.pulley_radius!r} m", "self_locking": True}
+            )
+            swapped.append(LeadScrew.model_validate(data))
+        else:
+            swapped.append(item)
+    return tuple(swapped)
+
+
 @pytest.mark.req("TST-038")
 def test_prepared_model_keeps_the_report_and_places_starts_exactly() -> None:
-    """ADR 0003: the gantry's belts and screw are finite-stiffness transmissions the bridge maps rigid, so the report
+    """ADR 0003: the gantry's belts are finite-stiffness transmissions the bridge maps rigid, so the report
     is not empty. A slide start shifts the child body along its axis by the start and sets `ref`; the shift is
     exact (one product of SI floats)."""
     built = core_builder(gantry()).physics
     assert built is not None
     assert [item.backlash for item in built.transmissions] == [0.0, 0.0, 0.0]
-    locked = tuple(
-        item.model_copy(update={"self_locking": True}) if isinstance(item, LeadScrew) else item
-        for item in built.transmissions
-    )
+    locked = _self_locking_lift(built.transmissions)
     with pytest.raises(UnmappableElementError, match="self-locking"):
         prepare_model(built.model_copy(update={"transmissions": locked}))
     physics = built
