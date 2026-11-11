@@ -15,7 +15,7 @@ from typing import Any, Literal
 from mechsim.design.schema import OpenValue
 from mechsim.scoring.statistics import StatisticError, compare, statistic, window_indices, within
 from mechsim.testing.baseline import Baseline, BaselineDiff, Change, Entry, RunIdentity, diff_baselines, entry_key
-from mechsim.testing.driver import MESSAGE_KIND, RecordView, RunReport, Series
+from mechsim.testing.driver import FAULT_KIND, MESSAGE_KIND, RecordView, RunReport, Series
 from mechsim.testing.schema import (
     Case,
     DesignRef,
@@ -254,6 +254,8 @@ def _series(reference: str, recording: RecordView) -> Series:
                 seen += 1
             values.append(float(seen))
         return Series(tuple(times), tuple(values), "")
+    if kind == "fault":
+        return _fault_series(rest, recording)
     if kind == "rail":
         name, _, field = rest.partition(".")
         if field == "":
@@ -262,14 +264,42 @@ def _series(reference: str, recording: RecordView) -> Series:
     return recording.series(reference)
 
 
+def _fault_changes(recording: RecordView) -> list[tuple[float, str]]:
+    """The controller's reported fault each time it changed (ruling 30): `controller_fault` events, time order."""
+    changes = [(item.time, item.detail) for item in recording.events() if item.kind == FAULT_KIND]
+    return sorted(changes, key=lambda change: change[0])
+
+
+def _fault_series(name: str, recording: RecordView) -> Series:
+    """`fault:<name>` as a quantity: 1 at each sample while the controller's reported fault is `name`, else 0; the
+    reported fault at a sample is the last change at or before it (none recorded before the first change)."""
+    changes = _fault_changes(recording)
+    times = list(recording.times())
+    values: list[float] = []
+    seen = 0
+    current = ""
+    for time in times:
+        while seen < len(changes) and changes[seen][0] <= time:
+            current = changes[seen][1]
+            seen += 1
+        if current == name:
+            values.append(1.0)
+        else:
+            values.append(0.0)
+    return Series(tuple(times), tuple(values), "")
+
+
 def _occurrences(event: str, recording: RecordView) -> list[float]:
     """Times of `message:<name>` (an operator message event), `event:<name>` (a recorded event of kind `name`, such
-    as a firmware log event) or `state:<name>` (each entry into the state)."""
+    as a firmware log event), `fault:<name>` (each change of the controller's reported fault to `name`, ruling 30)
+    or `state:<name>` (each entry into the state)."""
     kind, _, name = event.partition(":")
     if kind == "message":
         return sorted(item.time for item in recording.events() if item.kind == MESSAGE_KIND and item.detail == name)
     if kind == "event":
         return sorted(item.time for item in recording.events() if item.kind == name)
+    if kind == "fault":
+        return [time for time, detail in _fault_changes(recording) if detail == name]
     times = recording.times()
     states = recording.controller_states()
     entries: list[float] = []

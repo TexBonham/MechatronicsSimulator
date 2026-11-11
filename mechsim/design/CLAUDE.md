@@ -24,7 +24,7 @@ Design files (DES). Schema `schemas/design.json` from `Design`; regenerate with
 | `pin_bindings` | every signal bound once, MCU pins unique, mode suits direction; pin and mode in the chip's pin map (DES-029) |
 | `power` | rails: supply (power instance), `gated_by` (safety instances), `consumers` (instances); controller rail |
 | `environment` | gravity, ambient; optional `contact`: `default`, `pairs`, `exclusions` as the neutral `ContactModel`, plus `floor` (normal, offset, world only) (DES-042) |
-| others | firmware path, chip, tick, `state_codes`/`fault_codes`/`event_codes` (DES-045, `state_name`, `fault_name`, `event_name`); operator messages (no `heartbeat`); structural |
+| others | firmware path, chip, tick, `state_codes`/`fault_codes`/`event_codes` (DES-045; event entries `{name, argument}`, argument `axis`/`fault`/`state`/`number`/`none`, ruling 28; `state_name`, `fault_name`, `event_name`, `event_argument`); operator messages (no `heartbeat`); structural |
 
 ## Chip (`Chip`, `chip.py`)
 

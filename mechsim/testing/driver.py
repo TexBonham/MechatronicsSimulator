@@ -21,6 +21,7 @@ from mechsim.testing.schema import Case, InitialState
 FaultOwner = Literal["signals", "physics", "controller"]
 EndReason = Literal["end_time", "message", "controller_state", "max_duration", "run_error"]
 MESSAGE_KIND = "operator_message"
+FAULT_KIND = "controller_fault"
 
 
 @dataclass(frozen=True)

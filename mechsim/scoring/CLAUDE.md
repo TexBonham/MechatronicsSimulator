@@ -17,6 +17,7 @@ nothing.
 - Baseline from nominal runs only; pass/fail/error need a `RunIdentity` (archived run); unrun cases are `not_run`.
 - Write a baseline with `testing.baseline.baseline_text`; identical archives give identical bytes (SCO-011).
 - Diffs report newly passing, newly failing, unchanged, missing, added, in that order (SCO-010).
+- `fault:<name>` (ruling 30): as a quantity 1 while the last `controller_fault` event at or before the sample names it, else 0; as an event each change to it.
 - `interval` and `no_overlap` measures: `testing/CLAUDE.md`, Criteria on recorded events.
 
 ## Section index

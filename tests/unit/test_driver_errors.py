@@ -146,6 +146,28 @@ def test_a_shaft_inertia_off_the_rotor_inertia_is_refused_by_the_signal_layer() 
     _run_failed(run_case(G3, _services(_off_inertia)), "x_motor", "shaft body 'x_motor_shaft'", "SIG-037")
 
 
+def _brake_on_the_lift_axis(design: Design) -> BuildResult:
+    """The lift brake moved from the motor shaft joint to the screw-driven lift_axis, where the bridge carries no
+    second drive (PHY-034)."""
+    built = core_builder(design)
+    instances = []
+    for instance in built.wiring.instances:
+        if instance.name == "lift_brake":
+            instance = instance.model_copy(update={"acts_on": "lift_axis"})
+        instances.append(instance)
+    wiring = built.wiring.model_copy(update={"instances": tuple(instances)})
+    return built.model_copy(update={"wiring": wiring})
+
+
+@pytest.mark.req("TST-023", "BLD-035")
+def test_a_brake_the_bridge_cannot_apply_ends_the_build_naming_brake_and_joint() -> None:
+    """Round 4 ruling 29 (invariant 7): an error, never a note and an unheld joint."""
+    driver = _prepared_driver(G3, _brake_on_the_lift_axis)
+    with pytest.raises(DriverError, match="brake 'lift_brake': cannot be applied on joint 'lift_axis'"):
+        driver.run(EndSpec(max_tick=TICKS, at_tick=TICKS))
+    _run_failed(run_case(G3, _services(_brake_on_the_lift_axis)), "lift_brake", "'lift_axis'", "lift_screw")
+
+
 # ===== Rotor inertia from the Python side (SIG-037, BLD-034) ===========
 
 

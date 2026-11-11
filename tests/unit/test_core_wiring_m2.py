@@ -152,9 +152,23 @@ def test_brake_on_a_driven_prismatic_joint_reflects_the_rotor_and_is_reported(bu
     assert params["inverse_inertia"] == pytest.approx(1.0 / (mass + core_wiring.axial_inertia(shaft) / c**2), rel=1e-12)
     line = core_wiring.undrivable_brake(brake, model)
     assert line is not None
-    assert "not applied" in line
+    assert "brake 'lift_brake': cannot be applied on joint 'lift_axis'" in line
     assert "lift_screw" in line
+    assert "the lift" not in line
     assert core_wiring.undrivable_brake(_instances(built)["x_motor"], model) is None  # type: ignore[arg-type]
+
+
+@pytest.mark.req("BLD-035")
+def test_brake_on_a_prismatic_joint_driven_by_several_shafts_is_refused(built: object) -> None:
+    """brake_torque / c has one c; a joint with two driving shafts has no single holding force (audit minor)."""
+    model = built.physics  # type: ignore[attr-defined]
+    places, _ = core_wiring.joint_places(model)
+    screw = next(item for item in model.transmissions if item.name == "lift_screw")
+    second = screw.model_copy(update={"name": "lift_screw_2"})
+    doubled = model.model_copy(update={"transmissions": (*model.transmissions, second)})
+    brake = _instances(built)["lift_brake"].model_copy(update={"acts_on": "lift_axis"})  # type: ignore[attr-defined]
+    with pytest.raises(core_wiring.WiringError, match="driven by 2 transmissions \\('lift_screw', 'lift_screw_2'\\)"):
+        core_wiring.brake_parameters(brake, places, doubled)
 
 
 @pytest.mark.req("BLD-035")
@@ -222,3 +236,37 @@ def test_g3_run_records_joints_payload_and_motion_events(tmp_path: Path) -> None
     kinds = [(event.kind, event.detail) for event in view.events() if event.source == "controller"]
     assert ("motion_start", "x_driver") in kinds
     assert ("motion_end", "x_driver") in kinds
+    # Homing starts at the first controller step: its events have no row of that tick and go with the first row.
+    starts = [event for event in view.events() if event.kind == "motion_start" and event.detail == "lift_driver"]
+    assert len(starts) >= 1
+    assert starts[0].time < 0.01
+    assert ("state_change", "not_homed>homing") in kinds
+    assert ("state_change", "homing>ready") in kinds
+    assert kinds.count(("controller_fault", "none")) == 1
+
+
+@pytest.mark.req("DES-045", "FW-028")
+@pytest.mark.parametrize(
+    ("code", "arg", "detail"),
+    [
+        (6, 0, "x_driver"),
+        (6, 9, "9"),
+        (3, 3, "busy"),
+        (3, 200, "200"),
+        (1, 3, "ready"),
+        (1, (2 << 8) | 3, "homing>ready"),
+        (1, (9 << 8) | 3, "9>ready"),
+        (2, 5, "5"),
+        (8, 5, ""),
+        (99, 7, "7"),
+    ],
+)
+def test_event_arguments_decode_by_their_kind(code: int, arg: int, detail: str) -> None:
+    """Round 4 ruling 28: axis, fault, state (a packed from-to pair above 255), number, none; unknown kinds as number."""
+    state = core_wiring.RunnerState(
+        event_arguments={6: "axis", 3: "fault", 1: "state", 2: "number", 8: "none"},
+        axes={0: "x_driver"},
+        fault_names={3: "busy"},
+        state_names={2: "homing", 3: "ready"},
+    )
+    assert state.decode(code, arg) == detail

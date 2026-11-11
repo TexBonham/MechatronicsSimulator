@@ -757,6 +757,20 @@ def _code_keys(value: Any) -> Any:
 
 CodeNames = Annotated[dict[str, Name], BeforeValidator(_code_keys)]
 
+EventArgument = Literal["axis", "fault", "state", "number", "none"]
+
+
+class EventCode(_Strict):
+    """A named event-log code and how its argument reads (DES-045, round 4 ruling 28): `axis` the instance of the
+    pulse_output binding of that channel, `fault` or `state` the design's code name (a state argument may pack a
+    from-to pair as (from << 8) | to, read `from>to`), `number` verbatim, `none` no detail."""
+
+    name: Name
+    argument: EventArgument
+
+
+EventCodes = Annotated[dict[str, EventCode], BeforeValidator(_code_keys)]
+
 
 class Firmware(_Strict):
     """`state_codes` and `fault_codes` name the firmware's reported `state_code` and `fault_code` values (DES-045);
@@ -767,9 +781,9 @@ class Firmware(_Strict):
     tick_rate: Frequency
     state_codes: CodeNames = Field(default_factory=dict, description="state_code value (0..255) to state name")
     fault_codes: CodeNames = Field(default_factory=dict, description="fault_code value (0..255) to fault name")
-    event_codes: CodeNames = Field(
+    event_codes: EventCodes = Field(
         default_factory=dict,
-        description="event_log code (0..255) to event name; a named event's argument is an axis (step channel) index",
+        description="event_log code (0..255) to the event's name and its argument kind (axis, fault, state, number, none)",
     )
 
     @model_validator(mode="after")
@@ -779,7 +793,7 @@ class Firmware(_Strict):
         tables = (
             ("state_codes", self.state_codes),
             ("fault_codes", self.fault_codes),
-            ("event_codes", self.event_codes),
+            ("event_codes", {key: item.name for key, item in self.event_codes.items()}),
         )
         for what, table in tables:
             for key in table:
@@ -797,7 +811,16 @@ class Firmware(_Strict):
         return self.fault_codes.get(str(code))
 
     def event_name(self, code: int) -> str | None:
-        return self.event_codes.get(str(code))
+        entry = self.event_codes.get(str(code))
+        if entry is None:
+            return None
+        return entry.name
+
+    def event_argument(self, code: int) -> EventArgument | None:
+        entry = self.event_codes.get(str(code))
+        if entry is None:
+            return None
+        return entry.argument
 
 
 class MessageField(_Strict):

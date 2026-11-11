@@ -23,7 +23,7 @@ from mechsim.testing.baseline import (
     load_baseline,
     validate_baseline_file,
 )
-from mechsim.testing.schema import load_test_case
+from mechsim.testing.schema import load_suite_file, load_test_case
 
 ROOT = Path(__file__).resolve().parents[2]
 EXAMPLE = ROOT / "test_cases" / "gantry" / "baseline.yaml"
@@ -79,12 +79,15 @@ def accepted(data: Any) -> Baseline:
 def test_example_baseline_validates_and_matches_g3() -> None:
     assert validate_baseline_file(EXAMPLE) == []
     loaded = load_baseline(EXAMPLE)
-    assert {item.status for item in loaded.entries} == {"pass"}
     assert loaded.note is not None
     assert loaded.note.startswith("placeholder-geometry")
-    cases = [load_test_case(G3.parent / f"{name}.yaml") for name in ("G1", "G2", "G3", "G4")]
+    suite = load_suite_file(G3.parent / "suite.yaml")
+    cases = [load_test_case(G3.parent / name) for name in suite.cases]
+    assert [case.id for case in cases] == ["G1", "G2", "G3", "G4", "G5", "G6", "G7", "G8", "G9", "G11", "G13", "G14"]
     assert check_against_cases(loaded, cases) == []
     assert len(loaded.entries) == sum(len(case.criteria) for case in cases)
+    milestone_1 = {item.status for item in loaded.entries if item.case in ("G1", "G2", "G3", "G4")}
+    assert milestone_1 == {"pass"}
 
 
 @pytest.mark.req("SCO-009")

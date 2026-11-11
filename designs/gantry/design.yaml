@@ -912,12 +912,15 @@ firmware:
     12: encoder_mismatch
     13: limit_trip
     14: nothing_to_reset
-  # event_log codes recorded as events (gantry_config.h GANTRY_EVENT_*); an argument that is a step channel index reads
-  # as that axis's driver instance (motion_start, motion_end: FW-028), any other as its number (refused: fault code).
+  # event_log codes recorded as events (gantry_config.h GANTRY_EVENT_*), each with its argument kind (round 4 ruling 28):
+  # an axis reads as that step channel's driver instance (motion_start, motion_end: FW-028), a fault or state code as
+  # its name (state_change packs (from << 8) | to, read from>to).
   event_codes:
-    3: refused
-    6: motion_start
-    7: motion_end
+    1: {name: state_change, argument: state}
+    3: {name: refused, argument: fault}
+    4: {name: fault_latched, argument: fault}
+    6: {name: motion_start, argument: axis}
+    7: {name: motion_end, argument: axis}
 operator_messages:
   - name: target
     label: target (x, y)

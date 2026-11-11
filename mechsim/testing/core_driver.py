@@ -442,12 +442,20 @@ class CoreDriver:
             sink.subscribe(subscriber)
         report = kernel.run(core.EndCondition(_seconds(stop, config.base_rate)), sink)
         recorder = Recorder(config.base_rate, model_columns(model, sorted(payloads)))
-        firmware_events: dict[int, list[RowEvent]] = {}
+        decoded: list[RowEvent] = []
         if self._runner is not None:
-            for tick, kind, detail in self._runner.events:
-                firmware_events.setdefault(tick, []).append(RowEvent(tick, "controller", kind, detail))
+            decoded = [RowEvent(tick, "controller", kind, detail) for tick, kind, detail in self._runner.events]
+            decoded.sort(key=lambda event: event.time)
+        taken = 0
         for row in sink.drain():
-            recorder.write_row(tick_record(row, firmware_events))
+            # Rows are stamped at the end of their step (KER-009), so an event of the first controller step (tick 0)
+            # has no row of its own: it goes with the first row at or after its tick.
+            row_tick = int(row.time.count())
+            due: list[RowEvent] = []
+            while taken < len(decoded) and decoded[taken].time <= row_tick:
+                due.append(decoded[taken])
+                taken += 1
+            recorder.write_row(tick_record(row, {row_tick: due}))
         self.subscriber_errors = tuple(str(error) for error in sink.subscriber_errors())
         self._view = RecordingView(
             recorder.recording(),
@@ -543,7 +551,6 @@ class CoreDriver:
         if build is None:
             raise DriverError("run before load")
         seeds = dict(config.module_seeds)
-        notes: list[str] = []
         try:
             layer, externals, labels, _ = signal_layer(
                 build,
@@ -554,12 +561,15 @@ class CoreDriver:
                 config.base_rate,
                 config.control_rate,
                 payloads,
-                notes,
             )
             state = RunnerState(externals=externals)
             firmware = build.design.firmware
             if firmware is not None and config.control_rate is not None:
-                state.event_names = {int(code): name for code, name in firmware.event_codes.items()}
+                state.event_names = {int(code): entry.name for code, entry in firmware.event_codes.items()}
+                state.event_arguments = {int(code): entry.argument for code, entry in firmware.event_codes.items()}
+                state.fault_names = {int(code): name for code, name in firmware.fault_codes.items()}
+                state.state_names = {int(code): name for code, name in firmware.state_codes.items()}
+                state.track_faults = len(firmware.fault_codes) > 0
                 state.axes = event_axes(build)
                 state.control_period = int(config.base_rate / config.control_rate)
             for command in sorted(self._commands, key=lambda item: item.tick):
@@ -571,7 +581,6 @@ class CoreDriver:
                     state.presses.append((str(fault.target), fault.start_tick, fault.end_tick))
             self.labels = labels
             self._runner = state
-            self.approximations = (*self.approximations, *notes)
             kernel.register_party(RunnerParty(state, _rate(config.physics_rate)))
             kernel.register_party(layer)
             if build.design.firmware is not None:

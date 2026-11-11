@@ -1,0 +1,104 @@
+# G13 (Requirements doc, Test cases, gantry suite): a lift command while the gantry is moving is handled by the defined
+# policy in every run (ACC-027, FW-027). The policy is the firmware placeholder `GANTRY_LIFT_WHILE_MOVING_POLICY` =
+# reject (gantry_config.h; owed by the gantry team, `lift_while_moving_policy` in docs/gantry-team-inputs.md): the
+# `lift 0.3` at 8.5 s, 0.5 s into the move from the origin to (40, 25), is refused with fault busy (the controller's
+# reported fault, `fault:busy`, round 4 ruling 30) and a `refused` event, and the lift does not move. Window bound: the
+# X travel of 0.4 m at no more than the 0.2 m/s cruise speed takes at least 2 s, so the move lasts past 10 s and the
+# window 8.5 s to 10 s lies inside it; no lift step pulse in it and the lift within the 1 cm hold band (position
+# accuracy). The move then completes: the speed stays at or above the 0.05 m/s slow-zone speed except for the 0.1 s
+# ramps at each end (0.05 m/s / 0.5 m/s^2), so 0.4 m takes at most 0.4 / 0.05 + 0.2 = 8.2 s, arriving by 16.2 s; the
+# run ends at 18 s with the hook within 1 cm of (40, 25).
+id: G13
+title: Lift command while moving
+design:
+  name: gantry
+  version: 0.1.0
+controller_mode: native
+seed: 13
+open_parameters:
+  - name: homing_time
+    dimension: "[time]"
+    owed_by: gantry team
+    note: Time allowed for homing before the target; 0.1 m at the 0.02 m/s homing speed is 5 s.
+    default: "8 s"
+  - name: hold_band
+    dimension: "[length]"
+    owed_by: gantry team
+    note: How far the lift may move while a lift command is refused; the 1 cm position accuracy.
+    default: "1 cm"
+initial_state:
+  joints:
+    - joint: x_axis
+      position: 0.1 m
+      velocity: 0 m/s
+    - joint: y_axis
+      position: 0.1 m
+      velocity: 0 m/s
+    - joint: lift_axis
+      position: 0.1 m
+      velocity: 0 m/s
+  controller:
+    state: not_homed
+  payload:
+    attached: false
+commands:
+  - at: 0 s
+    message: home
+  - at: ${homing_time}
+    message: target
+    payload:
+      x: 40 cm
+      y: 25 cm
+  - at: 8.5 s
+    message: lift
+    payload:
+      z: 30 cm
+end:
+  at: 18 s
+  max_duration: 18 s
+criteria:
+  - name: lift_refused_busy
+    check: event
+    event: fault:busy
+    expect: present
+    window:
+      start: 8.5 s
+      end: 9 s
+  - name: lift_refused_event
+    check: event
+    event: event:refused
+    expect: present
+    window:
+      start: 8.5 s
+      end: 9 s
+  - name: no_lift_steps
+    check: value
+    quantity: signal:lift_driver.step
+    statistic: maximum
+    comparison: at_most
+    limit: "0"
+    window:
+      start: 8.5 s
+      end: 10 s
+  - name: lift_held
+    check: hold_band
+    joints: [lift_axis]
+    band: ${hold_band}
+    window:
+      start: 8.5 s
+      end: 10 s
+  - name: arrived_x
+    check: value
+    quantity: pose:hook.x
+    statistic: final
+    comparison: within
+    target: 40 cm
+    limit: 1 cm
+  - name: arrived_y
+    check: value
+    quantity: pose:hook.y
+    statistic: final
+    comparison: within
+    target: 25 cm
+    limit: 1 cm
+baseline: baseline.yaml

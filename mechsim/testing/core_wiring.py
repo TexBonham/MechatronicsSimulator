@@ -26,8 +26,12 @@ brake torque applies as given and A0 is not set. A payload welded to a carrier (
 separate free body and enters no m.
 
 Firmware event-log entries whose code the design names in `firmware.event_codes` are collected by the runner party
-from `controller.pin_outputs` and recorded as `controller` events of that name, the argument read as an axis: the
-instance of the pulse_output binding with that channel, else the number.
+from `controller.pin_outputs` and recorded as `controller` events of that name, the argument decoded by the entry's
+kind (DES-045, ruling 28): `axis` the instance of the pulse_output binding with that channel, `fault` and `state` the
+design's code name (a state argument above 255 is a (from << 8) | to pair, read `from>to`), `number` verbatim, `none`
+empty; a code without a name reads as its number. With a firmware fault table the party also records the controller's
+reported fault code whenever it changes, as a `controller_fault` event whose detail is the fault's name (ruling 30;
+the `fault:<name>` criterion ref reads them).
 """
 
 from __future__ import annotations
@@ -47,7 +51,7 @@ from mechsim.builder.result import InstanceWiring
 from mechsim.design.chip import Chip, shipped_chips
 from mechsim.library.registry import default_registry
 from mechsim.physics.neutral import DOF_COUNTS, Body, PhysicsModel
-from mechsim.testing.driver import ScheduledCommand, ScheduledFault
+from mechsim.testing.driver import FAULT_KIND, ScheduledCommand, ScheduledFault
 from mechsim.testing.runner import RunnerError
 from mechsim.testing.schema import ROOT
 
@@ -115,13 +119,39 @@ class RunnerState:
     faults: list[str] = field(default_factory=list)
     hook_errors: list[str] = field(default_factory=list)
     event_names: dict[int, str] = field(default_factory=dict)
+    event_arguments: dict[int, str] = field(default_factory=dict)
     axes: dict[int, str] = field(default_factory=dict)
+    fault_names: dict[int, str] = field(default_factory=dict)
+    state_names: dict[int, str] = field(default_factory=dict)
+    track_faults: bool = False
+    fault_code: int | None = None
+    reported_fault: int | None = None
     control_period: int = 1
     events: list[tuple[int, str, str]] = field(default_factory=list)
     pending: list[tuple[int, int]] = field(default_factory=list)
 
     def note_fault(self, fault: Any) -> None:
         self.faults.append(f"{fault.party}: {fault.cause}")
+
+    def listens(self) -> bool:
+        return len(self.event_names) > 0 or self.track_faults
+
+    def decode(self, code: int, arg: int) -> str:
+        """An event argument as the design's table reads it (DES-045, ruling 28)."""
+        kind = self.event_arguments.get(code, "number")
+        if kind == "axis":
+            return self.axes.get(arg, str(arg))
+        if kind == "fault":
+            return self.fault_names.get(arg, str(arg))
+        if kind == "state":
+            if arg > 255:
+                source = self.state_names.get(arg >> 8, str(arg >> 8))
+                target = self.state_names.get(arg & 0xFF, str(arg & 0xFF))
+                return f"{source}>{target}"
+            return self.state_names.get(arg, str(arg))
+        if kind == "none":
+            return ""
+        return str(arg)
 
 
 class RunnerParty(core.Party):  # type: ignore[misc]
@@ -146,20 +176,24 @@ class RunnerParty(core.Party):  # type: ignore[misc]
         return names
 
     def consumed(self) -> list[str]:
-        if len(self._state.event_names) > 0:
+        if self._state.listens():
             return [CONTROLLER_OUTPUTS]
         return []
 
     def start(self, base_rate: Any) -> None:
         self._state.posted = 0
         self._state.events = []
+        self._state.fault_code = None
+        self._state.reported_fault = None
 
     def read_inputs(self, inputs: Any) -> None:
         state = self._state
         state.pending = []
-        if len(state.event_names) == 0 or not inputs.has_value(CONTROLLER_OUTPUTS):
+        state.fault_code = None
+        if not state.listens() or not inputs.has_value(CONTROLLER_OUTPUTS):
             return
         outputs = inputs.value(CONTROLLER_OUTPUTS)
+        state.fault_code = int(outputs.fault_code)
         state.pending = [
             (int(outputs.event_log[index].code), int(outputs.event_log[index].arg))
             for index in range(int(outputs.event_count))
@@ -172,10 +206,15 @@ class RunnerParty(core.Party):  # type: ignore[misc]
         state.tick = int(t.count())
         if state.tick == 0 or state.tick % state.control_period != 0:
             return
+        stamp = state.tick - state.control_period
+        if state.track_faults and state.fault_code is not None and state.fault_code != state.reported_fault:
+            state.reported_fault = state.fault_code
+            name = state.fault_names.get(state.fault_code, str(state.fault_code))
+            state.events.append((stamp, FAULT_KIND, name))
         for code, arg in state.pending:
             name = state.event_names.get(code)
             if name is not None:
-                state.events.append((state.tick - state.control_period, name, state.axes.get(arg, str(arg))))
+                state.events.append((stamp, name, state.decode(code, arg)))
 
     def write_outputs(self, outputs: Any) -> None:
         state = self._state
@@ -338,6 +377,12 @@ def brake_parameters(instance: InstanceWiring, places: Mapping[str, JointPlace],
     drives = [item for item in model.transmissions if item.driven_joint == joint]
     if len(drives) == 0:
         raise WiringError(f"brake '{instance.name}': prismatic joint '{joint}' has no transmission shaft to brake")
+    if len(drives) > 1:
+        names = ", ".join(f"'{drive.name}'" for drive in drives)
+        raise WiringError(
+            f"brake '{instance.name}': prismatic joint '{joint}' is driven by {len(drives)} transmissions ({names}); "
+            "the holding force brake_torque / c needs one shaft, so the brake belongs on a shaft joint"
+        )
     shaft_bodies = {
         body.joint.name: body for body in model.bodies if body.joint is not None and body.joint.type == "revolute"
     }
@@ -655,11 +700,9 @@ def signal_layer(
     base_rate: Fraction,
     control_rate: Fraction | None = None,
     payloads: Sequence[str] = (),
-    notes: list[str] | None = None,
 ) -> tuple[Any, dict[str, float], dict[str, str], int]:
-    """`notes` receives one line per instance the bridge cannot carry (a brake on a transmission's driven joint: the
-    translation emits no drive there, PHY-034), which is then not registered; the driver reports the lines with the
-    bridge's approximations (SCO-013)."""
+    """A brake the bridge cannot carry (on a transmission's driven joint: the translation emits no drive there,
+    PHY-034) ends the build with an error naming the brake and the joint (invariant 7, ruling 29)."""
     places, dofs = joint_places(model)
     chip = design_chip(build)
     wiring = build.wiring
@@ -669,19 +712,13 @@ def signal_layer(
     if control_rate is not None:
         config.controller_rate = core.Rate(control_rate.numerator, control_rate.denominator)
     config.seed = seed
-    unheld: dict[str, str] = {}
     for instance in wiring.instances:
         line = undrivable_brake(instance, model)
         if line is not None:
-            if notes is None:
-                raise WiringError(line)
-            notes.append(line)
-            unheld[instance.name] = line
+            raise WiringError(line)
     table = core.PinBindingTable()
     slots: list[Any] = []
     for binding in wiring.bindings:
-        if binding.instance in unheld:
-            continue
         table.add(core.PinBinding(binding.signal, binding.pin, getattr(core.PeripheralMode, binding.mode)))
         slots.append(core.ChannelSlot(binding.signal, PIN_FIELDS[binding.mode], binding.channel))
     config.bindings = table
@@ -714,7 +751,7 @@ def signal_layer(
         consumers = [
             f"{name}.{RAIL_INPUTS[instances[name].type]}"
             for name in rail.consumers
-            if instances[name].type in RAIL_INPUTS and name not in unheld
+            if instances[name].type in RAIL_INPUTS
         ]
         gates = [f"{gate}.contact_closed" for gate in rail.gates]
         rails.append(core.RailSpec(rail.name, f"{rail.supply}.voltage", gates, consumers))
@@ -749,8 +786,6 @@ def signal_layer(
             continue
         if instance.category not in STAGES:
             continue
-        if instance.name in unheld:
-            continue
         component = core.make_signal_component(
             instance.type, instance.name, component_parameters(instance, places, model, payloads, chip)
         )
@@ -767,9 +802,9 @@ def undrivable_brake(instance: InstanceWiring, model: PhysicsModel) -> str | Non
     if instance.acts_on not in driven:
         return None
     return (
-        f"brake '{instance.name}': not applied: joint '{instance.acts_on}' is driven by transmission "
-        f"'{driven[instance.acts_on]}' and the MuJoCo bridge carries no second drive there (PHY-034); the lift is "
-        "unheld while its motor is off"
+        f"brake '{instance.name}': cannot be applied on joint '{instance.acts_on}': it is driven by transmission "
+        f"'{driven[instance.acts_on]}' and the MuJoCo bridge carries no second drive there (PHY-034); joint "
+        f"'{instance.acts_on}' would be unheld while its motor is off, so the brake belongs on the shaft joint"
     )
 
 

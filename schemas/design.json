@@ -840,6 +840,34 @@
       "title": "Environment",
       "type": "object"
     },
+    "EventCode": {
+      "additionalProperties": false,
+      "description": "A named event-log code and how its argument reads (DES-045, round 4 ruling 28): `axis` the instance of the\npulse_output binding of that channel, `fault` or `state` the design's code name (a state argument may pack a\nfrom-to pair as (from << 8) | to, read `from>to`), `number` verbatim, `none` no detail.",
+      "properties": {
+        "argument": {
+          "enum": [
+            "axis",
+            "fault",
+            "state",
+            "number",
+            "none"
+          ],
+          "title": "Argument",
+          "type": "string"
+        },
+        "name": {
+          "pattern": "^[a-z][a-z0-9_]*$",
+          "title": "Name",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "argument"
+      ],
+      "title": "EventCode",
+      "type": "object"
+    },
     "ExtrusionProcess": {
       "additionalProperties": false,
       "properties": {
@@ -923,10 +951,9 @@
         },
         "event_codes": {
           "additionalProperties": {
-            "pattern": "^[a-z][a-z0-9_]*$",
-            "type": "string"
+            "$ref": "#/$defs/EventCode"
           },
-          "description": "event_log code (0..255) to event name; a named event's argument is an axis (step channel) index",
+          "description": "event_log code (0..255) to the event's name and its argument kind (axis, fault, state, number, none)",
           "title": "Event Codes",
           "type": "object"
         },

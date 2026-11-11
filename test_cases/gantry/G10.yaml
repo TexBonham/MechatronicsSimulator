@@ -1,7 +1,7 @@
 # G10 (Requirements doc, Test cases, gantry suite): a motor stall, then a belt slip, during moves. First the X motor
 # stalls (available torque 0 for 0.5 s from 8.5 s, TST-016) during the move to (40, 25): the encoder on the carriage no
 # longer follows the commanded steps, the firmware stops at its deceleration limit, faults with encoder_mismatch
-# (FW-020, ACC-020) and motion stops (ACC-019); a `target` at 10 s is refused (fault encoder_mismatch) and the `home` at
+# (FW-020, ACC-020; `fault:encoder_mismatch`, round 4 ruling 30) and motion stops (ACC-019); a `target` at 10 s is refused (fault encoder_mismatch) and the `home` at
 # 10.5 s re-homes (ACC-021). Then the move is repeated and the X belt slips (fraction 0.3 for 0.5 s from 30.5 s,
 # TST-015): the same fault, stop and refusal, and `home` at 32.5 s starts homing again. Stop bound per event: the
 # mismatch threshold (2 mm placeholder, ruling 6) is crossed within the 0.5 s fault window and the stop at 0.5 m/s^2
@@ -91,7 +91,7 @@ end:
 criteria:
   - name: stall_fault
     check: event
-    event: state:fault
+    event: fault:encoder_mismatch
     expect: present
     window:
       start: 8.5 s
@@ -130,7 +130,7 @@ criteria:
       end: 30 s
   - name: slip_fault
     check: event
-    event: state:fault
+    event: fault:encoder_mismatch
     expect: present
     window:
       start: 30.5 s

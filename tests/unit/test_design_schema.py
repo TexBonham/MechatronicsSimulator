@@ -2151,7 +2151,15 @@ def test_event_codes_name_the_firmware_events() -> None:
     assert design.firmware.event_name(6) == "motion_start"
     assert design.firmware.event_name(7) == "motion_end"
     assert design.firmware.event_name(3) == "refused"
-    assert design.firmware.event_name(1) is None
+    assert design.firmware.event_name(1) == "state_change"
+    assert design.firmware.event_name(4) == "fault_latched"
+    assert design.firmware.event_name(2) is None
+    assert design.firmware.event_argument(6) == "axis"
+    assert design.firmware.event_argument(7) == "axis"
+    assert design.firmware.event_argument(3) == "fault"
+    assert design.firmware.event_argument(4) == "fault"
+    assert design.firmware.event_argument(1) == "state"
+    assert design.firmware.event_argument(2) is None
     assert design.firmware.fault_name(10) == "overload"
     assert design.firmware.fault_name(14) == "nothing_to_reset"
 
@@ -2160,14 +2168,19 @@ def test_event_codes_name_the_firmware_events() -> None:
 @pytest.mark.parametrize(
     ("codes", "message"),
     [
-        ({256: "big"}, "event_codes: code '256' is not an integer 0..255"),
-        ({"x": "letter"}, "event_codes: code 'x'"),
-        ({6: "same", 7: "same"}, "event_codes name"),
-        ({6: "Bad-Name"}, "String should match pattern"),
-        ({6: 7}, "Input should be a valid string"),
+        ({256: {"name": "big", "argument": "number"}}, "event_codes: code '256' is not an integer 0..255"),
+        ({"x": {"name": "letter", "argument": "number"}}, "event_codes: code 'x'"),
+        ({6: {"name": "same", "argument": "axis"}, 7: {"name": "same", "argument": "axis"}}, "event_codes name"),
+        ({6: {"name": "Bad-Name", "argument": "axis"}}, "String should match pattern"),
+        ({6: {"name": 7, "argument": "axis"}}, "Input should be a valid string"),
+        ({6: "motion_start"}, "event_codes.6"),
+        ({6: {"name": "motion_start"}}, "argument"),
+        ({6: {"name": "motion_start", "argument": "channel"}}, "argument"),
+        ({6: {"name": "motion_start", "argument": "axis", "extra": 1}}, "extra"),
     ],
 )
 def test_event_code_rules(codes: dict[Any, Any], message: str) -> None:
+    """Round 4 ruling 28: every entry names the event and its argument kind (axis, fault, state, number, none)."""
     data = gantry()
     data["firmware"]["event_codes"] = codes
     rejected(data, message)

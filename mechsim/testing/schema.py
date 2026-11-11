@@ -70,9 +70,9 @@ CASE_ID_PATTERN = r"^[A-Z][A-Z0-9_]*[0-9]+$"
 _N = r"[a-z][a-z0-9_]*"
 QUANTITY_REF_PATTERN = (
     rf"^(signal:{_N}\.{_N}|pose:{_N}\.(x|y|z|roll|pitch|yaw)|joint:{_N}\.(position|velocity)"
-    rf"|rail:{_N}(\.voltage)?|state:{_N}|count:(message|state)\.{_N})$"
+    rf"|rail:{_N}(\.voltage)?|state:{_N}|fault:{_N}|count:(message|state|fault)\.{_N})$"
 )
-EVENT_REF_PATTERN = rf"^(message|state|event):{_N}$"
+EVENT_REF_PATTERN = rf"^(message|state|fault|event):{_N}$"
 INSTANCE_PREFIX = "instance:"
 INSTANCE_PATH_PATTERN = rf"^instance:{_N}\.{_N}$"
 PARAMETER_PATH_PATTERN = rf"^(\$\{{{_N}\}}|(bodies|joints|components)\.{_N}(\.{_N})+|instance:{_N}\.{_N})$"
@@ -483,7 +483,7 @@ def reference_dimension(reference: str) -> str | None:
         if component in ("x", "y", "z"):
             return LENGTH
         return ANGLE
-    if kind in ("state", "count"):
+    if kind in ("state", "fault", "count"):
         return ANGLE
     if kind == "rail":
         if rest.endswith(".voltage"):
@@ -530,7 +530,7 @@ class ValueCriterion(_Criterion):
                 errors.append(f"comparison {self.comparison!r} needs a limit")
             if self.target is not None or self.relative_limit is not None:
                 errors.append(f"comparison {self.comparison!r} takes no target or relative_limit")
-        if self.statistic == "period" and self.quantity.split(":")[0] in ("state", "count"):
+        if self.statistic == "period" and self.quantity.split(":")[0] in ("state", "fault", "count"):
             errors.append(f"statistic 'period' needs a series, not {self.quantity!r}")
         expected = self.expected_dimension()
         for value, what in ((self.target, "target"), (self.limit, "limit")):
@@ -1028,6 +1028,11 @@ def _check_reference(
         names = set(design.firmware.state_codes.values())
         if len(names) > 0 and rest not in names:
             errors.append(f"{path}: unknown controller state {rest!r} (firmware.state_codes)")
+    if kind == "fault" and design.firmware is None:
+        errors.append(f"{path}: controller fault {rest!r} needs a design with firmware")
+    elif kind == "fault" and design.firmware is not None:
+        if rest not in set(design.firmware.fault_codes.values()):
+            errors.append(f"{path}: unknown controller fault {rest!r} (firmware.fault_codes)")
 
 
 def _joint_reference_dimension(reference: str, joints: dict[str, Any]) -> str | None:
