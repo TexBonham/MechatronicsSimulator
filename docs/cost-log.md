@@ -21,3 +21,8 @@ type live in the root `CLAUDE.md` dispatch table once measured.
 | 2026-11-10 | M2 review: A1 | general-purpose (fable) | 127K | 16 calls; accept with fixes (1 high: predicted-lead detent, 1 medium, 3 low) |
 | 2026-11-10 | M2 review: D and E | general-purpose (fable) | 201K | 28 calls; both accept, 2 owner rulings, event recording owed to X1 |
 | 2026-11-10 | M2-G stage landed: merge wip/04-g, chip fixture fix, matrix regenerated, full suite 3330 passed | inline | ~15K | coordinator |
+| 2026-11-10 | M2-C fix round: six review items, rulings 9 and 10 (wip/04-c e2ead4a) | module-writer (opus), resumed | ~15K | 11 calls |
+| 2026-11-10 | M2-A1 fix round: predicted-lead detent, closed-form lag, rulings 11 to 13 (wip/04-a1 5b166b9) | module-writer (opus), resumed | ~16K | 14 calls |
+| 2026-11-10 | M2-C re-review | general-purpose (fable), resumed | ~11K | 1 call; accept |
+| 2026-11-10 | M2-A1 re-review | general-purpose (fable), resumed | ~14K | 3 calls; accept |
+| 2026-11-10 | M2-D stage landed: merge wip/04-d, suite file in the invariant tier and YAML hook, full suite 3391 passed; E backed out to land with X1 (unbound E-stop status channel faults the firmware) | inline | ~25K | coordinator |

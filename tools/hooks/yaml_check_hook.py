@@ -48,6 +48,8 @@ def kind_for(relative: str) -> str | None:
         if relative.startswith(prefix):
             if kind == "test_case" and Path(relative).name == "baseline.yaml":
                 return "baseline"
+            if kind == "test_case" and Path(relative).name == "suite.yaml":
+                return "suite"
             return kind
     return None
 
