@@ -81,6 +81,7 @@ _DESIGN_FILE = "inputs/design_file"
 _TEST_CASE_FILE = "inputs/test_case_file"
 
 
+# ===== Run records ==========================================================
 @dataclass(frozen=True)
 class RunIdentity:
     """What produced the run (REC-013, REC-014): design, test case, seed, mode, rates and git hashes. Hashes are
@@ -152,6 +153,7 @@ class RunEnd:
             check_text(self.fault.cause, "fault cause")
 
 
+# ===== Repository and tool identity =========================================
 def repository_commit(root: Path) -> str:
     """The repository's HEAD commit, or `unset` when there is no git or no repository."""
     try:
@@ -173,6 +175,7 @@ def tool_version() -> str:
         return UNSET
 
 
+# ===== HDF5 helpers =========================================================
 def _rate(rate: Fraction) -> NDArray[np.int64]:
     return np.array([rate.numerator, rate.denominator], dtype=np.int64)
 
@@ -226,6 +229,7 @@ def _events_table(recording: Recording) -> NDArray[Any]:
 META_PREFIX = "meta_"
 
 
+# ===== Writer ===============================================================
 def write_archive(
     path: Path,
     identity: RunIdentity,
@@ -286,6 +290,7 @@ def write_archive(
         _dataset(h5, _EVENTS, _events_table(recording))
 
 
+# ===== Value conversions ====================================================
 def _text(value: object) -> str:
     if isinstance(value, bytes):
         return value.decode("utf-8")
@@ -313,6 +318,7 @@ def _split(values: list[float], counts: tuple[int, ...]) -> list[tuple[float, ..
     return parts
 
 
+# ===== Reader ===============================================================
 class RunArchive:
     """Reads a run archive: identity, end, every series with its unit, events, and replay in tick order (REC-024)."""
 

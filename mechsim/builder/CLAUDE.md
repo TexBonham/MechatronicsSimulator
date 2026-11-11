@@ -32,11 +32,8 @@ to source_hash, zeros when unset; `rigid_members` builds flexible bodies rigid, 
 `build.py` (`build`, `module_order`); `payload.py` (`with_payload(model, name, carrier, mass, fixed=False)`, BLD-036: box body below the carrier, a fixed child `<name>_fixed` of it when `fixed` (attached at t = 0, never released, ruling 24), else free under world and welded by the adapter); `physics.py` (`build_physics`, `primitive_mass`, `lumped_record`,
 `element_kinds`); `mass.py` (closed forms, frames, `z_to`); `wiring.py`; `result.py`.
 
-`physics.py` sections: Checks 80, Bodies and joints 191, Overlap 317, Lumped members 373, Transmissions and
-signals 444, Physics model 568.
-
-`tests/unit/test_builder.py` sections: Pendulum and the neutral model 69, Mass properties 174, Shapes and contacts
-197, Lumped and structural members 269, Transmissions 361, STEP bodies 409, Shipped gantry, rigid members, module order 476, Loud failures 578. Filled gantry: `test_builder_support.py`.
+| Section | File | Line |
+|---|---|---|
 
 ## Rules
 
@@ -47,3 +44,14 @@ Neutral quantities are written `repr(value) unit` in SI, validated once. Element
 
 Loops as constraints (BLD-004), fasteners as constraints (BLD-031), ropes (BLD-032), lumped calibration (BLD-015
 to 019), mounts in the member list (BLD-008), clamped-clamped beams.
+
+## Section index
+
+| Section | File | Line |
+|---|---|---|
+| Checks | physics.py | 80 |
+| Bodies and joints | physics.py | 191 |
+| Overlap | physics.py | 317 |
+| Lumped members | physics.py | 373 |
+| Transmissions and signals | physics.py | 444 |
+| Physics model | physics.py | 580 |

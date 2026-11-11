@@ -54,6 +54,7 @@ from tests.unit.test_record_support import (
 TICKS = 120
 
 
+# ===== Fixtures and helpers =================================================
 def _record(rows: list[TickRecord], path: Path, base_rate: Fraction = BASE_RATE, end: RunEnd | None = None) -> Path:
     recorder = Recorder(base_rate)
     for row in rows:
@@ -79,6 +80,7 @@ def archive(archive_path: Path) -> RunArchive:
     return RunArchive(archive_path)
 
 
+# ===== Body, joint and contact channels =====================================
 @pytest.mark.req("REC-002")
 def test_rec_002_body_pose_and_velocity_every_tick(rows: list[TickRecord], archive: RunArchive) -> None:
     """The recorder shall record every body's pose and velocity on every physics tick."""
@@ -140,6 +142,7 @@ def test_rec_004_member_end_loads_every_tick(rows: list[TickRecord], archive: Ru
             np.testing.assert_array_equal(series.values, np.array([[pick(m) for m in r.physics.members] for r in rows]))
 
 
+# ===== Named signal checks ==================================================
 def _named_check(archive: RunArchive, rows: list[TickRecord], group: str, spec: tuple[tuple[str, str], ...]) -> None:
     attribute = {
         "signals/pins": "pin_signals",
@@ -168,6 +171,7 @@ def test_rec_006_every_rail(rows: list[TickRecord], archive: RunArchive) -> None
         _named_check(archive, rows, "signals/rails", RAILS)
 
 
+# ===== Actuators, joints and payloads =======================================
 @pytest.mark.req("REC-027")
 def test_rec_027_actuator_efforts_every_tick(rows: list[TickRecord], archive: RunArchive) -> None:
     """The recorder shall record the actuator torques and forces the signal layer applies to physics on
@@ -257,6 +261,7 @@ SLIP_LABELS = Columns(("belt",), ("rad",))
 PAYLOAD_LABELS = Columns(("load",))
 
 
+# ===== Index columns and writer labels ======================================
 @pytest.mark.req("REC-018")
 @pytest.mark.req("REC-027")
 def test_rec_018_index_columns_carry_names_and_units(rows: list[TickRecord], tmp_path: Path) -> None:
@@ -339,6 +344,7 @@ def test_rec_018_column_labels_must_match_the_first_row(path: str, labels: Colum
         recorder.write_row(synthetic_rows(3, 1)[0])
 
 
+# ===== Archive format version ===============================================
 @pytest.mark.req("REC-012")
 def test_rec_012_archive_format_version_2_and_version_1_still_reads(rows: list[TickRecord], tmp_path: Path) -> None:
     """Version 2 adds the joint, drive and payload series and column labels; a version 1 archive lacks them and its
@@ -375,6 +381,7 @@ def test_rec_012_archive_format_version_2_and_version_1_still_reads(rows: list[T
             RunArchive(path)
 
 
+# ===== Controller state and fault log =======================================
 @pytest.mark.req("REC-007")
 def test_rec_007_controller_state_and_fault_log(rows: list[TickRecord], archive: RunArchive) -> None:
     """The recorder shall record the controller states and the controller fault log the controller runtime

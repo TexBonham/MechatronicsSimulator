@@ -102,6 +102,7 @@ NATIVE_BUILD_DIR = Path(tempfile.gettempdir()) / "mechsim-native-build"
 _LIBRARIES: dict[tuple[str, int, str], str] = {}
 
 
+# ===== Errors and runner state ==============================================
 class WiringError(RunnerError):
     """The build cannot be assembled into core parties; the message names the instance and what is missing."""
 
@@ -155,6 +156,7 @@ class RunnerState:
         return str(arg)
 
 
+# ===== Runner party =========================================================
 class RunnerParty(core.Party):  # type: ignore[misc]
     """Publishes `signals.operator_commands` and `signals.external_inputs` (KER-008): a command or E-stop press reaches
     the signal layer at this party's first step at or after its tick (KER-023)."""
@@ -244,6 +246,7 @@ class RunnerParty(core.Party):  # type: ignore[misc]
             self._state.hook_errors.append(f"runner.on_fault: {type(error).__name__}: {error}")
 
 
+# ===== Joint places and inertia =============================================
 @dataclass(frozen=True)
 class JointPlace:
     body: int
@@ -320,6 +323,7 @@ def axial_inertia(body: Body) -> float:
     return sum(a[r] * tensor[r][c] * a[c] for r in range(3) for c in range(3))
 
 
+# ===== Component parameters =================================================
 def _fidelity(values: Mapping[str, float | bool], params: dict[str, Any]) -> None:
     for name in ("noise", "delay", "sample_rate"):
         if name in values:
@@ -525,6 +529,7 @@ def component_parameters(
     raise WiringError(f"instance '{instance.name}': type '{instance.type}' has no signal-layer model")
 
 
+# ===== Fault injection and ticks ============================================
 def _ticks(tick: int) -> Any:
     return core.SimTime(tick)
 
@@ -549,6 +554,7 @@ def _injection(fault: ScheduledFault, base_rate: Fraction) -> Any:
     return injection
 
 
+# ===== Assembly =============================================================
 @dataclass
 class Assembly:
     """The parties for one run in registration order, the runner's state and the operator label table."""
@@ -571,6 +577,7 @@ def _message_specs(build: CoreBuild) -> tuple[list[Any], dict[str, str]]:
     return specs, labels
 
 
+# ===== Controller build =====================================================
 def host_build_dir(tree: Path, tick_hz: int, target: str) -> Path:
     """One host build directory per firmware tree, target and tick rate: a CMake build tree binds to one source tree,
     so two checkouts sharing a temp directory must not share a build."""
@@ -690,6 +697,7 @@ def controller_party(build: CoreBuild, control_rate: Fraction, work_dir: Path) -
     return core.ControllerParty(runtime, party)
 
 
+# ===== Signal layer =========================================================
 def signal_layer(
     build: CoreBuild,
     model: PhysicsModel,
@@ -797,6 +805,7 @@ def signal_layer(
     return layer, externals, labels, dofs
 
 
+# ===== Event and operator wiring ============================================
 def core_type(instance: InstanceWiring) -> str:
     """The core built-in a catalog type runs as: its `plugin.cpp`, else the type name."""
     if instance.core_type is not None:

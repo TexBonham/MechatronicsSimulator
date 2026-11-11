@@ -21,6 +21,7 @@
 #include "mechsim/signals/signal_component.hpp"
 #include "mechsim/signals/stepper.hpp"
 
+// ===== Fixtures and helpers ================================================
 namespace {
 
 using mechsim::kernel::AdapterError;
@@ -466,6 +467,7 @@ TEST_CASE("MuJoCo adapter publishes contact forces", "[PHY-003]") {
     CHECK(std::abs(out.bodies[0].linear_velocity[2]) < 1e-6);
 }
 
+// ===== Shaft torque ========================================================
 // Reflected lead screw (PHY-018, ENG-048): rotor J = 5.4e-6 kg m^2 on an 8 mm lead driving a 10 kg carriage, so
 // c = lead / 2 pi and the rigid system is (m + J / c^2) a = F with F the shaft torque mapped to the carriage.
 namespace {
@@ -645,6 +647,7 @@ TEST_CASE("MuJoCo reflected shaft refuses body-level changes", "[PHY-008]") {
     adapter->set_payload_mass(1, 20.0);
 }
 
+// ===== Joint drive runs ====================================================
 namespace {
 
 using mechsim::kernel::JointDrive;
@@ -984,6 +987,7 @@ TEST_CASE("MuJoCo zero backlash and zero slip leave the drive rest exact", "[PHY
     CHECK(plain->outputs().transmissions[0].slip == 0.0);
 }
 
+// ===== Payload hold and coast ==============================================
 namespace {
 
 constexpr double payload_mass = 2.0;

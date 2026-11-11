@@ -58,3 +58,13 @@ build and the runtime.
 
 Step 4: after sensors latch, `tick` runs once per control period; outputs then go to the signal layer. Physics and
 signals keep stepping while frozen (KER-021). No Renode type crosses this interface (CTL-017).
+
+## Section index
+
+| Section | File | Line |
+|---|---|---|
+| Test party and harness | tests/test_controller_faults.cpp | 59 |
+| Freeze and slow-down | tests/test_controller_faults.cpp | 207 |
+| Schedule validation | tests/test_controller_faults.cpp | 312 |
+| Output latency | tests/test_controller_faults.cpp | 409 |
+| Brownout | tests/test_controller_faults.cpp | 469 |

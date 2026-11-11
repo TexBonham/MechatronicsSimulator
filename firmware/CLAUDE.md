@@ -57,10 +57,32 @@ Direction and enable (invariant 1, review ruling 2026-11-04): the pin-table `dig
 of truth; the native shim fills the stepper `direction[]` and `enable[]` arrays from them, so firmware holds those low.
 Firmware owns `step_count[]`.
 
-| Section index (`Read(file, offset=N, limit=80)`) | Lines |
-|---|---|
-| `app/gantry/gantry.c` | State 49, Fixed point 111, Queues 173, Status lines 208, State machine 282, Command parsing 425, Motion 728, Supervision 837, Outputs 996, Entry points 1085 |
-| `tests/test_gantry.cpp` | Helpers 11, G1 not homed 74, G2 homing 130, G3 moves 233, G4 workspace 389, Operator link 436, Queues and event log 509, Heartbeat, status, outputs 573, Lift axis 655, G5 and G6 overload 783, G7 E-stop and G9 power loss 896, G10 encoder mismatch and G11 limit trip 1042, G13 and G14 command policies 1233 |
+| Section | File | Line |
+|---|---|---|
+| State | app/gantry/gantry.c | 52 |
+| Fixed point | app/gantry/gantry.c | 120 |
+| Queues | app/gantry/gantry.c | 187 |
+| Status lines | app/gantry/gantry.c | 222 |
+| State machine | app/gantry/gantry.c | 296 |
+| Command parsing | app/gantry/gantry.c | 439 |
+| Motion | app/gantry/gantry.c | 742 |
+| Supervision | app/gantry/gantry.c | 866 |
+| Outputs | app/gantry/gantry.c | 1028 |
+| Entry points | app/gantry/gantry.c | 1122 |
+| Helpers | tests/test_gantry.cpp | 11 |
+| G1 not homed | tests/test_gantry.cpp | 78 |
+| G2 homing | tests/test_gantry.cpp | 134 |
+| G3 moves | tests/test_gantry.cpp | 237 |
+| G4 workspace | tests/test_gantry.cpp | 393 |
+| Operator link | tests/test_gantry.cpp | 440 |
+| Queues and event log | tests/test_gantry.cpp | 513 |
+| Heartbeat, status, outputs | tests/test_gantry.cpp | 577 |
+| Lift axis | tests/test_gantry.cpp | 659 |
+| G5 and G6 overload | tests/test_gantry.cpp | 819 |
+| G7 E-stop and G9 power loss | tests/test_gantry.cpp | 937 |
+| G10 encoder mismatch and G11 limit trip | tests/test_gantry.cpp | 1083 |
+| G13 and G14 command policies | tests/test_gantry.cpp | 1274 |
+
 
 Both: `-std=c11`, no extensions, `MECHSIM_FW_WARNINGS` from `cmake/FirmwareWarnings.cmake` (FW-008).
 

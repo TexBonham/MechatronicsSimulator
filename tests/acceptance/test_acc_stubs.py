@@ -18,6 +18,7 @@ _VIEWS: dict[str, CoreDriver] = {}
 GANTRY_RUNS = ("G1", "G2", "G3", "G4", "G5", "G6", "G7", "G8", "G9", "G10", "G11", "G13", "G14")
 
 
+# ===== Fixtures and helpers =================================================
 @pytest.fixture(scope="module")
 def gantry() -> dict[str, RunResult]:
     """G1 to G14 (G12 not yet shipped) once each through the real stack (gantry design, builder, MuJoCo bridge,
@@ -63,6 +64,7 @@ def result_series(result: RunResult, reference: str) -> Any:
     return _VIEWS[result.score.case_id].recording().series(reference)
 
 
+# ===== ACC-001 to ACC-008 ===================================================
 @pytest.mark.req("ACC-001")
 def test_acc_001(gantry: dict[str, RunResult]) -> None:
     """Reference design (gantry), G1: when target (40, 25) is sent at power on before homing, no actuator
@@ -187,6 +189,7 @@ def test_acc_008(gantry: dict[str, RunResult]) -> None:
     assert max(abs(value) for value in after) < 0.01
 
 
+# ===== Refusal helpers ======================================================
 def _passes(result: RunResult, *names: str) -> None:
     report = result.report
     assert report is not None, result.score
@@ -208,6 +211,7 @@ def _refused_with(result: RunResult, start: float, end: float, fault: str) -> No
     assert _status_after(result, start)[1] == fault
 
 
+# ===== ACC-009 to ACC-024 ===================================================
 @pytest.mark.req("ACC-009")
 @pytest.mark.req("FW-018")
 def test_acc_009(gantry: dict[str, RunResult]) -> None:
@@ -453,6 +457,7 @@ def test_acc_024(gantry: dict[str, RunResult]) -> None:
     _passes(gantry["G11"], "target_refused", "rehoming")
 
 
+# ===== ACC-025 to ACC-028 ===================================================
 @pytest.mark.req("ACC-025")
 @pytest.mark.xfail(strict=True, reason="stub")
 def test_acc_025() -> None:
@@ -524,6 +529,7 @@ def test_acc_028(gantry: dict[str, RunResult]) -> None:
     assert _refusals(result, 8.0, 13.0) >= 1
 
 
+# ===== ACC-029 to ACC-032 ===================================================
 @pytest.mark.req("ACC-029")
 @pytest.mark.xfail(strict=True, reason="stub")
 def test_acc_029() -> None:
@@ -558,6 +564,7 @@ def test_acc_032() -> None:
     raise NotImplementedError
 
 
+# ===== ACC-033 to ACC-034 ===================================================
 @pytest.mark.req("ACC-033")
 def test_acc_033(tmp_path: Path) -> None:
     """Pendulum design, rigid link: the small-amplitude swing period shall match the damped small-angle period
@@ -610,6 +617,7 @@ def test_acc_034(tmp_path: Path) -> None:
     assert all(values[later] < values[earlier] for earlier, later in itertools.pairwise(peaks))
 
 
+# ===== ACC-035 to ACC-045 ===================================================
 @pytest.mark.req("ACC-035")
 @pytest.mark.xfail(strict=True, reason="stub")
 def test_acc_035() -> None:
@@ -707,6 +715,7 @@ def test_acc_045() -> None:
     raise NotImplementedError
 
 
+# ===== PHY-016 ==============================================================
 @pytest.mark.req("PHY-016")
 def test_phy_016(gantry: dict[str, RunResult]) -> None:
     """The MuJoCo adapter shall carry the milestone 2 acceptance cases, G5 to G11, G13 and G14.

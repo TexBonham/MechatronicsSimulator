@@ -56,6 +56,7 @@ using mechsim::pins::PowerRail;
 
 namespace {
 
+// ===== Test party and harness ==============================================
 // A party at 1 kHz with a role; publishes what `write` sets and logs what it reads.
 class TestParty final : public Party {
 public:
@@ -203,6 +204,7 @@ std::string fault_cause(const RunReport& report) {
 
 }  // namespace
 
+// ===== Freeze and slow-down ================================================
 TEST_CASE("A scheduled freeze stops the firmware tick while physics and signals keep stepping",
           "[KER-021][CTL-011][TST-018]") {
     NativeControllerRuntime* runtime = nullptr;
@@ -307,6 +309,7 @@ TEST_CASE("A slow-down window shorter than its factor ticks once", "[CTL-021]") 
     CHECK(h.seen->at(6).state_code == 6);
 }
 
+// ===== Schedule validation =================================================
 TEST_CASE("Fault schedules are refused when malformed, overlapping or late", "[CTL-021][CTL-011][KER-021]") {
     auto party = std::make_unique<ControllerParty>(std::make_unique<NullControllerRuntime>(Rate(1'000)),
                                                    ControllerPartyConfig{});
@@ -403,6 +406,7 @@ TEST_CASE("Fault windows checked at a nominal rate the kernel overrides fault th
     CHECK(report.fault.value_or(PartyFault("none", SimTime(-1), "")).party() == "controller");
 }
 
+// ===== Output latency ======================================================
 TEST_CASE("Output latency delays the published pin outputs, events and state codes by whole control ticks",
           "[CTL-020]") {
     // digital_in[31] steps high at tick 5, so the firmware's digital_out[0] rises at its tick 5.
@@ -462,6 +466,7 @@ TEST_CASE("Latency 0 publishes exactly what the runtime produced, as before late
     CHECK(zero.events.empty());
 }
 
+// ===== Brownout ============================================================
 TEST_CASE("A rail drop below the chip's brownout threshold holds the controller in reset and restarts it",
           "[CTL-013][TST-017][SIG-022][CTL-012]") {
     // The threshold comes from NativeRuntimeConfig (the chip's brownout_threshold); 2.0 V is the placeholder chip's

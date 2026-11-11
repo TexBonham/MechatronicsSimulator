@@ -64,8 +64,7 @@ D_d = D / c^2, `eq_data[0]` = rest c - qvel h, d = clamp(Z / (1 + Z), 1e-4, 400 
 envelope Z <= 400, beyond it `AdapterError` (PHY-034; past the clamp backward Euler is lost and from Z ~ 535 the
 shifted-rest map diverges). The result is backward Euler, the spring and damper at the step's end state,
 (m + D_d h + K_d h^2) a = F - D_d v - K_d (q + v h - rest_d); the read-back `efc_force` is K (rest - q') - D v'. Static sag and steady lag (behind the same step's rest)
-exact. Brief M2-C2: the old start-state spring (eq_data = rest c, d = 1 - 1 / (K_d A0 h^2)) left a stepper's rest at
-theta + omega h standing omega h ahead of the joint, so its braking drive drove G10's x axis to 0.78 m/s under slip.
+exact.
 Derivation above `apply_drives`.
 
 ## Index spaces (neutral file order)
@@ -75,19 +74,26 @@ each revolute, prismatic and planar DOF, then lumped-member nodes root to tip. T
 and loads are bodies; mass change rescales inertia and reruns `mj_setConst` on scratch data; only `mechsim:payloads`
 bodies release or re-attach (no ropes).
 
-## Section index, `src/mujoco_adapter.cpp`
+## Section index
 
-| Section | Line |
-|---|---|
-| Supported elements | 35 |
-| Helpers | 61 |
-| Engine | 310 |
-| Element maps | 354 |
-| Shafts | 532 |
-| Outputs | 583 |
-| Inputs | 807 |
-| Adapter | 940 |
-| Mid-run changes | 1085 |
+| Section | File | Line |
+|---|---|---|
+| Supported elements | src/mujoco_adapter.cpp | 35 |
+| End supported elements | src/mujoco_adapter.cpp | 59 |
+| Helpers | src/mujoco_adapter.cpp | 61 |
+| Engine | src/mujoco_adapter.cpp | 313 |
+| Element maps | src/mujoco_adapter.cpp | 357 |
+| Shafts | src/mujoco_adapter.cpp | 535 |
+| Outputs | src/mujoco_adapter.cpp | 586 |
+| Inputs | src/mujoco_adapter.cpp | 810 |
+| Adapter | src/mujoco_adapter.cpp | 944 |
+| Mid-run changes | src/mujoco_adapter.cpp | 1089 |
+| Fixtures and helpers | tests/test_mujoco_adapter.cpp | 24 |
+| Shaft torque | tests/test_mujoco_adapter.cpp | 470 |
+| Joint drive runs | tests/test_mujoco_adapter.cpp | 650 |
+| Faults: slip, backlash, payload (PHY-006) | tests/test_mujoco_adapter.cpp | 837 |
+| Payload hold and coast | tests/test_mujoco_adapter.cpp | 990 |
+| Implicit drive under slip and braking (brief M2-C2) | tests/test_mujoco_adapter.cpp | 1138 |
 
 ## Build notes
 

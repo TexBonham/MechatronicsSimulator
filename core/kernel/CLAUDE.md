@@ -59,8 +59,8 @@ physics step, last, stamped at the step's end.
 
 ## `tests/test_cosim_kernel.cpp` lines
 
-Ordering and rates 108; coupling 325; end conditions 449; config errors 550; faults 589; seeds and
-determinism 714; streaming and triggers 822.
+Ordering and rates 110; coupling 327; end conditions 451; config errors 552; faults 591; seeds and
+determinism 716; streaming and triggers 824.
 
 ## Scheduled physics faults (KER-023, `PhysicsParty`)
 
@@ -80,6 +80,12 @@ transmission i`, `payload i mass m` / `carrier b` / `released`) on the first row
 Each party steps on its own period boundaries; its outputs hold between its steps; end checks at physics
 boundaries (`tests/test_physics_party.cpp`, 1 kHz physics with a 500 Hz controller). Gantry: equal rates.
 
-## Open
+## Section index
 
-KER-023 rule confirmed by the owner 2026-11-05.
+| Section | File | Line |
+|---|---|---|
+| Fixtures | tests/test_physics_party.cpp | 29 |
+| Exchange and config errors | tests/test_physics_party.cpp | 99 |
+| Scheduling (KER-023) | tests/test_physics_party.cpp | 263 |
+| Fault fixtures | tests/test_physics_party.cpp | 315 |
+| Scheduled faults | tests/test_physics_party.cpp | 365 |

@@ -47,6 +47,7 @@ using kernel::CouplingValue;
 using kernel::make_payload;
 using kernel::PayloadPtr;
 
+// ===== Parameter readers ===================================================
 template <typename T>
 const T* payload_if(const PayloadPtr& payload) {
     const auto* typed = dynamic_cast<const kernel::TypedPayload<T>*>(payload.get());
@@ -114,6 +115,7 @@ void check_known(const std::string& type, const py::dict& params, const std::vec
 
 }  // namespace
 
+// ===== Coupling values =====================================================
 py::object coupling_to_python(const CouplingValue& value) {
     if (std::holds_alternative<std::monostate>(value)) {
         return py::none();
@@ -190,6 +192,7 @@ CouplingValue coupling_from_python(const py::handle& value) {
                          "PinOutputs, OperatorCommands, dict[str, float] or a non-empty list of PowerRail");
 }
 
+// ===== Signal components ===================================================
 std::unique_ptr<signals::SignalComponent> make_signal_component(const std::string& type, const std::string& instance,
                                                                 const py::dict& params) {
     if (type == "limit_switch") {
@@ -342,6 +345,7 @@ std::unique_ptr<signals::SignalComponent> make_signal_component(const std::strin
                                 "load_cell_amplifier, power_supply, step_dir_driver, stepper_behavioral, watchdog");
 }
 
+// ===== Module binding ======================================================
 void bind_cosim(py::module_& m) {
     py::class_<kernel::CouplingReader>(m, "CouplingReader", "A party's read view of its consumed names (KER-008).")
         .def("value", [](const kernel::CouplingReader& r, const std::string& name) {
