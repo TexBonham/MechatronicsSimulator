@@ -27,3 +27,4 @@ type live in the root `CLAUDE.md` dispatch table once measured.
 | 2026-11-10 | M2-A1 re-review | general-purpose (fable), resumed | ~14K | 3 calls; accept |
 | 2026-11-10 | M2-D stage landed: merge wip/04-d, suite file in the invariant tier and YAML hook, full suite 3391 passed; E backed out to land with X1 (unbound E-stop status channel faults the firmware) | inline | ~25K | coordinator |
 | 2026-11-10 | M2-W2: native runtime on Windows (CreateProcess, LoadLibrary), INV-020, cpp and python green on windows-2022 twice (wip/04-w 12a171c) | general-purpose (opus), resumed | ~53K | 37 calls total for W and W2, 58 min |
+| 2026-11-10 | Invariant audit: W and W2 | invariant-auditor (sonnet) | 31K | 4 calls; clean, two style minors |
