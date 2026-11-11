@@ -50,7 +50,7 @@ is in the gate report. Worktrees of the round were removed; their `wip/04-*` bra
 | 32 | C2 and G10: the gantry's encoders sense the axis joints (frame side; the inputs record says so), not the motor shafts, so belt slip and stall both show as a step-count versus encoder mismatch. Design change in X4. | frame side | confirmed 2026-11-11 |
 | 33 | C2 (PHY-034): the bridge applies each joint drive as exact backward Euler (`eq_data = rest c - qvel h`, `d = Z / (1 + Z)`, `Z = (K_d h^2 + D_d h) A0`), consistent with the stepper's end-of-tick rests; this changes milestone 1 drive behaviour (the reference tier and the G1 to G4 baselines are re-validated at the gate). The brake slip phase is a soft slip drive (`K_s = 1e-5 K_b`). | adopted | confirmed 2026-11-11 |
 | 34 | Gate review: ACC-038 (stepper pull-out versus the published curve) is M2-tagged but was not in the plan's scope and stays a strict-xfail stub; re-tag to M3 with brief P's engine work, or keep and note the omission. | re-tag M3 | confirmed 2026-11-11 |
-| 35 | X7 (G6): with the 10 lb rated load and the NEMA 23-class placeholder motor on a rigid belt, the load cell overshoots about 20 percent at the start of a lift and trips the two-tick overload filter before the real mass step. The amplifier's placeholder bandwidth is 2 Hz (gantry team owes the real filter or overload rule), the firmware filter stays, and G6's bound is derived with the detection latency included. | as stated | coordinator ruling, for confirmation |
+| 35 | X7 (G6): with the 10 lb rated load and the NEMA 23-class placeholder motor on a rigid belt, the load cell overshoots about 20 percent at the start of a lift and trips the two-tick overload filter before the real mass step. The amplifier's placeholder bandwidth is 2 Hz (gantry team owes the real filter or overload rule), the firmware filter stays, and G6's bound is derived with the detection latency included. | as stated | confirmed 2026-11-11 (option 1 now; belt compliance in the model in milestone 3, G6 re-derived then) |
 | 6 | Placeholders set by the coordinator for the gantry team's slots: overload limit rated + 15 percent (3.45 kg), heartbeat period 10 ms, watchdog timeout 50 ms, brownout threshold 2.0 V, encoder mismatch threshold 2 mm, ADC 12 bits at 3.3 V | as listed | confirmed 2026-11-11 |## Milestone 2 gate report (coordinator, 2026-11-11)
 
 Fable gate review at f01c3a7: pass with owner confirmations. Reference tier 27 of 27 C++ and 9 Python, no
@@ -67,6 +67,9 @@ Owner confirmations needed (change milestone 1 behaviour or the architecture): r
 
 Carry to milestone 4: I2C and SPI peripheral modes in the chip vocabulary, the signal layer and the emulated
 peripherals (ruling 2), after which the IMU and any serial sensor drop their analog stand-in.
+
+Carry to milestone 3: transmission (belt) compliance in the physics model so the load-cell transient at lift start is
+realistic (ruling 35, owner 2026-11-11); G6's amplifier placeholder and bound are re-derived then.
 
 Carry to milestone 3 by ID: ENG-016 to ENG-021, ENG-035 (engine side), LIB-009, ACC-038 (ruling 34), PHY-020,
 PHY-021, the playwright client test (ruling 21), the limit handling for the real 8 mm lead (ruling 26), LIB-017
