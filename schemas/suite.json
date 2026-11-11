@@ -1,0 +1,76 @@
+{
+  "$defs": {
+    "DesignRef": {
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "pattern": "^[a-z][a-z0-9_]*$",
+          "title": "Name",
+          "type": "string"
+        },
+        "version": {
+          "pattern": "^\\d+\\.\\d+\\.\\d+$",
+          "title": "Version",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "version"
+      ],
+      "title": "DesignRef",
+      "type": "object"
+    }
+  },
+  "$id": "suite.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "Root of `test_cases/<suite>/suite.yaml`: the cases of one suite and the regression baseline it is compared\nagainst (TST-008); paths are relative to the suite file.",
+  "properties": {
+    "baseline": {
+      "description": "the regression baseline the suite is diffed against (TST-008)",
+      "pattern": "^[A-Za-z0-9_.\\-]+(/[A-Za-z0-9_.\\-]+)*$",
+      "title": "Baseline",
+      "type": "string"
+    },
+    "cases": {
+      "description": "test case files, relative to the suite file",
+      "items": {
+        "pattern": "^[A-Za-z0-9_.\\-]+(/[A-Za-z0-9_.\\-]+)*$",
+        "type": "string"
+      },
+      "minItems": 1,
+      "title": "Cases",
+      "type": "array"
+    },
+    "design": {
+      "$ref": "#/$defs/DesignRef"
+    },
+    "name": {
+      "pattern": "^[a-z][a-z0-9_]*$",
+      "title": "Name",
+      "type": "string"
+    },
+    "note": {
+      "anyOf": [
+        {
+          "minLength": 1,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Note"
+    }
+  },
+  "required": [
+    "name",
+    "design",
+    "cases",
+    "baseline"
+  ],
+  "title": "SuiteFile",
+  "type": "object"
+}

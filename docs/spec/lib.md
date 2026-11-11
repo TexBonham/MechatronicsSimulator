@@ -71,6 +71,7 @@ proposed <value>)".
 | Fidelity tier names per component type | set per type in `mechsim/library/catalog/*.yaml` (phase 1 C2); new types name their own | library briefs, per type |
 | Rope parameters and model detail | not set | milestone 3 ADR (ruling P4) |
 | Datasheet curve source for each shipped stepper part | not set | owner |
+| One-run override and part substitution form (LIB-016, LIB-017) | `instance:<instance>.<parameter>` and `instance:<instance>.part` in `--set`, a case's `parameters`, sweeps and variations; checked by `Registry.parameter_override` and `Registry.substitute_part`; stored in the design instance's `overrides`/`part`, resolved to SI by the catalog; the shipped catalog has one stepper part, so a substitution needs a second part of the type | M2-D; second stepper part owed by the gantry team |
 
 ## Out of scope
 

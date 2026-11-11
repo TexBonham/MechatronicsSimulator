@@ -5,25 +5,32 @@ from __future__ import annotations
 import copy
 import functools
 import io
+import json
 from pathlib import Path
 from typing import Any
 
+import jsonschema
 import pytest
 from pydantic import ValidationError
 from ruamel.yaml import YAML
 
 from mechsim.design.schema import load_design, yaml_loader
 from mechsim.testing.schema import (
+    SUITE_SCHEMA_PATH,
     Case,
     CaseError,
     ControllerFreeze,
     PayloadChange,
     Quantity,
     SensorForced,
+    SuiteError,
     ValueCriterion,
     cross_check,
+    load_suite_file,
     load_test_case,
     parse_any_quantity,
+    suite_schema_text,
+    validate_suite_file,
     validate_test_case_file,
 )
 
@@ -944,7 +951,13 @@ def test_pendulum_criterion_joint_dimension_checked() -> None:
         {"check": "event", "event": "message:status", "expect": "present"},
         {"check": "event", "event": "state:ready", "expect": "absent", "window": {"start": "1 s"}},
         {"check": "no_motion", "actuators": ["x_motor", "y_motor"], "threshold": "1 mm"},
-        {"check": "no_overlap", "actuators": ["x_motor"]},
+        {
+            "check": "no_overlap",
+            "actuator": "x_motor",
+            "start_event": "event:motion_start",
+            "end_event": "event:motion_end",
+            "closed": True,
+        },
         {"check": "hold_band", "joints": ["x_axis", "lift_axis"], "band": "1 mm", "window": {"start": "1 s"}},
         {
             "check": "settle_time",
@@ -999,7 +1012,20 @@ def test_other_criterion_checks_accepted(item: dict[str, Any]) -> None:
         ({"check": "no_motion", "actuators": ["x_motor", "x_motor"], "threshold": "1 mm"}, "duplicate actuator"),
         ({"check": "no_motion", "actuators": ["x_motor"], "threshold": "0 mm"}, "threshold must be positive"),
         ({"check": "no_motion", "actuators": ["x_motor"]}, "threshold"),
-        ({"check": "no_overlap", "actuators": []}, "at least 1"),
+        ({"check": "no_overlap", "actuators": ["x_motor"]}, "actuator"),
+        (
+            {"check": "no_overlap", "actuator": "x_motor", "start_event": "event:go", "end_event": "event:go"},
+            "start_event and end_event are both 'event:go'",
+        ),
+        (
+            {"check": "no_overlap", "actuator": "x_motor", "start_event": "message:home", "end_event": "event:stop"},
+            "start_event 'message:home' must be an event: ref",
+        ),
+        (
+            {"check": "no_overlap", "actuator": "x_motor", "start_event": "event:go", "end_event": "state:ready"},
+            "end_event 'state:ready' must be an event: ref",
+        ),
+        ({"check": "no_overlap", "actuator": "x_motor", "start_event": "event:go"}, "end_event"),
         ({"check": "hold_band", "joints": [], "band": "1 mm"}, "at least 1"),
         ({"check": "hold_band", "joints": ["x_axis", "x_axis"], "band": "1 mm"}, "duplicate joint"),
         ({"check": "hold_band", "joints": ["x_axis"], "band": "0 mm"}, "band must be positive"),
@@ -1031,6 +1057,10 @@ def test_other_criterion_checks_rejected(item: dict[str, Any], fragment: str) ->
         ({"check": "event", "event": "message:done", "expect": "present"}, "unknown operator message 'done'"),
         ({"check": "no_motion", "actuators": ["z_motor"], "threshold": "1 mm"}, "unknown component instance 'z_motor'"),
         (
+            {"check": "no_overlap", "actuator": "z_motor", "start_event": "event:go", "end_event": "event:stop"},
+            "actuator: unknown component instance 'z_motor'",
+        ),
+        (
             {
                 "check": "interval",
                 "start_event": "message:x",
@@ -1051,6 +1081,13 @@ def test_controller_state_reference_needs_firmware() -> None:
     data = pendulum_case()
     data["criteria"].append({"name": "c", "check": "event", "event": "state:ready", "expect": "present"})
     cross_rejected(data, "controller state 'ready' needs a design with firmware")
+
+
+@pytest.mark.req("SCO-025")
+def test_firmware_event_reference_needs_firmware() -> None:
+    data = pendulum_case()
+    data["criteria"].append({"name": "c", "check": "event", "event": "event:motion_start", "expect": "present"})
+    cross_rejected(data, "firmware event 'motion_start' needs a design with firmware")
 
 
 @pytest.mark.req("TST-005")
@@ -1139,12 +1176,41 @@ def test_bad_sweeps_and_variations_rejected(sweeps: list[Any], variations: Any, 
         ("components.z_motor.part", "components has no item 'z_motor'"),
         ("components.x_motor.colour", "does not name a design field"),
         ("${unknown}", "undeclared open parameter ${unknown}"),
+        ("instance:z_motor.part", "unknown component instance 'z_motor'"),
     ],
 )
 def test_sweep_parameter_resolved_against_design(parameter: str, fragment: str) -> None:
     data = gantry_case()
     data["sweeps"] = [{"parameter": parameter, "values": ["a"]}]
     cross_rejected(data, fragment)
+
+
+@pytest.mark.req("LIB-016", "LIB-017")
+def test_instance_parameters_and_parts_are_addressable_by_sweeps_and_variations() -> None:
+    data = gantry_case()
+    data["sweeps"] = [
+        {"parameter": "instance:x_motor.part", "values": ["nema17_class_generic"]},
+        {"parameter": "instance:x_motor.holding_torque", "values": ["0.3 N*m", "0.5 N*m"]},
+    ]
+    data["variations"] = {
+        "count": 2,
+        "parameters": [
+            {"parameter": "instance:y_motor.rotor_inertia", "distribution": "normal", "spread": "1 g*cm**2"}
+        ],
+    }
+    assert [sweep.parameter for sweep in accepted(data).sweeps] == [
+        "instance:x_motor.part",
+        "instance:x_motor.holding_torque",
+    ]
+    assert check_errors(data) == []
+
+
+@pytest.mark.req("LIB-016")
+@pytest.mark.parametrize("parameter", ["instance:x_motor", "instance:x_motor.a.b", "instance:.part", "instance:X.part"])
+def test_malformed_instance_paths_rejected(parameter: str) -> None:
+    data = gantry_case()
+    data["sweeps"] = [{"parameter": parameter, "values": ["a"]}]
+    rejected(data, "parameter")
 
 
 @pytest.mark.req("TST-009")
@@ -1159,6 +1225,76 @@ def test_missing_baseline_file_rejected(tmp_path: Path) -> None:
     assert errors == [f"{path}: baseline: missing baseline file 'baseline.yaml'"]
     data["baseline"] = "../baseline.yaml"
     rejected(data, "may not leave its folder")
+
+
+# ===== Suite file ======================================================
+
+
+def _suite_file(tmp_path: Path, data: dict[str, Any], files: tuple[str, ...] = ("G1.yaml", "baseline.yaml")) -> Path:
+    for name in files:
+        (tmp_path / name).write_text("x: 1\n", encoding="utf-8")
+    path = tmp_path / "suite.yaml"
+    stream = io.StringIO()
+    yaml_loader().dump(data, stream)
+    path.write_text(stream.getvalue(), encoding="utf-8")
+    return path
+
+
+def _suite_data(**fields: Any) -> dict[str, Any]:
+    data: dict[str, Any] = {
+        "name": "gantry",
+        "design": {"name": "gantry", "version": "0.1.0"},
+        "cases": ["G1.yaml"],
+        "baseline": "baseline.yaml",
+    }
+    data.update(fields)
+    return data
+
+
+@pytest.mark.req("TST-008")
+def test_the_shipped_suite_file_names_its_cases_and_baseline() -> None:
+    path = ROOT / "test_cases" / "gantry" / "suite.yaml"
+    suite = load_suite_file(path)
+    assert suite.cases == ["G1.yaml", "G2.yaml", "G3.yaml", "G4.yaml"]
+    assert suite.baseline == "baseline.yaml"
+    assert suite.design.version == load_design(GANTRY).version
+    assert SUITE_SCHEMA_PATH.read_text(encoding="utf-8") == suite_schema_text()
+    schema = json.loads(SUITE_SCHEMA_PATH.read_text(encoding="utf-8"))
+    jsonschema.Draft202012Validator.check_schema(schema)
+    assert list(jsonschema.Draft202012Validator(schema).iter_errors(yaml_loader().load(path.read_text("utf-8")))) == []
+
+
+@pytest.mark.req("TST-008")
+@pytest.mark.parametrize(
+    ("fields", "fragment"),
+    [
+        ({"baseline": None}, "baseline"),
+        ({"cases": []}, "at least 1"),
+        ({"cases": ["G1.yaml", "G1.yaml"]}, "duplicate case file 'G1.yaml'"),
+        ({"cases": ["../G1.yaml"]}, "may not leave its folder"),
+        ({"note": ""}, "at least 1 character"),
+        ({"extra": 1}, "extra"),
+        ({"design": {"name": "gantry"}}, "version"),
+    ],
+)
+def test_bad_suite_files_rejected(tmp_path: Path, fields: dict[str, Any], fragment: str) -> None:
+    data = _suite_data(**fields)
+    data = {key: item for key, item in data.items() if item is not None}
+    errors = validate_suite_file(_suite_file(tmp_path, data))
+    assert any(fragment in message for message in errors), errors
+    with pytest.raises(SuiteError):
+        load_suite_file(tmp_path / "suite.yaml")
+
+
+@pytest.mark.req("TST-008")
+def test_a_suite_file_naming_missing_files_is_rejected(tmp_path: Path) -> None:
+    path = _suite_file(tmp_path, _suite_data(cases=["G1.yaml", "G2.yaml"]), files=("G1.yaml",))
+    assert validate_suite_file(path) == [
+        f"{path}: cases[1]: missing test case file 'G2.yaml'",
+        f"{path}: baseline: missing baseline file 'baseline.yaml'",
+    ]
+    (tmp_path / "suite.yaml").write_text("name: [\n", encoding="utf-8")
+    assert validate_suite_file(path)[0].startswith(f"{path}: YAML parse error")
 
 
 # ===== Files ===========================================================

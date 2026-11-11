@@ -21,16 +21,17 @@ from mechsim.library.schema import CatalogError, load_catalog_file
 from mechsim.materials.schema import MaterialError, load_material_file
 from mechsim.physics.neutral import from_yaml
 from mechsim.schema_base import format_errors
-from mechsim.scoring.score import SuiteScore, report_text, suite_baseline
+from mechsim.scoring.score import SuiteScore, diff_sections, report_markdown, report_text, suite_baseline
 from mechsim.testing.baseline import BaselineDiff, baseline_text, validate_baseline_file
 from mechsim.testing.driver import ArchiveReader
 from mechsim.testing.runner import Services, run_case, run_suite
-from mechsim.testing.schema import DESIGNS_ROOT, ROOT, validate_test_case_file
+from mechsim.testing.schema import DESIGNS_ROOT, ROOT, validate_suite_file, validate_test_case_file
 
 MATERIALS_DIR = (ROOT / "mechsim" / "materials" / "data").resolve()
 EXIT_PASS = 0
 EXIT_FAIL = 1
 EXIT_ERROR = 2
+SET_HELP = "bind an open parameter, or override instance:<name>.<parameter> or instance:<name>.part"
 _STATUS_EXIT = {"pass": EXIT_PASS, "fail": EXIT_FAIL, "error": EXIT_ERROR}
 
 
@@ -63,7 +64,7 @@ def default_services() -> CliServices:
 
 
 def file_kind(path: Path) -> str | None:
-    """design, case, catalog, chip, baseline, material or physics model; None when it is none of them. Chips,
+    """design, case, suite, catalog, chip, baseline, material or physics model; None when it is none of them. Chips,
     materials and physics models by location and name, the others by their top-level keys."""
     if path.name == "chip.yaml":
         return "chip"
@@ -79,6 +80,8 @@ def file_kind(path: Path) -> str | None:
         return "case"
     if {"suite", "entries"} <= keys:
         return "baseline"
+    if {"cases", "baseline"} <= keys:
+        return "suite"
     if {"types", "parts"} <= keys:
         return "catalog"
     if {"bodies", "joints"} <= keys:
@@ -97,6 +100,8 @@ def validate_file(path: Path, designs_root: Path) -> tuple[str | None, list[str]
         return kind, validate_test_case_file(path, designs_root)
     if kind == "baseline":
         return kind, validate_baseline_file(path)
+    if kind == "suite":
+        return kind, validate_suite_file(path)
     if kind == "design":
         return kind, validate_design_file(path)
     if kind == "material":
@@ -117,7 +122,7 @@ def validate_file(path: Path, designs_root: Path) -> tuple[str | None, list[str]
         except CatalogError as error:
             return kind, [str(error)]
         return kind, []
-    return None, [f"{path}: not a design, test case, catalog, chip, baseline, material or physics model file"]
+    return None, [f"{path}: not a design, test case, suite, catalog, chip, baseline, material or physics model file"]
 
 
 def _validate(paths: Sequence[Path], services: CliServices, out: TextIO, err: TextIO) -> int:
@@ -185,7 +190,7 @@ def _run(arguments: argparse.Namespace, services: CliServices, out: TextIO) -> i
 
 
 def _suite(arguments: argparse.Namespace, services: CliServices, out: TextIO, err: TextIO) -> int:
-    run = run_suite(arguments.directory, _runner(services, arguments.design), _bindings(arguments.set), arguments.out)
+    run = run_suite(arguments.suite, _runner(services, arguments.design), _bindings(arguments.set), arguments.out)
     text = report_text(run.score)
     out.write(text)
     if run.diff is not None:
@@ -194,6 +199,9 @@ def _suite(arguments: argparse.Namespace, services: CliServices, out: TextIO, er
     report = arguments.out / f"{run.score.name}_report.txt"
     report.write_text(text, encoding="utf-8")
     out.write(f"report: {report}\n")
+    if arguments.report is not None:
+        arguments.report.write_text(report_markdown(run.score, run.diff), encoding="utf-8")
+        out.write(f"shareable report: {arguments.report}\n")
     if arguments.write_baseline is not None:
         arguments.write_baseline.write_text(baseline_text(suite_baseline(run.score)), encoding="utf-8")
         out.write(f"baseline: {arguments.write_baseline}\n")
@@ -205,16 +213,11 @@ def _suite(arguments: argparse.Namespace, services: CliServices, out: TextIO, er
 
 
 def _diff_text(diff: BaselineDiff) -> str:
+    """Newly passing and newly failing first, then unchanged, missing, added (SCO-010)."""
     lines = ["Regression diff against the baseline:"]
-    for title, changes in (
-        ("newly passing", diff.newly_passing),
-        ("newly failing", diff.newly_failing),
-        ("missing", diff.missing),
-        ("added", diff.added),
-    ):
+    for title, changes in diff_sections(diff):
         for change in changes:
             lines.append(f"  {title}: {change.case}/{change.criterion} ({change.old} -> {change.new})")
-    lines.append(f"  unchanged: {len(diff.unchanged)}")
     return "\n".join(lines) + "\n"
 
 
@@ -250,15 +253,16 @@ def build_parser() -> argparse.ArgumentParser:
     validate.add_argument("paths", type=Path, nargs="+")
     run = commands.add_parser("run", help="run one test case and write its archive")
     run.add_argument("case", type=Path)
-    run.add_argument("--set", action="append", default=[], metavar="NAME=VALUE", help="bind an open parameter")
+    run.add_argument("--set", action="append", default=[], metavar="NAME=VALUE", help=SET_HELP)
     run.add_argument("--out", type=Path, default=Path("runs"), help="archive folder (default ./runs)")
     run.add_argument("--dry", action="store_true", help="configure and schedule without running")
     run.add_argument("--design", type=Path, default=None, help="the case's design file, <designs>/<name>/design.yaml")
-    suite = commands.add_parser("suite", help="run every case of a suite folder and write its report")
-    suite.add_argument("directory", type=Path)
-    suite.add_argument("--set", action="append", default=[], metavar="NAME=VALUE", help="bind an open parameter")
+    suite = commands.add_parser("suite", help="run every case of a suite file or folder and write its report")
+    suite.add_argument("suite", type=Path, help="a suite.yaml, or a suite folder")
+    suite.add_argument("--set", action="append", default=[], metavar="NAME=VALUE", help=SET_HELP)
     suite.add_argument("--out", type=Path, default=Path("runs"), help="archive and report folder (default ./runs)")
     suite.add_argument("--write-baseline", type=Path, default=None, help="write the summary as a baseline file")
+    suite.add_argument("--report", type=Path, default=None, help="write the shareable Markdown report here")
     suite.add_argument("--design", type=Path, default=None, help="the cases' design file, <designs>/<name>/design.yaml")
     replay = commands.add_parser("replay", help="print a run's event timeline from its archive")
     replay.add_argument("archive", type=Path)

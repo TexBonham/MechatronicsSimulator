@@ -9,6 +9,7 @@ Component types and shipped catalog (LIB). Schema `schemas/component.json` from 
 |---|---|
 | `schema.py` | pydantic models, `load_catalog_file`, `--write-schema` |
 | `catalog/*.yaml` | One file per type: `types:` plus `parts:`; hook validates against `component.json` |
+| `registry.py` | `Registry` (types and parts merged from every catalog file), `load_registry(dir)`, `default_registry()`; `resolve_part(name, overrides)`; `parameter_override(type, parameter, value)` (LIB-016: dimension or flag checked, returns the value to store) and `substitute_part(type, part)` (LIB-017: part exists and is of that type), both raise `RegistryError` |
 
 ## Model
 

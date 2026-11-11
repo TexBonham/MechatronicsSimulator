@@ -116,3 +116,33 @@ def test_unknown_lookup_rejected(lookup: str) -> None:
     registry = load_registry()
     with pytest.raises(RegistryError, match="no "):
         getattr(registry, lookup)("ghost")
+
+
+@pytest.mark.req("LIB-016")
+def test_a_parameter_override_is_dimension_checked_against_its_type() -> None:
+    registry = default_registry()
+    assert registry.parameter_override("stepper_behavioral", "rotor_inertia", "60 g*cm**2") == "60 g*cm**2"
+    assert registry.parameter_override("estop_relay", "manual_reset", "true") is True
+    assert registry.parameter_override("estop_relay", "manual_reset", "false") is False
+    with pytest.raises(RegistryError, match=r"stepper_behavioral\.rotor_inertia \(\[mass\] \* \[length\] \*\* 2\)"):
+        registry.parameter_override("stepper_behavioral", "rotor_inertia", "60 g")
+    with pytest.raises(RegistryError, match="must start with a number"):
+        registry.parameter_override("stepper_behavioral", "rotor_inertia", "heavy")
+    with pytest.raises(RegistryError, match="is a flag: give true or false, got 'True'"):
+        registry.parameter_override("estop_relay", "manual_reset", "True")
+    with pytest.raises(RegistryError, match="component type 'stepper_behavioral' has no parameter 'colour'"):
+        registry.parameter_override("stepper_behavioral", "colour", "red")
+    with pytest.raises(RegistryError, match="no component type 'warp_drive'"):
+        registry.parameter_override("warp_drive", "mass", "1 kg")
+
+
+@pytest.mark.req("LIB-017")
+def test_a_part_substitutes_only_for_its_own_type() -> None:
+    registry = default_registry()
+    assert registry.substitute_part("stepper_behavioral", "nema17_class_generic").type == "stepper_behavioral"
+    with pytest.raises(RegistryError, match="part 'tr8x8_generic' is a 'lead_screw', not a 'stepper_behavioral'"):
+        registry.substitute_part("stepper_behavioral", "tr8x8_generic")
+    with pytest.raises(
+        RegistryError, match="no catalog part 'nema99' in the catalog \\(instance type 'stepper_behavioral'\\)"
+    ):
+        registry.substitute_part("stepper_behavioral", "nema99")

@@ -74,6 +74,7 @@ def test_validate_tells_the_kinds_apart() -> None:
     assert kinds["designs/pendulum/design.yaml"] == "design"
     assert kinds["test_cases/gantry/G3.yaml"] == "case"
     assert kinds["test_cases/gantry/baseline.yaml"] == "baseline"
+    assert kinds["test_cases/gantry/suite.yaml"] == "suite"
     assert kinds["chips/stm32_placeholder/chip.yaml"] == "chip"
     assert kinds["mechsim/library/catalog/limit_switch.yaml"] == "catalog"
     assert kinds["mechsim/materials/data/abs_printed.yaml"] == "material"
@@ -105,7 +106,7 @@ def test_validate_an_invalid_physics_model_fails(tmp_path: Path) -> None:
 def test_validate_a_folder_runs_nothing() -> None:
     code, out, _ = call(["validate", str(ROOT / "test_cases")])
     assert code == EXIT_PASS
-    assert out.count(": valid ") == 6
+    assert out.count(": valid ") == 7
 
 
 @pytest.mark.req("TST-030")
@@ -224,7 +225,44 @@ def test_suite_prints_the_regression_diff_and_fails_on_a_failing_case(tmp_path: 
     )
     code, out, _ = call(["suite", str(suite), "--set", "link_mass=1 kg", "--out", str(tmp_path / "runs")], services)
     assert code == EXIT_FAIL
-    assert "Regression diff against the baseline:\n  unchanged: 1\n" in out
+    assert "Regression diff against the baseline:\n  unchanged: M1/final_angle (not_run -> fail)\n" in out
+
+
+@pytest.mark.req("SCO-009", "SCO-010", "SCO-011", "SCO-012", "TST-008")
+def test_suite_file_run_prints_the_diff_and_writes_the_report_and_next_baseline(tmp_path: Path) -> None:
+    services = cli_services(tmp_path)
+    suite = tmp_path / "demo"
+    write_case(suite, MACHINE_CASE)
+    write_case(suite, MACHINE_CASE.replace("id: M1", "id: M2"), "M2.yaml")
+    (suite / "baseline.yaml").write_text(unrun_baseline("nightly", ["M1", "M3"]), encoding="utf-8")
+    (suite / "suite.yaml").write_text(
+        "name: nightly\ndesign:\n  name: machine\n  version: 0.1.0\ncases: [M1.yaml, M2.yaml]\n"
+        "baseline: baseline.yaml\n",
+        encoding="utf-8",
+    )
+    code, _, err = call(["validate", str(suite / "suite.yaml")])
+    assert (code, err) == (EXIT_PASS, "")
+    report = tmp_path / "report.md"
+    baseline = tmp_path / "next.yaml"
+    argv = ["suite", str(suite / "suite.yaml"), "--set", "link_mass=1 kg", "--out", str(tmp_path / "runs")]
+    argv += ["--report", str(report), "--write-baseline", str(baseline)]
+    code, out, _ = call(argv, services)
+    assert code == EXIT_PASS
+    assert (
+        "Regression diff against the baseline:\n"
+        "  newly passing: M1/final_angle (not_run -> pass)\n"
+        "  missing: M3/final_angle (not_run -> None)\n"
+        "  added: M2/final_angle (None -> pass)\n"
+    ) in out
+    text = report.read_text(encoding="utf-8")
+    assert text.startswith("# Suite nightly: PASS\n")
+    assert "### Newly passing (1)\n\n- M1 / final_angle: not_run -> pass\n" in text
+    first = baseline.read_text(encoding="utf-8")
+    code, _, _ = call(["validate", str(baseline)])
+    assert code == EXIT_PASS
+    call(argv, services)
+    assert baseline.read_text(encoding="utf-8") == first
+    assert report.read_text(encoding="utf-8") == text
 
 
 def test_suite_with_no_cases_is_an_error(tmp_path: Path) -> None:

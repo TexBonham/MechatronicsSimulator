@@ -32,17 +32,19 @@ from mechsim.design.schema import (
     open_name,
     yaml_loader,
 )
+from mechsim.library.registry import Registry, RegistryError, default_registry
 from mechsim.schema_base import format_errors
 from mechsim.scoring.score import (
     CaseScore,
     ScoringError,
     SuiteScore,
     not_run,
+    regression_diff,
     run_failed,
     score_run,
     suite_baseline,
 )
-from mechsim.testing.baseline import Baseline, BaselineDiff, RunIdentity, diff_baselines, load_baseline
+from mechsim.testing.baseline import Baseline, BaselineDiff, BaselineError, RunIdentity, load_baseline
 from mechsim.testing.driver import (
     Archiver,
     Builder,
@@ -58,10 +60,15 @@ from mechsim.testing.driver import (
 )
 from mechsim.testing.schema import (
     DESIGNS_ROOT,
+    INSTANCE_PREFIX,
+    SUITE_FILE,
     Case,
     DesignRef,
     Quantity,
+    SuiteError,
+    SuiteFile,
     cross_check,
+    load_suite_file,
 )
 from mechsim.units import UnitError, parse_quantity
 
@@ -147,9 +154,12 @@ def _validate_case(data: Any, path: Path) -> Case:
         raise RunnerError("\n".join(f"{path}: {message}" for message in format_errors(error))) from error
 
 
-def _validate_design(data: Any, path: Path) -> Design:
+def _validate_design(data: Any, path: Path, registry: Registry | None = None) -> Design:
+    context: dict[str, Any] = {"base": path.parent}
+    if registry is not None:
+        context["registry"] = registry
     try:
-        return Design.model_validate(data, context={"base": path.parent})
+        return Design.model_validate(data, context=context)
     except ValidationError as error:
         raise RunnerError("\n".join(f"{path}: {message}" for message in format_errors(error))) from error
 
@@ -211,6 +221,53 @@ def resolve_open_values(
     return values
 
 
+def split_instance_values(values: Mapping[str, str]) -> tuple[dict[str, str], dict[str, str]]:
+    """Open-parameter values and `instance:<name>.<field>` overrides, apart."""
+    plain: dict[str, str] = {}
+    instances: dict[str, str] = {}
+    for name, value in values.items():
+        if name.startswith(INSTANCE_PREFIX):
+            instances[name] = value
+        else:
+            plain[name] = value
+    return plain, instances
+
+
+def apply_instance_overrides(
+    raw_design: Any, design: Design, overrides: Mapping[str, str], registry: Registry
+) -> list[str]:
+    """Apply `instance:<name>.<parameter>=<quantity>` (one catalog parameter for this run, LIB-016) and
+    `instance:<name>.part=<part>` (a part of the same type, LIB-017) to the design's plain data, before the builder.
+    Returns every problem; the design data is changed only for overrides that check."""
+    problems: list[str] = []
+    components = {component.name: component for component in design.components}
+    entries: dict[str, Any] = {}
+    for entry in raw_design.get("components", []):
+        if isinstance(entry, dict):
+            entries[str(entry.get("name"))] = entry
+    for key in sorted(overrides, key=lambda item: (item.rpartition(".")[2] != "part", item)):
+        value = overrides[key]
+        name, separator, field_name = key.removeprefix(INSTANCE_PREFIX).partition(".")
+        if separator == "" or name == "" or field_name == "" or "." in field_name:
+            problems.append(f"{key}: expected instance:<name>.<parameter> or instance:<name>.part")
+            continue
+        component = components.get(name)
+        if component is None or name not in entries:
+            problems.append(f"{key}: unknown component instance {name!r}")
+            continue
+        try:
+            if field_name == "part":
+                registry.substitute_part(component.type, value)
+                entries[name]["part"] = value
+            else:
+                stored = registry.parameter_override(component.type, field_name, value)
+                overrides_data = entries[name].setdefault("overrides", {})
+                overrides_data[field_name] = stored
+        except RegistryError as error:
+            problems.append(f"{key}: instance {name!r}: {error}")
+    return problems
+
+
 def _binding_text(value: str | dict[str, str]) -> str:
     if isinstance(value, str):
         return value
@@ -222,10 +279,13 @@ def prepare(
     bindings: Mapping[str, str] | None = None,
     designs_root: Path = DESIGNS_ROOT,
     design_values: Mapping[str, str] | None = None,
+    registry: Registry | None = None,
 ) -> Prepared:
     """Load and validate the case (TST-009), check the design version (TST-011) and the case against the design,
-    then resolve every `${}` in both from `bindings`; anything left unresolved is an error."""
-    given: dict[str, str] = dict(bindings or {})
+    then resolve every `${}` in both from `bindings`; anything left unresolved is an error. `instance:` entries of
+    `bindings` and the case's `parameters` override catalog parameters and parts (LIB-016, LIB-017), `bindings`
+    first; each applied override is listed in the prepared bindings, so the archive records it."""
+    given, given_instances = split_instance_values(bindings or {})
     raw_case = _plain(case_path, "test case")
     written = _validate_case(raw_case, case_path)
     design_path = designs_root / written.design.name / "design.yaml"
@@ -233,7 +293,7 @@ def prepare(
         raise RunnerError(f"{case_path}: design.name: no design file {design_path}")
     raw_design = _plain(design_path, "design")
     try:
-        design_written = _validate_design(raw_design, design_path)
+        design_written = _validate_design(raw_design, design_path, registry)
     except RunnerError as error:
         raise RunnerError(f"{case_path}: design: the design does not load: {error}") from error
     if written.design.version != design_written.version:
@@ -247,8 +307,9 @@ def prepare(
     declared = {parameter.name: parameter for parameter in design_written.open_parameters}
     for parameter in written.open_parameters:
         declared[parameter.name] = parameter
+    case_values, case_instances = split_instance_values(written.parameters)
     problems: list[str] = []
-    for source, values in (("parameters", written.parameters), ("binding", given)):
+    for source, values in (("parameters", case_values), ("binding", given)):
         for name in sorted(values):
             if name not in declared:
                 problems.append(f"{source} {name!r}: not an open parameter of the design or the case")
@@ -261,17 +322,25 @@ def prepare(
                     problems.append(f"{source} {name!r}: {error}")
     if len(problems) > 0:
         raise RunnerError("\n".join(f"{case_path}: {message}" for message in problems))
-    resolved = resolve_open_values(declared, written.parameters, given)
+    resolved = resolve_open_values(declared, case_values, given)
     given = {name: _binding_text(value) for name, value in resolved.items()}
     for path, value in (design_values or {}).items():
         set_design_path(raw_design, path, value)
+    instance_values = {**case_instances, **given_instances}
+    if len(instance_values) > 0:
+        if registry is None:
+            registry = default_registry()
+        problems = apply_instance_overrides(raw_design, design_written, instance_values, registry)
+        if len(problems) > 0:
+            raise RunnerError("\n".join(f"{case_path}: {message}" for message in problems))
+        given.update(instance_values)
     resolved_design_data = _substitute(raw_design, resolved, frozenset({"open_parameters"}))
     resolved_case_data = _substitute(
         raw_case, resolved, frozenset({"open_parameters", "parameters", "sweeps", "variations"})
     )
     resolved_case_data["open_parameters"] = []
     resolved_case_data["parameters"] = {}
-    design = _validate_design(resolved_design_data, design_path)
+    design = _validate_design(resolved_design_data, design_path, registry)
     case = _validate_case(resolved_case_data, case_path)
     unresolved = [
         f"{path}: unresolved {value}"
@@ -435,6 +504,7 @@ class Services:
     builder: Builder
     archiver: Archiver | None = None
     designs_root: Path = DESIGNS_ROOT
+    registry: Registry | None = None
 
 
 def run_id(case: Case, sweep_index: tuple[int, int] | None) -> str:
@@ -461,10 +531,12 @@ def run_case(
         name = open_name(sweep[0])
         if name is not None:
             values[name] = sweep[1]
+        elif sweep[0].startswith(INSTANCE_PREFIX):
+            values[sweep[0]] = sweep[1]
         else:
             design_values[sweep[0]] = sweep[1]
     try:
-        prepared = prepare(case_path, values, services.designs_root, design_values)
+        prepared = prepare(case_path, values, services.designs_root, design_values, services.registry)
     except (RunnerError, DesignError) as error:
         return RunResult(_unrun(case_path, str(error), sweep))
     case = prepared.case
@@ -593,58 +665,108 @@ def case_files(directory: Path) -> list[Path]:
     return [path for _, path in sorted(found)]
 
 
+def suite_cases(path: Path) -> tuple[str, list[Path], SuiteFile | None]:
+    """The suite name and case files of a suite file, or of a directory: its `suite.yaml` when it has one, else every
+    case file in it (milestone 1 form, the baseline named by the cases)."""
+    suite_path = path
+    if path.is_dir():
+        suite_path = path / SUITE_FILE
+        if not suite_path.is_file():
+            return path.name, case_files(path), None
+    try:
+        suite = load_suite_file(suite_path)
+    except SuiteError as error:
+        raise RunnerError(str(error)) from error
+    return suite.name, [suite_path.parent / case for case in suite.cases], suite
+
+
 def run_suite(
-    directory: Path,
+    path: Path,
     services: Services,
     bindings: Mapping[str, str] | None = None,
     out_dir: Path | None = None,
 ) -> SuiteRun:
     """Every case of the suite in one batch (TST-024), plus each case's sweep runs; the summary goes to scoring with
-    the suite's baseline for the regression diff (TST-027)."""
+    the suite's baseline for the regression diff (TST-027). `path` is a suite file (TST-008) or a suite folder."""
+    try:
+        name, paths, suite = suite_cases(path)
+    except RunnerError as error:
+        empty = SuiteScore(path.stem, DesignRef(name="unknown", version="0.0.0"), ())
+        return SuiteRun(empty, (), errors=(str(error),))
     runs: list[RunResult] = []
-    for path in case_files(directory):
-        runs.append(run_case(path, services, bindings, out_dir))
-        runs.extend(sweep_runs(path, services, bindings, out_dir))
+    for case_path in paths:
+        runs.append(run_case(case_path, services, bindings, out_dir))
+        runs.extend(sweep_runs(case_path, services, bindings, out_dir))
     errors: list[str] = []
     designs = sorted({(run.score.design.name, run.score.design.version) for run in runs})
     design = DesignRef(name="unknown", version="0.0.0")
-    if len(designs) == 1:
+    if suite is not None:
+        design = suite.design
+        for case in runs:
+            if case.score.design != suite.design:
+                errors.append(
+                    f"suite {name}: case {case.score.case_id} is written against "
+                    f"{case.score.design.name} {case.score.design.version}, the suite file names "
+                    f"{suite.design.name} {suite.design.version}"
+                )
+    elif len(designs) == 1:
         design = DesignRef(name=designs[0][0], version=designs[0][1])
     elif len(designs) > 1:
-        errors.append(f"suite {directory.name}: cases name more than one design: {designs}")
+        errors.append(f"suite {name}: cases name more than one design: {designs}")
     else:
-        errors.append(f"suite {directory.name}: no test case files")
-    score = SuiteScore(directory.name, design, tuple(run.score for run in runs))
-    baseline_path, baseline, diff = _baseline(directory, score, errors)
-    return SuiteRun(score, tuple(runs), baseline_path, baseline, diff, tuple(errors))
+        errors.append(f"suite {name}: no test case files")
+    score = SuiteScore(name, design, tuple(run.score for run in runs))
+    named = _named_baselines(paths)
+    baseline_file: Path | None = None
+    if suite is not None:
+        baseline_file = (_suite_dir(path) / suite.baseline).resolve()
+        for other in sorted(named - {baseline_file}):
+            errors.append(f"suite {name}: a case names baseline {other}, the suite file names {baseline_file}")
+    elif len(named) > 1:
+        errors.append(f"suite {name}: cases name more than one baseline")
+    elif len(named) == 1:
+        baseline_file = named.pop()
+    elif (path / "baseline.yaml").is_file():
+        baseline_file = (path / "baseline.yaml").resolve()
+    if baseline_file is None:
+        return SuiteRun(score, tuple(runs), errors=tuple(errors))
+    baseline, diff = _diff(baseline_file, score, errors)
+    return SuiteRun(score, tuple(runs), baseline_file, baseline, diff, tuple(errors))
 
 
-def _baseline(
-    directory: Path, score: SuiteScore, errors: list[str]
-) -> tuple[Path | None, Baseline | None, BaselineDiff | None]:
+def _suite_dir(path: Path) -> Path:
+    if path.is_dir():
+        return path
+    return path.parent
+
+
+def _named_baselines(paths: Sequence[Path]) -> set[Path]:
     named: set[Path] = set()
-    for path in case_files(directory):
+    for path in paths:
         try:
             written = Case.model_validate(_plain(path, "test case"))
         except (RunnerError, ValidationError):
             continue
         if written.baseline is not None:
             named.add((path.parent / written.baseline).resolve())
-    if len(named) == 0:
-        return None, None, None
-    if len(named) > 1:
-        errors.append(f"suite {directory.name}: cases name more than one baseline")
-        return None, None, None
-    path = named.pop()
-    old = load_baseline(path)
+    return named
+
+
+def _diff(path: Path, score: SuiteScore, errors: list[str]) -> tuple[Baseline | None, BaselineDiff | None]:
+    """The new baseline from the suite's summary and its diff against the committed one (SCO-009 to SCO-011)."""
+    try:
+        old = load_baseline(path)
+    except BaselineError as error:
+        errors.append(f"baseline: {error}")
+        return None, None
     try:
         new = suite_baseline(score)
     except ScoringError as error:
         errors.append(f"baseline: {error}")
-        return path, None, None
+        return None, None
     try:
-        diff = diff_baselines(old, new)
+        diff = regression_diff(score, old)
     except ValueError as error:
         errors.append(f"baseline: {error}")
-        return path, new, None
-    return path, new, diff
+        return new, None
+    return new, diff
