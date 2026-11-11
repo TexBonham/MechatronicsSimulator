@@ -317,9 +317,7 @@ def test_a_fault_reference_is_each_change_to_that_fault(
         ("final", None, 0.0),
     ],
 )
-def test_a_fault_quantity_reads_one_while_that_fault_is_reported(
-    statistic: str, window: Any, measured: float
-) -> None:
+def test_a_fault_quantity_reads_one_while_that_fault_is_reported(statistic: str, window: Any, measured: float) -> None:
     criterion = value(statistic, "at_least", "1", quantity="fault:encoder_mismatch")
     if window is not None:
         criterion["window"] = window

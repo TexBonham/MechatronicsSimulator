@@ -503,6 +503,11 @@ class CoreDriver:
                         actuators[instance.name] = mount.joint
         return actuators
 
+    def _case_payload(self) -> str | None:
+        if self._payload is None:
+            return None
+        return self._payload[0]
+
     def _payload_fixed(self) -> bool:
         """Ruling 24: a payload attached at t = 0 that no fault releases is a fixed child of its carrier; a released
         or never-attached one is welded (BLD-036)."""
@@ -558,6 +563,7 @@ class CoreDriver:
                 config.base_rate,
                 config.control_rate,
                 payloads,
+                self._case_payload(),
             )
             state = RunnerState(externals=externals)
             firmware = build.design.firmware

@@ -20,6 +20,7 @@ from mechsim.builder.result import (
 from mechsim.design.chip import Chip
 from mechsim.design.schema import ComponentInstance, Design, OpenValue, Rail, open_name
 from mechsim.library.registry import Registry, RegistryError
+from mechsim.library.schema import QuantityParameter, dimensions_equal
 
 OPERATOR_LINK_TYPE = "uart_link"
 HEARTBEAT_PORT = "heartbeat"
@@ -82,6 +83,12 @@ def _instance(
         senses=_sensing(index, component, collector),
         acts_on=_acts_on(index, component, collector),
         torque_speed=torque_speed,
+        core_type=kind.plugin.cpp,
+        length_parameters=tuple(
+            item.name
+            for item in kind.parameters
+            if isinstance(item, QuantityParameter) and dimensions_equal(item.dimension, "[length]")
+        ),
     )
 
 

@@ -1,6 +1,5 @@
-# Linear incremental quadrature encoder on an axis (ruling 32: the gantry's encoders sense the axis joints, frame
-# side). The same signal-layer model as incremental_encoder with a length resolution (SIG-011, brief M2-A4). Numeric
-# part values are placeholders.
+# Linear incremental quadrature encoder on a prismatic joint: the incremental_encoder signal-layer model with a length
+# resolution (SIG-011). Numeric part values are placeholders.
 types:
   - name: linear_encoder
     version: 1.0.0
@@ -73,7 +72,7 @@ parts:
   - name: linear_encoder_generic
     type: linear_encoder
     tier: ideal
-    description: 60000 quadrature counts per metre (the firmware's GANTRY_COUNTS_PER_M_X, _Y and _LIFT).
+    description: 60000 quadrature counts per metre.
     source: placeholder values, no datasheet assigned
     values:
       mass: "0.1 kg"

@@ -402,8 +402,8 @@ class Facade:
         if self.runs_dir.is_dir():
             for path in sorted(self.runs_dir.glob("*.h5")):
                 found[path.stem] = RunEntry(run_id=path.stem, archive=str(path), open=False)
-        for run_id, replay in self._replays.items():
-            found[run_id] = RunEntry(run_id=run_id, archive=str(replay.archive), open=True)
+        for name, replay in self._replays.items():
+            found[name] = RunEntry(run_id=name, archive=str(replay.archive), open=True)
         return RunList(runs=[found[key] for key in sorted(found)])
 
     def validate(self, path: Path) -> ValidationResult:

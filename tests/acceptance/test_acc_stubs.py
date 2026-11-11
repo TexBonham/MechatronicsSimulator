@@ -519,9 +519,7 @@ def test_acc_028(gantry: dict[str, RunResult]) -> None:
         assert len(starts) >= 1, driver
     first_start = min(event.time for event in events if event.kind == "motion_start" and event.time >= 8.0)
     first_end = min(event.time for event in events if event.kind == "motion_end" and event.time >= 8.0)
-    starts_inside = [
-        event for event in events if event.kind == "motion_start" and first_start < event.time < first_end
-    ]
+    starts_inside = [event for event in events if event.kind == "motion_start" and first_start < event.time < first_end]
     assert starts_inside == []
     assert _refusals(result, 8.0, 13.0) >= 1
 

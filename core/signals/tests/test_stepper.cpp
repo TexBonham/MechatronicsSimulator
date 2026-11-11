@@ -637,7 +637,7 @@ TEST_CASE("A shaft released from a brake hold with the command at the held posit
         const JointDrive motor_drive = motor.joint_drives()[0];
         REQUIRE(motor_drive.enabled);
         double k_sum = motor_drive.stiffness;
-        double weighted = motor_drive.stiffness * motor_drive.rest;
+        const double weighted = motor_drive.stiffness * motor_drive.rest;
         if (held) {
             k_sum += 200.0;
         }
