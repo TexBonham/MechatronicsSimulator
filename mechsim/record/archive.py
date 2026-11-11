@@ -28,7 +28,10 @@ from mechsim.record.layout import (
     COUPLING,
     COUPLING_DIGEST,
     COUPLING_VALUE,
+    DRIVE_DRIVEN,
+    DRIVE_TORQUE,
     JOINT_FORCE,
+    JOINT_POSITIONS,
     NAMED_GROUPS,
     Recording,
     Series,
@@ -41,8 +44,10 @@ from mechsim.record.tick import (
     ConstraintForce,
     ContactForce,
     CouplingSample,
+    JointDriveTorque,
     JointForce,
     MemberEndLoads,
+    PayloadState,
     PhysicsOutputs,
     Quat,
     RecordedEvent,
@@ -510,4 +515,31 @@ class RunArchive:
                 strict=True,
             )
         )
-        return PhysicsOutputs(at("physics/steps"), bodies, joints, constraints, contacts, members, ropes, transmissions)
+        drive_torques = tuple(
+            JointDriveTorque(joint, torque)
+            for joint, (torque, driven) in enumerate(zip(at(DRIVE_TORQUE), at(DRIVE_DRIVEN), strict=True))
+            if driven
+        )
+        payloads = tuple(
+            PayloadState(body, carrier, attached, _vec3(force))
+            for body, carrier, attached, force in zip(
+                at("physics/payloads/body"),
+                at("physics/payloads/carrier"),
+                at("physics/payloads/attached"),
+                at("physics/payloads/force"),
+                strict=True,
+            )
+        )
+        return PhysicsOutputs(
+            at("physics/steps"),
+            bodies,
+            joints,
+            constraints,
+            contacts,
+            members,
+            ropes,
+            transmissions,
+            tuple(at(JOINT_POSITIONS)),
+            drive_torques,
+            payloads,
+        )

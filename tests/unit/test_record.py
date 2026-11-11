@@ -27,11 +27,20 @@ from mechsim.record import (
     tool_version,
 )
 from mechsim.record.archive import CHUNK_ROWS
-from mechsim.record.tick import BodyState, PhysicsOutputs, RecordedEvent, SeriesSample
+from mechsim.record.tick import (
+    WORLD_BODY,
+    BodyState,
+    JointDriveTorque,
+    PayloadState,
+    PhysicsOutputs,
+    RecordedEvent,
+    SeriesSample,
+)
 from tests.unit.test_record_support import (
     BASE_RATE,
     CONSTRAINT_ROWS,
     EFFORTS,
+    JOINT_COORDINATES,
     JOINT_DOFS,
     PINS,
     RAILS,
@@ -164,6 +173,81 @@ def test_rec_027_actuator_efforts_every_tick(rows: list[TickRecord], archive: Ru
     every tick."""
     with archive:
         _named_check(archive, rows, "signals/actuator_efforts", EFFORTS)
+
+
+@pytest.mark.req("REC-027")
+def test_rec_027_joint_positions_and_drive_torques_every_tick(rows: list[TickRecord], archive: RunArchive) -> None:
+    """Joint coordinates and the torque or force each joint drive applied, one column per joint, every tick; an
+    undriven joint reads 0 with `driven` false."""
+    with archive:
+        positions = archive.series("physics/joint_positions")
+        torques = archive.series("physics/joint_drive_torques/torque")
+        driven = archive.series("physics/joint_drive_torques/driven")
+    assert (positions.unit, torques.unit, driven.unit) == ("m or rad", "N or N m", "1")
+    assert positions.axis == torques.axis == driven.axis == "tick"
+    assert positions.values.shape == torques.values.shape == driven.values.shape == (TICKS, JOINT_COORDINATES)
+    for index, row in enumerate(rows):
+        assert tuple(positions.values[index]) == row.physics.joint_positions
+        expected_torque = [0.0] * JOINT_COORDINATES
+        expected_driven = [False] * JOINT_COORDINATES
+        for drive in row.physics.joint_drive_torques:
+            expected_torque[drive.joint] = drive.torque
+            expected_driven[drive.joint] = True
+        assert list(torques.values[index]) == expected_torque
+        assert list(driven.values[index]) == expected_driven
+    assert driven.values[:, 0].all()
+    assert driven.values[::2, 1].all()
+    assert not driven.values[1::2, 1].any()
+
+
+@pytest.mark.req("REC-027")
+def test_rec_027_payload_attachment_and_force_every_tick(rows: list[TickRecord], archive: RunArchive) -> None:
+    """Each payload's body, carrier (-1 once released), attachment and attachment force (N), every tick."""
+    with archive:
+        body = archive.series("physics/payloads/body")
+        carrier = archive.series("physics/payloads/carrier")
+        attached = archive.series("physics/payloads/attached")
+        force = archive.series("physics/payloads/force")
+    assert force.unit == "N"
+    assert force.values.shape == (TICKS, 1, 3)
+    for index, row in enumerate(rows):
+        (payload,) = row.physics.payloads
+        assert body.values[index, 0] == payload.body
+        assert carrier.values[index, 0] == payload.carrier
+        assert bool(attached.values[index, 0]) is payload.attached
+        assert tuple(force.values[index, 0]) == payload.force
+    assert carrier.values[-1, 0] == WORLD_BODY
+
+
+@pytest.mark.req("REC-027")
+@pytest.mark.parametrize(
+    ("physics", "message"),
+    [
+        (PhysicsOutputs(joint_positions=(0.0,), joint_drive_torques=(JointDriveTorque(1, 2.0),)), "outside the 1"),
+        (PhysicsOutputs(joint_drive_torques=(JointDriveTorque(0, 2.0),)), "outside the 0"),
+        (PhysicsOutputs(joint_positions=(0.0,), joint_drive_torques=(JointDriveTorque(-1, 2.0),)), "outside"),
+        (
+            PhysicsOutputs(
+                joint_positions=(0.0, 0.0),
+                joint_drive_torques=(JointDriveTorque(1, 2.0), JointDriveTorque(1, 3.0)),
+            ),
+            "two drive torques on joint 1",
+        ),
+    ],
+)
+def test_rec_027_rejects_drive_torques_off_the_joints(physics: PhysicsOutputs, message: str) -> None:
+    with pytest.raises(RecordError, match=message):
+        Recorder(BASE_RATE).write_row(TickRecord(time=0, physics=physics))
+
+
+@pytest.mark.req("REC-027")
+def test_rec_027_drives_out_of_joint_order_replay_in_joint_order(tmp_path: Path) -> None:
+    drives = (JointDriveTorque(1, 2.0), JointDriveTorque(0, -1.0))
+    row = TickRecord(time=0, physics=PhysicsOutputs(joint_positions=(0.5, 0.25), joint_drive_torques=drives))
+    with RunArchive(_record([row], tmp_path / "drives.h5")) as archive:
+        (replayed,) = archive.records()
+    assert replayed.physics.joint_drive_torques == (JointDriveTorque(0, -1.0), JointDriveTorque(1, 2.0))
+    assert replayed.physics.joint_positions == (0.5, 0.25)
 
 
 @pytest.mark.req("REC-007")
@@ -498,6 +582,8 @@ def _row(time_: int, **changes: object) -> TickRecord:
     ("first", "second", "message"),
     [
         ({"physics": PhysicsOutputs(bodies=(BodyState(),))}, {}, "bodies changed"),
+        ({"physics": PhysicsOutputs(joint_positions=(0.0,))}, {}, "joint_coordinates changed"),
+        ({"physics": PhysicsOutputs(payloads=(PayloadState(),))}, {}, "payloads changed"),
         ({"pin_signals": (SeriesSample("a.b", "V", 0.0),)}, {"pin_signals": (SeriesSample("a.c", "V", 0.0),)}, "named"),
         ({"rails": (SeriesSample("r", "V", 0.0),)}, {"rails": (SeriesSample("r", "A", 0.0),)}, "named"),
     ],

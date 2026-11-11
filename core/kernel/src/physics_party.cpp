@@ -1,6 +1,7 @@
 #include "mechsim/kernel/physics_party.hpp"
 
 #include <algorithm>
+#include <cmath>
 #include <cstddef>
 #include <memory>
 #include <span>
@@ -45,7 +46,141 @@ std::span<const std::string> PhysicsParty::consumed() const {
     return config_.inputs;
 }
 
-void PhysicsParty::start(const Rate& /*base_rate*/) {}
+namespace {
+
+const std::string fault_source = "kernel";
+const std::string fault_kind = "fault";
+
+std::string window_text(SimTime start, SimTime end) {
+    return "[" + std::to_string(start.count()) + ", " + std::to_string(end.count()) + ")";
+}
+
+}  // namespace
+
+void PhysicsParty::check_schedulable(SimTime start) const {
+    if (started_) {
+        throw KernelConfigError("physics party '" + config_.name + "': faults are scheduled before start()");
+    }
+    if (start.count() < 0) {
+        throw KernelConfigError("physics party '" + config_.name + "': fault tick " + std::to_string(start.count()) +
+                                " is before 0");
+    }
+}
+
+void PhysicsParty::schedule_slip(std::size_t transmission, SimTime start, SimTime end, double fraction) {
+    check_schedulable(start);
+    if (end <= start) {
+        throw KernelConfigError("physics party '" + config_.name + "': slip window " + window_text(start, end) +
+                                " must end after it starts");
+    }
+    if (!std::isfinite(fraction) || fraction <= 0.0 || fraction > 1.0) {
+        throw KernelConfigError("physics party '" + config_.name + "': slip fraction " + std::to_string(fraction) +
+                                " is outside (0, 1]");
+    }
+    slips_.push_back(SlipWindow{transmission, start, end, fraction});
+}
+
+void PhysicsParty::schedule_payload_change(std::size_t payload, SimTime at, PayloadMass mass) {
+    check_schedulable(at);
+    if (!std::isfinite(mass.kg) || mass.kg <= 0.0) {
+        throw KernelConfigError("physics party '" + config_.name + "': payload mass " + std::to_string(mass.kg) +
+                                " kg must be finite and positive");
+    }
+    PayloadChange change;
+    change.payload = payload;
+    change.at = at;
+    change.kg = mass.kg;
+    payload_changes_.push_back(change);
+}
+
+void PhysicsParty::schedule_payload_change(std::size_t payload, SimTime at, PayloadCarrier carrier) {
+    check_schedulable(at);
+    PayloadChange change;
+    change.payload = payload;
+    change.at = at;
+    change.is_mass = false;
+    change.carrier = carrier.body;
+    payload_changes_.push_back(change);
+}
+
+void PhysicsParty::start(const Rate& /*base_rate*/) {
+    std::stable_sort(slips_.begin(), slips_.end(),
+                     [](const SlipWindow& a, const SlipWindow& b) { return a.start < b.start; });
+    std::stable_sort(payload_changes_.begin(), payload_changes_.end(),
+                     [](const PayloadChange& a, const PayloadChange& b) { return a.at < b.at; });
+    for (std::size_t i = 0; i < slips_.size(); ++i) {
+        for (std::size_t j = i + 1; j < slips_.size(); ++j) {
+            const SlipWindow& a = slips_[i];
+            const SlipWindow& b = slips_[j];
+            if (a.transmission == b.transmission && a.start < b.end && b.start < a.end) {
+                throw KernelConfigError("physics party '" + config_.name + "': slip windows " +
+                                        window_text(a.start, a.end) + " and " + window_text(b.start, b.end) +
+                                        " on transmission " + std::to_string(a.transmission) + " overlap");
+            }
+        }
+    }
+    for (std::size_t i = 0; i < payload_changes_.size(); ++i) {
+        for (std::size_t j = i + 1; j < payload_changes_.size(); ++j) {
+            const PayloadChange& a = payload_changes_[i];
+            const PayloadChange& b = payload_changes_[j];
+            if (a.payload == b.payload && a.at == b.at) {
+                throw KernelConfigError("physics party '" + config_.name + "': two changes to payload " +
+                                        std::to_string(a.payload) + " at tick " + std::to_string(a.at.count()));
+            }
+        }
+    }
+    started_ = true;
+}
+
+void PhysicsParty::apply_faults(SimTime t) {
+    std::vector<std::size_t> ending;
+    for (SlipWindow& window : slips_) {
+        if (window.started && !window.ended && t >= window.end) {
+            window.ended = true;
+            ending.push_back(window.transmission);
+            pending_events_.push_back(RecordedEvent{t, fault_source, fault_kind,
+                                                    "slip end transmission " + std::to_string(window.transmission)});
+        }
+    }
+    std::vector<std::size_t> starting;
+    for (SlipWindow& window : slips_) {
+        if (!window.started && t >= window.start) {
+            if (t >= window.end) {
+                throw KernelConfigError("physics party '" + config_.name + "': slip window " +
+                                        window_text(window.start, window.end) + " holds none of its steps");
+            }
+            window.started = true;
+            starting.push_back(window.transmission);
+            adapter_->set_transmission_slip(window.transmission, window.fraction);
+            pending_events_.push_back(RecordedEvent{t, fault_source, fault_kind,
+                                                    "slip start transmission " + std::to_string(window.transmission) +
+                                                        " fraction " + std::to_string(window.fraction)});
+        }
+    }
+    for (const std::size_t transmission : ending) {
+        if (std::find(starting.begin(), starting.end(), transmission) == starting.end()) {
+            adapter_->set_transmission_slip(transmission, 0.0);
+        }
+    }
+    for (PayloadChange& change : payload_changes_) {
+        if (change.applied || t < change.at) {
+            continue;
+        }
+        change.applied = true;
+        std::string detail = "payload " + std::to_string(change.payload);
+        if (change.is_mass) {
+            adapter_->set_payload_mass(change.payload, change.kg);
+            detail += " mass " + std::to_string(change.kg);
+        } else if (change.carrier == kWorldBody) {
+            adapter_->set_payload_attachment(change.payload, change.carrier);
+            detail += " released";
+        } else {
+            adapter_->set_payload_attachment(change.payload, change.carrier);
+            detail += " carrier " + std::to_string(change.carrier);
+        }
+        pending_events_.push_back(RecordedEvent{t, fault_source, fault_kind, detail});
+    }
+}
 
 void PhysicsParty::read_inputs(const CouplingReader& inputs) {
     pending_ = PhysicsInputs{};
@@ -84,7 +219,8 @@ void PhysicsParty::read_inputs(const CouplingReader& inputs) {
     }
 }
 
-void PhysicsParty::step(SimTime /*t*/, Duration /*dt*/) {
+void PhysicsParty::step(SimTime t, Duration /*dt*/) {
+    apply_faults(t);
     if (has_pending_) {
         adapter_->set_inputs(pending_);
     }
@@ -109,6 +245,8 @@ void PhysicsParty::on_fault(const PartyFault& /*fault*/) noexcept {}
 
 void PhysicsParty::record(TickRecord& row) const {
     row.physics = adapter_->outputs();
+    row.events.insert(row.events.end(), pending_events_.begin(), pending_events_.end());
+    pending_events_.clear();
 }
 
 PhysicsAdapter& PhysicsParty::adapter() noexcept {

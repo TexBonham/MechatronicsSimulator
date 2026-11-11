@@ -4,7 +4,7 @@ Recorder, HDF5 run archive, exports, run-twice comparison (REC). h5py and scipy 
 
 | File | Holds |
 |---|---|
-| `tick.py` | `TickRecord` and physics structs, frozen mirror of `core/kernel/.../tick_record.hpp` (incl. `coupling`: `CouplingSample(name, kind, value, digest)`, kinds none/real/integer/flag/payload); `RecordError` |
+| `tick.py` | `TickRecord` and physics structs, frozen mirror of `core/kernel/.../tick_record.hpp` (incl. `coupling`: `CouplingSample(name, kind, value, digest)`, kinds none/real/integer/flag/payload; `PhysicsOutputs.joint_positions`, `joint_drive_torques` (`JointDriveTorque(joint, torque)`), `payloads` (`PayloadState(body, carrier, attached, force)`, carrier `WORLD_BODY` = -1 once released)); `RecordError` |
 | `layout.py` | `FIXED_SERIES` (path, unit, axis, dtype) canonical order; `Series`, `Recording`; `seconds()` |
 | `stream.py` | `Recorder(base_rate)`: `write_row`, `subscribe(cb) -> int`, `unsubscribe`, `recording()`, `flush(path, identity, end)` |
 | `archive.py` | `RunIdentity` (controller_mode native, emulated, none), `RunEnd`, `RunFault`, `write_archive(path, identity, end, recording, extra)` (`extra` -> root attrs `meta_<key>`, read back as `RunArchive.extra`), `RunArchive(path)` reader, `coupling()`, `records()` replay, `repository_commit`, `tool_version` |
@@ -22,6 +22,13 @@ Recorder, HDF5 run archive, exports, run-twice comparison (REC). h5py and scipy 
 - `coupling` group attrs `names`, `kinds` (name order); series `coupling/value/<name>` (float64, NaN for none and
   payload) and `coupling/digest/<name>` (S64, SHA-256 of a payload's canonical content, empty otherwise) (REC-028).
   Transmissions also record `shaft_load_torque`, `force`, `stretch`, `power_flow` (0 static, 1 forward, 2 backward).
+- Per joint coordinate (one column per `joint_positions` entry, neutral order): `physics/joint_positions` (m or rad),
+  `physics/joint_drive_torques/torque` (N or N m, 0 where undriven) and `physics/joint_drive_torques/driven` (bool);
+  a drive on a joint outside the positions, or two on one joint, is a `RecordError`; replay returns drives in joint
+  order (REC-027). Transmission `slip` (C's field) is `physics/transmissions/slip` (m or rad, one column per
+  transmission). Per payload: `physics/payloads/{body, carrier (int64, -1 world), attached, force (N, 3)}`.
+- The row carries no joint, transmission or payload names or joint types, so these series are index columns with
+  `m or rad` units, like the other physics series.
 - Every series: attrs `unit`, `axis` (`tick` or `contact`); `counts` on the flattened per-DOF joint and constraint
   forces. Contacts are ragged: one entry per contact with `row`, `tick`, `seconds`.
 

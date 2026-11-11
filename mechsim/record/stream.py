@@ -18,8 +18,11 @@ from mechsim.record.layout import (
     COUPLING_DIGEST,
     COUPLING_VALUE,
     DIGEST_LENGTH,
+    DRIVE_DRIVEN,
+    DRIVE_TORQUE,
     FIXED_SERIES,
     JOINT_FORCE,
+    JOINT_POSITIONS,
     NAMED_GROUPS,
     TICK_AXIS,
     Recording,
@@ -67,6 +70,8 @@ class _Layout:
     members: int = 0
     ropes: int = 0
     transmissions: int = 0
+    joint_coordinates: int = 0
+    payloads: int = 0
     named: tuple[tuple[tuple[str, str], ...], ...] = ((), (), ())
     coupling: tuple[str, ...] = ()
 
@@ -87,9 +92,29 @@ def _layout(row: TickRecord) -> _Layout:
         members=len(physics.members),
         ropes=len(physics.ropes),
         transmissions=len(physics.transmissions),
+        joint_coordinates=len(physics.joint_positions),
+        payloads=len(physics.payloads),
         named=tuple(tuple((sample.name, sample.unit) for sample in samples) for samples in _named(row)),
         coupling=tuple(sample.name for sample in row.coupling),
     )
+
+
+def _drive_columns(row: TickRecord) -> tuple[list[float], list[bool]]:
+    """Drive torques as one column per joint coordinate (0 where undriven) and which joints a drive acted on; a joint
+    takes at most one drive per tick (KER-027)."""
+    joints = len(row.physics.joint_positions)
+    torques = [0.0] * joints
+    driven = [False] * joints
+    for drive in row.physics.joint_drive_torques:
+        if drive.joint < 0 or drive.joint >= joints:
+            raise RecordError(
+                f"tick {row.time}: drive torque on joint {drive.joint} outside the {joints} joint positions"
+            )
+        if driven[drive.joint]:
+            raise RecordError(f"tick {row.time}: two drive torques on joint {drive.joint}")
+        torques[drive.joint] = drive.torque
+        driven[drive.joint] = True
+    return torques, driven
 
 
 def _named(row: TickRecord) -> tuple[tuple[SeriesSample, ...], ...]:
@@ -207,6 +232,14 @@ class Recorder:
         buffers["physics/transmissions/force"].append([item.force for item in physics.transmissions])
         buffers["physics/transmissions/stretch"].append([item.stretch for item in physics.transmissions])
         buffers["physics/transmissions/power_flow"].append([item.power_flow for item in physics.transmissions])
+        torques, driven = _drive_columns(row)
+        buffers[JOINT_POSITIONS].append(list(physics.joint_positions))
+        buffers[DRIVE_TORQUE].append(torques)
+        buffers[DRIVE_DRIVEN].append(driven)
+        buffers["physics/payloads/body"].append([item.body for item in physics.payloads])
+        buffers["physics/payloads/carrier"].append([item.carrier for item in physics.payloads])
+        buffers["physics/payloads/attached"].append([item.attached for item in physics.payloads])
+        buffers["physics/payloads/force"].append([item.force for item in physics.payloads])
         for coupling in row.coupling:
             buffers[f"{COUPLING_VALUE}/{coupling.name}"].append(coupling.value)
             buffers[f"{COUPLING_DIGEST}/{coupling.name}"].append(coupling.digest.encode("ascii"))
@@ -308,6 +341,13 @@ def _make_buffers(layout: _Layout) -> dict[str, _Buffer]:
         "physics/transmissions/force": (layout.transmissions,),
         "physics/transmissions/stretch": (layout.transmissions,),
         "physics/transmissions/power_flow": (layout.transmissions,),
+        JOINT_POSITIONS: (layout.joint_coordinates,),
+        DRIVE_TORQUE: (layout.joint_coordinates,),
+        DRIVE_DRIVEN: (layout.joint_coordinates,),
+        "physics/payloads/body": (layout.payloads,),
+        "physics/payloads/carrier": (layout.payloads,),
+        "physics/payloads/attached": (layout.payloads,),
+        "physics/payloads/force": (layout.payloads, 3),
         CONTROLLER_STATE: (),
     }
     dtypes = {path: dtype for path, _, _, dtype in FIXED_SERIES}

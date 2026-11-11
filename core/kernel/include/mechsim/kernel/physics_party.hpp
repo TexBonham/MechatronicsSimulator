@@ -1,5 +1,7 @@
 #pragma once
 
+#include <cstddef>
+#include <cstdint>
 #include <memory>
 #include <span>
 #include <string>
@@ -10,6 +12,7 @@
 #include "mechsim/kernel/physics_adapter.hpp"
 #include "mechsim/kernel/physics_types.hpp"
 #include "mechsim/kernel/run_config.hpp"
+#include "mechsim/kernel/tick_record.hpp"
 #include "mechsim/kernel/time.hpp"
 
 namespace mechsim::kernel {
@@ -27,10 +30,24 @@ struct PhysicsPartyConfig {
     DriftThresholds drift;
 };
 
+// Scheduled payload changes (ENG-035, PHY-006): a new mass, or a new carrier (kWorldBody releases).
+struct PayloadMass {
+    double kg = 0.0;
+};
+struct PayloadCarrier {
+    std::size_t body = kWorldBody;
+};
+
 // Wraps a loaded PhysicsAdapter as the physics-role party (KER-009 step 1, KER-016). Publishes `<name>.outputs`
 // (PhysicsOutputs) after every step; consumes the configured PhysicsInputs names. A health report that did not
 // converge, or whose drift exceeds the larger of the two drift thresholds (health carries one m-or-rad maximum),
 // throws AdapterError, which the kernel reports as a run error (KER-016).
+//
+// Scheduled faults, known before t = 0, in kernel ticks: before the first step at or after a slip window's start the
+// party calls set_transmission_slip(transmission, fraction), and set_transmission_slip(transmission, 0) before the
+// first step at or after its end; a payload change applies before the first step at or after its tick. Each start,
+// end and change is a row event (source "kernel", kind "fault"). Overlapping slip windows on one transmission, or two
+// changes to one payload at one tick, are a KernelConfigError at start().
 class PhysicsParty final : public Party {
 public:
     // Throws std::invalid_argument on a null adapter.
@@ -48,14 +65,45 @@ public:
     void on_fault(const PartyFault& fault) noexcept override;
     void record(TickRecord& row) const override;
 
+    // Throw KernelConfigError after start(), on a window with end <= start or a negative start, a fraction outside
+    // (0, 1], a mass not finite and positive.
+    void schedule_slip(std::size_t transmission, SimTime start, SimTime end, double fraction);
+    void schedule_payload_change(std::size_t payload, SimTime at, PayloadMass mass);
+    void schedule_payload_change(std::size_t payload, SimTime at, PayloadCarrier carrier);
+
     [[nodiscard]] PhysicsAdapter& adapter() noexcept;
 
 private:
+    struct SlipWindow {
+        std::size_t transmission = 0;
+        SimTime start;
+        SimTime end;
+        double fraction = 0.0;
+        bool started = false;
+        bool ended = false;
+    };
+    struct PayloadChange {
+        std::size_t payload = 0;
+        SimTime at;
+        bool is_mass = true;
+        double kg = 0.0;
+        std::size_t carrier = kWorldBody;
+        bool applied = false;
+    };
+
+    void check_schedulable(SimTime start) const;
+    void apply_faults(SimTime t);
+
     std::unique_ptr<PhysicsAdapter> adapter_;
     PhysicsPartyConfig config_;
     std::vector<std::string> published_;
     PhysicsInputs pending_;
     bool has_pending_ = false;
+    std::vector<SlipWindow> slips_;
+    std::vector<PayloadChange> payload_changes_;
+    bool started_ = false;
+    // Written in step(), handed to the next row by record(), which the kernel calls const once per row.
+    mutable std::vector<RecordedEvent> pending_events_;
 };
 
 }  // namespace mechsim::kernel

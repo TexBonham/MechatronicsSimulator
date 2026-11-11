@@ -59,10 +59,11 @@ proposed <value>)".
 |---|---|---|
 | Native versus emulated cross-mode tolerance (CTL-015) | not set | owner |
 | Renode transport: External Control socket or pyrenode3 (CTL-016) | not set; C client library favored | milestone 4 ADR (C6) |
-| Brownout threshold source in the chip definition (CTL-013) | not set | owner, with chips/ |
+| Brownout threshold source in the chip definition (CTL-013) | the chip file's `brownout_threshold` (`chips/<chip>/chip.yaml`), handed to the runtime as `NativeRuntimeConfig::brownout_threshold_v` (M2-B); the driver wiring is the integration wave's | owner, with chips/ |
 | STM32 part | not set | gantry team, after the peripheral smoke test |
-| Latency granularity (CTL-020) | not set | owner |
-| Slow-down mechanism (CTL-021): skipped ticks or stretched virtual time | not set | owner |
+| Latency granularity (CTL-020) | whole control ticks: `ControllerPartyConfig::latency_ticks` (default 0) delays every published output, events and state codes with them, zeros before the first delayed output (M2-B) | owner, to confirm |
+| Slow-down mechanism (CTL-021): skipped ticks or stretched virtual time | skipped ticks: integer factor >= 2, the runtime ticks on the window's first control step and once per factor steps; between, levels hold and per-tick buffers are empty, as when frozen (M2-B) | owner, to confirm |
+| Fault windows (CTL-011, CTL-021) | kernel ticks [start, end), scheduled before the run, acting at the party's first step at or after each bound (KER-023); overlapping windows of one kind are a configuration error; each start and end is a row event (source `kernel`, kind `fault`) | M2-B |
 | Step pulses while frozen (CTL-011) | none: bit-banged pulses stop on a hang (M1); timer-driven pulses that continue are a milestone 2 option | owner, M2 |
 | Native work-dir layout (CTL-007) | build in `<work_dir>/native-firmware/host`; per-load copies in `<work_dir>/native-controller/<pid>-<n>/` | owner |
 | Private library copy (CTL-002, CTL-012) | every load, reset and brownout recovery opens a fresh copy, so no firmware static survives a reset | owner |

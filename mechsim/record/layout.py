@@ -27,6 +27,9 @@ DIGEST_LENGTH = 64
 CONTACT_ROW = "physics/contacts/row"
 JOINT_FORCE = "physics/joints/generalized_force"
 CONSTRAINT_FORCE = "physics/constraints/force"
+JOINT_POSITIONS = "physics/joint_positions"
+DRIVE_TORQUE = "physics/joint_drive_torques/torque"
+DRIVE_DRIVEN = "physics/joint_drive_torques/driven"
 
 AXIS_TIME = {
     TICK_AXIS: ("time/tick", "time/seconds"),
@@ -67,6 +70,13 @@ FIXED_SERIES: tuple[tuple[str, str, str, str], ...] = (
     ("physics/transmissions/force", "N or N m", TICK_AXIS, "float64"),
     ("physics/transmissions/stretch", "m or rad", TICK_AXIS, "float64"),
     ("physics/transmissions/power_flow", "1", TICK_AXIS, "int64"),
+    (JOINT_POSITIONS, "m or rad", TICK_AXIS, "float64"),
+    (DRIVE_TORQUE, "N or N m", TICK_AXIS, "float64"),
+    (DRIVE_DRIVEN, "1", TICK_AXIS, "bool"),
+    ("physics/payloads/body", "1", TICK_AXIS, "int64"),
+    ("physics/payloads/carrier", "1", TICK_AXIS, "int64"),
+    ("physics/payloads/attached", "1", TICK_AXIS, "bool"),
+    ("physics/payloads/force", "N", TICK_AXIS, "float64"),
 )
 
 
