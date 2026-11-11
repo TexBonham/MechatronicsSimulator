@@ -18,6 +18,8 @@ in `docs/briefs/round-04/`. Worktrees `../MechatronicsSimulator-04-<letter>` on 
 | 3 | FW-008 identical warning flags: on MSVC the host preset cannot share GCC flags. Read FW-008 as GCC host versus arm-none-eabi only, with the closest MSVC equivalent (`/W4 /WX`) on Windows? | yes | open |
 | 4 | Re-tag ENG-016 to 021 (own-engine collision and contact) and LIB-009 (Python slow-path plugin) from M2 to M3? | re-tag | open |
 | 5 | macOS stays out of the CI matrix for milestone 2 (R1 names Windows; the MuJoCo dmg cannot be extracted by CMake)? | out | open |
+| 7 | After an E-stop `reset` the firmware returns to NOT_HOMED (steps may be lost while power was cut), not READY? | NOT_HOMED | open |
+| 8 | Lift operator message is `lift <z>`, z in metres from the lift home switch; lowering is a lower z? | yes | open |
 | 6 | Placeholders set by the coordinator for the gantry team's slots: overload limit rated + 15 percent (3.45 kg), heartbeat period 10 ms, watchdog timeout 50 ms, brownout threshold 2.0 V, encoder mismatch threshold 2 mm, ADC 12 bits at 3.3 V | as listed | open |
 
 ## Next
