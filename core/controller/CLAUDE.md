@@ -27,6 +27,12 @@ Namespace `mechsim::controller`. Target `mechsim_controller` (links `${CMAKE_DL_
 
 Polled (ADR 0011 C3): deltas and levels pass through unchanged; no threads, no interrupts.
 
+Windows (`#ifdef _WIN32` branches; POSIX path unchanged): the host build runs through `CreateProcessW` (quoted command
+line, stdout and stderr on one pipe, exit code from `GetExitCodeProcess`); loading is `LoadLibraryW` /
+`GetProcAddress` / `FreeLibrary` on the same private copy; errors from `FormatMessageW`. The library name comes from
+`native_library_name(app_target)`: `<app_target>_native.dll` on Windows. Firmware and mirror fixtures export through
+`WINDOWS_EXPORT_ALL_SYMBOLS`. The MSVC environment (`cl`, Ninja) must be active wherever a host build runs.
+
 ## Tests
 
 `tests/fixtures/mirror_app.cpp`: four shared fixtures (matching, version + 1, no version, 250 Hz). The
