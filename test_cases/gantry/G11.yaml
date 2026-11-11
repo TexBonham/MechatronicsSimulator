@@ -1,0 +1,100 @@
+# G11 (Requirements doc, Test cases, gantry suite): a limit switch trips mid-workspace. During the move to (40, 25) the
+# x_max_switch is forced high at 8.5 s for 0.2 s (a switch fault; the carriage is near x = 0.2 m, far from the switch at
+# the end of travel). The firmware treats a travel-end switch active outside its own slow zone as position tracking
+# gone wrong (FW-021, round 4 ruling 14): it stops at its deceleration limit (ACC-022), faults with limit_trip
+# (ACC-023, asserted by the fault's name through `fault:limit_trip`, round 4 ruling 30), refuses a `target` at 10 s (fault limit_trip) and moves again only after `home` at 10.5 s (ACC-024).
+# Stop bound: the switch's debounce is a few samples, the stop at 0.5 m/s^2 from at most 0.2 m/s takes v / a = 0.4 s,
+# so no driver steps from 8.5 s + 0.2 s window + 0.4 s = 9.1 s until the home.
+id: G11
+title: Limit switch trips mid-workspace
+design:
+  name: gantry
+  version: 0.1.0
+controller_mode: native
+seed: 11
+open_parameters:
+  - name: homing_time
+    dimension: "[time]"
+    owed_by: gantry team
+    note: Time allowed for homing before the target; 0.1 m at the 0.02 m/s homing speed is 5 s.
+    default: "8 s"
+initial_state:
+  joints:
+    - joint: x_axis
+      position: 0.1 m
+      velocity: 0 m/s
+    - joint: y_axis
+      position: 0.1 m
+      velocity: 0 m/s
+    - joint: lift_axis
+      position: 0.1 m
+      velocity: 0 m/s
+  controller:
+    state: not_homed
+  payload:
+    attached: false
+commands:
+  - at: 0 s
+    message: home
+  - at: ${homing_time}
+    message: target
+    payload:
+      x: 40 cm
+      y: 25 cm
+  - at: 10 s
+    message: target
+    payload:
+      x: 40 cm
+      y: 25 cm
+  - at: 10.5 s
+    message: home
+faults:
+  - kind: sensor_forced
+    target: x_max_switch
+    start: 8.5 s
+    duration: 0.2 s
+    level: high
+end:
+  at: 12 s
+  max_duration: 12 s
+criteria:
+  - name: limit_fault
+    check: event
+    event: fault:limit_trip
+    expect: present
+    window:
+      start: 8.5 s
+      end: 9.1 s
+  - name: stopped_x
+    check: value
+    quantity: signal:x_driver.step
+    statistic: maximum
+    comparison: at_most
+    limit: "0"
+    window:
+      start: 9.1 s
+      end: 10.5 s
+  - name: stopped_y
+    check: value
+    quantity: signal:y_driver.step
+    statistic: maximum
+    comparison: at_most
+    limit: "0"
+    window:
+      start: 9.1 s
+      end: 10.5 s
+  - name: target_refused
+    check: event
+    event: event:refused
+    expect: present
+    window:
+      start: 10 s
+      end: 10.5 s
+  - name: rehoming
+    check: event
+    event: state:homing
+    expect: present
+    window:
+      start: 10.5 s
+      end: 12 s
+baseline: baseline.yaml

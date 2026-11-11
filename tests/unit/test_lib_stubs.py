@@ -4,9 +4,13 @@ LIB-027, each shipped milestone 2 part building its C++ built-in from its own ca
 from typing import Any
 
 import pytest
+from pydantic import ValidationError
 
 from mechsim import _core as core
+from mechsim.design.schema import load_design
 from mechsim.library.registry import default_registry
+from mechsim.library.schema import CATALOG_DIR, CatalogFile, load_catalog_file, yaml_loader
+from mechsim.testing.schema import ROOT
 
 # Catalog parameter -> make_signal_component parameter, per built-in; parameters absent here (mass, supply and coil
 # ratings) describe the part, not the signal model.
@@ -167,10 +171,74 @@ def test_lib_030() -> None:
     raise NotImplementedError
 
 
+def _shipped(name: str) -> dict[str, Any]:
+    data: dict[str, Any] = yaml_loader().load((CATALOG_DIR / f"{name}.yaml").read_text(encoding="utf-8"))
+    return data
+
+
+def _refused(data: dict[str, Any], fragment: str) -> None:
+    with pytest.raises(ValidationError) as caught:
+        CatalogFile.model_validate(data)
+    assert fragment in str(caught.value)
+
+
 @pytest.mark.req("LIB-031")
-@pytest.mark.xfail(strict=True, reason="stub")
 def test_lib_031() -> None:
     """The library shall model rigid payloads with mass and attach point, and end effectors with capacity and attach
     and release events.
+
+    Shipped: `payload` (category payload: mass, an `attach` mount) and `end_effector` (category end_effector:
+    capacity, an `attach` mount, events attach and release); the gantry's hook is an end_effector instance on the hook
+    body. Each rule is refused when broken.
     """
-    raise NotImplementedError
+    registry = default_registry()
+    load = registry.resolve_part("payload_2kg_generic", {})
+    assert load.values["mass"] == pytest.approx(2.0)
+    assert load.values["edge"] == pytest.approx(0.1)
+    payload_type = load_catalog_file(CATALOG_DIR / "payload.yaml").component_type("payload")
+    assert payload_type.category == "payload"
+    assert [mount.name for mount in payload_type.mechanical.mounts] == ["attach"]
+    hook = registry.resolve_part("hook_generic", {})
+    assert hook.values["capacity"] == pytest.approx(5.0)
+    effector = load_catalog_file(CATALOG_DIR / "end_effector.yaml").component_type("end_effector")
+    assert effector.category == "end_effector"
+    assert effector.events == ["attach", "release"]
+    assert [mount.name for mount in effector.mechanical.mounts] == ["attach"]
+    design = load_design(ROOT / "designs" / "gantry" / "design.yaml")
+    instance = next(item for item in design.components if item.name == "hook_effector")
+    assert (instance.type, instance.part) == ("end_effector", "hook_generic")
+    assert [(binding.mount, binding.body) for binding in instance.mechanical] == [("attach", "hook")]
+
+    data = _shipped("payload")
+    data["types"][0]["mechanical"]["mounts"][0]["name"] = "top"
+    _refused(data, "must carry an 'attach' mount")
+    data = _shipped("payload")
+    data["types"][0]["parameters"] = [item for item in data["types"][0]["parameters"] if item["name"] != "mass"]
+    data["types"][0]["tiers"][0]["parameters"] = ["edge"]
+    data["types"][0]["mechanical"]["mass"] = {"source": "geometry"}
+    _refused(data, "must carry parameter 'mass'")
+    data = _shipped("payload")
+    data["types"][0]["events"] = ["attach"]
+    _refused(data, "only an end_effector lists attach and release events")
+    for kept in (["attach"], ["release"], []):
+        data = _shipped("end_effector")
+        data["types"][0]["events"] = kept
+        _refused(data, "must list the events")
+    data = _shipped("end_effector")
+    data["types"][0]["events"] = ["attach", "release", "attach"]
+    _refused(data, "duplicate type 'end_effector' event 'attach'")
+    data = _shipped("end_effector")
+    data["types"][0]["mechanical"]["mounts"][0]["name"] = "eye"
+    _refused(data, "must carry an 'attach' mount")
+    data = _shipped("end_effector")
+    data["types"][0]["parameters"][1]["dimension"] = "[length]"
+    data["types"][0]["parameters"][1]["minimum"] = "0 m"
+    data["parts"][0]["values"]["capacity"] = "5 m"
+    _refused(data, "parameter 'capacity' must have dimension [mass]")
+    data = _shipped("end_effector")
+    data["types"][0]["parameters"] = [item for item in data["types"][0]["parameters"] if item["name"] != "capacity"]
+    data["types"][0]["tiers"][0]["parameters"] = ["mass"]
+    data["types"][0]["ratings"]["absolute_maximums"] = []
+    del data["parts"][0]["values"]["capacity"]
+    data["parts"][0]["placeholders"] = []
+    _refused(data, "must carry parameter 'capacity'")

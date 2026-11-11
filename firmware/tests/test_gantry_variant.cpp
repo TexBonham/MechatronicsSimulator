@@ -104,3 +104,82 @@ TEST_CASE("a transmit queue too small for the pending lines latches a fault", "[
     REQUIRE(out.state_code == GANTRY_STATE_FAULT);
     REQUIRE(out.fault_code == GANTRY_FAULT_TX_OVERFLOW);
 }
+
+TEST_CASE("G13: under the queue policy a lift during a move waits in the one slot shared with targets",
+    "[FW-027][FW-026][FW-030]")
+{
+    Plant plant(0, 0, 0);
+    plant.home();
+    mechsim_board_outputs out = plant.tick("target 0.05 0\n");
+    REQUIRE(out.state_code == GANTRY_STATE_MOVING);
+    out = plant.tick("lift 0.02\n");
+    REQUIRE(out.fault_code == GANTRY_FAULT_NONE);
+    out = plant.tick("target 0.01 0\n");
+    REQUIRE(out.fault_code == GANTRY_FAULT_QUEUE_FULL);
+    out = plant.tick("lift 0.03\n");
+    REQUIRE(out.fault_code == GANTRY_FAULT_QUEUE_FULL);
+    while (out.state_code == GANTRY_STATE_MOVING) {
+        REQUIRE(out.step_count[MECHSIM_CH_LIFT_DRIVER_STEP] == 0U);
+        out = plant.tick();
+    }
+    REQUIRE(ready(out));
+    out = plant.tick();
+    REQUIRE(out.state_code == GANTRY_STATE_MOVING);
+    REQUIRE(out.digital_out[MECHSIM_CH_LIFT_DRIVER_DIR] == GANTRY_DIR_POSITIVE_LEVEL);
+    out = plant.tick("target 0 0\n");
+    REQUIRE(out.fault_code == GANTRY_FAULT_NONE);
+    while (out.state_code == GANTRY_STATE_MOVING) {
+        REQUIRE(out.step_count[MECHSIM_CH_X_DRIVER_STEP] == 0U);
+        out = plant.tick();
+    }
+    out = plant.tick();
+    REQUIRE(plant.position[0] == 4000);
+    REQUIRE(plant.position[2] == gantry_test::lift_steps_per_m * 2 / 100);
+    REQUIRE(out.state_code == GANTRY_STATE_MOVING);
+    REQUIRE(plant.run_until(ready, 100000) > 0);
+    plant.tick();
+    REQUIRE(plant.position[0] == 0);
+    REQUIRE(plant.position[2] == gantry_test::lift_steps_per_m * 2 / 100);
+}
+
+TEST_CASE("G5: a queued lift up is refused with overload when it would start under an overload", "[FW-027][FW-018]")
+{
+    Plant plant(0, 0, 0);
+    plant.home();
+    plant.tick("target 0.05 0\n");
+    REQUIRE(plant.tick("lift 0.02\n").fault_code == GANTRY_FAULT_NONE);
+    plant.load_adc = gantry_test::load_counts(GANTRY_OVERLOAD_LIMIT_MILLIKG + 1);
+    mechsim_board_outputs out = plant.last;
+    while (out.state_code == GANTRY_STATE_MOVING) {
+        out = plant.tick();
+    }
+    plant.take_lines();
+    out = plant.tick();
+    REQUIRE(out.state_code == GANTRY_STATE_READY);
+    REQUIRE(out.fault_code == GANTRY_FAULT_OVERLOAD);
+    REQUIRE(plant.take_lines() == std::vector<std::string>{"status 3 10"});
+    REQUIRE(has_event(plant.take_events(), GANTRY_EVENT_REFUSED, GANTRY_FAULT_OVERLOAD));
+    for (int tick = 0; tick < 20; ++tick) {
+        REQUIRE(plant.tick().step_count[MECHSIM_CH_LIFT_DRIVER_STEP] == 0U);
+    }
+}
+
+TEST_CASE("G13: a lift while a lift is stopping for an overload is refused as busy", "[FW-027][FW-019]")
+{
+    Plant plant(0, 0, 0);
+    plant.home();
+    plant.tick("lift 0.3\n");
+    for (int tick = 0; tick < 200; ++tick) {
+        plant.tick();
+    }
+    plant.load_adc = gantry_test::load_counts(GANTRY_OVERLOAD_LIMIT_MILLIKG + 1);
+    plant.tick();
+    REQUIRE(plant.tick().fault_code == GANTRY_FAULT_OVERLOAD);
+    mechsim_board_outputs out = plant.tick("lift 0\n");
+    REQUIRE(out.state_code == GANTRY_STATE_MOVING);
+    REQUIRE(out.fault_code == GANTRY_FAULT_BUSY);
+    REQUIRE(plant.tick("target 0.1 0\n").fault_code == GANTRY_FAULT_BUSY);
+    REQUIRE(plant.run_until(ready, 100000) > 0);
+    out = plant.tick();
+    REQUIRE(out.state_code == GANTRY_STATE_READY);
+}

@@ -119,7 +119,11 @@ struct SignalLayerConfig {
 // stages, each component begin_tick / set_inputs / sample / latch_outputs in registration order, its take_notes()
 // recorded as `approximation` events; then pin inputs from the bus
 // through the slots only, and applied actuator torques and every component's joint drives (registration order) into
-// PhysicsInputs (KER-027).
+// PhysicsInputs (KER-027), drives on one joint combined as parallel springs (ruling 23). Each component samples the
+// state with its own share of the combined drive's read-back torque in joint_drive_torques (SIG-039): a disabled drive
+// 0, the joint's only enabled drive the whole, else tau_i = K_i (r_i - theta) - D_i omega of its last published drive
+// (theta the joint coordinate, omega its backward difference over the layer period) plus (T - sum tau) |tau_i| /
+// sum |tau| (stiffness, then damping, then equal shares when every tau_i is 0), so the shares sum to T.
 // Kernel coupling (KER-008, invariant 1): consumes config.physics_outputs, config.pin_outputs, `<name>.external_inputs`
 // (only with externals configured) and `<name>.operator_commands` (only with an operator link); publishes
 // `<name>.pin_inputs` (PinInputs), `.physics_inputs` (PhysicsInputs), `.rails` (PowerRails: std::vector<PowerRail>)
@@ -171,6 +175,8 @@ private:
         std::vector<std::size_t> input_sources;  // bus index per input
         std::vector<std::size_t> output_bus;     // bus index per output
         std::vector<double> input_values;
+        std::vector<kernel::JointDrive> published;     // its joint drives at the last step
+        std::vector<kernel::JointDriveTorque> shares;  // its part of the read-back torques this step
     };
     struct ResolvedSlot {
         PinField field = PinField::digital_in;
@@ -186,6 +192,7 @@ private:
     [[nodiscard]] std::size_t bus_index(const std::string& signal) const;
     [[nodiscard]] std::size_t intern(const std::string& signal);
     void resolve();
+    void apportion_drive_torques();
     void run_stage(Stage stage, kernel::SimTime t);
     void update_rails(kernel::SimTime t);
     void read_pin_outputs(bool fresh);
@@ -213,6 +220,10 @@ private:
     std::vector<double> last_stall_;
     bool started_ = false;
     PhysicalState state_;
+    std::vector<kernel::JointDriveTorque> read_back_;
+    std::vector<double> last_positions_;
+    bool positions_primed_ = false;
+    double period_seconds_ = 0.0;
     pins::PinOutputs pin_outputs_;
     pins::PinInputs pin_inputs_;
     kernel::PhysicsInputs physics_inputs_;

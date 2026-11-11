@@ -10,7 +10,7 @@ types. `reader.py` imports `mechsim.testing.driver` and `.runner` types (no cycl
 | `layout.py` | `FIXED_SERIES` (path, unit, axis, dtype) canonical order; `COLUMN_SERIES`, `Columns(names, units)`, `label_series`; `Series` (+ `names`, `units`), `Recording`; `seconds()` |
 | `stream.py` | `Recorder(base_rate, columns=None)`: `write_row`, `subscribe(cb) -> int`, `unsubscribe`, `recording()`, `flush(path, identity, end)` |
 | `archive.py` | `RunIdentity` (controller_mode native, emulated, none), `RunEnd`, `RunFault`, `write_archive(path, identity, end, recording, extra, columns)` (`extra` -> root attrs `meta_<key>`, read back as `RunArchive.extra`), `RunArchive(path)` reader, `coupling()`, `records()` replay, `repository_commit`, `tool_version` |
-| `export.py` | `export_csv`, `export_json`, `export_mat(archive, path, names)` |
+| `export.py` | `export_csv`, `export_json`, `export_mat(archive, path, names)`; index-column series exported with per-column names and units (`series[name] [unit]`, JSON `names`/`units`, MAT `series_columns`/`series_column_units`) |
 | `reader.py` | Engine-free read side (ruling 17; nothing from `mechsim._core`): `Kinematics`/`JointKinematics` (`of(model)`, `to_json`, `from_json`), `RecordingView` (the `RecordView` scoring and replay read: `pose:`, `joint:`, `actuator:`, `signal:` refs, events by the label table), `RecordArchiveReader.open(path) -> (RunMetadata, RecordingView)`, `DriverError`; re-exported by `testing/core_driver.py` |
 | `compare.py` | `archives_identical(a, b) -> Report(identical, content_identical, first_difference)` |
 

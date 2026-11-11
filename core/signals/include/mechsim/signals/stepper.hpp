@@ -84,6 +84,9 @@ struct DetentTangent {
 };
 [[nodiscard]] DetentTangent detent_tangent(double holding_torque, double step_angle, double delta);
 inline constexpr double pull_out_steps = 2.0;  // |theta_cmd - theta| beyond which synchronism is lost
+// Relative margin on the one-step slip bound: a shaft moving exactly one step per tick is not out of synchronism
+// through the rounding of its backward difference.
+inline constexpr double slip_rounding = 1e-9;
 
 // Inputs `full_steps`, `direction`, `enabled`, `supply` (from the driver). Outputs `torque` (N m, the drive torque
 // physics applied on the shaft in the step just taken, read back), `stalled` (level), `missed_steps` (full steps this
@@ -93,7 +96,13 @@ inline constexpr double pull_out_steps = 2.0;  // |theta_cmd - theta| beyond whi
 // angles or |drive torque| > table(|omega|): theta_cmd re-synchronizes to the step nearest theta_p on its grid, the
 // lost steps are missed, and stalled is set when no steps were commanded. Then the drive {joint, rest theta_p +
 // offset, stiffness K_t, damping} is published, the tangent of the sinusoidal detent at delta_p (detent_tangent):
-// exact in steady tracking, where delta_p is the end-of-tick lead, and at rest. Disabled or no supply: the drive is disabled, theta_cmd
+// exact in steady tracking, where delta_p is the end-of-tick lead, and at rest. While the slip s = omega dt - n'
+// step_angle (the shaft's travel over the last tick less the n' steps applied in it, 0 when disabled) exceeds one
+// step angle (by more than slip_rounding relative) the motor is out
+// of synchronism: theta_cmd re-synchronizes to the step nearest theta_p every tick (lost steps missed, stalled when
+// none were commanded and some were lost) and the drive brakes, rest theta_p - sign(s) step_angle, stiffness
+// table(|omega|) / step_angle (scaled by a stall fault), so its torque at theta_p is the curve's torque against the
+// slip and, with nothing commanded, it never adds energy; tracking resumes once |s| <= one step angle. Disabled or no supply: the drive is disabled, theta_cmd
 // follows theta, commanded steps are missed and stalled is set. Faults (SIG-034): stall scales holding (so the detent)
 // and the table by fraction; slip misses fraction of the commanded steps.
 class BehavioralStepper final : public BuiltinComponent {
@@ -113,6 +122,7 @@ private:
     double theta_ = 0.0;
     double theta_last_ = 0.0;
     double theta_cmd_ = 0.0;
+    double last_steps_ = 0.0;
     bool primed_ = false;
     std::vector<kernel::JointDrive> drive_;
 };

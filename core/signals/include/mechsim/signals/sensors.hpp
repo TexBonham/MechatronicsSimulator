@@ -112,23 +112,27 @@ private:
     std::int64_t pending_since_ = 0;
 };
 
-// Catalog type incremental_encoder. resolution is the angle per quadrature count, rad (0.15 deg = 2400 counts per
-// revolution in quadrature); noise is in rad.
+// Catalog type incremental_encoder. Rotary (linear false): resolution is the angle per quadrature count, rad (0.15 deg
+// = 2400 counts per revolution in quadrature), noise in rad, an angular coordinate. Linear (ruling 32, the catalog
+// part's resolution a length): resolution is the travel per quadrature count, m (1 / 60000 m = 60000 counts per
+// metre), noise in m, a linear (prismatic) coordinate.
 struct EncoderParams {
-    JointCoordinate coordinate;  // angular
+    JointCoordinate coordinate;
     double resolution = 0.0;
     bool reversed = false;  // count direction
+    bool linear = false;    // must match coordinate.kind
     SensorFidelity fidelity;
 };
 
 // Outputs `channel_a`, `channel_b`: signed quadrature edges on each phase between the last two delivered samples
-// (SIG-011), a counter SampledSensor whose frame is the count position n = floor(angle / resolution). An A edge is a
+// (SIG-011), a counter SampledSensor whose frame is the count position n = floor(coordinate / resolution). An A edge is a
 // step between n = 2k and 2k + 1, a B edge one between 2k + 1 and 2k + 2, so a_edges + b_edges = n_now - n_last
-// exactly. Noise (part and noisy fault) is added to the angle in rad before the floor. Stuck and dropped deliver no
+// exactly. Noise (part and noisy fault) is added to the coordinate (rad or m) before the floor. Stuck and dropped deliver no
 // edges (counts are lost, as on hardware); forced_level presents round(forced_level) counts per tick on channel_a.
 class IncrementalEncoder final : public SampledSensor {
 public:
-    // Throws SignalConfigError on a non-positive resolution or a linear coordinate.
+    // Throws SignalConfigError on a non-positive resolution or a coordinate kind that disagrees with `linear` (an
+    // angular resolution on a prismatic joint or the reverse), naming the instance.
     IncrementalEncoder(std::string instance, EncoderParams params);
 
 private:
@@ -143,12 +147,15 @@ private:
     std::int64_t last_count_ = 0;
 };
 
-// Catalog type load_cell. Senses exactly one of a payload (the magnitude of physics_outputs.payloads[payload].force,
-// the weld force on it) or a joint (generalized_force[0] of physics_outputs.joints[joint], signed along its axis).
-// Forces in N; fidelity.noise in N.
+// Catalog type load_cell. Senses at most one of a payload (the magnitude of physics_outputs.payloads[payload].force,
+// the weld force on it), a joint (generalized_force[0] of physics_outputs.joints[joint], signed along its axis) or a
+// fixed joint's reaction (the magnitude of physics_outputs.joints[joint_reaction].reaction.force, the parent-on-child
+// force, for a payload built as a fixed child of its carrier; ruling 24). With none of the three it measures 0 N every
+// sample (a case that attaches nothing, BLD-036); noise and quantization still apply. Forces in N; fidelity.noise in N.
 struct LoadCellParams {
     std::optional<std::size_t> payload;
     std::optional<std::size_t> joint;
+    std::optional<std::size_t> joint_reaction;
     double capacity = 0.0;            // N, > 0
     double sensitivity = 0.0;         // V/V at capacity, > 0
     double excitation_voltage = 0.0;  // V, > 0
@@ -164,7 +171,8 @@ struct LoadCellParams {
 // sample of a run is noted once as an approximation line (take_notes).
 class LoadCell final : public SampledSensor {
 public:
-    // Throws SignalConfigError unless exactly one of payload and joint is set and the parameters are in range.
+    // Throws SignalConfigError when more than one of payload, joint and joint_reaction is set or a parameter is out of
+    // range.
     LoadCell(std::string instance, LoadCellParams params);
 
 private:

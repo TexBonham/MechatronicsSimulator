@@ -1,0 +1,46 @@
+# Rigid payload (LIB-031): a load of known mass hung from an end effector at its attach point. The builder places it as
+# a solid box below its carrier (BLD-036). Numeric part values are placeholders.
+types:
+  - name: payload
+    version: 1.0.0
+    category: payload
+    description: Rigid load with a mass and an attach point, carried by an end effector.
+    parameters:
+      - name: mass
+        dimension: "[mass]"
+        minimum: "0 kg"
+        minimum_exclusive: true
+      - name: edge
+        dimension: "[length]"
+        default: "0.1 m"
+        minimum: "0 m"
+        minimum_exclusive: true
+    tiers:
+      - name: ideal
+        parameters: [mass, edge]
+    mechanical:
+      mass:
+        source: parameter
+        parameter: mass
+      mounts:
+        - name: attach
+          kind: face
+          offset: ["0 mm", "0 mm", "50 mm"]
+    electrical:
+      pins: []
+    ratings:
+      absolute_maximums: []
+    thermal:
+      held_constant: true
+      temperature: "298.15 K"
+    plugin:
+      python: mechsim.builder.payload:with_payload
+parts:
+  - name: payload_2kg_generic
+    type: payload
+    tier: ideal
+    description: 2 kg test load, a 0.1 m box attached at the centre of its top face.
+    source: placeholder values, no drawing assigned
+    values:
+      mass: "2 kg"
+    placeholders: [mass]

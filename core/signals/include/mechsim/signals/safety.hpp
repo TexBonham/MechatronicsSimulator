@@ -98,6 +98,7 @@ struct BrakeParams {
 
 inline constexpr double brake_envelope_product = 100.0;  // K_b A0 h^2: a quarter of the adapter envelope's 400
 inline constexpr double brake_default_compliance = 0.01;  // rad (m) of drive travel at brake_torque, without A0
+inline constexpr double brake_slip_stiffness_ratio = 1e-5;  // K_s / K_b while slipping
 
 // Inputs `release` (level), `vcc` (V, the coil rail). Outputs `engaged` (level), `torque` (the drive torque physics
 // applied in the step just taken, read back from joint_drive_torques; 0 while released).
@@ -107,12 +108,14 @@ inline constexpr double brake_default_compliance = 0.01;  // rad (m) of drive tr
 // periods_floor(engage_delay or release_delay), cancelled if the demand reverts first.
 // While engaged it publishes one joint drive (PHY-034) on joint: stiffness K_b = brake_envelope_product / (A0 h^2)
 // with A0 given (h the layer period, so K_b A0 h^2 = 100 < 400), else brake_torque / brake_default_compliance;
-// damping as given. Holding: rest is the joint coordinate at engagement. When the read-back torque exceeds
-// brake_torque in magnitude it slips: with s the sign of that torque, each step rest = theta_p + s brake_torque / K_b,
-// theta_p = theta + omega h + alpha h^2 (omega, alpha the backward differences of the joint coordinate), so the drive
-// torque at the end of the step is s brake_torque when the acceleration holds over it (the fixed point of the
-// semi-implicit step; deviations decay by K_b h^2 / (J + K_b h^2) per step). It sticks again (rest = theta_p) once
-// the predicted velocity omega + alpha h no longer moves against s.
+// damping as given. Holding: rest is the joint coordinate at engagement, or where it sticks. It slips when it engages
+// on a moving joint (s = -sign omega) or when the read-back torque exceeds brake_torque in magnitude (s its sign):
+// each step it publishes stiffness K_s = brake_slip_stiffness_ratio K_b, damping 0, rest theta + omega h +
+// s brake_torque / K_s (omega, alpha the backward differences of the joint coordinate), so the implicit drive applies
+// s brake_torque at the step's end state to within the apparent inertia K_s h^2 (a pure Coulomb torque; the
+// extrapolation by alpha h^2 grew 2.7x per step at K_b A0 h^2 = 100). It sticks (rest theta, K_b) once omega or the
+// predicted omega + alpha h no longer moves against s, that is when stopping within the step needs less than
+// brake_torque.
 class Brake final : public BuiltinComponent {
 public:
     // Throws SignalConfigError on a non-positive brake torque or inverse inertia, or a negative delay or damping.

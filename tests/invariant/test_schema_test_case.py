@@ -37,9 +37,18 @@ def test_schema_is_current_and_well_formed(module: Any) -> None:
 def test_reference_cases_ship() -> None:
     assert [path.relative_to(ROOT).as_posix() for path in CASES] == [
         "test_cases/gantry/G1.yaml",
+        "test_cases/gantry/G10.yaml",
+        "test_cases/gantry/G11.yaml",
+        "test_cases/gantry/G13.yaml",
+        "test_cases/gantry/G14.yaml",
         "test_cases/gantry/G2.yaml",
         "test_cases/gantry/G3.yaml",
         "test_cases/gantry/G4.yaml",
+        "test_cases/gantry/G5.yaml",
+        "test_cases/gantry/G6.yaml",
+        "test_cases/gantry/G7.yaml",
+        "test_cases/gantry/G8.yaml",
+        "test_cases/gantry/G9.yaml",
         "test_cases/pendulum/P1_period.yaml",
     ]
 

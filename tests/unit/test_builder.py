@@ -377,7 +377,9 @@ def test_belts_and_lead_screws_become_neutral_transmissions() -> None:
     screw = transmissions["lift_screw"]
     assert isinstance(screw, LeadScrew)
     assert (screw.shaft_joint, screw.driven_joint) == ("lift_motor_spin", "lift_axis")
-    assert screw.lead == pytest.approx(0.008, rel=1e-15)
+    # The gantry overrides the screw ratio to 40 mm/turn (placeholder, design comment) until the firmware scales
+    # each axis on its own; the catalog part is 8 mm.
+    assert screw.lead == pytest.approx(0.04, rel=1e-15)
     assert screw.self_locking is False
     # The design zeroes the catalog's 0.1 mm for milestone 1 (PHY-006, M1-X3 ruling 3).
     assert screw.backlash == 0.0
@@ -553,8 +555,11 @@ def test_module_instances_follow_the_tick_order() -> None:
         "x_encoder",
         "y_encoder",
         "lift_encoder",
+        "load_cell",
+        "load_amp",
         "controller",
         "signals",
+        "lift_brake",
         "motor_supply",
         "logic_psu",
         "estop",
@@ -569,6 +574,7 @@ def test_module_instances_follow_the_tick_order() -> None:
         "x_belt",
         "y_belt",
         "lift_screw",
+        "hook_effector",
         "recorder",
     )
     assert result.design == gantry()

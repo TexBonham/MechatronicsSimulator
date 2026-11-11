@@ -68,7 +68,7 @@ def test_shipped_gantry_places_every_sensor() -> None:
     assert _errors(data) == []
     switch = _component(data, "x_min_switch")["senses"]
     assert switch == {"joint": "x_axis", "position": "0 m", "actuate_above": False}
-    assert _component(data, "x_encoder")["senses"] == {"joint": "x_motor_spin"}
+    assert _component(data, "x_encoder")["senses"] == {"joint": "x_axis"}
 
 
 @pytest.mark.req("DES-043")
@@ -196,7 +196,7 @@ def test_builder_maps_senses_and_torque_curve() -> None:
     assert (switch.joint, switch.position, switch.actuate_above, switch.reversed) == ("x_axis", 1.0, True, False)
     encoder = instances["y_encoder"].senses
     assert encoder is not None
-    assert (encoder.joint, encoder.position, encoder.reversed) == ("y_motor_spin", None, False)
+    assert (encoder.joint, encoder.position, encoder.reversed) == ("y_axis", None, False)
     assert instances["x_motor"].senses is None
     curve = instances["x_motor"].torque_speed
     assert curve[0] == (0.0, pytest.approx(0.4))
@@ -315,9 +315,10 @@ def test_forced_switch_level_holds_for_its_window(delivered: tuple[CoreDriver, A
 @pytest.mark.req("KER-023")
 def test_estop_press_opens_motor_power_within_the_cutoff(delivered: tuple[CoreDriver, Any, Path]) -> None:
     """Pressed at 1 s: the relay opens floor(0.02 s / 1 ms) = 20 samples after the press is seen at tick 1000, so the
-    rail is off from the row of tick 1020, stamped 1.021 s; manual reset (part value) keeps it off after release."""
+    rail is off from the row of tick 1020, stamped 1.021 s. The gantry relay runs `manual_reset: false` (round 4
+    ruling 25): the loop closes at the release, tick 1500, and the contacts close in that step, stamped 1.501 s."""
     driver, _, _ = delivered
-    assert _changes(driver, "signal:motor_power.on") == [(1.021, 0.0)]
+    assert _changes(driver, "signal:motor_power.on") == [(1.021, 0.0), (1.501, 1.0)]
 
 
 @pytest.mark.req("KER-023")

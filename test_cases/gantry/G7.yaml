@@ -1,0 +1,137 @@
+# G7 (Requirements doc, Test cases, gantry suite): E-stop pressed mid-move with a 2 kg load. Motor power is cut within
+# the relay delay (ACC-013: `rail:motor_power` reads 0 from the cutoff to the release, round 4 ruling 27; the relay's
+# status output, bound to the controller and equal to its contacts, too); the hook does not drop (ACC-014: the lift
+# stays within the hold band of its position at the press until the reset); motion resumes only after a reset and a
+# new command (ACC-015, FW-024: no step pulses on any axis from the cutoff until the new command, the target reached
+# after). The hook is first lifted to 30 cm (as in G5) so that the brake, not the lift's lower joint limit, holds the
+# load through the cutoff (X review, high); the lift takes 0.3 m at the 0.2 m/s lift speed, 1.5 s plus its ramps, so
+# the target follows at 11 s. The release at the window end closes the E-stop loop and the relay returns the rail
+# (`manual_reset: false`, round 4 ruling 25); `reset` returns the firmware to not_homed (round 4 ruling 7), so `home`
+# precedes the target. Windows after the press at 12 s (press + 20 ms cutoff_delay of estop_relay_24v_generic): the
+# relay opens in the layer step at 12.020 s and rows are stamped at the end of their step (KER-009), so the rail and
+# the status are recorded off from 12.021 s; the firmware reads the status input one control tick after the rail
+# drops, so the axes' last pulses fall in the 12.021 s tick and the no-step windows start at 12.022 s. Those pulses
+# are physical latency (the motors are already unpowered), not a defect.
+id: G7
+title: E-stop mid-move with a load
+design:
+  name: gantry
+  version: 0.1.0
+controller_mode: native
+seed: 7
+open_parameters:
+  - name: homing_time
+    dimension: "[time]"
+    owed_by: gantry team
+    note: Time allowed for the first homing; 0.1 m at the 0.02 m/s homing speed is 5 s (the re-home after the reset has 24 s for the 0.4 m back).
+    default: "8 s"
+  - name: hold_band
+    dimension: "[length]"
+    owed_by: gantry team
+    note: How far the hook may drop after an E-stop; the 1 cm position accuracy.
+    default: "1 cm"
+initial_state:
+  joints:
+    - joint: x_axis
+      position: 0.1 m
+      velocity: 0 m/s
+    - joint: y_axis
+      position: 0.1 m
+      velocity: 0 m/s
+    - joint: lift_axis
+      position: 0.1 m
+      velocity: 0 m/s
+  controller:
+    state: not_homed
+  payload:
+    attached: true
+    body: hook
+    mass: 2 kg
+commands:
+  - at: 0 s
+    message: home
+  - at: ${homing_time}
+    message: lift
+    payload:
+      z: 30 cm
+  - at: 11 s
+    message: target
+    payload:
+      x: 40 cm
+      y: 25 cm
+  - at: 14 s
+    message: reset
+  - at: 15 s
+    message: home
+  - at: 39 s
+    message: target
+    payload:
+      x: 40 cm
+      y: 25 cm
+faults:
+  - kind: estop_press
+    target: estop
+    start: 12 s
+    duration: 1 s
+end:
+  at: 45 s
+  max_duration: 45 s
+criteria:
+  - name: power_cut
+    check: value
+    quantity: rail:motor_power
+    statistic: maximum
+    comparison: at_most
+    limit: "0"
+    window:
+      start: 12.021 s
+      end: 13 s
+  - name: relay_open
+    check: value
+    quantity: signal:estop.status
+    statistic: maximum
+    comparison: at_most
+    limit: "0"
+    window:
+      start: 12.021 s
+      end: 13 s
+  - name: hook_held
+    check: hold_band
+    joints: [lift_axis]
+    band: ${hold_band}
+    window:
+      start: 12 s
+      end: 15 s
+  - name: no_steps_x_until_command
+    check: value
+    quantity: signal:x_driver.step
+    statistic: maximum
+    comparison: at_most
+    limit: "0"
+    window:
+      start: 12.022 s
+      end: 15 s
+  - name: no_steps_y_until_command
+    check: value
+    quantity: signal:y_driver.step
+    statistic: maximum
+    comparison: at_most
+    limit: "0"
+    window:
+      start: 12.022 s
+      end: 15 s
+  - name: resumed_x
+    check: value
+    quantity: pose:hook.x
+    statistic: final
+    comparison: within
+    target: 40 cm
+    limit: 1 cm
+  - name: resumed_y
+    check: value
+    quantity: pose:hook.y
+    statistic: final
+    comparison: within
+    target: 25 cm
+    limit: 1 cm
+baseline: baseline.yaml

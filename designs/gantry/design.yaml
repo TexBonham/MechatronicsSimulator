@@ -64,13 +64,17 @@ open_parameters:
   - name: encoder_placement
     dimension: choice
     owed_by: gantry team
-    note: Motor shaft or axis side (row 14); both supported.
+    note: >-
+      Motor shaft or axis side (row 14). PLACEHOLDER frame: each axis carries a linear_encoder_generic sensing its
+      axis joint (ruling 32), so belt slip and stall both show as a step-count versus encoder mismatch.
     default: "frame"
   - name: load_cell_type
     dimension: choice
     owed_by: gantry team
-    note: Weight sensor slot; the shipped catalog has no load cell type yet, so no instance is declared.
-    default: "none"
+    note: >-
+      Weight sensor part; PLACEHOLDER load_cell_5kg_generic on the hook reading the case payload, through load_amp
+      (gain 403 so the firmware's 1000 counts per kg holds with the 12-bit 3.3 V placeholder ADC).
+    default: "load_cell_5kg_generic"
   - name: deflection_target_mode
     dimension: choice
     owed_by: gantry team
@@ -104,8 +108,11 @@ open_parameters:
   - name: power_loss_hold
     dimension: choice
     owed_by: gantry team
-    note: How the gantry holds its load when power is cut, brake or self-locking lead screw.
-    default: "self_locking_screw"
+    note: >-
+      How the gantry holds its load when power is cut, brake or self-locking lead screw. PLACEHOLDER brake (round 4
+      ruling 1): lift_brake, a spring-applied brake_24v_generic on the motor rail, holds the lift whenever the coil
+      is unpowered; the MuJoCo bridge refuses a self-locking screw.
+    default: "brake"
   - name: stm32_part
     dimension: choice
     owed_by: gantry team
@@ -202,9 +209,13 @@ environment:
 # chosen only so the rigid milestone 1 gantry builds; none of it is gantry data. Placeholder sizes: workspace x 1.0 m
 # (rail_x 1.2 m long), workspace y 0.8 m (rail_y 1.0 m long), lift travel 0.5 m, rail_x 1.0 m above the floor.
 # Reference configuration (all joint coordinates zero), world positions of the body frames: frame (0, 0, 0),
-# rail_x (0, 0, 1), rail_y (0.1, 0, 1.04), trolley (0.1, 0.1, 1.09), lift_carriage (0.1, 0.1, 0.79), hook
-# (0.1, 0.1, 0.69), x_motor_shaft (-0.05, -0.1, 1), y_motor_shaft (0.1, -0.05, 1.04), lift_motor_shaft
-# (0.1, 0.1, 1.14); no two bodies not joined to each other overlap there (BLD-022).
+# rail_x (0, 0, 1), rail_y (0.1, 0, 1.04), trolley (0.1, 0.1, 1.09), lift_carriage (0.1, 0.1, 0.44), hook
+# (0.1, 0.1, 0.34), x_motor_shaft (-0.05, -0.1, 1), y_motor_shaft (0.1, -0.05, 1.04), lift_motor_shaft
+# (0.1, 0.1, 1.14); no two bodies not joined to each other overlap there (BLD-022). The lift carriage hangs 0.65 m
+# below the trolley so the full 0.5 m lift travel keeps its top (0.96 m) below rail_x (1.02 m); at 0.3 m it struck
+# rail_x at 0.21 m of travel (M2-X3). x_axis and y_axis carry 5 N of placeholder Coulomb friction (M2-X3): without it
+# an axis cut off mid-move by the E-stop coasted at 0.2 m/s to its far limit (G7); 5 N stops it within v^2 m / (2 F)
+# = 2 cm for 5 kg moving and costs the motor 5 N x 6.37 mm = 0.03 N m.
 bodies:
   - name: frame
     material: aluminium_6063_t5_extrusion
@@ -345,7 +356,7 @@ joints:
       - limits:
           lower: 0 m
           upper: 1 m
-        friction: 0 N
+        friction: 5 N
         damping: 0 N*s/m
         backlash: 0 m
   - name: y_axis
@@ -359,7 +370,7 @@ joints:
       - limits:
           lower: 0 m
           upper: 0.8 m
-        friction: 0 N
+        friction: 5 N
         damping: 0 N*s/m
         backlash: 0 m
   - name: lift_axis
@@ -367,7 +378,7 @@ joints:
     parent: trolley
     child: lift_carriage
     placement:
-      position: [0 m, 0 m, -0.3 m]
+      position: [0 m, 0 m, -0.65 m]
     axis: [0.0, 0.0, 1.0]
     linear:
       - limits:
@@ -509,9 +520,12 @@ components:
     type: lead_screw
     part: tr8x8_generic
     # Milestone 1: the MuJoCo bridge refuses backlash until milestone 2 (PHY-006), so the design zeroes it here; the
-    # catalog part keeps its 0.1 mm.
+    # catalog part keeps its 0.1 mm. PLACEHOLDER lead (ratio) 40 mm/turn, matched by the firmware's per-axis
+    # GANTRY_STEPS_PER_M_LIFT (80 000): with the part's 8 mm lead the lift held by its stepper at the lower joint limit
+    # diverges on the bridge (M2-X2 open issue); the 8 mm lead returns with 400 000 steps/m when that is fixed.
     overrides:
       backlash: 0 mm
+      ratio: 40 mm/turn
     mechanical:
       - mount: drive_end
         joint: lift_motor_spin
@@ -604,9 +618,10 @@ components:
       joint: lift_axis
       position: 0.5 m
       actuate_above: true
+  # Frame-side linear encoders on the axis joints (ruling 32); 60000 counts per metre matches GANTRY_COUNTS_PER_M_*.
   - name: x_encoder
-    type: incremental_encoder
-    part: encoder_600ppr_generic
+    type: linear_encoder
+    part: linear_encoder_generic
     mechanical:
       - mount: flange
         body: ${encoder_placement}
@@ -618,10 +633,10 @@ components:
         pin: channel_b
         direction: emits
     senses:
-      joint: x_motor_spin
+      joint: x_axis
   - name: y_encoder
-    type: incremental_encoder
-    part: encoder_600ppr_generic
+    type: linear_encoder
+    part: linear_encoder_generic
     mechanical:
       - mount: flange
         body: ${encoder_placement}
@@ -633,10 +648,10 @@ components:
         pin: channel_b
         direction: emits
     senses:
-      joint: y_motor_spin
+      joint: y_axis
   - name: lift_encoder
-    type: incremental_encoder
-    part: encoder_600ppr_generic
+    type: linear_encoder
+    part: linear_encoder_generic
     mechanical:
       - mount: flange
         body: ${encoder_placement}
@@ -648,6 +663,50 @@ components:
         pin: channel_b
         direction: emits
     senses:
+      joint: lift_axis
+  # The hook as the end effector carrying the case payload (LIB-031); its mass is the hook body's, capacity placeholder.
+  - name: hook_effector
+    type: end_effector
+    part: hook_generic
+    mechanical:
+      - mount: attach
+        body: hook
+  # PLACEHOLDER load cell chain (open parameter load_cell_type): the cell reads the reaction at the case payload's
+  # fixed joint to the hook (DES-043 senses.joint_reaction, ruling 24); the amplifier gain is set so 1 kg reads 1000
+  # ADC counts on the placeholder chip.
+  - name: load_cell
+    type: load_cell
+    part: load_cell_5kg_generic
+    mechanical:
+      - mount: body
+        body: hook
+    senses:
+      joint_reaction: payload
+  - name: load_amp
+    type: load_cell_amplifier
+    part: load_cell_amplifier_generic
+    overrides:
+      gain: "403"
+    mechanical:
+      - mount: board
+        body: trolley
+    signals:
+      - name: load_amp.out
+        pin: out
+        direction: emits
+  # PLACEHOLDER lift brake (open parameter power_loss_hold): a spring-applied brake on the lift motor shaft (a motor
+  # brake, ruling 23); its coil is on the motor rail, so a power loss or E-stop engages it.
+  - name: lift_brake
+    type: brake
+    part: brake_24v_generic
+    mechanical:
+      - mount: body
+        body: trolley
+    signals:
+      - name: lift_brake.release
+        pin: release
+        direction: consumes
+    acts_on:
       joint: lift_motor_spin
   - name: motor_supply
     type: power_supply
@@ -659,9 +718,17 @@ components:
     overrides:
       output_voltage: 3.3 V
       max_current: 1 A
+  # PLACEHOLDER relay reset (round 4 ruling 25): no manual reset, the motor rail returns when the E-stop loop closes;
+  # the firmware's `reset` message gates motion after an E-stop (FW-024). The real relay's arrangement is owed.
   - name: estop
     type: estop_relay
     part: estop_relay_24v_generic
+    overrides:
+      manual_reset: false
+    signals:
+      - name: estop.status
+        pin: status
+        direction: emits
   - name: watchdog
     type: watchdog
     part: watchdog_24v_generic
@@ -722,6 +789,20 @@ wiring:
     destination: lift_encoder.vcc
   - source: logic_psu.gnd
     destination: lift_encoder.gnd
+  - source: load_cell.signal
+    destination: load_amp.signal_in
+  - source: logic_psu.v_out
+    destination: load_cell.excitation
+  - source: logic_psu.gnd
+    destination: load_cell.ground
+  - source: logic_psu.v_out
+    destination: load_amp.vcc
+  - source: logic_psu.gnd
+    destination: load_amp.ground
+  - source: watchdog.contact_out
+    destination: lift_brake.vcc
+  - source: motor_supply.gnd
+    destination: lift_brake.ground
 pin_bindings:
   - signal: x_driver.step
     pin: PA0
@@ -795,15 +876,24 @@ pin_bindings:
   - signal: operator_link.uart_rx
     pin: PA10
     mode: uart_rx
+  - signal: load_amp.out
+    pin: PA11
+    mode: adc_input
+  - signal: estop.status
+    pin: PB7
+    mode: digital_input
+  - signal: lift_brake.release
+    pin: PB8
+    mode: digital_output
 power:
   rails:
     - name: motor_power
       supply: motor_supply
       gated_by: [estop, watchdog]
-      consumers: [x_driver, y_driver, lift_driver]
+      consumers: [x_driver, y_driver, lift_driver, lift_brake]
     - name: logic
       supply: ${logic_supply}
-      consumers: [x_encoder, y_encoder, lift_encoder]
+      consumers: [x_encoder, y_encoder, lift_encoder, load_cell, load_amp]
   controller_rail: logic
 firmware:
   # Application target mechsim_fw_gantry in the firmware tree (DES-040). Codes: firmware/app/gantry/gantry_config.h.
@@ -827,6 +917,20 @@ firmware:
     7: homing_failed
     8: event_overflow
     9: tx_overflow
+    10: overload
+    11: estop
+    12: encoder_mismatch
+    13: limit_trip
+    14: nothing_to_reset
+  # event_log codes recorded as events (gantry_config.h GANTRY_EVENT_*), each with its argument kind (round 4 ruling 28):
+  # an axis reads as that step channel's driver instance (motion_start, motion_end: FW-028), a fault or state code as
+  # its name (state_change packs (from << 8) | to, read from>to).
+  event_codes:
+    1: {name: state_change, argument: state}
+    3: {name: refused, argument: fault}
+    4: {name: fault_latched, argument: fault}
+    6: {name: motion_start, argument: axis}
+    7: {name: motion_end, argument: axis}
 operator_messages:
   - name: target
     label: target (x, y)
@@ -839,6 +943,19 @@ operator_messages:
         dimension: "[length]"
   - name: home
     label: home
+    source: operator
+    destination: controller
+  # Lift the hook to z, metres above the lift home (min) switch; lowering is a lower z (round 4 ruling 8).
+  - name: lift
+    label: lift
+    source: operator
+    destination: controller
+    fields:
+      - name: z
+        dimension: "[length]"
+  # Clear a latched E-stop fault once the motor rail is live; the controller returns to not_homed (round 4 ruling 7).
+  - name: reset
+    label: reset
     source: operator
     destination: controller
   - name: current_position

@@ -862,6 +862,10 @@ def test_value_criterion_field_missing_rejected(field: str) -> None:
         {"quantity": "signal:x_encoder.channel_a", "limit": "1"},
         {"quantity": "count:message.status", "statistic": "final", "comparison": "at_most", "limit": "1"},
         {"quantity": "state:ready", "statistic": "final", "limit": "1"},
+        {"quantity": "fault:encoder_mismatch", "statistic": "maximum", "comparison": "at_least", "limit": "1"},
+        {"quantity": "count:fault.limit_trip", "statistic": "final", "comparison": "at_least", "limit": "1"},
+        {"quantity": "rail:motor_power", "limit": "0"},
+        {"quantity": "rail:logic.voltage", "limit": "2 V"},
         {"quantity": "joint:x_axis.position", "statistic": "period", "limit": "2 s"},
         {"statistic": "peak_absolute", "window": {"start": "1 s", "end": "2 s"}},
         {"statistic": "minimum", "window": {"end": "2 s"}},
@@ -894,6 +898,9 @@ def test_value_criterion_forms_accepted(fields: dict[str, Any]) -> None:
         ({"quantity": "pose:hook.roll", "limit": "1 m"}, "expected dimensionless"),
         ({"statistic": "period", "limit": "1 m"}, "expected [time]"),
         ({"quantity": "state:ready", "statistic": "period", "limit": "1 s"}, "statistic 'period' needs a series"),
+        ({"quantity": "fault:overload", "statistic": "period", "limit": "1 s"}, "statistic 'period' needs a series"),
+        ({"quantity": "fault:overload", "limit": "1 m"}, "expected dimensionless"),
+        ({"quantity": "fault:Overload"}, "quantity"),
         (
             {"quantity": "signal:x_encoder.channel_a", "comparison": "within", "target": "1 V", "limit": "1 A"},
             "limit '1 A' has dimension [current]",
@@ -904,6 +911,9 @@ def test_value_criterion_forms_accepted(fields: dict[str, Any]) -> None:
         ({"quantity": "pose:hook.w"}, "quantity"),
         ({"quantity": "hook.x"}, "quantity"),
         ({"quantity": "joint:x_axis.force"}, "quantity"),
+        ({"quantity": "rail:motor_power.on"}, "quantity"),
+        ({"quantity": "rail:motor_power", "limit": "1 V"}, "expected dimensionless"),
+        ({"quantity": "rail:motor_power.voltage", "limit": "1 m"}, "expected [mass] * [length] ** 2"),
         ({"limit": 1.0}, "must be a string with a unit"),
         ({"limit": "m"}, "must start with a number"),
         ({"name": "Final"}, "name"),
@@ -921,6 +931,9 @@ def test_value_criterion_bad_rejected(fields: dict[str, Any], fragment: str) -> 
         ({"quantity": "joint:z_axis.position"}, "unknown joint 'z_axis'"),
         ({"quantity": "signal:x_encoder.index"}, "unknown signal 'x_encoder.index'"),
         ({"quantity": "count:message.done", "limit": "1"}, "unknown operator message 'done'"),
+        ({"quantity": "rail:mains", "limit": "0"}, "unknown power rail 'mains'"),
+        ({"quantity": "fault:jammed", "limit": "0"}, "unknown controller fault 'jammed' (firmware.fault_codes)"),
+        ({"quantity": "count:fault.jammed", "limit": "0"}, "unknown controller fault 'jammed'"),
         ({"quantity": "joint:x_axis.position", "limit": "1 rad"}, "expected [length]"),
         ({"quantity": "joint:x_axis.velocity", "limit": "1 m"}, "expected [length] / [time]"),
     ],
@@ -1081,6 +1094,24 @@ def test_controller_state_reference_needs_firmware() -> None:
     data = pendulum_case()
     data["criteria"].append({"name": "c", "check": "event", "event": "state:ready", "expect": "present"})
     cross_rejected(data, "controller state 'ready' needs a design with firmware")
+
+
+@pytest.mark.req("SCO-022", "ACC-020")
+def test_controller_fault_reference_needs_firmware() -> None:
+    """Ruling 30: `fault:<name>` names a fault of the design's `fault_codes`."""
+    data = pendulum_case()
+    data["criteria"].append({"name": "c", "check": "event", "event": "fault:overload", "expect": "present"})
+    cross_rejected(data, "controller fault 'overload' needs a design with firmware")
+
+
+@pytest.mark.req("SCO-022", "ACC-020", "ACC-023")
+@pytest.mark.parametrize(("name", "ok"), [("encoder_mismatch", True), ("limit_trip", True), ("jammed", False)])
+def test_controller_fault_event_reference_checked_against_the_fault_table(name: str, ok: bool) -> None:
+    data = with_criterion({"name": "c", "check": "event", "event": f"fault:{name}", "expect": "present"})
+    if ok:
+        assert check_errors(data) == []
+    else:
+        cross_rejected(data, f"unknown controller fault {name!r}")
 
 
 @pytest.mark.req("SCO-025")
@@ -1255,7 +1286,8 @@ def _suite_data(**fields: Any) -> dict[str, Any]:
 def test_the_shipped_suite_file_names_its_cases_and_baseline() -> None:
     path = ROOT / "test_cases" / "gantry" / "suite.yaml"
     suite = load_suite_file(path)
-    assert suite.cases == ["G1.yaml", "G2.yaml", "G3.yaml", "G4.yaml"]
+    # G12 is not shipped yet.
+    assert suite.cases == [f"G{index}.yaml" for index in (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 13, 14)]
     assert suite.baseline == "baseline.yaml"
     assert suite.design.version == load_design(GANTRY).version
     assert SUITE_SCHEMA_PATH.read_text(encoding="utf-8") == suite_schema_text()

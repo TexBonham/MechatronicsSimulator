@@ -230,11 +230,11 @@ TEST_CASE("Brake: a 0.3 N m load under a 0.5 N m brake holds at its static sag",
 
 TEST_CASE("Brake: a 0.8 N m load slips a 0.5 N m brake with the drive torque pinned at the brake torque",
           "[SIG-020][LIB-021][LIB-027]") {
-    // Slipping, the brake sets rest = theta_p - 0.5 / K_b, theta_p = theta + omega h + alpha h^2. Under the plant's
-    // step this has the fixed point a = (L - 0.5) / J with drive torque exactly -0.5; a deviation in a decays by
-    // K_b h^2 / (J + K_b h^2) = 100 / 101 per step, so after 2000 steps it is (100/101)^2000 = 2e-9 of its start
-    // (below 1), and the torque error K_b h^2 times the acceleration change, below 1e-6. Floating rounding at
-    // theta ~ 600 rad: K_b x eps x 600 = 1.3e-8 N m.
+    // Slipping, the brake publishes K_s = 1e-5 K_b = 1 N m/rad, damping 0, rest = theta + omega h - 0.5 / K_s (brief
+    // M2-C2). Under the plant's backward-Euler step J a = L + K_s (rest - theta - omega h - a h^2) = L - 0.5 - K_s h^2 a,
+    // so a = (L - 0.5) / (J + K_s h^2) at once (no extrapolated term to settle) and the drive torque is
+    // -0.5 - K_s h^2 a: the spec's -0.5 to the apparent inertia K_s A0 h^2 = 1e-3, |K_s h^2 a| <= 1e-3 x 0.3 N m.
+    // The scheme's own value is held to 1e-9 (rounding K_s x eps x 600 rad is 1e-13 N m).
     Brake brake("brake", catalog_brake());
     Stepper run(brake);
     Plant plant;
@@ -249,7 +249,10 @@ TEST_CASE("Brake: a 0.8 N m load slips a 0.5 N m brake with the drive torque pin
     }
     std::cout << "SIG-020 slip: closed form torque -0.5 N m; measured " << plant.torque << " N m, theta "
               << plant.theta << " rad\n";
-    CHECK(std::fabs(plant.torque + 0.5) < 1e-6);
+    const double slip_stiffness = brake.stiffness() * brake_slip_stiffness_ratio;
+    const double scheme = -0.5 - (slip_stiffness * h * h * (0.3 / (1e-3 + (slip_stiffness * h * h))));
+    CHECK(std::fabs(plant.torque + 0.5) <= 1e-3 * 0.3 * (1.0 + 1e-9));
+    CHECK(std::fabs(plant.torque - scheme) < 1e-9);
     CHECK(plant.theta > theta_at_100);
     // Released, it publishes no drive and the load runs free.
     for (int k = 0; k < 31; ++k) {

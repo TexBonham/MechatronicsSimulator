@@ -278,7 +278,7 @@
           "type": "string"
         },
         "event": {
-          "pattern": "^(message|state|event):[a-z][a-z0-9_]*$",
+          "pattern": "^(message|state|fault|event):[a-z][a-z0-9_]*$",
           "title": "Event",
           "type": "string"
         },
@@ -436,7 +436,7 @@
           "type": "string"
         },
         "end_event": {
-          "pattern": "^(message|state|event):[a-z][a-z0-9_]*$",
+          "pattern": "^(message|state|fault|event):[a-z][a-z0-9_]*$",
           "title": "End Event",
           "type": "string"
         },
@@ -459,7 +459,7 @@
           "type": "string"
         },
         "start_event": {
-          "pattern": "^(message|state|event):[a-z][a-z0-9_]*$",
+          "pattern": "^(message|state|fault|event):[a-z][a-z0-9_]*$",
           "title": "Start Event",
           "type": "string"
         }
@@ -679,7 +679,7 @@
           "type": "boolean"
         },
         "end_event": {
-          "pattern": "^(message|state|event):[a-z][a-z0-9_]*$",
+          "pattern": "^(message|state|fault|event):[a-z][a-z0-9_]*$",
           "title": "End Event",
           "type": "string"
         },
@@ -689,7 +689,7 @@
           "type": "string"
         },
         "start_event": {
-          "pattern": "^(message|state|event):[a-z][a-z0-9_]*$",
+          "pattern": "^(message|state|fault|event):[a-z][a-z0-9_]*$",
           "title": "Start Event",
           "type": "string"
         }
@@ -1312,7 +1312,7 @@
           "type": "string"
         },
         "quantity": {
-          "pattern": "^(signal:[a-z][a-z0-9_]*\\.[a-z][a-z0-9_]*|pose:[a-z][a-z0-9_]*\\.(x|y|z|roll|pitch|yaw)|joint:[a-z][a-z0-9_]*\\.(position|velocity)|state:[a-z][a-z0-9_]*|count:(message|state)\\.[a-z][a-z0-9_]*)$",
+          "pattern": "^(signal:[a-z][a-z0-9_]*\\.[a-z][a-z0-9_]*|pose:[a-z][a-z0-9_]*\\.(x|y|z|roll|pitch|yaw)|joint:[a-z][a-z0-9_]*\\.(position|velocity)|rail:[a-z][a-z0-9_]*(\\.voltage)?|state:[a-z][a-z0-9_]*|fault:[a-z][a-z0-9_]*|count:(message|state|fault)\\.[a-z][a-z0-9_]*)$",
           "title": "Quantity",
           "type": "string"
         },
@@ -1508,7 +1508,7 @@
           "type": "string"
         },
         "quantity": {
-          "pattern": "^(signal:[a-z][a-z0-9_]*\\.[a-z][a-z0-9_]*|pose:[a-z][a-z0-9_]*\\.(x|y|z|roll|pitch|yaw)|joint:[a-z][a-z0-9_]*\\.(position|velocity)|state:[a-z][a-z0-9_]*|count:(message|state)\\.[a-z][a-z0-9_]*)$",
+          "pattern": "^(signal:[a-z][a-z0-9_]*\\.[a-z][a-z0-9_]*|pose:[a-z][a-z0-9_]*\\.(x|y|z|roll|pitch|yaw)|joint:[a-z][a-z0-9_]*\\.(position|velocity)|rail:[a-z][a-z0-9_]*(\\.voltage)?|state:[a-z][a-z0-9_]*|fault:[a-z][a-z0-9_]*|count:(message|state|fault)\\.[a-z][a-z0-9_]*)$",
           "title": "Quantity",
           "type": "string"
         },

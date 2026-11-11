@@ -245,6 +245,31 @@ def test_replay_reads_the_archive_series_events_and_values(tmp_path: Path) -> No
 
 
 @pytest.mark.req("FAC-008")
+@pytest.mark.req("VIE-009")
+def test_list_runs_names_archives_and_open_replays_and_advance_moves_a_playing_cursor(tmp_path: Path) -> None:
+    """Ruling 22: `list_runs` lists `<runs_dir>/*.h5` by run id, marking the open replays; `advance` moves the cursor
+    only while playing."""
+    facade, summary = run_machine(tmp_path)
+    facade.runs_dir = Path(summary.archive).parent
+    listed = facade.list_runs().runs
+    assert [(entry.run_id, entry.open) for entry in listed] == [("M1-seed7", False)]
+    assert listed[0].archive == summary.archive
+    handle = facade.replay_open(Path(summary.archive))
+    assert [(entry.run_id, entry.open) for entry in facade.list_runs().runs] == [("M1-seed7", True)]
+    held = facade.advance(handle.run_id, 0.002)
+    assert (held.index, held.paused) == (0, True)
+    facade.pause(handle.run_id, False)
+    moved = facade.advance(handle.run_id, 0.002)
+    assert (moved.index, moved.t) == (2, pytest.approx(0.002, abs=1e-12))
+    with pytest.raises(FacadeError) as raised:
+        facade.advance("nothing", 0.001)
+    assert raised.value.code == "not_found"
+    facade.runs_dir = tmp_path / "absent"
+    facade._replays.clear()
+    assert facade.list_runs().runs == []
+
+
+@pytest.mark.req("FAC-008")
 def test_replay_needs_a_reader_and_an_archive(tmp_path: Path) -> None:
     with pytest.raises(FacadeError) as raised:
         Facade(FacadeServices()).replay_open(tmp_path / "a.h5")

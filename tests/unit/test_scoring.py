@@ -29,7 +29,7 @@ from mechsim.scoring.statistics import (
     within,
 )
 from mechsim.testing.baseline import RunIdentity, baseline_text, diff_baselines, load_baseline
-from mechsim.testing.driver import MESSAGE_KIND, RecordedEvent, RunReport
+from mechsim.testing.driver import FAULT_KIND, MESSAGE_KIND, RecordedEvent, RunReport
 from mechsim.testing.schema import Case, DesignRef
 from tests.unit.test_runner_fakes import FakeRecording, Row, recording_from
 
@@ -273,6 +273,64 @@ def test_event_presence_and_absence_within_a_window(
         criterion["window"] = window
     result = score_one(criterion, _events_recording())
     assert (result.status, result.measured) == (status, count)
+
+
+def _fault_recording() -> FakeRecording:
+    rows = [
+        Row({}, "ready", [RecordedEvent(0.0, "controller", FAULT_KIND, "none")]),
+        Row({}, "moving"),
+        Row({}, "fault", [RecordedEvent(2.0, "controller", FAULT_KIND, "encoder_mismatch")]),
+        Row({}, "fault", [RecordedEvent(3.0, "controller", FAULT_KIND, "none")]),
+    ]
+    return FakeRecording(TIMES, rows, {})
+
+
+@pytest.mark.req("SCO-022", "ACC-020", "ACC-023")
+@pytest.mark.parametrize(
+    ("event", "expect", "window", "status", "count"),
+    [
+        ("fault:encoder_mismatch", "present", None, "pass", 1.0),
+        ("fault:encoder_mismatch", "present", {"start": "2.5 s"}, "fail", 0.0),
+        ("fault:encoder_mismatch", "absent", {"end": "1.5 s"}, "pass", 0.0),
+        ("fault:limit_trip", "present", None, "fail", 0.0),
+        ("fault:none", "present", None, "pass", 2.0),
+    ],
+)
+def test_a_fault_reference_is_each_change_to_that_fault(
+    event: str, expect: str, window: Any, status: str, count: float
+) -> None:
+    """Ruling 30: the controller's reported fault, recorded as `controller_fault` events on each change."""
+    criterion: dict[str, Any] = {"name": "e", "check": "event", "event": event, "expect": expect}
+    if window is not None:
+        criterion["window"] = window
+    result = score_one(criterion, _fault_recording())
+    assert (result.status, result.measured) == (status, count)
+
+
+@pytest.mark.req("SCO-020", "ACC-020")
+@pytest.mark.parametrize(
+    ("statistic", "window", "measured"),
+    [
+        ("maximum", None, 1.0),
+        ("maximum", {"end": "1.5 s"}, 0.0),
+        ("minimum", {"start": "2 s", "end": "2.5 s"}, 1.0),
+        ("final", None, 0.0),
+    ],
+)
+def test_a_fault_quantity_reads_one_while_that_fault_is_reported(
+    statistic: str, window: Any, measured: float
+) -> None:
+    criterion = value(statistic, "at_least", "1", quantity="fault:encoder_mismatch")
+    if window is not None:
+        criterion["window"] = window
+    result = score_one(criterion, _fault_recording())
+    assert result.measured == measured
+
+
+def test_a_fault_quantity_before_any_change_reads_zero() -> None:
+    rows = [Row({}, "ready"), Row({}, "ready"), Row({}, "ready"), Row({}, "ready")]
+    result = score_one(value("maximum", "at_most", "0", quantity="fault:none"), FakeRecording(TIMES, rows, {}))
+    assert (result.status, result.measured) == ("pass", 0.0)
 
 
 @pytest.mark.req("SCO-021")
@@ -733,3 +791,37 @@ def test_a_table_cell_escapes_pipes_and_a_run_error_is_stated() -> None:
     assert "| e | error | n/a | final at_most 1 V |  | run error: a \\| b |\n" in text
     failed = CaseScore(**{**errored.__dict__, "ran": False, "end_reason": "run_error", "run": None})
     assert "- Ended: run_error, no recording\n" in report_markdown(_suite(failed), None)
+
+
+@pytest.mark.req("SCO-020")
+def test_rail_references_read_the_rail_state_and_voltage() -> None:
+    # Ruling 27: rail:<name> is the recorded on/off series of the rail, rail:<name>.voltage its voltage.
+    recording = recording_from(
+        TIMES, {"signal:motor_power.on": [1.0, 1.0, 0.0, 0.0], "signal:motor_power.voltage": [24.0, 24.0, 0.0, 0.0]}
+    )
+    off = score_one(
+        value("maximum", "at_most", "0", quantity="rail:motor_power", window={"start": "2 s"}),
+        recording,
+    )
+    on = score_one(value("maximum", "at_most", "0", quantity="rail:motor_power"), recording)
+    volts = score_one(value("minimum", "at_most", "0 V", quantity="rail:motor_power.voltage"), recording)
+    assert (off.status, off.measured) == ("pass", 0.0)
+    assert (on.status, on.measured) == ("fail", 1.0)
+    assert (volts.status, volts.measured) == ("pass", 0.0)
+
+
+@pytest.mark.req("SCO-013")
+def test_layer_approximation_events_reach_the_score_once_each_after_the_bridge_lines() -> None:
+    note = RecordedEvent(1.0, "load_cell", "approximation", "load past its overload limit, held at the limit")
+    rows = [
+        Row({"signal:a": 0.0}),
+        Row({"signal:a": 1.0}, events=[note, RecordedEvent(1.0, "controller", "refused", "10")]),
+        Row({"signal:a": 2.0}, events=[note]),
+        Row({"signal:a": 3.0}),
+    ]
+    report = RunReport("end_time", 3, Fraction(1), None, (), (), ("bridge line",))
+    scored = score_run(case_with(value("maximum", "at_most", "3")), FakeRecording(TIMES, rows, {}), report)
+    assert scored.approximations == (
+        "bridge line",
+        "load_cell: load past its overload limit, held at the limit",
+    )

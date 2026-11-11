@@ -1,5 +1,5 @@
 """SIG stubs, unit tier (T3); Catch2 tests replace them with the C++ code. Converted here: the fidelity parameters
-through the binding (SIG-002, SIG-003, SIG-004), the milestone 2 built-ins (SIG-014, SIG-020) and the rail through
+through the binding (SIG-002, SIG-003, SIG-004), the milestone 2 built-ins (SIG-014, SIG-020), the linear encoder key (SIG-011) and the rail through
 the kernel (SIG-018, SIG-019, SIG-022)."""
 
 import math
@@ -105,6 +105,73 @@ def test_load_cell_amplifier_turns_the_bridge_output_into_an_adc_count() -> None
         {"gain": 128.0, "output_full_scale": 3.3, "bandwidth": 10.0, "adc_bits": 12, "adc_reference": 3.3},
     )
     assert run_component(amp, [core.PhysicsOutputs()], [[volts]]) == [[635.0]]
+
+
+@pytest.mark.req("SIG-014")
+def test_load_cell_on_a_fixed_joint_reads_the_reaction_through_the_binding() -> None:
+    # Ruling 24: a payload attached at t = 0 is a fixed child of the hook; `joint_reaction` reads the magnitude of that
+    # joint's parent-on-child reaction force. A 2 kg child at rest is held by 2 x 9.81 = 19.62 N, so the bridge output
+    # is 2e-3 x 5 x 19.62 / 49.05 = 4.000e-3 V, the same reading as the weld-force and joint modes.
+    params: dict[str, Any] = {
+        "joint_reaction": 0,
+        "capacity": CAPACITY,
+        "sensitivity": 2e-3,
+        "excitation_voltage": 5.0,
+        "overload_limit": 73.575,
+    }
+    cell = core.make_signal_component("load_cell", "cell", params)
+    state = core.PhysicsOutputs()
+    joint = core.JointForce()
+    wrench = core.Wrench()
+    wrench.force = [0.0, 0.0, 2.0 * 9.81]
+    joint.reaction = wrench
+    state.joints = [joint]
+    volts = run_component(cell, [state])[0][0]
+    assert math.isclose(volts, FULL_SCALE * 19.62 / CAPACITY, rel_tol=1e-12)
+
+
+@pytest.mark.req("SIG-014")
+@pytest.mark.req("LIB-025")
+def test_load_cell_with_no_target_reads_zero_through_the_binding() -> None:
+    # BLD-036 amendment: the key set allows none of payload, joint and joint_reaction; F = 0 gives V = 0 exactly,
+    # whatever force the state carries (the 10 N joint force here is not sensed).
+    params: dict[str, Any] = {
+        "capacity": CAPACITY,
+        "sensitivity": 2e-3,
+        "excitation_voltage": 5.0,
+        "overload_limit": 73.575,
+        "resolution": 0.01,
+    }
+    cell = core.make_signal_component("load_cell", "cell", params)
+    assert run_component(cell, [joint_force(10.0)] * 3) == [[0.0], [0.0], [0.0]]
+
+
+def carriage_at(x: float) -> Any:
+    state = core.PhysicsOutputs()
+    body = core.BodyState()
+    body.position = [x, 0.0, 0.0]
+    state.bodies = [body]
+    return state
+
+
+@pytest.mark.req("SIG-011")
+@pytest.mark.req("LIB-025")
+def test_linear_key_reaches_the_encoder_through_the_binding() -> None:
+    # Ruling 32: `linear: true` with a prismatic coordinate, resolution 1 / 60000 m per count. From half a count in,
+    # 1 mm of travel is floor(0.5 + 60) - floor(0.5) = 60 counts, 30 A and 30 B edges (from an even count position).
+    # Without the key the same coordinate is the mixed case, a configuration error naming the instance.
+    resolution = 1.0 / 60000.0
+    params: dict[str, Any] = {
+        "coordinate": core.JointCoordinate(core.CoordinateKind.linear, 0),
+        "resolution": resolution,
+        "linear": True,
+    }
+    encoder = core.make_signal_component("incremental_encoder", "y_encoder", params)
+    out = run_component(encoder, [carriage_at(0.5 * resolution), carriage_at(0.5 * resolution + 1e-3)])
+    assert out[1] == [30.0, 30.0]
+    del params["linear"]
+    with pytest.raises(ValueError, match="y_encoder"):
+        core.make_signal_component("incremental_encoder", "y_encoder", params)
 
 
 @pytest.mark.req("SIG-020")

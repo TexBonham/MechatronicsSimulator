@@ -1,0 +1,92 @@
+# G8 (Requirements doc, Test cases, gantry suite): the controller freezes mid-move for longer than the watchdog
+# timeout; the motors stop within the heartbeat timeout plus the cutoff delay (ACC-016, FW-025). The freeze starts at
+# 9 s, 1 s into the move to (40, 25), and lasts 1 s, longer than the 50 ms timeout of watchdog_24v_generic (round 4
+# ruling 6). From 9 s + 50 ms timeout + 10 ms cutoff + one 10 ms heartbeat period (the last edge may precede the freeze
+# by up to one period) = 9.07 s the motor rail is off (ACC-016 rests on `motor_power_off`: `rail:motor_power` reads 0
+# to the end of the freeze, round 4 ruling 27) and no driver gets a step pulse (`x_no_steps`, `y_no_steps`,
+# `lift_no_steps`), so the unpowered steppers cannot move their axes.
+id: G8
+title: Controller freeze mid-move
+design:
+  name: gantry
+  version: 0.1.0
+controller_mode: native
+seed: 8
+open_parameters:
+  - name: homing_time
+    dimension: "[time]"
+    owed_by: gantry team
+    note: Time allowed for homing before the target; 0.1 m at the 0.02 m/s homing speed is 5 s.
+    default: "8 s"
+initial_state:
+  joints:
+    - joint: x_axis
+      position: 0.1 m
+      velocity: 0 m/s
+    - joint: y_axis
+      position: 0.1 m
+      velocity: 0 m/s
+    - joint: lift_axis
+      position: 0.1 m
+      velocity: 0 m/s
+  controller:
+    state: not_homed
+  payload:
+    attached: false
+commands:
+  - at: 0 s
+    message: home
+  - at: ${homing_time}
+    message: target
+    payload:
+      x: 40 cm
+      y: 25 cm
+faults:
+  - kind: controller_freeze
+    start: 9 s
+    duration: 1 s
+end:
+  at: 12 s
+  max_duration: 12 s
+criteria:
+  # ACC-016: the motors stop: the watchdog has dropped the motor rail (`rail:motor_power`, round 4 ruling 27) and no
+  # driver gets a step pulse once the heartbeat timeout plus the watchdog's cutoff delay (50 ms + 10 ms placeholders)
+  # and one heartbeat period have passed. A carriage may coast a little once its motor is off; that motion is not the
+  # motor's, so shaft motion is not the criterion.
+  - name: motor_power_off
+    check: value
+    quantity: rail:motor_power
+    statistic: maximum
+    comparison: at_most
+    limit: "0"
+    window:
+      start: 9.07 s
+      end: 10 s
+  - name: x_no_steps
+    check: value
+    quantity: signal:x_driver.step
+    statistic: maximum
+    comparison: at_most
+    limit: "0"
+    window:
+      start: 9.07 s
+      end: 10 s
+  - name: y_no_steps
+    check: value
+    quantity: signal:y_driver.step
+    statistic: maximum
+    comparison: at_most
+    limit: "0"
+    window:
+      start: 9.07 s
+      end: 10 s
+  - name: lift_no_steps
+    check: value
+    quantity: signal:lift_driver.step
+    statistic: maximum
+    comparison: at_most
+    limit: "0"
+    window:
+      start: 9.07 s
+      end: 10 s
+baseline: baseline.yaml

@@ -36,8 +36,8 @@ every sensor.
 | Type | Keys |
 |---|---|
 | `limit_switch` | coordinate, position, actuate_above, hysteresis, resolution, debounce_time, normally_open + fidelity |
-| `incremental_encoder` | coordinate, resolution, reversed + fidelity |
-| `load_cell` | payload or joint (index), capacity, sensitivity, excitation_voltage, resolution, overload_limit, nonlinearity + fidelity |
+| `incremental_encoder` | coordinate, resolution, reversed, linear (bool, prismatic coordinate, m per count) + fidelity |
+| `load_cell` | at most one of payload, joint, joint_reaction (index; none reads 0 N), capacity, sensitivity, excitation_voltage, resolution, overload_limit, nonlinearity + fidelity |
 | `load_cell_amplifier` | gain, offset, output_full_scale, bandwidth, adc_bits, adc_reference (the chip's `adc` block) |
 | `imu` | body, gravity [x, y, z], accel_range, gyro_range, resolution, gyro_resolution, gyro_noise + fidelity |
 | `brake` | joint, brake_torque, engage_delay, release_delay, power_off_engaged, damping, inverse_inertia (A0) |

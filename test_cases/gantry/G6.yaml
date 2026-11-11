@@ -1,0 +1,86 @@
+# G6 (Requirements doc, Test cases, gantry suite): the load becomes overweight mid-lift; the lift stops (ACC-011,
+# FW-019) and the load can then be set down (ACC-012). A 2.5 kg payload is lifted from the homed 0 toward 45 cm; at
+# 9 s, 1 s after the command, it becomes 3.6 kg. Stop bound (derived from the firmware placeholders, gantry_config.h):
+# the lift has risen at most v_max t = 0.2 m/s x 1 s = 0.2 m at the change; detection takes at most one load cell
+# sample (1 / 80 Hz = 12.5 ms), the amplifier's rise to the limit (3.6 kg against 3.45 kg from 2.5 kg: 1 - exp(-t /
+# tau) = 0.95 / 1.1 with tau = 1 / (2 pi 10 Hz), t = 31.8 ms) and GANTRY_OVERLOAD_TICKS = 2 ms, under 50 ms, so at
+# most 0.2 m/s x 0.05 s = 1 cm more; the stop at 0.5 m/s^2 takes v^2 / 2a = 0.04 m. The lift stays under 0.2 + 0.01 +
+# 0.04 = 25 cm, short of the 45 cm it would reach. Then `lift 0.05` lowers it to within 1 cm of 5 cm.
+# Masses (the payload is a fixed child of the hook, ruling 24, so the change is a step load on the moving stepper):
+# on the 40 mm placeholder lead (ruling 26, c = 6.37 mm) an undamped step from m0 to m1 peaks at (0.86 kg + m0 + 2 (m1
+# - m0)) g c, with 0.86 kg of carriage and hook; against 0.36 N m of the placeholder curve at the 0.2 m/s lift speed
+# (300 rpm) that needs m0 above about 2.3 kg for m1 = 3.6 kg (2 to 4 kg lost synchronism). 3.6 kg as in G5.
+id: G6
+title: Load becomes overweight mid-lift
+design:
+  name: gantry
+  version: 0.1.0
+controller_mode: native
+seed: 6
+open_parameters:
+  - name: homing_time
+    dimension: "[time]"
+    owed_by: gantry team
+    note: Time allowed for homing before the lift; 0.1 m at the 0.02 m/s homing speed is 5 s.
+    default: "8 s"
+  - name: overweight_mass
+    dimension: "[mass]"
+    owed_by: gantry team
+    note: >-
+      Payload mass over the overload limit (3.45 kg placeholder); 3.6 kg as in G5 (the stepper's margin on the 40 mm
+      placeholder lead).
+    default: "3.6 kg"
+initial_state:
+  joints:
+    - joint: x_axis
+      position: 0.1 m
+      velocity: 0 m/s
+    - joint: y_axis
+      position: 0.1 m
+      velocity: 0 m/s
+    - joint: lift_axis
+      position: 0.1 m
+      velocity: 0 m/s
+  controller:
+    state: not_homed
+  payload:
+    attached: true
+    body: hook
+    mass: 2.5 kg
+commands:
+  - at: 0 s
+    message: home
+  - at: ${homing_time}
+    message: lift
+    payload:
+      z: 45 cm
+  - at: 13 s
+    message: lift
+    payload:
+      z: 5 cm
+faults:
+  - kind: payload_change
+    start: 9 s
+    target: hook
+    mass: ${overweight_mass}
+end:
+  at: 18 s
+  max_duration: 18 s
+criteria:
+  - name: lift_stopped
+    check: value
+    quantity: joint:lift_axis.position
+    statistic: maximum
+    comparison: at_most
+    limit: 25 cm
+    window:
+      start: 9 s
+      end: 13 s
+  - name: set_down
+    check: value
+    quantity: joint:lift_axis.position
+    statistic: final
+    comparison: within
+    target: 5 cm
+    limit: 1 cm
+baseline: baseline.yaml

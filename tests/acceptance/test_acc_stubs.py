@@ -15,23 +15,23 @@ from mechsim.testing.schema import ROOT
 PENDULUM_CASE = ROOT / "test_cases" / "pendulum" / "P1_period.yaml"
 GANTRY_CASES = ROOT / "test_cases" / "gantry"
 _VIEWS: dict[str, CoreDriver] = {}
+GANTRY_RUNS = ("G1", "G2", "G3", "G4", "G5", "G6", "G7", "G8", "G9", "G10", "G11", "G13", "G14")
 
 
 @pytest.fixture(scope="module")
 def gantry() -> dict[str, RunResult]:
-    """G1 to G4 once each through the real stack (gantry design, builder, MuJoCo bridge, kernel, signal layer, native
-    gantry firmware, recorder, scoring); placeholder defaults for every open parameter (DES-044)."""
+    """G1 to G14 (G12 not yet shipped) once each through the real stack (gantry design, builder, MuJoCo bridge,
+    kernel, signal layer, native gantry firmware, recorder, scoring); placeholder defaults for every open parameter
+    (DES-044). A case whose run errors fails its own tests (`_passes`), not every case's."""
     results: dict[str, RunResult] = {}
     services = core_services()
-    for case in ("G1", "G2", "G3", "G4"):
+    for case in GANTRY_RUNS:
         driver = CoreDriver()
         _VIEWS[case] = driver
         results[case] = run_case(
             GANTRY_CASES / f"{case}.yaml", Services(lambda d=driver: d, services.builder), None, None
         )
-        report = results[case].report
-        assert report is not None, results[case].score
-        assert not report.errored, report.error
+        assert results[case].report is not None, results[case].score
     return results
 
 
@@ -187,132 +187,270 @@ def test_acc_008(gantry: dict[str, RunResult]) -> None:
     assert max(abs(value) for value in after) < 0.01
 
 
+def _passes(result: RunResult, *names: str) -> None:
+    report = result.report
+    assert report is not None, result.score
+    assert not report.errored, f"{result.score.case_id}: {report.error}"
+    for name in names:
+        criterion = _criterion(result, name)
+        print(f"{result.score.case_id} {name}: measured {criterion.measured} ({criterion.limit})")
+        assert criterion.status == "pass", criterion
+
+
+def _refusals(result: RunResult, start: float, end: float) -> int:
+    """Firmware `refused` events in [start, end); their fault is read from the status message that follows."""
+    events = _VIEWS[result.score.case_id].recording().events()
+    return len([event for event in events if event.kind == "refused" and start <= event.time < end])
+
+
+def _refused_with(result: RunResult, start: float, end: float, fault: str) -> None:
+    assert _refusals(result, start, end) >= 1
+    assert _status_after(result, start)[1] == fault
+
+
 @pytest.mark.req("ACC-009")
-@pytest.mark.xfail(strict=True, reason="stub")
-def test_acc_009() -> None:
+@pytest.mark.req("FW-018")
+def test_acc_009(gantry: dict[str, RunResult]) -> None:
     """Reference design (gantry), G5: with a load over the limit attached before a move, a lift command
     shall be ignored.
+
+    Tolerance not set (owed by gantry team): the behavior is asserted. With 3.6 kg on the hook (over the 3.45 kg
+    placeholder limit, ruling 6) `lift 0.4` at 13 s is refused with fault overload, and the lift stays within the 1 cm
+    hold band (the position accuracy) until the next command.
     """
-    raise NotImplementedError
+    result = gantry["G5"]
+    _passes(result, "lift_up_refused", "lift_up_ignored")
+    _refused_with(result, 13.0, 15.0, "overload")
 
 
 @pytest.mark.req("ACC-010")
-@pytest.mark.xfail(strict=True, reason="stub")
-def test_acc_010() -> None:
-    """Reference design (gantry), G5: with a load over the limit attached, a lower command shall work."""
-    raise NotImplementedError
+@pytest.mark.req("FW-018")
+def test_acc_010(gantry: dict[str, RunResult]) -> None:
+    """Reference design (gantry), G5: with a load over the limit attached, a lower command shall work.
+
+    `lift 0.1` from 0.3 m with 3.6 kg: no refusal, and the lift ends within 1 cm (the position accuracy) of 0.1 m.
+    """
+    result = gantry["G5"]
+    _passes(result, "lowered")
+    assert _refusals(result, 15.0, 20.0) == 0
 
 
 @pytest.mark.req("ACC-011")
-@pytest.mark.xfail(strict=True, reason="stub")
-def test_acc_011() -> None:
-    """Reference design (gantry), G6: when the load becomes overweight mid-lift, the lift shall stop."""
-    raise NotImplementedError
+@pytest.mark.req("FW-019")
+@pytest.mark.req("TST-020")
+def test_acc_011(gantry: dict[str, RunResult]) -> None:
+    """Reference design (gantry), G6: when the load becomes overweight mid-lift, the lift shall stop.
+
+    The payload becomes 3.6 kg 1 s into the lift (TST-020 routes the change to physics). Bound from the firmware
+    placeholders (G6 header): 0.2 m risen at the change, at most 1 cm more during detection (under 50 ms at 0.2 m/s),
+    v^2 / 2a = 0.04 m to stop at 0.5 m/s^2: the lift stays under 25 cm, short of the 45 cm commanded.
+    """
+    _passes(gantry["G6"], "lift_stopped")
 
 
 @pytest.mark.req("ACC-012")
-@pytest.mark.xfail(strict=True, reason="stub")
-def test_acc_012() -> None:
-    """Reference design (gantry), G6: after an overweight stop, the load shall be able to be set down."""
-    raise NotImplementedError
+@pytest.mark.req("FW-019")
+def test_acc_012(gantry: dict[str, RunResult]) -> None:
+    """Reference design (gantry), G6: after an overweight stop, the load shall be able to be set down.
+
+    `lift 0.05` after the stop, still at 3.6 kg: the lift ends within 1 cm of 5 cm.
+    """
+    _passes(gantry["G6"], "set_down")
 
 
 @pytest.mark.req("ACC-013")
-@pytest.mark.xfail(strict=True, reason="stub")
-def test_acc_013() -> None:
+@pytest.mark.req("FW-024")
+def test_acc_013(gantry: dict[str, RunResult]) -> None:
     """Reference design (gantry), G7: when the E-stop is pressed mid-move with a load, motor power shall be
     cut within the relay delay.
+
+    Pressed at 12 s with the hook lifted to 30 cm; the relay's 20 ms cutoff_delay (estop_relay_24v_generic) opens the
+    contacts in the layer step at 12.020 s, whose row is stamped 12.021 s (KER-009): `rail:motor_power` (ruling 27)
+    and the relay status read 0 from 12.021 s to the release, and the rail's first off sample is exactly that row.
     """
-    raise NotImplementedError
+    result = gantry["G7"]
+    _passes(result, "power_cut", "relay_open")
+    series = result_series(result, "signal:motor_power.on")
+    off = [time for time, value in zip(series.times, series.values, strict=True) if value == 0.0]
+    print(f"G7 motor rail first off at {off[0]} s (press 12 s + 20 ms, row stamped 12.021 s)")
+    assert off[0] == pytest.approx(12.021, abs=1e-9)
 
 
 @pytest.mark.req("ACC-014")
-@pytest.mark.xfail(strict=True, reason="stub")
-def test_acc_014() -> None:
-    """Reference design (gantry), G7: after the E-stop, the hook shall not drop."""
-    raise NotImplementedError
+def test_acc_014(gantry: dict[str, RunResult]) -> None:
+    """Reference design (gantry), G7: after the E-stop, the hook shall not drop.
+
+    The hook is lifted to 30 cm first, so the brake and not the lift's lower joint limit holds it (X review): the lift
+    stays within the 1 cm hold band (position accuracy) of its position at the press at 12 s until the home at 15 s;
+    the power-off brake engages when the motor rail drops (ruling 1).
+    """
+    _passes(gantry["G7"], "hook_held")
 
 
 @pytest.mark.req("ACC-015")
-@pytest.mark.xfail(strict=True, reason="stub")
-def test_acc_015() -> None:
+@pytest.mark.req("FW-024")
+def test_acc_015(gantry: dict[str, RunResult]) -> None:
     """Reference design (gantry), G7: after the E-stop, motion shall resume only after a reset and a new
     command.
+
+    No step pulse on X or Y from the tick after the cutoff (12.022 s) until the `home` at 15 s, the `reset` at 14 s
+    included (ruling 7: reset returns to not_homed), and the hook reaches (40, 25) within 1 cm after the new target.
     """
-    raise NotImplementedError
+    _passes(gantry["G7"], "no_steps_x_until_command", "no_steps_y_until_command", "resumed_x", "resumed_y")
 
 
 @pytest.mark.req("ACC-016")
-@pytest.mark.xfail(strict=True, reason="stub")
-def test_acc_016() -> None:
+@pytest.mark.req("FW-025")
+@pytest.mark.req("TST-018")
+def test_acc_016(gantry: dict[str, RunResult]) -> None:
     """Reference design (gantry), G8: when the controller freezes mid-move, the motors shall stop within
     the heartbeat timeout.
+
+    Freeze at 9 s (TST-018 routes it to the controller runtime): the heartbeat stops, the watchdog trips after its
+    50 ms timeout and opens after its 10 ms cutoff delay; with one 10 ms heartbeat period of slack the motor rail is
+    off and no driver steps from 9.07 s to the end of the freeze.
     """
-    raise NotImplementedError
+    _passes(gantry["G8"], "motor_power_off", "x_no_steps", "y_no_steps", "lift_no_steps")
 
 
 @pytest.mark.req("ACC-017")
-@pytest.mark.xfail(strict=True, reason="stub")
-def test_acc_017() -> None:
+@pytest.mark.req("FW-017")
+@pytest.mark.req("TST-017")
+def test_acc_017(gantry: dict[str, RunResult]) -> None:
     """Reference design (gantry), G9: after power is lost and restored, no motion shall occur until the
     gantry is homed.
+
+    Both rails off from 12 s to 12.5 s (TST-017), the hook lifted to 30 cm before: the logic rail under the brownout
+    threshold resets the firmware to not_homed; the target at 13.5 s is refused with fault not_homed, no driver steps
+    from the restore to the home at 14 s, and homing starts after it.
     """
-    raise NotImplementedError
+    result = gantry["G9"]
+    _passes(
+        result,
+        "not_homed_after_restore",
+        "target_refused",
+        "no_steps_x_until_home",
+        "no_steps_y_until_home",
+        "no_steps_lift_until_home",
+        "homing_after_home",
+    )
+    _refused_with(result, 13.5, 14.0, "not_homed")
 
 
 @pytest.mark.req("ACC-018")
-@pytest.mark.xfail(strict=True, reason="stub")
-def test_acc_018() -> None:
-    """Reference design (gantry), G9: during the power loss and restore, the load shall not drop."""
-    raise NotImplementedError
+def test_acc_018(gantry: dict[str, RunResult]) -> None:
+    """Reference design (gantry), G9: during the power loss and restore, the load shall not drop.
+
+    The 2 kg load, lifted to 30 cm so the brake and not the lift's lower joint limit holds it (X review), stays within
+    the 1 cm hold band from the loss at 12 s to the home at 14 s: the brake coil is on the motor rail (power-off
+    brake, ruling 1).
+    """
+    _passes(gantry["G9"], "load_held")
+
+
+def _travel_after(result: RunResult, start: float, end: float) -> float:
+    """Largest |x(t) - x(start)| of the X carriage over [start, end]."""
+    series = result_series(result, "joint:x_axis.position")
+    times = np.asarray(series.times, dtype=float)
+    values = np.asarray(series.values, dtype=float)
+    inside = (times >= start) & (times <= end)
+    assert inside.any()
+    origin = values[np.argmax(times >= start)]
+    return float(np.max(np.abs(values[inside] - origin)))
 
 
 @pytest.mark.req("ACC-019")
-@pytest.mark.xfail(strict=True, reason="stub")
-def test_acc_019() -> None:
-    """Reference design (gantry), G10: on a motor stall or belt slip during a move, motion shall stop."""
-    raise NotImplementedError
+@pytest.mark.req("FW-020")
+@pytest.mark.req("TST-015")
+@pytest.mark.req("TST-016")
+def test_acc_019(gantry: dict[str, RunResult]) -> None:
+    """Reference design (gantry), G10: on a motor stall or belt slip during a move, motion shall stop.
+
+    Tolerance not set (owed by gantry team); the bound is the firmware placeholders' (G10 header): the 2 mm mismatch
+    threshold is crossed within the 0.5 s fault window, the stop at 0.5 m/s^2 from at most 0.2 m/s takes
+    v / a = 0.4 s, so no driver step from fault start + 0.9 s, and the carriage travels at most
+    0.2 m/s x 0.9 s + v^2 / (2 a) = 0.18 m + 0.04 m = 0.22 m past its position at the fault start. The frame-side
+    encoders (ruling 32) see both the stall and the slip.
+    """
+    result = gantry["G10"]
+    _passes(result, "stall_stopped_x", "stall_stopped_y", "slip_stopped_x", "slip_stopped_y", "slip_carriage_stopped")
+    bound = 0.2 * 0.9 + 0.2**2 / (2.0 * 0.5)
+    for start in (8.5, 30.5):
+        travel = _travel_after(result, start, start + 2.0)
+        print(f"G10 X travel from {start} s over 2 s: {travel} m (bound {bound} m)")
+        assert travel <= bound
 
 
 @pytest.mark.req("ACC-020")
-@pytest.mark.xfail(strict=True, reason="stub")
-def test_acc_020() -> None:
+@pytest.mark.req("FW-020")
+@pytest.mark.req("TST-016")
+def test_acc_020(gantry: dict[str, RunResult]) -> None:
     """Reference design (gantry), G10: on a motor stall or belt slip during a move, an encoder-mismatch
     fault shall be reported.
+
+    Stall on the X motor from 8.5 s (TST-016) and slip on the X belt from 30.5 s (TST-015): each enters the fault
+    state within the 0.5 s window plus the 0.4 s stop, and the refusals that follow carry fault encoder_mismatch.
     """
-    raise NotImplementedError
+    result = gantry["G10"]
+    _passes(result, "stall_fault", "slip_fault")
+    _refused_with(result, 10.0, 10.5, "encoder_mismatch")
+    _refused_with(result, 32.0, 32.5, "encoder_mismatch")
 
 
 @pytest.mark.req("ACC-021")
-@pytest.mark.xfail(strict=True, reason="stub")
-def test_acc_021() -> None:
+@pytest.mark.req("FW-020")
+def test_acc_021(gantry: dict[str, RunResult]) -> None:
     """Reference design (gantry), G10: after a stall or slip fault, re-homing shall be required before
     further motion.
+
+    After each fault the target is refused and no driver steps until `home`; homing then runs (ready again after the
+    stall's re-home).
     """
-    raise NotImplementedError
+    _passes(
+        gantry["G10"],
+        "stall_stopped_x",
+        "stall_stopped_y",
+        "stall_target_refused",
+        "stall_rehomed",
+        "slip_stopped_x",
+        "slip_stopped_y",
+        "slip_target_refused",
+        "slip_rehoming",
+    )
 
 
 @pytest.mark.req("ACC-022")
-@pytest.mark.xfail(strict=True, reason="stub")
-def test_acc_022() -> None:
-    """Reference design (gantry), G11: when a limit switch trips mid-workspace, motion shall stop."""
-    raise NotImplementedError
+@pytest.mark.req("FW-021")
+def test_acc_022(gantry: dict[str, RunResult]) -> None:
+    """Reference design (gantry), G11: when a limit switch trips mid-workspace, motion shall stop.
+
+    x_max_switch forced high at 8.5 s for 0.2 s near x = 0.2 m: no driver steps from 8.5 + 0.2 + 0.4 s (stop at
+    0.5 m/s^2 from 0.2 m/s) until the home.
+    """
+    _passes(gantry["G11"], "stopped_x", "stopped_y")
 
 
 @pytest.mark.req("ACC-023")
-@pytest.mark.xfail(strict=True, reason="stub")
-def test_acc_023() -> None:
-    """Reference design (gantry), G11: when a limit switch trips mid-workspace, a fault shall be reported."""
-    raise NotImplementedError
+@pytest.mark.req("FW-021")
+def test_acc_023(gantry: dict[str, RunResult]) -> None:
+    """Reference design (gantry), G11: when a limit switch trips mid-workspace, a fault shall be reported.
+
+    The firmware enters the fault state and the next refusal carries fault limit_trip.
+    """
+    result = gantry["G11"]
+    _passes(result, "limit_fault")
+    _refused_with(result, 10.0, 10.5, "limit_trip")
 
 
 @pytest.mark.req("ACC-024")
-@pytest.mark.xfail(strict=True, reason="stub")
-def test_acc_024() -> None:
+@pytest.mark.req("FW-021")
+def test_acc_024(gantry: dict[str, RunResult]) -> None:
     """Reference design (gantry), G11: after a mid-workspace limit trip, re-homing shall be required before
     further motion.
+
+    The target at 10 s is refused; homing starts after `home` at 10.5 s.
     """
-    raise NotImplementedError
+    _passes(gantry["G11"], "target_refused", "rehoming")
 
 
 @pytest.mark.req("ACC-025")
@@ -334,21 +472,58 @@ def test_acc_026() -> None:
 
 
 @pytest.mark.req("ACC-027")
-@pytest.mark.xfail(strict=True, reason="stub")
-def test_acc_027() -> None:
+@pytest.mark.req("FW-027")
+@pytest.mark.req("SCO-022")
+def test_acc_027(gantry: dict[str, RunResult]) -> None:
     """Reference design (gantry), G13: a lift command while the gantry is moving shall be handled by the
     defined policy (queue or reject) in every run.
+
+    Policy: the firmware placeholder, reject (gantry_config.h, owed by the gantry team). `lift 0.3` at 8.5 s, inside
+    the move to (40, 25) (0.4 m of X at no more than 0.2 m/s lasts at least 2 s): refused with fault busy
+    (`fault:busy`, ruling 30) and a `refused` event, no lift step pulse and the lift within the 1 cm band to 10 s; the
+    move still arrives within 1 cm. The status after the refusal names busy.
     """
-    raise NotImplementedError
+    result = gantry["G13"]
+    _passes(result, "lift_refused_busy", "lift_refused_event", "no_lift_steps", "lift_held", "arrived_x", "arrived_y")
+    _refused_with(result, 8.5, 9.0, "busy")
 
 
 @pytest.mark.req("ACC-028")
-@pytest.mark.xfail(strict=True, reason="stub")
-def test_acc_028() -> None:
+@pytest.mark.req("FW-026")
+@pytest.mark.req("FW-028")
+@pytest.mark.req("SCO-021")
+@pytest.mark.req("SCO-025")
+def test_acc_028(gantry: dict[str, RunResult]) -> None:
     """Reference design (gantry), G14: under rapid-fire and conflicting commands, no two actuator commands
     shall overlap.
+
+    Fifty commands from 8 s to 12.9 s: `no_overlap` on every driver's `motion_start` and `motion_end` events (each
+    axis has profiles to check: homing starts all three at t = 0), the first move's Y profile between 0.5 s and 2.3 s
+    after its target (cruise and slow-zone bounds, G14.yaml header), the malformed target refused with fault
+    malformed. FW-026: every target sent while moving is refused (reject placeholder), so the first move's Y profile
+    is the only one between its target and its end.
     """
-    raise NotImplementedError
+    result = gantry["G14"]
+    _passes(
+        result,
+        "no_overlap_x",
+        "no_overlap_y",
+        "no_overlap_lift",
+        "first_move_not_too_fast",
+        "first_move_not_too_slow",
+        "malformed_refused",
+    )
+    events = _VIEWS["G14"].recording().events()
+    for driver in ("x_driver", "y_driver", "lift_driver"):
+        starts = [event for event in events if event.kind == "motion_start" and event.detail == driver]
+        assert len(starts) >= 1, driver
+    first_start = min(event.time for event in events if event.kind == "motion_start" and event.time >= 8.0)
+    first_end = min(event.time for event in events if event.kind == "motion_end" and event.time >= 8.0)
+    starts_inside = [
+        event for event in events if event.kind == "motion_start" and first_start < event.time < first_end
+    ]
+    assert starts_inside == []
+    assert _refusals(result, 8.0, 13.0) >= 1
 
 
 @pytest.mark.req("ACC-029")
@@ -532,3 +707,19 @@ def test_acc_044() -> None:
 def test_acc_045() -> None:
     """Acceptance criterion 6: rerunning any case with the same seed shall give identical results."""
     raise NotImplementedError
+
+
+@pytest.mark.req("PHY-016")
+def test_phy_016(gantry: dict[str, RunResult]) -> None:
+    """The MuJoCo adapter shall carry the milestone 2 acceptance cases, G5 to G11, G13 and G14.
+
+    Each case runs on the MuJoCo bridge through the whole stack without a run error and every criterion of it passes
+    (the per-requirement tests above assert what each criterion means).
+    """
+    for case in ("G5", "G6", "G7", "G8", "G9", "G10", "G11", "G13", "G14"):
+        result = gantry[case]
+        report = result.report
+        assert report is not None, result.score
+        assert not report.errored, f"{case}: {report.error}"
+        failing = [criterion.name for criterion in result.score.criteria if criterion.status != "pass"]
+        assert failing == [], f"{case}: {failing}"

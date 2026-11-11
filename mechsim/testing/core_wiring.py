@@ -7,6 +7,31 @@ from the design's messages, the `ControllerParty` over the native runtime, and t
 operator commands and E-stop presses at its first step at or after their tick (KER-023). Sensor and actuator faults are
 injected into their component before t = 0 with their tick window, so the component applies them on its first step
 inside it.
+
+Milestone 2 instances (BLD-035): a signal wire between two layer instances (an output port to an input port, not
+power, ground or a driver-to-motor coil) is a layer connection; a load cell reads its payload's attachment force by the
+payload's index among the model's welded payload bodies, or with `senses.joint_reaction` the reaction of that joint
+(a payload attached at t = 0 is a fixed child on `<payload>_fixed`, ruling 24; a welded one falls back to its weld
+force); the amplifier converts with the design chip's ADC (`Chip.adc`); a
+brake registers at the actuator stage by type and acts on its `acts_on` joint. On a motor shaft joint (a revolute
+joint some transmission is driven from, ruling 23) the brake torque applies as given and its drive's inverse inertia is
+A0 = 1 / (J + m c^2), J the shaft body's axial inertia (the rotor inertia, BLD-034), m the mass of the driven joint's
+child body and every body below it (a payload fixed to the carrier included, ruling 24), c the transmission's metres
+per radian (lead / 2 pi for a lead screw, the pulley radius for a belt): the shaft's inverse inertia at the reference
+configuration with the driven mass reflected rigidly onto it. The layer combines the brake's drive with the motor's on
+that joint as parallel springs (SIG-020, ruling 23) and the bridge applies it through its shaft reflection. On a
+prismatic joint driven by a transmission the holding force is brake_torque / c and A0 = 1 / (m + sum J / c^2) over its
+driving shafts (the bridge refuses a drive there; kept for an engine that takes one). On any other revolute joint the
+brake torque applies as given and A0 is not set. A payload welded to a carrier (mid-run attach or release) is a
+separate free body and enters no m.
+
+Firmware event-log entries whose code the design names in `firmware.event_codes` are collected by the runner party
+from `controller.pin_outputs` and recorded as `controller` events of that name, the argument decoded by the entry's
+kind (DES-045, ruling 28): `axis` the instance of the pulse_output binding with that channel, `fault` and `state` the
+design's code name (a state argument above 255 is a (from << 8) | to pair, read `from>to`), `number` verbatim, `none`
+empty; a code without a name reads as its number. With a firmware fault table the party also records the controller's
+reported fault code whenever it changes, as a `controller_fault` event whose detail is the fault's name (ruling 30;
+the `fault:<name>` criterion ref reads them).
 """
 
 from __future__ import annotations
@@ -23,8 +48,10 @@ from typing import Any
 from mechsim import _core as core
 from mechsim.builder.result import BuildResult as CoreBuild
 from mechsim.builder.result import InstanceWiring
+from mechsim.design.chip import Chip, shipped_chips
+from mechsim.library.registry import default_registry
 from mechsim.physics.neutral import DOF_COUNTS, Body, PhysicsModel
-from mechsim.testing.driver import ScheduledCommand, ScheduledFault
+from mechsim.testing.driver import FAULT_KIND, ScheduledCommand, ScheduledFault
 from mechsim.testing.runner import RunnerError
 from mechsim.testing.schema import ROOT
 
@@ -61,8 +88,15 @@ SENSOR_FAULTS: dict[str, Any] = {
     "sensor_forced": core.FailureMode.forced_level,
     "motor_stall": core.FailureMode.stall,
 }
+LAYER_FAULTS: dict[str, Any] = {**SENSOR_FAULTS, "power_loss": core.FailureMode.power_loss}
+WIRED_FAULTS: tuple[str, ...] = (*LAYER_FAULTS, "estop_press")
 DRIVER_TO_MOTOR = ("full_steps", "direction", "enabled", "supply")
-RAIL_INPUTS = {"step_dir_driver": "vmot"}
+RAIL_INPUTS = {"step_dir_driver": "vmot", "brake": "vcc"}
+TYPE_STAGES: dict[str, Any] = {"brake": core.Stage.actuator}
+CORE_TYPES: dict[str, str] = {"linear_encoder": "incremental_encoder"}
+LINEAR_ENCODER_TYPES: tuple[str, ...] = ("linear_encoder",)
+SIGNAL_PORT_KINDS = ("power", "ground")
+CONTROLLER_OUTPUTS = "controller.pin_outputs"
 ESTOP_TYPE = "estop_relay"
 OPERATOR_LINK_TYPE = "uart_link"
 NATIVE_BUILD_DIR = Path(tempfile.gettempdir()) / "mechsim-native-build"
@@ -86,9 +120,40 @@ class RunnerState:
     tick: int = 0
     faults: list[str] = field(default_factory=list)
     hook_errors: list[str] = field(default_factory=list)
+    event_names: dict[int, str] = field(default_factory=dict)
+    event_arguments: dict[int, str] = field(default_factory=dict)
+    axes: dict[int, str] = field(default_factory=dict)
+    fault_names: dict[int, str] = field(default_factory=dict)
+    state_names: dict[int, str] = field(default_factory=dict)
+    track_faults: bool = False
+    fault_code: int | None = None
+    reported_fault: int | None = None
+    control_period: int = 1
+    events: list[tuple[int, str, str]] = field(default_factory=list)
+    pending: list[tuple[int, int]] = field(default_factory=list)
 
     def note_fault(self, fault: Any) -> None:
         self.faults.append(f"{fault.party}: {fault.cause}")
+
+    def listens(self) -> bool:
+        return len(self.event_names) > 0 or self.track_faults
+
+    def decode(self, code: int, arg: int) -> str:
+        """An event argument as the design's table reads it (DES-045, ruling 28)."""
+        kind = self.event_arguments.get(code, "number")
+        if kind == "axis":
+            return self.axes.get(arg, str(arg))
+        if kind == "fault":
+            return self.fault_names.get(arg, str(arg))
+        if kind == "state":
+            if arg > 255:
+                source = self.state_names.get(arg >> 8, str(arg >> 8))
+                target = self.state_names.get(arg & 0xFF, str(arg & 0xFF))
+                return f"{source}>{target}"
+            return self.state_names.get(arg, str(arg))
+        if kind == "none":
+            return ""
+        return str(arg)
 
 
 class RunnerParty(core.Party):  # type: ignore[misc]
@@ -113,13 +178,45 @@ class RunnerParty(core.Party):  # type: ignore[misc]
         return names
 
     def consumed(self) -> list[str]:
+        if self._state.listens():
+            return [CONTROLLER_OUTPUTS]
         return []
 
     def start(self, base_rate: Any) -> None:
         self._state.posted = 0
+        self._state.events = []
+        self._state.fault_code = None
+        self._state.reported_fault = None
+
+    def read_inputs(self, inputs: Any) -> None:
+        state = self._state
+        state.pending = []
+        state.fault_code = None
+        if not state.listens() or not inputs.has_value(CONTROLLER_OUTPUTS):
+            return
+        outputs = inputs.value(CONTROLLER_OUTPUTS)
+        state.fault_code = int(outputs.fault_code)
+        state.pending = [
+            (int(outputs.event_log[index].code), int(outputs.event_log[index].arg))
+            for index in range(int(outputs.event_count))
+        ]
 
     def step(self, t: Any, dt: Any) -> None:
-        self._state.tick = int(t.count())
+        """Controller outputs are read once per controller step (t a multiple of its period, before the controller
+        steps at t), so each tick's event log is recorded once, stamped with the controller step that wrote it."""
+        state = self._state
+        state.tick = int(t.count())
+        if state.tick == 0 or state.tick % state.control_period != 0:
+            return
+        stamp = state.tick - state.control_period
+        if state.track_faults and state.fault_code is not None and state.fault_code != state.reported_fault:
+            state.reported_fault = state.fault_code
+            name = state.fault_names.get(state.fault_code, str(state.fault_code))
+            state.events.append((stamp, FAULT_KIND, name))
+        for code, arg in state.pending:
+            name = state.event_names.get(code)
+            if name is not None:
+                state.events.append((stamp, name, state.decode(code, arg)))
 
     def write_outputs(self, outputs: Any) -> None:
         state = self._state
@@ -222,16 +319,163 @@ def axial_inertia(body: Body) -> float:
     return sum(a[r] * tensor[r][c] * a[c] for r in range(3) for c in range(3))
 
 
-def component_parameters(
-    instance: InstanceWiring, places: Mapping[str, JointPlace], model: PhysicsModel
-) -> dict[str, Any]:
-    """The `make_signal_component` parameters of one instance from its part values and placement (BLD-035)."""
+def _fidelity(values: Mapping[str, float | bool], params: dict[str, Any]) -> None:
+    for name in ("noise", "delay", "sample_rate"):
+        if name in values:
+            params[name] = values[name]
+
+
+def _subtree_mass(model: PhysicsModel, root: str) -> float:
+    children: dict[str, list[str]] = {}
+    for body in model.bodies:
+        children.setdefault(body.parent, []).append(body.name)
+    masses = {body.name: body.mass for body in model.bodies}
+    total = 0.0
+    frontier = [root]
+    while len(frontier) > 0:
+        name = frontier.pop()
+        total += masses[name]
+        frontier.extend(children.get(name, []))
+    return total
+
+
+def _metres_per_radian(transmission: Any) -> float:
+    if transmission.type == "lead_screw":
+        return float(transmission.lead) / (2.0 * math.pi)
+    if transmission.type == "belt_pulley":
+        return float(transmission.pulley_radius)
+    raise WiringError(f"transmission '{transmission.name}': a {transmission.type} drives no prismatic joint")
+
+
+def brake_parameters(instance: InstanceWiring, places: Mapping[str, JointPlace], model: PhysicsModel) -> dict[str, Any]:
+    """Brake on its `acts_on` joint (module docstring): holding limit and A0 on a driven prismatic joint."""
     values = instance.parameters
+    joint = instance.acts_on
+    if joint is None or joint not in places:
+        raise WiringError(f"brake '{instance.name}': acts on no joint of the model (DES-043 acts_on)")
+    place = places[joint]
+    params: dict[str, Any] = {
+        "joint": place.body,
+        "brake_torque": values["brake_torque"],
+        "engage_delay": values["engage_delay"],
+        "release_delay": values["release_delay"],
+        "power_off_engaged": values["power_off_engaged"],
+    }
+    if place.kind == "revolute":
+        driven = [item for item in model.transmissions if item.shaft_joint == joint]
+        if len(driven) == 0:
+            return params
+        if len(driven) > 1:
+            raise WiringError(f"brake '{instance.name}': shaft joint '{joint}' drives {len(driven)} transmissions")
+        shaft = next(body for body in model.bodies if body.joint is not None and body.joint.name == joint)
+        c = _metres_per_radian(driven[0])
+        driven_child = next(
+            body.name for body in model.bodies if body.joint is not None and body.joint.name == driven[0].driven_joint
+        )
+        params["inverse_inertia"] = 1.0 / (axial_inertia(shaft) + _subtree_mass(model, driven_child) * c * c)
+        return params
+    if place.kind != "prismatic":
+        raise WiringError(f"brake '{instance.name}': acts on a {place.kind} joint; only revolute and prismatic")
+    drives = [item for item in model.transmissions if item.driven_joint == joint]
+    if len(drives) == 0:
+        raise WiringError(f"brake '{instance.name}': prismatic joint '{joint}' has no transmission shaft to brake")
+    if len(drives) > 1:
+        names = ", ".join(f"'{drive.name}'" for drive in drives)
+        raise WiringError(
+            f"brake '{instance.name}': prismatic joint '{joint}' is driven by {len(drives)} transmissions ({names}); "
+            "the holding force brake_torque / c needs one shaft, so the brake belongs on a shaft joint"
+        )
+    shaft_bodies = {
+        body.joint.name: body for body in model.bodies if body.joint is not None and body.joint.type == "revolute"
+    }
+    child = model.bodies[place.body].name
+    effective = _subtree_mass(model, child)
+    for drive in drives:
+        c = _metres_per_radian(drive)
+        effective += axial_inertia(shaft_bodies[drive.shaft_joint]) / (c * c)
+    params["brake_torque"] = float(values["brake_torque"]) / _metres_per_radian(drives[0])
+    params["inverse_inertia"] = 1.0 / effective
+    return params
+
+
+def component_parameters(
+    instance: InstanceWiring,
+    places: Mapping[str, JointPlace],
+    model: PhysicsModel,
+    payloads: Sequence[str] = (),
+    chip: Chip | None = None,
+) -> dict[str, Any]:
+    """The `make_signal_component` parameters of one instance from its part values and placement (BLD-035);
+    `payloads` are the model's payload bodies in body order, `chip` the design's chip (ADC of an
+    amplifier)."""
+    values = instance.parameters
+    if instance.type == "load_cell":
+        senses = instance.senses
+        if senses is None:
+            raise WiringError(f"load cell '{instance.name}': no senses block (DES-043)")
+        cell: dict[str, Any] = {
+            name: values[name]
+            for name in (
+                "capacity",
+                "sensitivity",
+                "excitation_voltage",
+                "resolution",
+                "overload_limit",
+                "nonlinearity",
+            )
+            if name in values
+        }
+        _fidelity(values, cell)
+        reaction = senses.joint_reaction
+        if reaction is not None:
+            places_of = joint_places(model)[0]
+            if reaction in places_of:
+                cell["joint_reaction"] = places_of[reaction].body
+                return cell
+            if f"{reaction}_fixed" in places_of:
+                cell["joint_reaction"] = places_of[f"{reaction}_fixed"].body
+                return cell
+            if reaction in payloads:
+                cell["payload"] = list(payloads).index(reaction)
+            return cell
+        if senses.payload is not None:
+            if senses.payload in payloads:
+                cell["payload"] = list(payloads).index(senses.payload)
+            return cell
+        if senses.joint is None or senses.joint not in places:
+            raise WiringError(f"load cell '{instance.name}': senses unknown joint '{senses.joint}'")
+        cell["joint"] = places[senses.joint].body
+        return cell
+    if instance.type == "imu":
+        senses = instance.senses
+        names = [body.name for body in model.bodies]
+        if senses is None or senses.body is None or senses.body not in names:
+            raise WiringError(f"imu '{instance.name}': senses no body of the model (DES-043)")
+        found: dict[str, Any] = {
+            "body": names.index(senses.body),
+            "gravity": tuple(float(value) for value in model.gravity),
+        }
+        for name in ("accel_range", "gyro_range", "resolution", "gyro_resolution", "gyro_noise"):
+            if name in values:
+                found[name] = values[name]
+        _fidelity(values, found)
+        return found
+    if instance.type == "load_cell_amplifier":
+        if chip is None:
+            raise WiringError(f"amplifier '{instance.name}': the design names no chip, so no ADC")
+        amp: dict[str, Any] = {
+            name: values[name] for name in ("gain", "offset", "output_full_scale", "bandwidth") if name in values
+        }
+        amp["adc_bits"] = int(chip.adc.resolution_bits)
+        amp["adc_reference"] = float(chip.adc.reference_voltage)
+        return amp
+    if instance.type == "brake":
+        return brake_parameters(instance, places, model)
     if instance.category == "sensor":
         senses = instance.senses
         if senses is None:
             raise WiringError(f"sensor '{instance.name}': no senses block (DES-043)")
-        if senses.joint not in places:
+        if senses.joint is None or senses.joint not in places:
             raise WiringError(f"sensor '{instance.name}': senses unknown joint '{senses.joint}'")
         place = places[senses.joint]
         params: dict[str, Any] = {"coordinate": _coordinate(place, instance.name)}
@@ -246,6 +490,8 @@ def component_parameters(
         else:
             params["resolution"] = values["resolution"]
             params["reversed"] = senses.reversed
+            if instance.type in LINEAR_ENCODER_TYPES:
+                params["linear"] = True
         return params
     if instance.type == "step_dir_driver":
         return {"microsteps": int(values["microsteps"])}
@@ -290,7 +536,7 @@ def _injection(fault: ScheduledFault, base_rate: Fraction) -> Any:
     if fault.end_tick is None:
         raise WiringError(f"fault '{fault.kind}': needs a window")
     injection = core.FailureInjection()
-    injection.mode = SENSOR_FAULTS[fault.kind]
+    injection.mode = LAYER_FAULTS[fault.kind]
     injection.start = _ticks(fault.start_tick)
     injection.end = _ticks(fault.end_tick)
     parameters = dict(fault.parameters)
@@ -455,8 +701,12 @@ def signal_layer(
     faults: Sequence[ScheduledFault],
     base_rate: Fraction,
     control_rate: Fraction | None = None,
+    payloads: Sequence[str] = (),
 ) -> tuple[Any, dict[str, float], dict[str, str], int]:
+    """A brake the bridge cannot carry (on a transmission's driven joint: the translation emits no drive there,
+    PHY-034) ends the build with an error naming the brake and the joint (invariant 7, ruling 29)."""
     places, dofs = joint_places(model)
+    chip = design_chip(build)
     wiring = build.wiring
     instances = {instance.name: instance for instance in wiring.instances}
     config = core.SignalLayerConfig()
@@ -464,6 +714,10 @@ def signal_layer(
     if control_rate is not None:
         config.controller_rate = core.Rate(control_rate.numerator, control_rate.denominator)
     config.seed = seed
+    for instance in wiring.instances:
+        line = undrivable_brake(instance, model)
+        if line is not None:
+            raise WiringError(line)
     table = core.PinBindingTable()
     slots: list[Any] = []
     for binding in wiring.bindings:
@@ -482,6 +736,9 @@ def signal_layer(
             paired.add((source, destination))
             for port in DRIVER_TO_MOTOR:
                 connections.append(core.Connection(f"{source}.{port}", f"{destination}.{port}"))
+            continue
+        if not coil and _signal_wire(instances[source], wire.source, instances[destination], wire.destination):
+            connections.append(core.Connection(wire.source, wire.destination))
     config.connections = connections
     externals: dict[str, float] = {}
     for instance in wiring.instances:
@@ -513,11 +770,17 @@ def signal_layer(
     config.velocity_dofs = dofs
     layer = core.SignalLayer(config)
     by_instance: dict[str, list[ScheduledFault]] = {}
+    supplies = {rail.name: rail.supply for rail in wiring.rails}
     for fault in faults:
-        if fault.kind in SENSOR_FAULTS:
-            if fault.target not in instances:
-                raise WiringError(f"fault '{fault.kind}': unknown instance '{fault.target}'")
-            by_instance.setdefault(str(fault.target), []).append(fault)
+        target = fault.target
+        if fault.kind == "power_loss":
+            target = supplies.get(str(fault.target))
+            if target is None:
+                raise WiringError(f"fault 'power_loss': rail '{fault.target}' has no supply")
+        if fault.kind in LAYER_FAULTS:
+            if target not in instances:
+                raise WiringError(f"fault '{fault.kind}': unknown instance '{target}'")
+            by_instance.setdefault(str(target), []).append(fault)
     specs, labels = _message_specs(build)
     for instance in wiring.instances:
         if instance.type == OPERATOR_LINK_TYPE:
@@ -526,12 +789,69 @@ def signal_layer(
         if instance.category not in STAGES:
             continue
         component = core.make_signal_component(
-            instance.type, instance.name, component_parameters(instance, places, model)
+            CORE_TYPES.get(instance.type, instance.type),
+            instance.name, component_parameters(instance, places, model, payloads, chip)
         )
         for fault in by_instance.get(instance.name, []):
             component.inject(_injection(fault, base_rate))
-        layer.add_component(component, STAGES[instance.category])
+        layer.add_component(component, TYPE_STAGES.get(instance.type, STAGES[instance.category]))
     return layer, externals, labels, dofs
+
+
+def undrivable_brake(instance: InstanceWiring, model: PhysicsModel) -> str | None:
+    if instance.type != "brake" or instance.acts_on is None:
+        return None
+    driven = {item.driven_joint: item.name for item in model.transmissions}
+    if instance.acts_on not in driven:
+        return None
+    return (
+        f"brake '{instance.name}': cannot be applied on joint '{instance.acts_on}': it is driven by transmission "
+        f"'{driven[instance.acts_on]}' and the MuJoCo bridge carries no second drive there (PHY-034); joint "
+        f"'{instance.acts_on}' would be unheld while its motor is off, so the brake belongs on the shaft joint"
+    )
+
+
+def design_chip(build: CoreBuild) -> Chip | None:
+    if build.chip is None:
+        return None
+    chips = shipped_chips()
+    if build.chip.name not in chips:
+        raise WiringError(f"chip '{build.chip.name}': not a shipped chip")
+    return chips[build.chip.name]
+
+
+def _port_kind(instance: InstanceWiring, port: str) -> tuple[str, str] | None:
+    registry = default_registry()
+    if not registry.has_type(instance.type):
+        return None
+    for pin in registry.component_type(instance.type).electrical.pins:
+        if pin.name == port:
+            return pin.direction, pin.signal_kind
+    return None
+
+
+def _signal_wire(source: InstanceWiring, source_port: str, destination: InstanceWiring, destination_port: str) -> bool:
+    """An output port wired to an input port, neither power nor ground: a signal-layer connection (DES-041)."""
+    if source.category not in STAGES or destination.category not in STAGES:
+        return False
+    out = _port_kind(source, source_port.split(".")[1])
+    into = _port_kind(destination, destination_port.split(".")[1])
+    if out is None or into is None:
+        return False
+    if out[1] in SIGNAL_PORT_KINDS or into[1] in SIGNAL_PORT_KINDS:
+        return False
+    return out[0] in ("output", "bidirectional") and into[0] in ("input", "bidirectional")
+
+
+def event_axes(build: CoreBuild) -> dict[int, str]:
+    """Axis index (pulse_output channel) to the instance of that step binding (FW-028 event arguments)."""
+    axes: dict[int, str] = {}
+    if build.chip is None:
+        return axes
+    for binding in build.chip.bindings:
+        if binding.mode == "pulse_output":
+            axes[binding.channel] = binding.instance
+    return axes
 
 
 def operator_message(build: CoreBuild, command: ScheduledCommand) -> Any:

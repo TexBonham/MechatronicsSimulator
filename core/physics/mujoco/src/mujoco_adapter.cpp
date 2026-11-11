@@ -163,11 +163,15 @@ struct MemberMap {
     Vec3 position{};
 };
 
-// Impedance range of a joint drive's soft equality (PHY-034): MuJoCo's own floor mjMINIMP, and the stiff end 0.99,
-// where the drive stays stable up to K_d A0 h^2 = 400 (omega h = 20). Width 1e-3 with both ends equal keeps the
-// impedance constant over the violation.
+// Impedance range of a joint drive's soft equality (PHY-034): MuJoCo's own floor mjMINIMP, and the stiff end
+// 400 / 401, where the backward-Euler apparent inertia m (1 + (K_d h^2 + D_d h) A0) is still exact up to
+// (K_d h^2 + D_d h) A0 = 400 (omega h = 20). Width 1e-3 with both ends equal keeps the impedance constant over the
+// violation.
 constexpr double drive_impedance_min = 1e-4;
-constexpr double drive_impedance_max = 0.99;
+constexpr double drive_impedance_max = 400.0 / 401.0;
+// Past Z = 400 the clamp breaks backward Euler, and with the rest shifted by -v h the semi-implicit map needs
+// 3 s0 h^2 + 2 s1 h < 4 and s0 h^2 + s1 h < 2, which fail from Z of about 535: the envelope ends at the clamp.
+constexpr double drive_envelope = 400.0;
 constexpr double drive_impedance_width = 1e-3;
 
 constexpr std::array<int, 3> fatal_warnings{mjWARN_BADQPOS, mjWARN_BADQVEL, mjWARN_BADQACC};
@@ -859,14 +863,18 @@ void MujocoAdapter::Engine::apply_inputs() {
 }
 
 // A drive (K, D, rest) on the driven DOF, with K_d = K / c^2, D_d = D / c^2, rest_d = rest c, is the soft one-joint
-// equality r = q - qpos0 - rest_d in MuJoCo's direct form (PHY-034). With impedance d and R = (1 - d) / d A0
+// equality r = q - qpos0 - eq_data in MuJoCo's direct form (PHY-034). With impedance d and R = (1 - d) / d A0
 // (A0 = dof_invweight0, MuJoCo's diagApprox for the row), the solved constraint acceleration is
-// a1 = (1 - d) a0 - s1 v - s0 r for solref = (-s0, -s1); multiplied by m = 1 / A0 / (1 - d) that is
-// (m / (1 - d)) a1 = F - D_d v - K_d (q - rest_d) when s0 = (1 - d) K_d A0 and s1 = (1 - d) D_d A0. So stiffness,
-// damping and the static sag F / K_d are exact for any d, and the loop's explicit frequency is sqrt(s0): d is chosen
-// as 1 - 1 / (K_d A0 h^2), clamped to [drive_impedance_min, drive_impedance_max], which keeps s0 h^2 <= 1 and leaves
-// the dynamics exact (d at the minimum) whenever the explicit spring itself is stable. The price above that is an
-// apparent inertia m / (1 - d) under the drive; semi-implicit stability needs s0 h^2 + 2 s1 h < 4, else AdapterError.
+// a1 = (1 - d) a0 - s1 v - s0 r for solref = (-s0, -s1) at the step's start state q, v; multiplied by
+// m = 1 / A0 / (1 - d) that is (m / (1 - d)) a1 = F - D_d v - K_d r when s0 = (1 - d) K_d A0 and s1 = (1 - d) D_d A0.
+// The drive is meant at the step's end state (backward Euler, what the stepper's and the brake's rests assume):
+// m a = F - D_d v' - K_d (q' - rest_d) with v' = v + a h, q' = q + v h + a h^2 (semi-implicit Euler), that is
+// (m + D_d h + K_d h^2) a = F - D_d v - K_d (q + v h - rest_d). Both agree when eq_data = rest_d - v h and
+// 1 / (1 - d) = 1 + Z, Z = (K_d h^2 + D_d h) A0: d = Z / (1 + Z), clamped to [drive_impedance_min,
+// drive_impedance_max]. Evaluated at the start state instead (eq_data = rest_d), a rest a stepper places at the
+// predicted angle theta + omega h stands omega h ahead of the joint, and its braking drive pushes the shaft on
+// (brief M2-C2). Static sag F / K_d and the steady lag D_d w / K_d are exact; past the clamp the step is less than
+// backward Euler, so Z > drive_envelope (400) is an AdapterError.
 void MujocoAdapter::Engine::apply_drives() {
     const mjModel& m = *model;
     const mjData& d = *data;
@@ -888,17 +896,16 @@ void MujocoAdapter::Engine::apply_drives() {
             continue;
         }
         const double weight = m.dof_invweight0[coordinate.dof];
-        double impedance = drive_impedance_min;
-        if (stiffness > 0.0) {
-            impedance = std::clamp(1.0 - (1.0 / (stiffness * weight * h * h)), drive_impedance_min, drive_impedance_max);
-        }
+        const double implicit = ((stiffness * h * h) + (damping * h)) * weight;
+        const double impedance = std::clamp(implicit / (1.0 + implicit), drive_impedance_min, drive_impedance_max);
         const double s0 = (1.0 - impedance) * stiffness * weight;
         const double s1 = (1.0 - impedance) * damping * weight;
-        if ((s0 * h * h) + (2.0 * s1 * h) >= 4.0) {
+        if (implicit > drive_envelope) {
             throw AdapterError(outputs.steps, "drive on joint " + std::to_string(drive.joint) + ": stiffness " +
                                                   std::to_string(drive.stiffness) + " and damping " +
                                                   std::to_string(drive.damping) +
-                                                  " are beyond the bridge's stable drive envelope at this step (PHY-034)");
+                                                  " are beyond the bridge's drive envelope (K_d h^2 + D_d h) A0 <= 400 "
+                                                  "at this step (PHY-034)");
         }
         const auto eq = to_size(coordinate.equality);
         m.eq_solref[(mjNREF * eq) + 0] = -s0;
@@ -915,7 +922,7 @@ void MujocoAdapter::Engine::apply_drives() {
             rest = shafts[to_size(joints[drive.joint].shaft)].receive(drive.rest, h);
             received[to_size(joints[drive.joint].shaft)] = true;
         }
-        m.eq_data[mjNEQDATA * eq] = rest * c;
+        m.eq_data[mjNEQDATA * eq] = (rest * c) - (d.qvel[coordinate.dof] * h);
         d.eq_active[coordinate.equality] = true;
         drives.back().equality = coordinate.equality;
     }

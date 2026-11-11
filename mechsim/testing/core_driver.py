@@ -21,6 +21,7 @@ import numpy as np
 
 from mechsim import _core as core
 from mechsim.builder import BuildError, build
+from mechsim.builder.payload import with_payload
 from mechsim.builder.result import BuildResult as CoreBuild
 from mechsim.design.schema import Design, blob_hash, shipped_materials
 from mechsim.library.registry import default_registry
@@ -29,6 +30,7 @@ from mechsim.physics.mujoco.translate import UnmappableElementError
 from mechsim.physics.neutral import PhysicsModel
 from mechsim.record.archive import RunEnd, RunFault, RunIdentity, repository_commit, tool_version
 from mechsim.record.archive import write_archive as write_record_archive
+from mechsim.record.layout import DRIVE_DRIVEN, DRIVE_TORQUE, JOINT_POSITIONS, Columns
 from mechsim.record.reader import DriverError as DriverError
 from mechsim.record.reader import JointKinematics as JointKinematics
 from mechsim.record.reader import Kinematics as Kinematics
@@ -36,12 +38,15 @@ from mechsim.record.reader import RecordArchiveReader as RecordArchiveReader
 from mechsim.record.reader import RecordingView as RecordingView
 from mechsim.record.stream import Recorder
 from mechsim.record.tick import (
+    WORLD_BODY,
     BodyState,
     ConstraintForce,
     ContactForce,
     CouplingSample,
+    JointDriveTorque,
     JointForce,
     MemberEndLoads,
+    PayloadState,
     PhysicsOutputs,
     RopeTension,
     SeriesSample,
@@ -52,11 +57,12 @@ from mechsim.record.tick import (
 from mechsim.record.tick import RecordedEvent as RowEvent
 from mechsim.testing.core_wiring import (
     OPERATOR_LINK_TYPE,
-    SENSOR_FAULTS,
+    WIRED_FAULTS,
     RunnerParty,
     RunnerState,
     WiringError,
     controller_party,
+    event_axes,
     operator_message,
     power_on_state,
     signal_layer,
@@ -124,8 +130,17 @@ def coupling_sample(name: str, value: Any) -> CouplingSample:
     return CouplingSample(name, "payload", float("nan"), payload_digest(value))
 
 
-def tick_record(row: Any) -> TickRecord:
-    """The record module's frozen mirror of one bound `TickRecord` (REC-020: a copy, never kernel memory)."""
+def _body_index(value: Any) -> int:
+    """A contact body index; the core's world index (size_t max, kWorldBody) is the record's `WORLD_BODY`, -1."""
+    index = int(value)
+    if index >= 2**63:
+        return WORLD_BODY
+    return index
+
+
+def tick_record(row: Any, events: Mapping[int, Sequence[RowEvent]] | None = None) -> TickRecord:
+    """The record module's frozen mirror of one bound `TickRecord` (REC-020: a copy, never kernel memory); `events`
+    maps a tick to decoded firmware events, which follow the row's own events."""
     data = row.to_dict()
     physics = data["physics"]
     bodies = tuple(
@@ -156,7 +171,7 @@ def tick_record(row: Any) -> TickRecord:
         for c in physics["constraints"]
     )
     contacts = tuple(
-        ContactForce(int(c["body_a"]), int(c["body_b"]), _vec(c["point"]), _vec(c["force"]))
+        ContactForce(_body_index(c["body_a"]), _body_index(c["body_b"]), _vec(c["point"]), _vec(c["force"]))
         for c in physics["contacts"]
     )
     members = tuple(
@@ -182,17 +197,36 @@ def tick_record(row: Any) -> TickRecord:
     def samples(entries: list[dict[str, Any]]) -> tuple[SeriesSample, ...]:
         return tuple(SeriesSample(e["name"], e["unit"], float(e["value"])) for e in entries)
 
+    positions = tuple(float(value) for value in physics.get("joint_positions", []))
+    drives = tuple(
+        JointDriveTorque(int(d["joint"]), float(d["torque"])) for d in physics.get("joint_drive_torques", [])
+    )
+    payloads = tuple(
+        PayloadState(int(p["body"]), int(p["carrier"]), bool(p["attached"]), _vec(p["force"]))
+        for p in physics.get("payloads", [])
+    )
     coupling = data["coupling"]
+    row_events = tuple(RowEvent(int(e["time"]), e["source"], e["kind"], e["detail"]) for e in data["events"])
     return TickRecord(
         time=int(data["time"]),
         physics=PhysicsOutputs(
-            int(physics["steps"]), bodies, joints, constraints, contacts, members, ropes, transmissions
+            int(physics["steps"]),
+            bodies,
+            joints,
+            constraints,
+            contacts,
+            members,
+            ropes,
+            transmissions,
+            positions,
+            drives,
+            payloads,
         ),
         pin_signals=samples(data["pin_signals"]),
         rails=samples(data["rails"]),
         actuator_efforts=samples(data["actuator_efforts"]),
         controller_state=str(data["controller_state"]),
-        events=tuple(RowEvent(int(e["time"]), e["source"], e["kind"], e["detail"]) for e in data["events"]),
+        events=row_events + tuple((events or {}).get(int(data["time"]), ())),
         coupling=tuple(coupling_sample(name, coupling[name]) for name in sorted(coupling)),
     )
 
@@ -235,6 +269,9 @@ class CoreDriver:
         self._faults: list[ScheduledFault] = []
         self._runner: RunnerState | None = None
         self.labels: dict[str, str] = {}
+        self._payload: tuple[str, str, float, bool] | None = None
+        self._physics_faults: list[ScheduledFault] = []
+        self._freezes: list[ScheduledFault] = []
 
     def load(self, build: BuildResult, case: Case) -> None:
         if not isinstance(build, CoreBuild):
@@ -279,9 +316,37 @@ class CoreDriver:
             )
         self._config = config
 
+    def _sensed_payload(self) -> tuple[str, str] | None:
+        """(payload name, the sensing instance's mounted body) of the first load cell reading a payload."""
+        if self._build is None:
+            return None
+        joints: set[str] = set()
+        if self._model is not None:
+            joints = {body.joint.name for body in self._model.bodies if body.joint is not None}
+        for instance in self._build.wiring.instances:
+            senses = instance.senses
+            if senses is None:
+                continue
+            name = senses.payload
+            if senses.joint_reaction is not None and senses.joint_reaction not in joints:
+                name = senses.joint_reaction
+            if name is not None:
+                for mount in instance.mounts:
+                    if mount.body is not None:
+                        return name, mount.body
+                raise DriverError(f"load cell '{instance.name}': senses a payload but is mounted on no body")
+        return None
+
     def set_initial_state(self, state: InitialState) -> None:
+        """The case payload becomes a neutral body (BLD-036) on `initial_state.payload.body`; a case that attaches
+        none gets no body, and a load cell reading a payload then has no target and reads zero (A4)."""
+        sensed = self._sensed_payload()
+        self._payload = None
         if state.payload is not None and state.payload.attached:
-            raise DriverError("initial_state.payload: payload attachment has no bridge input in milestone 1")
+            name = "payload"
+            if sensed is not None:
+                name = sensed[0]
+            self._payload = (name, str(state.payload.body), _si(state.payload.mass, "payload"), True)
         starts: dict[str, float] = {}
         for joint in state.joints:
             if _si(joint.velocity, joint.joint) != 0.0:
@@ -296,11 +361,18 @@ class CoreDriver:
         self._commands.append(command)
 
     def schedule_fault(self, fault: ScheduledFault) -> None:
-        if fault.kind not in SENSOR_FAULTS and fault.kind != "estop_press":
-            raise DriverError(
-                f"fault '{fault.kind}': delivery to the {fault.owner} party is milestone 2 (KER-023 delivers sensor, "
-                "motor-stall and E-stop faults in milestone 1)"
-            )
+        """Signal faults go to the layer (power loss to the rail's supply), slip and payload changes to the physics
+        party, a freeze to the controller party (TST-015 to TST-020)."""
+        if fault.kind in ("slip", "payload_change"):
+            self._physics_faults.append(fault)
+            return
+        if fault.kind == "controller_freeze":
+            if self._build is None or self._build.design.firmware is None:
+                raise DriverError("fault 'controller_freeze': this build has no controller")
+            self._freezes.append(fault)
+            return
+        if fault.kind not in WIRED_FAULTS:
+            raise DriverError(f"fault '{fault.kind}': no delivery to the {fault.owner} party")
         if not self._signals():
             raise DriverError(f"fault '{fault.kind}': this build has no signal layer")
         self._faults.append(fault)
@@ -325,7 +397,17 @@ class CoreDriver:
     def _run(self, end: EndSpec, config: RunConfig, model: PhysicsModel) -> RunReport:
         """Binding errors (AdapterError, KernelConfigError, SignalConfigError and the rest, all ValueError or
         RuntimeError) escape to `run`, which types them as DriverError with the cause kept (invariant 7)."""
-        artifacts = prepare_model(model, self._starts, float(1 / config.physics_rate))
+        payloads: dict[str, str] = {}
+        if self._payload is not None:
+            name, carrier, mass, _ = self._payload
+            fixed = self._payload_fixed()
+            try:
+                model = with_payload(model, name, carrier, mass, fixed)
+            except BuildError as failure:
+                raise DriverError(str(failure)) from failure
+            if not fixed:
+                payloads[name] = carrier
+        artifacts = prepare_model(model, self._starts, float(1 / config.physics_rate), payloads)
         self.approximations = artifacts.report
         adapter = core.make_physics_adapter("mujoco")
         prepared = core.PreparedModel(artifacts.neutral_json, artifacts.mjcf, artifacts.version)
@@ -343,10 +425,12 @@ class CoreDriver:
         signals = self._signals()
         if signals:
             party.inputs = ["signals.physics_inputs"]
-        kernel.register_party(core.PhysicsParty(adapter, party))
+        physics = core.PhysicsParty(adapter, party)
+        self._schedule_physics(physics, model)
+        kernel.register_party(physics)
         self.labels = {}
         if signals:
-            self._register_signals(kernel, config)
+            self._register_signals(kernel, config, model, sorted(payloads))
         stop = end.max_tick
         if end.at_tick is not None:
             stop = min(stop, end.at_tick)
@@ -354,9 +438,21 @@ class CoreDriver:
         for subscriber in self._subscribers:
             sink.subscribe(subscriber)
         report = kernel.run(core.EndCondition(_seconds(stop, config.base_rate)), sink)
-        recorder = Recorder(config.base_rate)
+        recorder = Recorder(config.base_rate, model_columns(model, sorted(payloads)))
+        decoded: list[RowEvent] = []
+        if self._runner is not None:
+            decoded = [RowEvent(tick, "controller", kind, detail) for tick, kind, detail in self._runner.events]
+            decoded.sort(key=lambda event: event.time)
+        taken = 0
         for row in sink.drain():
-            recorder.write_row(tick_record(row))
+            # Rows are stamped at the end of their step (KER-009), so an event of the first controller step (tick 0)
+            # has no row of its own: it goes with the first row at or after its tick.
+            row_tick = int(row.time.count())
+            due: list[RowEvent] = []
+            while taken < len(decoded) and decoded[taken].time <= row_tick:
+                due.append(decoded[taken])
+                taken += 1
+            recorder.write_row(tick_record(row, {row_tick: due}))
         self.subscriber_errors = tuple(str(error) for error in sink.subscriber_errors())
         self._view = RecordingView(
             recorder.recording(),
@@ -407,10 +503,49 @@ class CoreDriver:
                         actuators[instance.name] = mount.joint
         return actuators
 
-    def _register_signals(self, kernel: Any, config: RunConfig) -> None:
+    def _payload_fixed(self) -> bool:
+        """Ruling 24: a payload attached at t = 0 that no fault releases is a fixed child of its carrier; a released
+        or never-attached one is welded (BLD-036)."""
+        if self._payload is None or not self._payload[3]:
+            return False
+        for fault in self._physics_faults:
+            if fault.kind == "payload_change" and float(dict(fault.parameters)["mass"]) == 0.0:
+                return False
+        return True
+
+    def _schedule_physics(self, physics: Any, model: PhysicsModel) -> None:
+        """Slip on the transmission named by its instance, payload changes on the payload carried by the target body
+        (by the payload's body index; 0 kg releases it to the world, carrier -1), each at its tick (TST-015,
+        TST-020)."""
+        transmissions = [item.name for item in model.transmissions]
+        body = 0
+        if self._payload is not None:
+            body = [item.name for item in model.bodies].index(self._payload[0])
+        for fault in self._physics_faults:
+            parameters = dict(fault.parameters)
+            if fault.kind == "slip":
+                if fault.target not in transmissions or fault.end_tick is None:
+                    raise DriverError(f"fault 'slip': no transmission '{fault.target}' in the model")
+                physics.schedule_slip(
+                    transmissions.index(str(fault.target)),
+                    core.SimTime(fault.start_tick),
+                    core.SimTime(fault.end_tick),
+                    float(parameters["fraction"]),
+                )
+                continue
+            if self._payload is None or not self._payload[3] or self._payload[1] != fault.target:
+                raise DriverError(f"fault 'payload_change': no payload attached to '{fault.target}' at the start")
+            mass = float(parameters["mass"])
+            if mass == 0.0:
+                physics.schedule_payload_change(body, core.SimTime(fault.start_tick), carrier=-1)
+            else:
+                physics.schedule_payload_change(body, core.SimTime(fault.start_tick), mass=mass)
+        if self._payload is not None and not self._payload[3]:
+            physics.schedule_payload_change(body, core.SimTime(0), carrier=-1)
+
+    def _register_signals(self, kernel: Any, config: RunConfig, model: PhysicsModel, payloads: Sequence[str]) -> None:
         build = self._build
-        model = self._model
-        if build is None or model is None:
+        if build is None:
             raise DriverError("run before load")
         seeds = dict(config.module_seeds)
         try:
@@ -422,8 +557,18 @@ class CoreDriver:
                 self._faults,
                 config.base_rate,
                 config.control_rate,
+                payloads,
             )
             state = RunnerState(externals=externals)
+            firmware = build.design.firmware
+            if firmware is not None and config.control_rate is not None:
+                state.event_names = {int(code): entry.name for code, entry in firmware.event_codes.items()}
+                state.event_arguments = {int(code): entry.argument for code, entry in firmware.event_codes.items()}
+                state.fault_names = {int(code): name for code, name in firmware.fault_codes.items()}
+                state.state_names = {int(code): name for code, name in firmware.state_codes.items()}
+                state.track_faults = len(firmware.fault_codes) > 0
+                state.axes = event_axes(build)
+                state.control_period = int(config.base_rate / config.control_rate)
             for command in sorted(self._commands, key=lambda item: item.tick):
                 state.commands.append((command.tick, operator_message(build, command)))
             for fault in self._faults:
@@ -438,7 +583,12 @@ class CoreDriver:
             if build.design.firmware is not None:
                 if config.control_rate is None:
                     raise DriverError("a firmware design needs a control rate")
-                kernel.register_party(controller_party(build, config.control_rate, work_directory()))
+                controller = controller_party(build, config.control_rate, work_directory())
+                for fault in self._freezes:
+                    if fault.end_tick is None:
+                        raise WiringError("fault 'controller_freeze': needs a window")
+                    controller.schedule_freeze(core.SimTime(fault.start_tick), core.SimTime(fault.end_tick))
+                kernel.register_party(controller)
         except WiringError as error:
             raise DriverError(str(error)) from error
         except (ValueError, RuntimeError, TypeError) as error:
@@ -448,6 +598,37 @@ class CoreDriver:
         if self._view is None:
             raise DriverError("no recording before run")
         return self._view
+
+
+def model_columns(model: PhysicsModel, payloads: Sequence[str] = ()) -> dict[str, Columns]:
+    """Column labels of the index-column series from the neutral model (REC-018, ruling 18): joints in body order
+    (prismatic m and N, revolute and the rest rad and N m), transmissions and payload bodies by name."""
+    joints: list[str] = []
+    positions: list[str] = []
+    torques: list[str] = []
+    for body in model.bodies:
+        if body.joint is None:
+            continue
+        joints.append(body.joint.name)
+        if body.joint.type == "prismatic":
+            positions.append("m")
+            torques.append("N")
+        else:
+            positions.append("rad")
+            torques.append("N*m")
+    columns = {
+        JOINT_POSITIONS: Columns(tuple(joints), tuple(positions)),
+        DRIVE_TORQUE: Columns(tuple(joints), tuple(torques)),
+        DRIVE_DRIVEN: Columns(tuple(joints)),
+    }
+    transmissions = tuple(item.name for item in model.transmissions)
+    if len(transmissions) > 0:
+        for field in ("slip", "slipping", "shaft_load_torque", "force", "stretch", "power_flow"):
+            columns[f"physics/transmissions/{field}"] = Columns(transmissions)
+    if len(payloads) > 0:
+        for field in ("body", "carrier", "attached", "force"):
+            columns[f"physics/payloads/{field}"] = Columns(tuple(payloads))
+    return columns
 
 
 # ===== Archives =========================================================
