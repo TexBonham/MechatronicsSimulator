@@ -67,3 +67,4 @@ type live in the root `CLAUDE.md` dispatch table once measured.
 | 2026-11-11 | Reference validation: milestone 2 gate (C++ 15 + 12 MuJoCo, Python 9; baselines) | reference-validator (sonnet) | 41K | 14 calls, 9 min; 0 misses; MuJoCo reference cases now labelled for ctest (inline) |
 | 2026-11-11 | Fable gate review: milestone 2 | general-purpose (fable) | ~110K | 13 calls; pass with owner confirmations; CI on the merged branch blocking until the owner pushes |
 | 2026-11-11 | M2-F3: client on list_runs and advance, cursor-sample narrowing (wip/04-f3 dd53bd5); review accept with one client fix, applied inline (span local to the request) | module-writer (opus) + general-purpose (fable) | ~90K + ~64K | 23 + 6 calls |
+| 2026-11-11 | Docs close pass: markers in 13 files, 15 index tables, 3 HISTORY.md files, root dispatch table (wip/04-docs 4e0fc9c) | docs-indexer (haiku) | 163K | 24 calls, 5 min; contract files grew with index tables, accepted (queue item 3) |
