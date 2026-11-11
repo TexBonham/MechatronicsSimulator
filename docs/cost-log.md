@@ -37,3 +37,4 @@ type live in the root `CLAUDE.md` dispatch table once measured.
 | 2026-11-10 | M2-B: freeze and slow-down scheduling, latency, brownout from chip data, physics fault scheduling, joint and payload series, Windows helper dedup; 294 ctest, full suite green (wip/04-b 37ba56f) | module-writer (opus), worktree | ~235K | 91 calls, 70 min; found the ctest-argument quoting bug in locked_build.sh (fixed inline) |
 | 2026-11-10 | M2-F1 fix round: reader under mechsim/record, one answer per request, strict version, end reasons, conformance cases (wip/04-f1 8e960e3) | module-writer (opus), resumed | ~35K | 26 calls |
 | 2026-11-10 | M2-F1 re-review | general-purpose (fable), resumed | ~30K | 8 calls; accept; ADR 0015 events row to align at merge-back |
+| 2026-11-10 | Invariant audit: wave 2 (A2, B, F1) | invariant-auditor (sonnet) | ~35K | clean, three minors (tier default, archive format version, swallowed parse error) |
