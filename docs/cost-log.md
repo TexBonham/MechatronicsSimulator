@@ -56,3 +56,4 @@ type live in the root `CLAUDE.md` dispatch table once measured.
 | 2026-11-11 | M2-C2: bridge drive mapping exact backward Euler (runaway fixed), brake soft slip drive; G3 and G7 pass, G10 needs frame-side encoders (wip/04-c2 6032236) | module-writer (opus), worktree from X3 WIP | ~200K | est.; report pending usage |
 | 2026-11-11 | M2 review: C2 (physics derivation of the drive mapping) | general-purpose (fable) | 116K | 11 calls; accept with one medium (envelope throw at Z > 400), 4 low |
 | 2026-11-11 | M2-C2 fix round: envelope throw at Z > 400, spec rows, derivation (wip/04-c2 0814bb6) | module-writer (opus), resumed | ~14K | 7 calls |
+| 2026-11-11 | M2-C2 re-review | general-purpose (fable), resumed | ~25K | 4 calls; accept, low finding withdrawn |
