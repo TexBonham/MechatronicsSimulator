@@ -61,3 +61,4 @@ type live in the root `CLAUDE.md` dispatch table once measured.
 | 2026-11-11 | M2-A4: linear encoder, load cell without target; 347 ctest (wip/04-a4 597e038) | module-writer (opus), worktree | ~100K | 24 calls, 6 min |
 | 2026-11-11 | M2-X5: frame-side linear encoders, stand-in payload removed, G7, G9, G10 green, suite 13 of 13, LIB-031 types, list_runs and advance (wip/04-x1 88aa526) | module-writer (opus), fresh in the X1 worktree | ~200K | 96+ calls; report pending usage |
 | 2026-11-11 | Gate audit: integration wave part 2 (X4, A4, X5) | invariant-auditor (opus) | ~55K | first-part majors closed; 1 R-18 blocker (BLD-035 text), 2 minor; to the X5 fix round |
+| 2026-11-11 | M2 review: integration wave part 2 (X4, A4, X5) | general-purpose (fable) | 142K | 19 calls; accept, 3 low; first-part high closed |
