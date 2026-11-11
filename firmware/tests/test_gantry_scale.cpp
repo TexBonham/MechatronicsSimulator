@@ -1,5 +1,6 @@
-// The gantry firmware built with the lift at the TR8x8 screw's own scale (8 mm/rev: 400000 steps/m, 300000 counts/m)
-// while X and Y keep the belts' 80000 and 60000: every per-axis conversion is exercised with unequal scales.
+// The gantry firmware built with the lift at a scale of its own (400000 steps/m, 300000 counts/m; the gantry's lift is
+// belt-driven at 80000 since 2026-11-11, so this is a synthetic unequal scale) while X and Y keep the belts' 80000 and
+// 60000: every per-axis conversion is exercised with unequal scales.
 #include "test_gantry_plant.cpp"
 
 #include <algorithm>
@@ -41,7 +42,7 @@ TEST_CASE("Per-axis step scale: a target and a lift of one length issue each axi
 
 TEST_CASE("Per-axis step scale: the lift's travel and speed are in its own steps", "[FW-018][FW-022]")
 {
-    // 0.5 m of travel is 200000 steps; 0.2 m/s is 80 steps per tick at 1 kHz; a lift past the travel is refused.
+    // 0.5 m of travel is 200000 steps; 0.1 m/s is 40 steps per tick at 1 kHz; a lift past the travel is refused.
     Plant plant(0, 0, 0);
     plant.home();
     std::uint32_t peak = 0U;
@@ -51,7 +52,7 @@ TEST_CASE("Per-axis step scale: the lift's travel and speed are in its own steps
         out = plant.tick();
     }
     plant.tick();
-    REQUIRE(peak == 80U);
+    REQUIRE(peak == 40U);
     REQUIRE(plant.position[2] == 200000);
     out = plant.tick("lift 0.500001\n");
     REQUIRE(out.fault_code == GANTRY_FAULT_OUTSIDE_WORKSPACE);
@@ -59,8 +60,8 @@ TEST_CASE("Per-axis step scale: the lift's travel and speed are in its own steps
 
 TEST_CASE("G10: the mismatch threshold is 2 mm on every axis at its own count scale", "[FW-020]")
 {
-    // 2 mm at 60000 counts/m on X and Y is 120 counts; at 300000 counts/m on the lift (2400 counts per 8 mm turn) it is
-    // 600 counts. A 121-count error on the lift is far inside 2 mm there and is tolerated.
+    // 2 mm at 60000 counts/m on X and Y is 120 counts; at 300000 counts/m on the lift it is 600 counts. A 121-count
+    // error on the lift is far inside 2 mm there and is tolerated.
     STATIC_REQUIRE(gantry_test::mismatch_counts[0] == 120);
     STATIC_REQUIRE(gantry_test::mismatch_counts[1] == 120);
     STATIC_REQUIRE(gantry_test::mismatch_counts[2] == 600);

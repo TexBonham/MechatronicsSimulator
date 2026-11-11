@@ -10,9 +10,13 @@
 # 13 s lowers it by at most 15.5 cm, done by 13 + 0.155 / 0.1 + 2 + 0.05 = 16.6 s, to within 1 cm of 5 cm at 18 s.
 # Masses (the payload is a fixed child of the hook, ruling 24, so the change is a step load on the moving stepper):
 # on the belt lift (c = 6.37 mm) an undamped step from m0 to m1 peaks at (0.44 kg + m0 + 2 (m1 - m0)) g c, with
-# 0.44 kg of printed carriage, hook and cell; against 0.38 N m of the placeholder curve at the 0.1 m/s lift speed
-# (150 rpm, 6.08 kg) that needs m0 >= 5.36 kg for m1 = 5.5 kg, above the 5.216 kg limit, so no starting mass meets the
-# bound with the placeholder NEMA 17 (ruling 31 re-check); the rated load is used.
+# 0.44 kg of printed carriage, hook and cell; against 1.205 N m of the placeholder NEMA 23 curve at the 0.1 m/s lift
+# speed (150 rpm, 19.3 kg; nema23_class_generic, ruling 31, M2-X7) any m0 >= 0 meets it for m1 = 5.5 kg (the rated
+# 4.536 kg -> 5.5 kg step peaks at 0.431 N m); the rated load is used. Open (M2-X7): on the rigid-belt lift (belt
+# stiffness treated as rigid, milestone 1) each microstep is a 63 N m/rad x 1.96 mrad / c = 19.4 N kick on the 83 Hz
+# drive mode, so the payload's vertical acceleration jitters at about 1 m/s^2 rms while lifting; through the 10 Hz
+# amplifier the rated 4.536 kg reads up to 5.22 kg (3130 counts) 0.28 s into the lift and trips the overload before
+# the 5.5 kg step, so the case fails until the belt compliance or the amplifier's bandwidth is ruled.
 id: G6
 title: Load becomes overweight mid-lift
 design:

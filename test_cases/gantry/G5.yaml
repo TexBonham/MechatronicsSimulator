@@ -3,11 +3,11 @@
 # and the payload is loaded in steps to 5.5 kg (over the 5.216 kg limit, rated 10 lb = 4.536 kg + 15 percent, gantry
 # team 2026-11-11) while the lift stands still, so the load is over the limit before the next move. Why in steps: the
 # payload is a fixed child of the hook (ruling 24) and each change is a step load on the stepper's hold. The lift is
-# belt-driven (gantry team 2026-11-11), c = 40 mm / 2 pi = 6.37 mm, so the 0.40 N m holding torque carries
-# 0.40 / (9.81 m/s^2 x 6.37 mm) = 6.40 kg; m_stack = 0.44 kg of printed PETG carriage and hook plus the 30 g cell. An
-# undamped step from m0 to m1 peaks at (m_stack + m0 + 2 (m1 - m0)) g c, which stays under the holding torque for
-# m1 <= (6.40 - 0.44 + m0) / 2: 1 -> 2 -> 3 -> 4 -> 4.5 -> 5 -> 5.25 -> 5.5 kg each meets it (5 -> 5.5 kg would not:
-# 5.48 kg allowed). Lift timing at the 2026-11-11 limits (0.05 m/s^2, 0.1 m/s): a move of d >= 0.1 m takes
+# belt-driven (gantry team 2026-11-11), c = 40 mm / 2 pi = 6.37 mm, and the lift motor is the placeholder NEMA 23
+# (nema23_class_generic, ruling 31; M2-X7), whose 1.26 N m holding torque carries 1.26 / (9.81 m/s^2 x 6.37 mm) =
+# 20.2 kg; m_stack = 0.44 kg of printed PETG carriage and hook plus the 30 g cell. An undamped step from m0 to m1 peaks
+# at (m_stack + m0 + 2 (m1 - m0)) g c, under the holding torque for m1 <= (20.2 - 0.44 + m0) / 2, so even a single
+# 1 -> 5.5 kg step meets it (10.4 kg allowed); the steps are kept so the load passes through the limit while standing. Lift timing at the 2026-11-11 limits (0.05 m/s^2, 0.1 m/s): a move of d >= 0.1 m takes
 # d / v + v / a = d / 0.1 + 2 s, plus the 50 ms brake release wait: `lift 0.3` at 8 s ends by 13.05 s, the loading
 # runs from 14 s to 17 s, `lift 0.4` at 18 s is refused with a status and a `refused` event (fault overload) and the
 # lift holds to 20 s; `lift 0.1` at 20 s lowers it by 20 cm, done by 20 + 4.05 = 24.05 s, ending within 1 cm of 10 cm
@@ -31,8 +31,8 @@ open_parameters:
     owed_by: gantry team
     note: >-
       Payload mass over the 5.216 kg overload limit (gantry team 2026-11-11). Lowering 5.5 kg on the belt lift needs
-      (0.44 + 5.5) kg x (9.81 + 0.05) m/s^2 x 6.37 mm = 0.373 N m against 0.38 N m of the placeholder curve at the
-      0.1 m/s lift speed (150 rpm): a 2 percent margin on the placeholder NEMA 17 (ruling 31 re-check).
+      (0.44 + 5.5) kg x (9.81 + 0.05) m/s^2 x 6.37 mm = 0.373 N m against 1.205 N m of the placeholder NEMA 23 curve at
+      the 0.1 m/s lift speed (150 rpm), a margin of 3.2 (ruling 31, M2-X7).
     default: "5.5 kg"
   - name: hold_band
     dimension: "[length]"

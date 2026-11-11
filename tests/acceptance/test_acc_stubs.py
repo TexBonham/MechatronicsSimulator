@@ -50,6 +50,9 @@ def _status_after(result: RunResult, start: float) -> tuple[str, str]:
     assert firmware is not None
     rate = _VIEWS[result.score.case_id].recording().recording.base_rate
     for _, event in _VIEWS[result.score.case_id].recording().recording.events:
+        # Position lines (FW-029) share the kind; only the status message carries state and fault.
+        if not event.detail.startswith("ready / fault "):
+            continue
         if event.kind == "operator_status" and float(event.time / rate) >= start:
             fields = dict(item.split("=") for item in event.detail.removeprefix("ready / fault ").split())
             state = firmware.state_name(int(fields["state"]))
@@ -218,13 +221,13 @@ def test_acc_009(gantry: dict[str, RunResult]) -> None:
     """Reference design (gantry), G5: with a load over the limit attached before a move, a lift command
     shall be ignored.
 
-    Tolerance not set (owed by gantry team): the behavior is asserted. With 3.6 kg on the hook (over the 3.45 kg
-    placeholder limit, ruling 6) `lift 0.4` at 13 s is refused with fault overload, and the lift stays within the 1 cm
-    hold band (the position accuracy) until the next command.
+    Tolerance not set (owed by gantry team): the behavior is asserted. With 5.5 kg on the hook (over the 5.216 kg
+    limit, rated 10 lb + 15 percent, gantry team 2026-11-11) `lift 0.4` at 18 s is refused with fault overload, and the
+    lift stays within the 1 cm hold band (the position accuracy) until the next command at 20 s.
     """
     result = gantry["G5"]
     _passes(result, "lift_up_refused", "lift_up_ignored")
-    _refused_with(result, 13.0, 15.0, "overload")
+    _refused_with(result, 18.0, 20.0, "overload")
 
 
 @pytest.mark.req("ACC-010")
@@ -232,11 +235,12 @@ def test_acc_009(gantry: dict[str, RunResult]) -> None:
 def test_acc_010(gantry: dict[str, RunResult]) -> None:
     """Reference design (gantry), G5: with a load over the limit attached, a lower command shall work.
 
-    `lift 0.1` from 0.3 m with 3.6 kg: no refusal, and the lift ends within 1 cm (the position accuracy) of 0.1 m.
+    `lift 0.1` at 20 s from 0.3 m with 5.5 kg: no refusal to the end at 26 s, and the lift ends within 1 cm (the
+    position accuracy) of 0.1 m.
     """
     result = gantry["G5"]
     _passes(result, "lowered")
-    assert _refusals(result, 15.0, 20.0) == 0
+    assert _refusals(result, 20.0, 26.0) == 0
 
 
 @pytest.mark.req("ACC-011")
@@ -245,9 +249,9 @@ def test_acc_010(gantry: dict[str, RunResult]) -> None:
 def test_acc_011(gantry: dict[str, RunResult]) -> None:
     """Reference design (gantry), G6: when the load becomes overweight mid-lift, the lift shall stop.
 
-    The payload becomes 3.6 kg 1 s into the lift (TST-020 routes the change to physics). Bound from the firmware
-    placeholders (G6 header): 0.2 m risen at the change, at most 1 cm more during detection (under 50 ms at 0.2 m/s),
-    v^2 / 2a = 0.04 m to stop at 0.5 m/s^2: the lift stays under 25 cm, short of the 45 cm commanded.
+    The payload becomes 5.5 kg 2 s into the lift (TST-020 routes the change to physics). Bound from the gantry team's
+    limits of 2026-11-11 (G6 header): 0.1 m risen at the change, at most 0.5 cm more during detection (under 50 ms at
+    0.1 m/s), v^2 / 2a = 0.1 m to stop at 0.05 m/s^2: the lift stays under 20.5 cm, short of the 45 cm commanded.
     """
     _passes(gantry["G6"], "lift_stopped")
 
@@ -257,7 +261,7 @@ def test_acc_011(gantry: dict[str, RunResult]) -> None:
 def test_acc_012(gantry: dict[str, RunResult]) -> None:
     """Reference design (gantry), G6: after an overweight stop, the load shall be able to be set down.
 
-    `lift 0.05` after the stop, still at 3.6 kg: the lift ends within 1 cm of 5 cm.
+    `lift 0.05` after the stop, still at 5.5 kg: the lift ends within 1 cm of 5 cm.
     """
     _passes(gantry["G6"], "set_down")
 
@@ -370,15 +374,15 @@ def _travel_after(result: RunResult, start: float, end: float) -> float:
 def test_acc_019(gantry: dict[str, RunResult]) -> None:
     """Reference design (gantry), G10: on a motor stall or belt slip during a move, motion shall stop.
 
-    Tolerance not set (owed by gantry team); the bound is the firmware placeholders' (G10 header): the 2 mm mismatch
-    threshold is crossed within the 0.5 s fault window, the stop at 0.5 m/s^2 from at most 0.2 m/s takes
-    v / a = 0.4 s, so no driver step from fault start + 0.9 s, and the carriage travels at most
-    0.2 m/s x 0.9 s + v^2 / (2 a) = 0.18 m + 0.04 m = 0.22 m past its position at the fault start. The frame-side
-    encoders (ruling 32) see both the stall and the slip.
+    Tolerance not set (owed by gantry team); the bound is the gantry team's limits of 2026-11-11 (G10 header): the 2 mm
+    mismatch threshold is crossed within the 0.5 s fault window, by then the speed is at most 0.05 m/s^2 x 1 s =
+    0.05 m/s and the stop takes v / a = 1 s, so no driver step from fault start + 1.5 s, and the carriage travels at
+    most 0.05 m/s x 0.5 s + v^2 / (2 a) = 0.025 m + 0.025 m = 0.05 m past its position at the fault start. The
+    frame-side encoders (ruling 32) see both the stall and the slip.
     """
     result = gantry["G10"]
     _passes(result, "stall_stopped_x", "stall_stopped_y", "slip_stopped_x", "slip_stopped_y", "slip_carriage_stopped")
-    bound = 0.2 * 0.9 + 0.2**2 / (2.0 * 0.5)
+    bound = 0.05 * 0.5 + 0.05**2 / (2.0 * 0.05)
     for start in (8.5, 30.5):
         travel = _travel_after(result, start, start + 2.0)
         print(f"G10 X travel from {start} s over 2 s: {travel} m (bound {bound} m)")
@@ -393,12 +397,13 @@ def test_acc_020(gantry: dict[str, RunResult]) -> None:
     fault shall be reported.
 
     Stall on the X motor from 8.5 s (TST-016) and slip on the X belt from 30.5 s (TST-015): each enters the fault
-    state within the 0.5 s window plus the 0.4 s stop, and the refusals that follow carry fault encoder_mismatch.
+    state within the 0.5 s window plus the 1 s stop, and the refusals of the targets at 10.5 s and 32.5 s carry fault
+    encoder_mismatch.
     """
     result = gantry["G10"]
     _passes(result, "stall_fault", "slip_fault")
-    _refused_with(result, 10.0, 10.5, "encoder_mismatch")
-    _refused_with(result, 32.0, 32.5, "encoder_mismatch")
+    _refused_with(result, 10.5, 11.0, "encoder_mismatch")
+    _refused_with(result, 32.5, 33.0, "encoder_mismatch")
 
 
 @pytest.mark.req("ACC-021")
@@ -428,8 +433,8 @@ def test_acc_021(gantry: dict[str, RunResult]) -> None:
 def test_acc_022(gantry: dict[str, RunResult]) -> None:
     """Reference design (gantry), G11: when a limit switch trips mid-workspace, motion shall stop.
 
-    x_max_switch forced high at 8.5 s for 0.2 s near x = 0.2 m: no driver steps from 8.5 + 0.2 + 0.4 s (stop at
-    0.5 m/s^2 from 0.2 m/s) until the home.
+    x_max_switch forced high at 8.5 s for 0.2 s, 6.25 mm into the move: no driver steps from 8.5 + 0.2 + 0.7 s (stop
+    at 0.05 m/s^2 from at most 0.035 m/s, G11 header) until the home.
     """
     _passes(gantry["G11"], "stopped_x", "stopped_y")
 
@@ -484,7 +489,7 @@ def test_acc_027(gantry: dict[str, RunResult]) -> None:
     defined policy (queue or reject) in every run.
 
     Policy: the firmware placeholder, reject (gantry_config.h, owed by the gantry team). `lift 0.3` at 8.5 s, inside
-    the move to (40, 25) (0.4 m of X at no more than 0.2 m/s lasts at least 2 s): refused with fault busy
+    the move to (40, 25) (0.4 m of X at no more than 0.1 m/s lasts at least 4 s): refused with fault busy
     (`fault:busy`, ruling 30) and a `refused` event, no lift step pulse and the lift within the 1 cm band to 10 s; the
     move still arrives within 1 cm. The status after the refusal names busy.
     """

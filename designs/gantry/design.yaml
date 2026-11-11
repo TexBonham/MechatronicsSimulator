@@ -44,10 +44,11 @@ open_parameters:
     dimension: choice
     owed_by: gantry team
     note: >-
-      Material and process of the frame, rails, trolley, lift carriage, hook and motor shafts: PETG, 3D printed
+      Material and process of the printed bodies (frame, rails, trolley, lift carriage, hook): PETG, 3D printed
       lengthwise (print direction along the rail), gantry team 2026-11-11. The petg_printed record's mechanical
-      properties stay PLACEHOLDER datasheet values (wide spread) until the team gives them; the motor shafts follow the
-      parameter's scope pending the CAD.
+      properties stay PLACEHOLDER datasheet values (wide spread) until the team gives them. Scope: printed bodies only;
+      the motor shafts (x_motor_shaft, y_motor_shaft, lift_motor_shaft) are bought steel parts, PLACEHOLDER
+      bearing_steel_52100 machined, and the belt pulleys are catalog parts (belt_pulley.yaml), until the CAD.
     default: "petg_printed"
   - name: rail_section_area
     dimension: "[length] ** 2"
@@ -219,8 +220,9 @@ environment:
       offset: 0 m
 # PLACEHOLDER GEOMETRY until the gantry team's CAD arrives (DES open parameter cad_model).
 # Every body below is a box or cylinder of printed PETG (body_materials, gantry team 2026-11-11; build direction along
-# each rail, along z elsewhere) with mass properties computed from it, and every joint placement, motor axis, joint
-# friction, damping and backlash and rail section is a stand-in chosen only so the rigid gantry builds. Gantry team
+# each rail, along z elsewhere), except the motor shafts, machined steel (placeholder; body_materials covers printed
+# bodies only), with mass properties computed from it, and every joint placement, motor axis, joint friction, damping
+# and backlash and rail section is a stand-in chosen only so the rigid gantry builds. Gantry team
 # sizes (2026-11-11): workspace x 0.5 m, workspace y 0.5 m, lift travel 0.5 m, rails 0.5 m each, so each rail spans
 # exactly its carriage's travel (rail_x from x 0.1 m to 0.6 m between the end posts, rail_y from y 0.1 m to 0.6 m).
 # rail_x stays 1.0 m above the floor (placeholder).
@@ -335,12 +337,9 @@ bodies:
           position: [0 m, 0 m, 0 m]
           size: [0.04 m, 0.04 m, 0.04 m]
   - name: x_motor_shaft
-    material: petg_printed
+    material: bearing_steel_52100
     process:
-      kind: printed
-      build_direction: [0.0, 0.0, 1.0]
-      walls: 2
-      infill: 20 percent
+      kind: machined
     geometry:
       kind: primitives
       shapes:
@@ -349,12 +348,9 @@ bodies:
           radius: 2.5 mm
           length: 20 mm
   - name: y_motor_shaft
-    material: petg_printed
+    material: bearing_steel_52100
     process:
-      kind: printed
-      build_direction: [0.0, 0.0, 1.0]
-      walls: 2
-      infill: 20 percent
+      kind: machined
     geometry:
       kind: primitives
       shapes:
@@ -363,12 +359,9 @@ bodies:
           radius: 2.5 mm
           length: 20 mm
   - name: lift_motor_shaft
-    material: petg_printed
+    material: bearing_steel_52100
     process:
-      kind: printed
-      build_direction: [0.0, 0.0, 1.0]
-      walls: 2
-      infill: 20 percent
+      kind: machined
     geometry:
       kind: primitives
       shapes:
@@ -483,7 +476,7 @@ joints:
 components:
   - name: x_motor
     type: stepper_behavioral
-    part: nema17_class_generic
+    part: nema23_class_generic
     mechanical:
       - mount: face
         body: frame
@@ -512,7 +505,7 @@ components:
         body: rail_y
   - name: y_motor
     type: stepper_behavioral
-    part: nema17_class_generic
+    part: nema23_class_generic
     mechanical:
       - mount: face
         body: rail_y
@@ -541,7 +534,7 @@ components:
         body: trolley
   - name: lift_motor
     type: stepper_behavioral
-    part: nema17_class_generic
+    part: nema23_class_generic
     mechanical:
       - mount: face
         body: trolley

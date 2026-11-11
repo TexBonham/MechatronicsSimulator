@@ -10,9 +10,13 @@
 # from the fault start + 1.5 s; the carriage starts within a t^2 / 2 = 6.25 mm of the origin and travels at most
 # 0.05 m/s x 0.5 s + v^2 / 2a = 0.025 m + 0.025 m past that (motion stops, ACC-019: slip_carriage_stopped). Homing
 # from there (under the 10 cm homing travel) takes at most 0.1 m / 0.02 m/s + 0.4 s ramp = 5.2 s, so the second move
-# starts at 30 s, well after it. Measured on the CLI (2026-11-11): the mismatch latched at 9.161 s and 31.425 s, after
-# each 0.5 s fault window, and the firmware ended the profiles at the fault, so the windows hold on the measurement and
-# the immediate stop rather than on the in-window crossing the bound assumes.
+# starts at 30 s, well after it. Latch times (M2-X7): the firmware detects the mismatch (over 2 mm = 120 counts at
+# 60 000 counts/m) and begins its stop at the deceleration limit, and latches the fault and emits it when the profile
+# reaches zero velocity (FW-020), so the event comes at detection + v / a. Stall: the carriage halts at 8.5 s while the
+# steps run on from 0.025 m/s at 0.05 m/s^2, 0.025 t + 0.025 t^2 = 2.017 mm at t = 75 ms (8.575 s, 0.0287 m/s), stop
+# 0.575 s, latched by 9.15 s (measured 9.161 s). Slip 0.3: the mismatch grows at 0.3 v, 0.3 (0.025 t + 0.025 t^2) =
+# 2.017 mm at t = 0.220 s (30.72 s, 0.036 m/s), stop 0.72 s, latched by 31.44 s (measured 31.427 s). Both detections
+# fall inside the 0.5 s fault windows, as the bound assumes; the windows stand.
 # The encoders sense the axis joints, frame side (round 4 ruling 32), so the stall and the slip both show as a
 # step-count versus encoder mismatch; the slip runs on the bridge's slip dynamics (brief M2-C2).
 id: G10

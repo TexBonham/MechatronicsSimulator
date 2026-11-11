@@ -41,7 +41,9 @@ def test_registry_loads_every_shipped_type_and_part() -> None:
     registry = load_registry()
     assert registry.type_names() == SHIPPED_TYPES
     assert "nema17_class_generic" in registry.part_names()
-    assert len(registry.part_names()) == len(SHIPPED_TYPES)
+    # One part per type, but stepper_behavioral ships two: the NEMA 17 and the NEMA 23 class (G16's sweep, ruling 31).
+    assert "nema23_class_generic" in registry.part_names()
+    assert len(registry.part_names()) == len(SHIPPED_TYPES) + 1
     assert registry.part("nema17_class_generic").type == "stepper_behavioral"
     assert registry.component_type("limit_switch").category == "sensor"
 

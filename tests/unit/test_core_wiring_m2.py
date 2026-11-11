@@ -118,14 +118,15 @@ def test_payload_follows_its_carrier_to_the_start_configuration(built: object) -
 @pytest.mark.req("BLD-035")
 @pytest.mark.req("SIG-020")
 def test_brake_on_the_lift_motor_shaft_reflects_the_lifted_mass(built: object) -> None:
-    # Ruling 23: the brake holds the shaft. Rigid screw x = c theta: kinetic energy (J + m c^2) omega^2 / 2, so the
-    # shaft's inverse inertia is A0 = 1 / (J + m c^2), m every body below the lift joint, the torque as given.
+    # Ruling 23: the brake holds the shaft. Rigid belt x = c theta (c the pulley radius; the lift is belt-driven, gantry
+    # team 2026-11-11): kinetic energy (J + m c^2) omega^2 / 2, so the shaft's inverse inertia is A0 = 1 / (J + m c^2),
+    # m every body below the lift joint, the torque as given.
     model = built.physics  # type: ignore[attr-defined]
     places, _ = core_wiring.joint_places(model)
     brake = _instances(built)["lift_brake"]
     params = core_wiring.brake_parameters(brake, places, model)  # type: ignore[arg-type]
-    screw = next(item for item in model.transmissions if item.name == "lift_screw")
-    c = screw.lead / (2.0 * math.pi)
+    belt = next(item for item in model.transmissions if item.name == "lift_belt")
+    c = belt.pulley_radius
     names = [body.name for body in model.bodies]
     mass = sum(model.bodies[names.index(name)].mass for name in ("lift_carriage", "hook"))
     shaft = model.bodies[names.index("lift_motor_shaft")]
@@ -149,7 +150,7 @@ def test_a_brake_off_a_revolute_shaft_joint_is_a_wiring_error(built: object) -> 
         core_wiring.brake_parameters(brake, places, model)
     line = core_wiring.undrivable_brake(brake, model)
     assert line is not None
-    assert "lift_screw" in line
+    assert "lift_belt" in line
     assert "the lift" not in line
     assert core_wiring.undrivable_brake(_instances(built)["x_motor"], model) is None  # type: ignore[arg-type]
     undriven = model.model_copy(update={"transmissions": ()})
@@ -171,7 +172,7 @@ def test_load_cell_reads_its_payload_and_the_amplifier_the_chip_adc(built: objec
     assert cell["payload"] == 0
     assert cell["capacity"] == pytest.approx(49.05)
     amp = core_wiring.component_parameters(_instances(built)["load_amp"], places, model, ["payload"], chip)  # type: ignore[arg-type]
-    assert (amp["adc_bits"], amp["adc_reference"], amp["gain"]) == (12, pytest.approx(3.3), pytest.approx(403.0))
+    assert (amp["adc_bits"], amp["adc_reference"], amp["gain"]) == (12, pytest.approx(3.3), pytest.approx(241.8))
     original: Any = _instances(built)["load_cell"]
     reaction = original.model_copy(
         update={"senses": original.senses.model_copy(update={"joint_reaction": "hook_swing"})}
@@ -257,7 +258,7 @@ def test_model_columns_label_joints_transmissions_and_payloads(built: object) ->
     joints = columns["physics/joint_positions"]
     assert joints.names[-1] == "payload_free"
     assert joints.units[[body.joint.name for body in model.bodies if body.joint is not None].index("lift_axis")] == "m"
-    assert columns["physics/transmissions/slip"].names == ("x_belt", "y_belt", "lift_screw")
+    assert columns["physics/transmissions/slip"].names == ("x_belt", "y_belt", "lift_belt")
     assert columns["physics/payloads/force"].names == ("payload",)
 
 

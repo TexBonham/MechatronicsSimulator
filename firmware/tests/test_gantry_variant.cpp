@@ -34,7 +34,8 @@ TEST_CASE("at 500 Hz the cruise step rate doubles per tick and the move still la
                 100000)
         > 0);
     plant.tick();
-    REQUIRE(peak == 32U);
+    // 0.1 m/s at 80000 steps/m and 500 Hz: 16 steps per tick, twice the 1 kHz cruise.
+    REQUIRE(peak == 16U);
     REQUIRE(plant.position[0] == 32000);
     REQUIRE(plant.position[1] == 16000);
 }
