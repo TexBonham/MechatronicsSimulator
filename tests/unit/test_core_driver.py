@@ -63,8 +63,9 @@ def test_firmware_designs_load_and_refuse_what_milestone_1_does_not_run() -> Non
         driver.configure(replace(native, control_rate=Fraction(3000), base_rate=Fraction(3000)))
     driver.configure(native)
     for kind, owner in (("controller_freeze", "controller"), ("slip", "physics"), ("power_loss", "signals")):
-        with pytest.raises(DriverError, match="milestone 2"):
-            driver.schedule_fault(ScheduledFault(owner, kind, "x", 1, 2))  # type: ignore[arg-type]
+        driver.schedule_fault(ScheduledFault(owner, kind, "x", 1, 2))  # type: ignore[arg-type]
+    with pytest.raises(DriverError, match="no delivery"):
+        driver.schedule_fault(ScheduledFault("signals", "teleport", "x", 1, 2))
     pendulum_driver = CoreDriver()
     pendulum_driver.load(core_builder(prepare(P1).design), prepare(P1).case)
     with pytest.raises(DriverError, match="no operator link"):
@@ -115,8 +116,8 @@ def test_unsupported_inputs_stop_before_t0() -> None:
         driver.set_initial_state(InitialState(joints=[JointState(joint="pivot", position="0 rad", velocity="1 rad/s")]))
     with pytest.raises(DriverError, match="operator link"):
         driver.schedule_command(ScheduledCommand(1, "home"))
-    with pytest.raises(DriverError, match="KER-023"):
-        driver.schedule_fault(ScheduledFault("physics", "slip", "x_belt", 1, 2))
+    with pytest.raises(DriverError, match="no controller"):
+        driver.schedule_fault(ScheduledFault("controller", "controller_freeze", None, 1, 2))
     driver.set_initial_state(InitialState(joints=[JointState(joint="nothing", position="0 rad", velocity="0 rad/s")]))
     with pytest.raises(DriverError, match="no such joint"):
         driver.run(EndSpec(max_tick=1, at_tick=1))

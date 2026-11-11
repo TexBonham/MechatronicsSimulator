@@ -80,6 +80,7 @@ def _instance(
         mounts=tuple(mounts),
         rails=tuple(rails.get(component.name, [])),
         senses=_sensing(index, component, collector),
+        acts_on=_acts_on(index, component, collector),
         torque_speed=torque_speed,
     )
 
@@ -89,14 +90,35 @@ def _sensing(index: int, component: ComponentInstance, collector: Collector) -> 
     if senses is None:
         return None
     joint = senses.joint
+    body = senses.body
     position = senses.position
     if isinstance(joint, OpenValue):
         collector.pending.append(f"components[{index}].senses.joint")
         return None
+    if isinstance(body, OpenValue):
+        collector.pending.append(f"components[{index}].senses.body")
+        return None
     if isinstance(position, OpenValue):
         collector.pending.append(f"components[{index}].senses.position")
         return None
-    return Sensing(joint=joint, position=position, actuate_above=senses.actuate_above, reversed=senses.reversed is True)
+    return Sensing(
+        joint=joint,
+        payload=senses.payload,
+        body=body,
+        position=position,
+        actuate_above=senses.actuate_above,
+        reversed=senses.reversed is True,
+    )
+
+
+def _acts_on(index: int, component: ComponentInstance, collector: Collector) -> str | None:
+    if component.acts_on is None:
+        return None
+    joint = component.acts_on.joint
+    if isinstance(joint, OpenValue):
+        collector.pending.append(f"components[{index}].acts_on.joint")
+        return None
+    return joint
 
 
 # ===== Pin bindings =====================================================
@@ -153,7 +175,8 @@ def _rail(
     rail: Rail, index: int, design: Design, registry: Registry, collector: Collector
 ) -> tuple[RailWiring, list[Gate]]:
     """Walk from the supply's power_out ports along wires; a safety instance passes power from its power_in to its
-    power_out ports and joins the gating chain; any other power_in port reached makes its instance a consumer."""
+    power_out ports and joins the gating chain; any other power_in port reached (a safety instance without a power_out
+    port, such as a brake coil, included) makes its instance a consumer."""
     gates_declared = [gate for gate in rail.gated_by if isinstance(gate, str)]
     open_gates = len(gates_declared) != len(rail.gated_by)
     if open_gates:
@@ -189,7 +212,8 @@ def _rail(
             target, target_port = wire.destination.split(".")
             if directions.get(target, {}).get(target_port) != "power_in":
                 continue
-            if categories.get(target) == GATE_CATEGORY:
+            passes = "power_out" in directions.get(target, {}).values()
+            if categories.get(target) == GATE_CATEGORY and passes:
                 if target not in visited:
                     visited.add(target)
                     chain.append(target)

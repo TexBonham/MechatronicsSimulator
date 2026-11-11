@@ -19,12 +19,12 @@ Design files (DES). Schema `schemas/design.json` from `Design`; regenerate with
 | `open_parameters` | name, dimension (pint or `choice`), owed_by, note, optional `default` (quantity string, choice value, or a mapping for a structured choice; DES-044); release: none |
 | `bodies` | material, process, geometry (primitives or step), mass_properties, catalog_part, flexible (A, I, L, supports root/end, calibration), fasteners |
 | `joints` | six types, DOF lists per `DOF_COUNTS`; each body child of exactly one joint, no cycles |
-| `components` | type, part, overrides, mechanical (shaft mounts to joints), signals `instance.pin`; `senses` (DES-043): required on sensor types, forbidden elsewhere; `joint` (OpenName), limit_switch `position` + `actuate_above` (required), incremental_encoder `reversed` (`SENSES_FIELDS`, `SENSES_REQUIRED`) |
+| `components` | type, part, overrides, mechanical (shaft mounts to joints), signals `instance.pin`; `senses` (DES-043): required on sensor types, forbidden elsewhere; `joint` (OpenName), limit_switch `position` + `actuate_above` (required), incremental_encoder `reversed` (`SENSES_FIELDS`, `SENSES_REQUIRED`); load_cell may name `payload` (case payload name) and imu `body` instead of `joint`, exactly one target (`SENSES_TARGETS`); `acts_on: {joint}` required on brake types, forbidden elsewhere (`ACTS_ON_TYPES`) |
 | `wiring` | `Wire{source, destination}` as `instance.port`; ports are the type's electrical pins; connectivity only in v1 (DES-041) |
 | `pin_bindings` | every signal bound once, MCU pins unique, mode suits direction; pin and mode in the chip's pin map (DES-029) |
 | `power` | rails: supply (power instance), `gated_by` (safety instances), `consumers` (instances); controller rail |
 | `environment` | gravity, ambient; optional `contact`: `default`, `pairs`, `exclusions` as the neutral `ContactModel`, plus `floor` (normal, offset, world only) (DES-042) |
-| others | firmware path, chip, tick, `state_codes`/`fault_codes` (DES-045, `state_name`, `fault_name`); operator messages (no `heartbeat`); structural |
+| others | firmware path, chip, tick, `state_codes`/`fault_codes`/`event_codes` (DES-045, `state_name`, `fault_name`, `event_name`); operator messages (no `heartbeat`); structural |
 
 ## Chip (`Chip`, `chip.py`)
 

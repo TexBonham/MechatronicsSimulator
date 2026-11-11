@@ -1,0 +1,93 @@
+# G5 (Requirements doc, Test cases, gantry suite): a load over the limit attached before a move; lift commands are
+# ignored (ACC-009, FW-018) and lower commands work (ACC-010). The hook is homed with a 1 kg payload, lifted to 30 cm,
+# and the payload becomes 4 kg (over the 3.45 kg placeholder limit, rated 3 kg + 15 percent, round 4 ruling 6) while
+# the lift stands still, so the load is over the limit before the next move. `lift 0.4` is then refused with a status
+# and a `refused` event (fault overload) and the lift holds; `lift 0.1` lowers it by 20 cm, ending within 1 cm of
+# 10 cm (the 1 cm position accuracy, G2 and G3). Times are open parameters with placeholder defaults (DES-044):
+# homing from the start positions takes at most 0.1 m / 0.02 m/s = 5 s per axis, all axes at once.
+id: G5
+title: Overweight load attached before a move
+design:
+  name: gantry
+  version: 0.1.0
+controller_mode: native
+seed: 5
+open_parameters:
+  - name: homing_time
+    dimension: "[time]"
+    owed_by: gantry team
+    note: Time allowed for homing before the first lift; 0.1 m at the 0.02 m/s homing speed is 5 s.
+    default: "8 s"
+  - name: overweight_mass
+    dimension: "[mass]"
+    owed_by: gantry team
+    note: Payload mass over the overload limit (3.45 kg placeholder).
+    default: "4 kg"
+  - name: hold_band
+    dimension: "[length]"
+    owed_by: gantry team
+    note: How far the lift may move while a lift command is refused; the 1 cm position accuracy.
+    default: "1 cm"
+initial_state:
+  joints:
+    - joint: x_axis
+      position: 0.1 m
+      velocity: 0 m/s
+    - joint: y_axis
+      position: 0.1 m
+      velocity: 0 m/s
+    - joint: lift_axis
+      position: 0.1 m
+      velocity: 0 m/s
+  controller:
+    state: not_homed
+  payload:
+    attached: true
+    body: hook
+    mass: 1 kg
+commands:
+  - at: 0 s
+    message: home
+  - at: ${homing_time}
+    message: lift
+    payload:
+      z: 30 cm
+  - at: 13 s
+    message: lift
+    payload:
+      z: 40 cm
+  - at: 15 s
+    message: lift
+    payload:
+      z: 10 cm
+faults:
+  - kind: payload_change
+    start: 12 s
+    target: hook
+    mass: ${overweight_mass}
+end:
+  at: 20 s
+  max_duration: 20 s
+criteria:
+  - name: lift_up_refused
+    check: event
+    event: event:refused
+    expect: present
+    window:
+      start: 13 s
+      end: 15 s
+  - name: lift_up_ignored
+    check: hold_band
+    joints: [lift_axis]
+    band: ${hold_band}
+    window:
+      start: 13 s
+      end: 15 s
+  - name: lowered
+    check: value
+    quantity: joint:lift_axis.position
+    statistic: final
+    comparison: within
+    target: 10 cm
+    limit: 1 cm
+baseline: baseline.yaml

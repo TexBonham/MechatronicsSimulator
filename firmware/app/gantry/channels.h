@@ -27,5 +27,8 @@
 #define MECHSIM_CH_WATCHDOG_HEARTBEAT 6 /* digital_output PB6 */
 #define MECHSIM_CH_OPERATOR_LINK_UART_TX 0 /* uart_tx PA9 */
 #define MECHSIM_CH_OPERATOR_LINK_UART_RX 0 /* uart_rx PA10 */
+#define MECHSIM_CH_LOAD_AMP_OUT 0 /* adc_input PA11 */
+#define MECHSIM_CH_ESTOP_STATUS 6 /* digital_input PB7 */
+#define MECHSIM_CH_LIFT_BRAKE_RELEASE 7 /* digital_output PB8 */
 
 #endif /* MECHSIM_CHANNELS_H */

@@ -69,8 +69,10 @@ open_parameters:
   - name: load_cell_type
     dimension: choice
     owed_by: gantry team
-    note: Weight sensor slot; the shipped catalog has no load cell type yet, so no instance is declared.
-    default: "none"
+    note: >-
+      Weight sensor part; PLACEHOLDER load_cell_5kg_generic on the hook reading the case payload, through load_amp
+      (gain 403 so the firmware's 1000 counts per kg holds with the 12-bit 3.3 V placeholder ADC).
+    default: "load_cell_5kg_generic"
   - name: deflection_target_mode
     dimension: choice
     owed_by: gantry team
@@ -104,8 +106,11 @@ open_parameters:
   - name: power_loss_hold
     dimension: choice
     owed_by: gantry team
-    note: How the gantry holds its load when power is cut, brake or self-locking lead screw.
-    default: "self_locking_screw"
+    note: >-
+      How the gantry holds its load when power is cut, brake or self-locking lead screw. PLACEHOLDER brake (round 4
+      ruling 1): lift_brake, a spring-applied brake_24v_generic on the motor rail, holds the lift whenever the coil
+      is unpowered; the MuJoCo bridge refuses a self-locking screw.
+    default: "brake"
   - name: stm32_part
     dimension: choice
     owed_by: gantry team
@@ -509,9 +514,12 @@ components:
     type: lead_screw
     part: tr8x8_generic
     # Milestone 1: the MuJoCo bridge refuses backlash until milestone 2 (PHY-006), so the design zeroes it here; the
-    # catalog part keeps its 0.1 mm.
+    # catalog part keeps its 0.1 mm. PLACEHOLDER lead (ratio) 40 mm/turn: the gantry firmware scales every axis by one
+    # GANTRY_STEPS_PER_M (80 000, the 40 mm/rev belts), so the lift screw matches it until the firmware takes a
+    # per-axis scale (owed, M2-X2); the part's 8 mm lead returns then.
     overrides:
       backlash: 0 mm
+      ratio: 40 mm/turn
     mechanical:
       - mount: drive_end
         joint: lift_motor_spin
@@ -649,6 +657,42 @@ components:
         direction: emits
     senses:
       joint: lift_motor_spin
+  # PLACEHOLDER load cell chain (open parameter load_cell_type): the cell reads the case payload's attachment force
+  # (DES-043 senses.payload); the amplifier gain is set so 1 kg reads 1000 ADC counts on the placeholder chip.
+  - name: load_cell
+    type: load_cell
+    part: load_cell_5kg_generic
+    mechanical:
+      - mount: body
+        body: hook
+    senses:
+      payload: payload
+  - name: load_amp
+    type: load_cell_amplifier
+    part: load_cell_amplifier_generic
+    overrides:
+      gain: "403"
+    mechanical:
+      - mount: board
+        body: trolley
+    signals:
+      - name: load_amp.out
+        pin: out
+        direction: emits
+  # PLACEHOLDER lift brake (open parameter power_loss_hold): a spring-applied brake on the lift motor shaft, modeled
+  # on the lift joint it holds; its coil is on the motor rail, so a power loss or E-stop engages it.
+  - name: lift_brake
+    type: brake
+    part: brake_24v_generic
+    mechanical:
+      - mount: body
+        body: trolley
+    signals:
+      - name: lift_brake.release
+        pin: release
+        direction: consumes
+    acts_on:
+      joint: lift_axis
   - name: motor_supply
     type: power_supply
     part: psu_24v_10a_generic
@@ -662,6 +706,10 @@ components:
   - name: estop
     type: estop_relay
     part: estop_relay_24v_generic
+    signals:
+      - name: estop.status
+        pin: status
+        direction: emits
   - name: watchdog
     type: watchdog
     part: watchdog_24v_generic
@@ -722,6 +770,20 @@ wiring:
     destination: lift_encoder.vcc
   - source: logic_psu.gnd
     destination: lift_encoder.gnd
+  - source: load_cell.signal
+    destination: load_amp.signal_in
+  - source: logic_psu.v_out
+    destination: load_cell.excitation
+  - source: logic_psu.gnd
+    destination: load_cell.ground
+  - source: logic_psu.v_out
+    destination: load_amp.vcc
+  - source: logic_psu.gnd
+    destination: load_amp.ground
+  - source: watchdog.contact_out
+    destination: lift_brake.vcc
+  - source: motor_supply.gnd
+    destination: lift_brake.ground
 pin_bindings:
   - signal: x_driver.step
     pin: PA0
@@ -795,15 +857,24 @@ pin_bindings:
   - signal: operator_link.uart_rx
     pin: PA10
     mode: uart_rx
+  - signal: load_amp.out
+    pin: PA11
+    mode: adc_input
+  - signal: estop.status
+    pin: PB7
+    mode: digital_input
+  - signal: lift_brake.release
+    pin: PB8
+    mode: digital_output
 power:
   rails:
     - name: motor_power
       supply: motor_supply
       gated_by: [estop, watchdog]
-      consumers: [x_driver, y_driver, lift_driver]
+      consumers: [x_driver, y_driver, lift_driver, lift_brake]
     - name: logic
       supply: ${logic_supply}
-      consumers: [x_encoder, y_encoder, lift_encoder]
+      consumers: [x_encoder, y_encoder, lift_encoder, load_cell, load_amp]
   controller_rail: logic
 firmware:
   # Application target mechsim_fw_gantry in the firmware tree (DES-040). Codes: firmware/app/gantry/gantry_config.h.
@@ -827,6 +898,17 @@ firmware:
     7: homing_failed
     8: event_overflow
     9: tx_overflow
+    10: overload
+    11: estop
+    12: encoder_mismatch
+    13: limit_trip
+    14: nothing_to_reset
+  # event_log codes recorded as events (gantry_config.h GANTRY_EVENT_*); an argument that is a step channel index reads
+  # as that axis's driver instance (motion_start, motion_end: FW-028), any other as its number (refused: fault code).
+  event_codes:
+    3: refused
+    6: motion_start
+    7: motion_end
 operator_messages:
   - name: target
     label: target (x, y)
@@ -839,6 +921,19 @@ operator_messages:
         dimension: "[length]"
   - name: home
     label: home
+    source: operator
+    destination: controller
+  # Lift the hook to z, metres above the lift home (min) switch; lowering is a lower z (round 4 ruling 8).
+  - name: lift
+    label: lift
+    source: operator
+    destination: controller
+    fields:
+      - name: z
+        dimension: "[length]"
+  # Clear a latched E-stop fault once the motor rail is live; the controller returns to not_homed (round 4 ruling 7).
+  - name: reset
+    label: reset
     source: operator
     destination: controller
   - name: current_position

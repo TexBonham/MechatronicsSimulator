@@ -87,16 +87,16 @@
 #define GANTRY_LIFT_TRAVEL_UM 500000
 #endif
 
-/* PLACEHOLDER channels the design does not bind yet (ruling 6). The integration wave points each at the generated
- * MECHSIM_CH_<SIGNAL> named beside it once designs/gantry declares the instance. */
+/* Channels of the load ADC, the E-stop status input (1 = motor rail live) and the brake release output (1 = released),
+ * each the generated MECHSIM_CH_<SIGNAL> of the design's binding. */
 #ifndef GANTRY_CH_LOAD_ADC
-#define GANTRY_CH_LOAD_ADC 0 /* adc channel; will alias MECHSIM_CH_LOAD_CELL_AMP_OUT */
+#define GANTRY_CH_LOAD_ADC MECHSIM_CH_LOAD_AMP_OUT
 #endif
 #ifndef GANTRY_CH_ESTOP_STATUS_IN
-#define GANTRY_CH_ESTOP_STATUS_IN 6 /* digital in, 1 = motor rail live; will alias MECHSIM_CH_ESTOP_RELAY_STATUS */
+#define GANTRY_CH_ESTOP_STATUS_IN MECHSIM_CH_ESTOP_STATUS
 #endif
 #ifndef GANTRY_CH_BRAKE_RELEASE_OUT
-#define GANTRY_CH_BRAKE_RELEASE_OUT 7 /* digital out, 1 = released; will alias MECHSIM_CH_LIFT_BRAKE_RELEASE */
+#define GANTRY_CH_BRAKE_RELEASE_OUT MECHSIM_CH_LIFT_BRAKE_RELEASE
 #endif
 /* The design already binds the watchdog heartbeat, so this aliases the generated channel. */
 #ifndef GANTRY_CH_HEARTBEAT_OUT

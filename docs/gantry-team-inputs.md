@@ -14,7 +14,7 @@ slot in a data file; a value drops in by editing the file named, never code. Pla
 | Loads | Rated load and overload limit (design-load rule: rated + 15 %) | 3 kg; overload not set | `rated_load`; fw.md FW-018, FW-019 |
 | Loads | Minimum safety factor, and whether it lives in the design or the case | 2 | `minimum_safety_factor`, ADR 0009 |
 | Loads | Swing angle limit and settle time (G12) | 0.1 rad, 5 s | `swing_limit_angle`, `swing_settle_time` |
-| Loads | Power-loss hold: brake or self-locking screw | self-locking screw | `power_loss_hold` |
+| Loads | Power-loss hold: brake or self-locking screw | brake: `lift_brake`, brake_24v_generic on the motor rail acting on the lift joint (round 4 ruling 1) | `power_loss_hold`; `designs/gantry/design.yaml` `lift_brake` |
 | Controller | New-target-during-move policy; lift-while-moving policy | reject; reject | `new_target_policy`, `lift_while_moving_policy`; fw.md FW-026, FW-027 |
 | Controller | Acceleration and deceleration limits, cruise and homing speeds | 0.5 m/s², 0.2 m/s, 0.02 m/s | fw.md FW-022; `firmware/app/gantry/gantry_config.h` |
 | Controller | Slow-down zones near targets and travel ends | 50 mm at 0.05 m/s | fw.md FW-023 |
@@ -26,7 +26,11 @@ slot in a data file; a value drops in by editing the file named, never code. Pla
 | Motors | Stepper datasheet: holding torque, torque-speed curve, rotor inertia, viscous damping, rated current, max voltage, phase R and L | catalog placeholders | `mechsim/library/catalog/stepper_behavioral.yaml` |
 | Transmissions | Lead screw lead, efficiency, stiffness, backlash, max axial load; belt efficiency, stiffness, max tension | catalog placeholders | `lead_screw.yaml`, `belt_pulley.yaml` |
 | Components | Limit switch, driver, supply, relay, watchdog, UART link ratings | catalog placeholders | each catalog file's `placeholders` list |
-| Components | Load cell type, if a weight sensor exists | none declared | `load_cell_type` |
+| Components | Load cell type, if a weight sensor exists | load_cell_5kg_generic on the hook, sensing the case payload | `load_cell_type`; `designs/gantry/design.yaml` `load_cell` |
+| Components | Load cell amplifier part and gain; load scale and zero in counts | load_cell_amplifier_generic at gain 403 (1000 counts per kg on a 12-bit 3.3 V ADC); 1000 counts/kg, zero 0 | `load_amp` overrides; `gantry_config.h` `GANTRY_LOAD_COUNTS_PER_KG`, `GANTRY_LOAD_ZERO_COUNTS` |
+| Controller | Overload limit, heartbeat period, watchdog timeout, encoder mismatch threshold (round 4 ruling 6) | 3.45 kg, 10 ms, 50 ms, 2 mm | `gantry_config.h`; catalog watchdog |
+| Electronics | MCU pins of the load ADC, E-stop status input and brake release output | PA11 adc_input, PB7 digital_input, PB8 digital_output | `chips/stm32_placeholder/chip.yaml`; design `pin_bindings` |
+| Cases | G5 to G8 payload masses, fault times, hold band and stop margins | see each case's `open_parameters` | `test_cases/gantry/G5.yaml` to `G8.yaml` |
 | Electronics | STM32 part and target flags, after the peripheral smoke test | `chips/stm32_placeholder` | `chips/`, ADR 0011 |
 | Electronics | Logic supply arrangement; ambient temperature; contact parameters | logic_psu; 298.15 K; 1e5 N/m, 1e3 N s/m, 0.5 | design open parameters |
 | Acceptance | No-motion hold band (G1, G4) | 1 mm | `test_cases/gantry/G1.yaml`, `G4.yaml`; acc.md |

@@ -36,6 +36,9 @@ pins:
     modes: [digital_output, uart_tx]
   - name: PA10
     modes: [digital_input, uart_rx]
+  # placeholder until the part is selected (gantry team)
+  - name: PA11
+    modes: [digital_input, adc_input]
   - name: PB0
     modes: [digital_input, digital_output]
   - name: PB1
@@ -49,6 +52,12 @@ pins:
   - name: PB5
     modes: [digital_input, digital_output]
   - name: PB6
+    modes: [digital_input, digital_output]
+  # placeholder until the part is selected (gantry team)
+  - name: PB7
+    modes: [digital_input, digital_output]
+  # placeholder until the part is selected (gantry team)
+  - name: PB8
     modes: [digital_input, digital_output]
   - name: PC0
     modes: [digital_input, digital_output, counter_input]
