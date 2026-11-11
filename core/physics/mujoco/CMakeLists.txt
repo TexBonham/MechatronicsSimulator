@@ -19,3 +19,4 @@ target_compile_definitions(mechsim_physics_mujoco_tests PRIVATE
 target_link_libraries(mechsim_physics_mujoco_tests PRIVATE
     mechsim_physics_mujoco mechsim_signals mechsim_warnings Catch2::Catch2WithMain)
 catch_discover_tests(mechsim_physics_mujoco_tests)
+catch_discover_tests(mechsim_physics_mujoco_tests TEST_SPEC "[reference]" TEST_PREFIX "reference." PROPERTIES LABELS reference)
