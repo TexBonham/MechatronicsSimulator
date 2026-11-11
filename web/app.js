@@ -160,15 +160,15 @@ async function openReplay(archive) {
 }
 
 // A window from the cursor forward (backward from the last sample); empty or degenerate spans widen to one second.
-async function poseWindow(body, t) {
+async function poseWindow(body, t, span) {
   const handle = state.handle;
   let start = t;
-  let end = t + state.span;
+  let end = t + span;
   if (end > handle.t_last) {
     end = handle.t_last;
   }
   if (end <= start) {
-    start = t - state.span;
+    start = t - span;
     end = t;
     if (start < handle.t_first) {
       start = handle.t_first;
@@ -196,19 +196,21 @@ function cursorSample(poses, t) {
   return index;
 }
 
-// The pose drawn is always the cursor's own sample: a window that dropped it is refetched with half the span (fewer
-// samples, so fewer or none decimated); after WINDOW_HALVINGS the six values are read through `value_at`.
+// The pose drawn is always the cursor's own sample: a window that dropped it is refetched with half the span, local
+// to this request (fewer samples, so fewer or none decimated); after WINDOW_HALVINGS the six values are read through
+// `value_at`.
 async function poseAt(body, t) {
   const names = poseSeries(body);
   let poses = state.windows.get(body);
   let index = cursorSample(poses, t);
   let halvings = 0;
+  let span = state.span;
   while (index < 0 && halvings < WINDOW_HALVINGS) {
-    poses = await poseWindow(body, t);
+    poses = await poseWindow(body, t, span);
     state.windows.set(body, poses);
     index = cursorSample(poses, t);
     if (index < 0) {
-      state.span = state.span / 2;
+      span = span / 2;
       halvings += 1;
     }
   }

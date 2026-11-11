@@ -171,7 +171,7 @@ def test_the_drawn_pose_is_the_cursor_sample() -> None:
     assert "poses.times[index] !== t" in exact
     pose = app_function("poseAt")
     assert "cursorSample(poses, t)" in pose
-    assert "state.span / 2" in pose
+    assert "span = span / 2" in pose
     assert scan(SENT, pose) == {"value_at"}
     place = app_function("placeBodies")
     assert "poseAt(body, t)" in place

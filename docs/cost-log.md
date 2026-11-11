@@ -66,3 +66,4 @@ type live in the root `CLAUDE.md` dispatch table once measured.
 | 2026-11-11 | Integration-wave stage landed: wip/04-x1 merged twice (E, X1 to X5, A3, A4, C2), debug-sanitize 347 passed, firmware 92, full suite 3707 passed with G1 to G11, G13, G14 in the acceptance tier | inline | ~60K | coordinator |
 | 2026-11-11 | Reference validation: milestone 2 gate (C++ 15 + 12 MuJoCo, Python 9; baselines) | reference-validator (sonnet) | 41K | 14 calls, 9 min; 0 misses; MuJoCo reference cases now labelled for ctest (inline) |
 | 2026-11-11 | Fable gate review: milestone 2 | general-purpose (fable) | ~110K | 13 calls; pass with owner confirmations; CI on the merged branch blocking until the owner pushes |
+| 2026-11-11 | M2-F3: client on list_runs and advance, cursor-sample narrowing (wip/04-f3 dd53bd5); review accept with one client fix, applied inline (span local to the request) | module-writer (opus) + general-purpose (fable) | ~90K + ~64K | 23 + 6 calls |
