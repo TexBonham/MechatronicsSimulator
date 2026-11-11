@@ -110,6 +110,12 @@ Build trees go to `build/<preset>/`; the Python extension builds under `build/py
 the design's firmware for the host once per process under the system temp directory
 (`mechsim-native-build/<target>-<hz>-<tree hash>`). Run archives (`*.h5`) are never committed.
 
+Browser client: `uv run mechsim serve` starts the facade service on 127.0.0.1 and prints one line,
+`http://127.0.0.1:<port>/?token=<token>`; open it in a browser to list designs, run a case or open a run archive
+(`runs/<run id>.h5`), and replay it in 3D with scrubbing, the event timeline and probes. The page and its WebSocket
+share the port; paths are relative to `--files-root` (default the repository root). No build step: `web/` is plain ES
+modules with three.js vendored (`web/README.md`).
+
 Working with Claude Code on this repository: the project's agents, commands and hooks are in `.claude/` and come
 with the clone; the global workflow rules live in the `claude-config` repository (its `CLAUDE.md` is the user-level
 `~/.claude/CLAUDE.md`). Agent worktrees are created beside the clone as `../MechatronicsSimulator-<brief id>`, so

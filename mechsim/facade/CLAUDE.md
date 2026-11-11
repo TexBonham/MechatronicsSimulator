@@ -12,7 +12,7 @@ runner, recorder, scoring and viewer.
 | `decimate.py` | `decimate(times, t_start, t_end, points) -> indices`, `bucket_select`, `bucket_of`, `window` |
 | `live.py` | `LiveWiring` protocol (`driver(on_row)`, `view(recording, build)`), `LiveDriver` (wraps the run's driver, mirrors rows into its own `Recorder`, subscription emits progress and batches every `CHUNK_ROWS` = 2048 rows and at the end), `Subscription`, `Batch`, `RunListener` |
 | `core_wiring.py` | `CoreLiveWiring`: `CoreDriver(subscribers=...)` rows as `TickRecord`, `record.reader.RecordingView` + `Kinematics.of` for partial recordings; imported only when the core is built |
-| `server.py` | `serve(facade, host, port, *, token) -> FacadeServer` (`port`, `url()`, `close()`), `classify(frame)`, `ok_message`, `error_message`, `tick_batch_frames` |
+| `server.py` | `serve(facade, host, port, *, token, web_root=WEB_ROOT) -> FacadeServer` (`port`, `url()`, `page_url()`, `close()`), `classify(frame)`, `ok_message`, `error_message`, `tick_batch_frames`, `static_file(web_root, path)`, `static_response(web_root, path)` |
 
 ## Facade methods (all synchronous; results are pydantic models)
 
@@ -41,6 +41,11 @@ runner, recorder, scoring and viewer.
 | `replay_open`, `scrub`, `pause`, `step` | the replay and its cursor |
 | `subscribe_series` | open replay: `ok` then one batch; otherwise held for the next run of that run id on the connection |
 | `events`, `timeline`, `geometry`, `value_at`, `probe`, `read_file`, `write_file` | same-named methods |
+
+Static route (M2-F2, VIE-012): `process_request` answers a request without `Upgrade: websocket` from `web/` (`/` is
+`index.html`; top-level `*.html`, `*.js`, `*.css`; `vendor/*`; else 404; `..`, `.`, empty segments, `:`, backslash,
+NUL and links resolving out of the root refused); an upgrade on any path needs the token. `mechsim serve` (CLI)
+prints `page_url()`; the browser client opens `/ws?token=` on its own origin.
 
 Paths in requests are relative to `files_root` unless absolute. Error codes: `unsupported_version` (FAC-003; the
 version must be the int itself, `true` and `1.0` included as unsupported), `invalid_message` (bad JSON, binary, failed
@@ -96,3 +101,4 @@ column first, float64 little-endian; one sample means `t_start == t_end` (FAC-01
 - Conformance suite: `tests/acceptance/test_facade_conformance_stubs.py` (protocol only, one P1 run plus the CLI's
   for FAC-015, busy and one-answer checks; FAC-013 still a stub)
 - Invariant: `tests/invariant/test_fac_stubs.py` (clients import only the facade)
+- Browser client and static route: `tests/unit/test_web_client.py` (ruling 21: no browser)

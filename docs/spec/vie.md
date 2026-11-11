@@ -54,10 +54,12 @@ proposed <value>)".
 
 | Parameter | Current value | Owed by |
 |---|---|---|
-| Browser rendering library | not set | VIE module plan |
+| Browser rendering library | M2-F2: three.js 0.170.0, vendored as `web/vendor/three.module.js`, version and SHA-256 recorded in `web/README.md`; no CDN at runtime, no build step | VIE module plan |
 | When the standalone app replaces the browser client | not set | owner (ADR 0007 open item) |
 | Live view during a run (beyond replay) | not set | phase 1 ADR (facade protocol) |
-| Probe display form (plot, readout) | not set | VIE module plan |
+| Probe display form (plot, readout) | M2-F2: readout of the probe's columns at the cursor, each with the unit its column names; plot not set | VIE module plan |
+| Browser client serving (VIE-012) | M2-F2: `mechsim serve [--files-root] [--runs] [--port] [--check]` on 127.0.0.1 prints `http://127.0.0.1:<port>/?token=<token>`; plain GETs on the same port serve `/` (`index.html`), top-level `*.html`, `*.js`, `*.css` and `vendor/*` of `web/`, anything else (`..`, absolute, encoded, links out of `web/`) 404; the client opens `/ws?token=` on its own origin. Verified without a browser (ruling 21) plus the manual checklist in `web/README.md` | VIE module plan |
+| Replay drawing (VIE-001, VIE-015) | M2-F2: bodies from `geometry` (box, sphere, cylinder, capsule by sizes, cylinder and capsule along the shape's z axis; a `plane` or a shape with `vertices` drawn when the facade sends one; a shape with an open size not drawn and the body named), posed by the `pose:` series (x, y, z, roll, pitch, yaw, Z-Y-X) from `subscribe_series` windows at the cursor | VIE module plan |
 | Timeline categories of recorded event kinds (VIE-002) | M2-F1: command = `operator_message`, `operator_command`, `operator_status`; fault = `motor_stall`, `rail_off`, `rail_on` or a kind containing `fault`; safety event = a kind containing `estop` or `safety`; criterion failure = a failed criterion at its worst time (the run's end when it has none), for runs the serving facade scored; other kinds are not marked. Injected faults appear only where the run records an event for them | VIE module plan |
 | Probe values (VIE-003 to VIE-006) | M2-F1: body = `pose:` x, y, z, roll, pitch, yaw, plus linear and angular velocity from the archived body states; joint = `joint:` position and velocity plus generalized force columns; pin = a `signal:` of the pins group; signal = any `signal:` | VIE module plan |
 | Replay cursor (VIE-007 to VIE-009) | M2-F1: starts paused at the first recorded sample; scrub to the latest sample at or before t (the first when t precedes it); step one sample, held at either end; advance by dt only while playing | VIE module plan |

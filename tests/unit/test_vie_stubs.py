@@ -1,13 +1,7 @@
-"""Strict-xfail stubs for the VIE spec (unit tier)."""
+"""Strict-xfail stubs for the VIE spec (unit tier). VIE-001 and VIE-012 are tested in
+`tests/unit/test_web_client.py`."""
 
 import pytest
-
-
-@pytest.mark.req("VIE-001")
-@pytest.mark.xfail(strict=True, reason="stub")
-def test_vie_001() -> None:
-    """The viewer shall replay a run in 3D from its run archive."""
-    raise NotImplementedError
 
 
 @pytest.mark.req("VIE-010")
@@ -21,13 +15,6 @@ def test_vie_010() -> None:
 @pytest.mark.xfail(strict=True, reason="stub")
 def test_vie_011() -> None:
     """The replay shall overlay the swing angle of suspended loads."""
-    raise NotImplementedError
-
-
-@pytest.mark.req("VIE-012")
-@pytest.mark.xfail(strict=True, reason="stub")
-def test_vie_012() -> None:
-    """The early front end shall be a browser client in `web/` over the local Python facade service."""
     raise NotImplementedError
 
 
