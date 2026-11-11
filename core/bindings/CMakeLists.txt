@@ -34,6 +34,11 @@ pybind11_add_module(_core_ext MODULE
     src/module.cpp
 )
 target_include_directories(_core_ext PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
+if(MSVC)
+    # pyconfig.h (3.14) auto-links python3XX_d.lib under _DEBUG, which release CPython installs lack; CMake already links
+    # the release import library.
+    target_compile_definitions(_core_ext PRIVATE Py_NO_LINK_LIB)
+endif()
 target_link_libraries(_core_ext PRIVATE mechsim_engine mechsim_controller mechsim_physics_mujoco mechsim_warnings)
 # libmujoco ships next to the extension in the mechsim package; the installed extension finds it through $ORIGIN, the
 # build tree keeps its own RPATH to the fetched release.
