@@ -348,11 +348,37 @@ def test_acc_018(gantry: dict[str, RunResult]) -> None:
     _passes(gantry["G9"], "load_held")
 
 
+def _travel_after(result: RunResult, start: float, end: float) -> float:
+    """Largest |x(t) - x(start)| of the X carriage over [start, end]."""
+    series = result_series(result, "joint:x_axis.position")
+    times = np.asarray(series.times, dtype=float)
+    values = np.asarray(series.values, dtype=float)
+    inside = (times >= start) & (times <= end)
+    assert inside.any()
+    origin = values[np.argmax(times >= start)]
+    return float(np.max(np.abs(values[inside] - origin)))
+
+
 @pytest.mark.req("ACC-019")
-@pytest.mark.xfail(strict=True, reason="stub")
-def test_acc_019() -> None:
-    """Reference design (gantry), G10: on a motor stall or belt slip during a move, motion shall stop."""
-    raise NotImplementedError
+@pytest.mark.req("FW-020")
+@pytest.mark.req("TST-015")
+@pytest.mark.req("TST-016")
+def test_acc_019(gantry: dict[str, RunResult]) -> None:
+    """Reference design (gantry), G10: on a motor stall or belt slip during a move, motion shall stop.
+
+    Tolerance not set (owed by gantry team); the bound is the firmware placeholders' (G10 header): the 2 mm mismatch
+    threshold is crossed within the 0.5 s fault window, the stop at 0.5 m/s^2 from at most 0.2 m/s takes
+    v / a = 0.4 s, so no driver step from fault start + 0.9 s, and the carriage travels at most
+    0.2 m/s x 0.9 s + v^2 / (2 a) = 0.18 m + 0.04 m = 0.22 m past its position at the fault start. The frame-side
+    encoders (ruling 32) see both the stall and the slip.
+    """
+    result = gantry["G10"]
+    _passes(result, "stall_stopped_x", "stall_stopped_y", "slip_stopped_x", "slip_stopped_y", "slip_carriage_stopped")
+    bound = 0.2 * 0.9 + 0.2**2 / (2.0 * 0.5)
+    for start in (8.5, 30.5):
+        travel = _travel_after(result, start, start + 2.0)
+        print(f"G10 X travel from {start} s over 2 s: {travel} m (bound {bound} m)")
+        assert travel <= bound
 
 
 @pytest.mark.req("ACC-020")
@@ -681,3 +707,19 @@ def test_acc_044() -> None:
 def test_acc_045() -> None:
     """Acceptance criterion 6: rerunning any case with the same seed shall give identical results."""
     raise NotImplementedError
+
+
+@pytest.mark.req("PHY-016")
+def test_phy_016(gantry: dict[str, RunResult]) -> None:
+    """The MuJoCo adapter shall carry the milestone 2 acceptance cases, G5 to G11, G13 and G14.
+
+    Each case runs on the MuJoCo bridge through the whole stack without a run error and every criterion of it passes
+    (the per-requirement tests above assert what each criterion means).
+    """
+    for case in ("G5", "G6", "G7", "G8", "G9", "G10", "G11", "G13", "G14"):
+        result = gantry[case]
+        report = result.report
+        assert report is not None, result.score
+        assert not report.errored, f"{case}: {report.error}"
+        failing = [criterion.name for criterion in result.score.criteria if criterion.status != "pass"]
+        assert failing == [], f"{case}: {failing}"

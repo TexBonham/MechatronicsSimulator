@@ -95,6 +95,16 @@ class DesignList(StrictModel):
     designs: list[DesignEntry]
 
 
+class RunEntry(StrictModel):
+    run_id: str
+    archive: str | None
+    open: bool
+
+
+class RunList(StrictModel):
+    runs: list[RunEntry]
+
+
 class FileValidation(StrictModel):
     path: str
     kind: str | None
@@ -385,6 +395,16 @@ class Facade:
                 version = data["version"]
             entries.append(DesignEntry(name=path.parent.name, path=str(path), version=version, errors=errors))
         return DesignList(designs=entries)
+
+    def list_runs(self) -> RunList:
+        """Archives `<runs_dir>/*.h5` (run id = file stem) and every open replay, by run id (ruling 22)."""
+        found: dict[str, RunEntry] = {}
+        if self.runs_dir.is_dir():
+            for path in sorted(self.runs_dir.glob("*.h5")):
+                found[path.stem] = RunEntry(run_id=path.stem, archive=str(path), open=False)
+        for run_id, replay in self._replays.items():
+            found[run_id] = RunEntry(run_id=run_id, archive=str(replay.archive), open=True)
+        return RunList(runs=[found[key] for key in sorted(found)])
 
     def validate(self, path: Path) -> ValidationResult:
         """Every YAML file under a folder, or the one file (DES-036); a missing path is `not_found`."""

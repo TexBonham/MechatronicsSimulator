@@ -64,7 +64,9 @@ open_parameters:
   - name: encoder_placement
     dimension: choice
     owed_by: gantry team
-    note: Motor shaft or axis side (row 14); both supported.
+    note: >-
+      Motor shaft or axis side (row 14). PLACEHOLDER frame: each axis carries a linear_encoder_generic sensing its
+      axis joint (ruling 32), so belt slip and stall both show as a step-count versus encoder mismatch.
     default: "frame"
   - name: load_cell_type
     dimension: choice
@@ -616,9 +618,10 @@ components:
       joint: lift_axis
       position: 0.5 m
       actuate_above: true
+  # Frame-side linear encoders on the axis joints (ruling 32); 60000 counts per metre matches GANTRY_COUNTS_PER_M_*.
   - name: x_encoder
-    type: incremental_encoder
-    part: encoder_600ppr_generic
+    type: linear_encoder
+    part: linear_encoder_generic
     mechanical:
       - mount: flange
         body: ${encoder_placement}
@@ -630,10 +633,10 @@ components:
         pin: channel_b
         direction: emits
     senses:
-      joint: x_motor_spin
+      joint: x_axis
   - name: y_encoder
-    type: incremental_encoder
-    part: encoder_600ppr_generic
+    type: linear_encoder
+    part: linear_encoder_generic
     mechanical:
       - mount: flange
         body: ${encoder_placement}
@@ -645,10 +648,10 @@ components:
         pin: channel_b
         direction: emits
     senses:
-      joint: y_motor_spin
+      joint: y_axis
   - name: lift_encoder
-    type: incremental_encoder
-    part: encoder_600ppr_generic
+    type: linear_encoder
+    part: linear_encoder_generic
     mechanical:
       - mount: flange
         body: ${encoder_placement}
@@ -660,7 +663,14 @@ components:
         pin: channel_b
         direction: emits
     senses:
-      joint: lift_motor_spin
+      joint: lift_axis
+  # The hook as the end effector carrying the case payload (LIB-031); its mass is the hook body's, capacity placeholder.
+  - name: hook_effector
+    type: end_effector
+    part: hook_generic
+    mechanical:
+      - mount: attach
+        body: hook
   # PLACEHOLDER load cell chain (open parameter load_cell_type): the cell reads the reaction at the case payload's
   # fixed joint to the hook (DES-043 senses.joint_reaction, ruling 24); the amplifier gain is set so 1 kg reads 1000
   # ADC counts on the placeholder chip.

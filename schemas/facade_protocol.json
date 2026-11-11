@@ -4,6 +4,61 @@
   "title": "FacadeMessage",
   "description": "Facade protocol message, version 1 (ADR 0015). Generated; do not edit.",
   "$defs": {
+    "AdvancePayload": {
+      "additionalProperties": false,
+      "properties": {
+        "run_id": {
+          "description": "Run identifier assigned by the service.",
+          "minLength": 1,
+          "title": "Run Id",
+          "type": "string"
+        },
+        "dt": {
+          "description": "Seconds of simulated time to advance the playing cursor by (ruling 22).",
+          "minimum": 0.0,
+          "title": "Dt",
+          "type": "number"
+        }
+      },
+      "required": [
+        "run_id",
+        "dt"
+      ],
+      "title": "AdvancePayload",
+      "type": "object"
+    },
+    "AdvanceRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "version": {
+          "const": 1,
+          "description": "Protocol version; the service accepts only its own version.",
+          "title": "Version",
+          "type": "integer"
+        },
+        "message_id": {
+          "minLength": 1,
+          "title": "Message Id",
+          "type": "string"
+        },
+        "kind": {
+          "const": "advance",
+          "title": "Kind",
+          "type": "string"
+        },
+        "payload": {
+          "$ref": "#/$defs/AdvancePayload"
+        }
+      },
+      "required": [
+        "version",
+        "message_id",
+        "kind",
+        "payload"
+      ],
+      "title": "AdvanceRequest",
+      "type": "object"
+    },
     "DiffRequest": {
       "additionalProperties": false,
       "properties": {
@@ -258,6 +313,44 @@
         "payload"
       ],
       "title": "ListDesignsRequest",
+      "type": "object"
+    },
+    "ListRunsPayload": {
+      "additionalProperties": false,
+      "properties": {},
+      "title": "ListRunsPayload",
+      "type": "object"
+    },
+    "ListRunsRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "version": {
+          "const": 1,
+          "description": "Protocol version; the service accepts only its own version.",
+          "title": "Version",
+          "type": "integer"
+        },
+        "message_id": {
+          "minLength": 1,
+          "title": "Message Id",
+          "type": "string"
+        },
+        "kind": {
+          "const": "list_runs",
+          "title": "Kind",
+          "type": "string"
+        },
+        "payload": {
+          "$ref": "#/$defs/ListRunsPayload"
+        }
+      },
+      "required": [
+        "version",
+        "message_id",
+        "kind",
+        "payload"
+      ],
+      "title": "ListRunsRequest",
       "type": "object"
     },
     "OkPayload": {
@@ -1437,11 +1530,13 @@
   },
   "discriminator": {
     "mapping": {
+      "advance": "#/$defs/AdvanceRequest",
       "diff": "#/$defs/DiffRequest",
       "error": "#/$defs/ErrorResponse",
       "events": "#/$defs/EventsRequest",
       "geometry": "#/$defs/GeometryRequest",
       "list_designs": "#/$defs/ListDesignsRequest",
+      "list_runs": "#/$defs/ListRunsRequest",
       "ok": "#/$defs/OkResponse",
       "pause": "#/$defs/PauseRequest",
       "probe": "#/$defs/ProbeRequest",
@@ -1491,6 +1586,12 @@
     },
     {
       "$ref": "#/$defs/StepRequest"
+    },
+    {
+      "$ref": "#/$defs/AdvanceRequest"
+    },
+    {
+      "$ref": "#/$defs/ListRunsRequest"
     },
     {
       "$ref": "#/$defs/EventsRequest"

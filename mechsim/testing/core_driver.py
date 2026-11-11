@@ -338,9 +338,8 @@ class CoreDriver:
         return None
 
     def set_initial_state(self, state: InitialState) -> None:
-        """The case payload becomes a neutral body (BLD-036) welded to `initial_state.payload.body`; a design whose
-        load cell reads a payload gets one in every run, released at t = 0 from the cell's body when the case
-        attaches none (its force then reads zero)."""
+        """The case payload becomes a neutral body (BLD-036) on `initial_state.payload.body`; a case that attaches
+        none gets no body, and a load cell reading a payload then has no target and reads zero (A4)."""
         sensed = self._sensed_payload()
         self._payload = None
         if state.payload is not None and state.payload.attached:
@@ -348,8 +347,6 @@ class CoreDriver:
             if sensed is not None:
                 name = sensed[0]
             self._payload = (name, str(state.payload.body), _si(state.payload.mass, "payload"), True)
-        elif sensed is not None:
-            self._payload = (sensed[0], sensed[1], 1.0, False)
         starts: dict[str, float] = {}
         for joint in state.joints:
             if _si(joint.velocity, joint.joint) != 0.0:

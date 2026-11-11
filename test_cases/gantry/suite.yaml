@@ -12,8 +12,9 @@ cases:
   - G7.yaml
   - G8.yaml
   - G9.yaml
+  - G10.yaml
   - G11.yaml
   - G13.yaml
   - G14.yaml
 baseline: baseline.yaml
-note: "Cases G1 to G9, G11, G13 and G14 on the draft gantry (G10 out until the bridge slip fix); the example suite file (TST-008)"
+note: "Cases G1 to G11, G13 and G14 on the draft gantry; the example suite file (TST-008)"

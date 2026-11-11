@@ -34,7 +34,9 @@
             "power",
             "safety",
             "body",
-            "joint"
+            "joint",
+            "payload",
+            "end_effector"
           ],
           "title": "Category",
           "type": "string"
@@ -53,6 +55,17 @@
         },
         "electrical": {
           "$ref": "#/$defs/ElectricalFacet"
+        },
+        "events": {
+          "items": {
+            "enum": [
+              "attach",
+              "release"
+            ],
+            "type": "string"
+          },
+          "title": "Events",
+          "type": "array"
         },
         "failure_modes": {
           "items": {

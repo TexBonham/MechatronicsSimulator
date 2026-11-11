@@ -68,7 +68,7 @@ def test_shipped_gantry_places_every_sensor() -> None:
     assert _errors(data) == []
     switch = _component(data, "x_min_switch")["senses"]
     assert switch == {"joint": "x_axis", "position": "0 m", "actuate_above": False}
-    assert _component(data, "x_encoder")["senses"] == {"joint": "x_motor_spin"}
+    assert _component(data, "x_encoder")["senses"] == {"joint": "x_axis"}
 
 
 @pytest.mark.req("DES-043")
@@ -196,7 +196,7 @@ def test_builder_maps_senses_and_torque_curve() -> None:
     assert (switch.joint, switch.position, switch.actuate_above, switch.reversed) == ("x_axis", 1.0, True, False)
     encoder = instances["y_encoder"].senses
     assert encoder is not None
-    assert (encoder.joint, encoder.position, encoder.reversed) == ("y_motor_spin", None, False)
+    assert (encoder.joint, encoder.position, encoder.reversed) == ("y_axis", None, False)
     assert instances["x_motor"].senses is None
     curve = instances["x_motor"].torque_speed
     assert curve[0] == (0.0, pytest.approx(0.4))

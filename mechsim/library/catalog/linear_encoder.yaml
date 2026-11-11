@@ -1,0 +1,85 @@
+# Linear incremental quadrature encoder on an axis (ruling 32: the gantry's encoders sense the axis joints, frame
+# side). The same signal-layer model as incremental_encoder with a length resolution (SIG-011, brief M2-A4). Numeric
+# part values are placeholders.
+types:
+  - name: linear_encoder
+    version: 1.0.0
+    category: sensor
+    description: Linear incremental encoder (scale and read head) with A/B quadrature outputs on a prismatic joint.
+    parameters:
+      - name: mass
+        dimension: "[mass]"
+        minimum: "0 kg"
+      - name: resolution
+        dimension: "[length]"
+        minimum: "0 m"
+        minimum_exclusive: true
+      - name: noise
+        dimension: "[length]"
+        default: "0 m"
+        minimum: "0 m"
+      - name: delay
+        dimension: "[time]"
+        default: "0 s"
+        minimum: "0 s"
+      - name: sample_rate
+        dimension: "1 / [time]"
+        minimum: "1 Hz"
+      - name: supply_voltage
+        dimension: "[mass] * [length] ** 2 / [time] ** 3 / [current]"
+        minimum: "0 V"
+      - name: max_speed
+        dimension: "[length] / [time]"
+        minimum: "0 m/s"
+    tiers:
+      - name: ideal
+        parameters: [mass, resolution, noise, delay, sample_rate, supply_voltage, max_speed]
+    mechanical:
+      mass:
+        source: parameter
+        parameter: mass
+      mounts:
+        - name: flange
+          kind: face
+          offset: ["0 mm", "0 mm", "0 mm"]
+    electrical:
+      pins:
+        - name: channel_a
+          direction: output
+          signal_kind: quadrature
+        - name: channel_b
+          direction: output
+          signal_kind: quadrature
+        - name: vcc
+          direction: power_in
+          signal_kind: power
+          voltage_rating: supply_voltage
+        - name: gnd
+          direction: ground
+          signal_kind: ground
+    ratings:
+      absolute_maximums:
+        - name: supply_voltage
+          parameter: supply_voltage
+        - name: read_head_speed
+          parameter: max_speed
+    thermal:
+      held_constant: true
+      temperature: "298.15 K"
+    failure_modes: [stuck, noisy, dropped]
+    plugin:
+      cpp: incremental_encoder
+parts:
+  - name: linear_encoder_generic
+    type: linear_encoder
+    tier: ideal
+    description: 60000 quadrature counts per metre (the firmware's GANTRY_COUNTS_PER_M_X, _Y and _LIFT).
+    source: placeholder values, no datasheet assigned
+    values:
+      mass: "0.1 kg"
+      resolution: "1.6666666666666667e-05 m"
+      # Placeholder at the 1 kHz signal layer rate: a rate above it is a configuration error (SIG-004, M2-A1).
+      sample_rate: "1 kHz"
+      supply_voltage: "5 V"
+      max_speed: "5 m/s"
+    placeholders: [mass, resolution, sample_rate, supply_voltage, max_speed]

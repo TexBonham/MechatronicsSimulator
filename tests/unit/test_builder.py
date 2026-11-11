@@ -574,6 +574,7 @@ def test_module_instances_follow_the_tick_order() -> None:
         "x_belt",
         "y_belt",
         "lift_screw",
+        "hook_effector",
         "recorder",
     )
     assert result.design == gantry()

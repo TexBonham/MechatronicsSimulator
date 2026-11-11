@@ -14,6 +14,7 @@ from typing import Any
 import numpy as np
 import pytest
 
+from mechsim import _core as core
 from mechsim.builder import BuildError
 from mechsim.builder.payload import PAYLOAD_CLEARANCE, PAYLOAD_EDGE, with_payload
 from mechsim.design.chip import shipped_chips
@@ -181,8 +182,6 @@ def test_load_cell_reads_its_payload_and_the_amplifier_the_chip_adc(built: objec
     assert cell["capacity"] == pytest.approx(49.05)
     amp = core_wiring.component_parameters(_instances(built)["load_amp"], places, model, ["payload"], chip)  # type: ignore[arg-type]
     assert (amp["adc_bits"], amp["adc_reference"], amp["gain"]) == (12, pytest.approx(3.3), pytest.approx(403.0))
-    with pytest.raises(core_wiring.WiringError, match="no joint or payload 'payload'"):
-        core_wiring.component_parameters(_instances(built)["load_cell"], places, model, [], chip)  # type: ignore[arg-type]
     original: Any = _instances(built)["load_cell"]
     reaction = original.model_copy(
         update={"senses": original.senses.model_copy(update={"joint_reaction": "hook_swing"})}
@@ -191,6 +190,49 @@ def test_load_cell_reads_its_payload_and_the_amplifier_the_chip_adc(built: objec
     assert found["joint_reaction"] == places["hook_swing"].body
     with pytest.raises(core_wiring.WiringError, match="no chip"):
         core_wiring.component_parameters(_instances(built)["load_amp"], places, model, [], None)  # type: ignore[arg-type]
+
+
+@pytest.mark.req("BLD-036")
+@pytest.mark.req("SIG-014")
+def test_load_cell_without_a_payload_in_the_run_has_no_target(built: object) -> None:
+    """A case that attaches nothing builds no stand-in body; the cell then senses nothing and reads 0 N (A4)."""
+    model = built.physics  # type: ignore[attr-defined]
+    places, _ = core_wiring.joint_places(model)
+    chip = shipped_chips()["stm32_placeholder"]
+    original: Any = _instances(built)["load_cell"]
+    cell = core_wiring.component_parameters(original, places, model, [], chip)
+    assert not {"payload", "joint", "joint_reaction"} & set(cell)
+    assert cell["capacity"] == pytest.approx(49.05)
+    by_payload = original.model_copy(
+        update={"senses": original.senses.model_copy(update={"joint_reaction": None, "payload": "payload"})}
+    )
+    assert not {"payload", "joint", "joint_reaction"} & set(
+        core_wiring.component_parameters(by_payload, places, model, [], chip)
+    )
+    assert core_wiring.component_parameters(by_payload, places, model, ["payload"], chip)["payload"] == 0
+    component = core.make_signal_component("load_cell", "load_cell", cell)
+    assert component is not None
+
+
+@pytest.mark.req("SIG-011")
+@pytest.mark.req("LIB-025")
+def test_frame_side_encoders_are_linear_on_the_axis_joints(built: object) -> None:
+    """Ruling 32: each gantry encoder is a linear_encoder on its axis joint, m per count, the core's
+    incremental_encoder with linear true; 1 / 60000 m matches the firmware's 60000 counts per metre."""
+    model = built.physics  # type: ignore[attr-defined]
+    places, _ = core_wiring.joint_places(model)
+    for axis in ("x", "y", "lift"):
+        instance: Any = _instances(built)[f"{axis}_encoder"]
+        assert instance.type == "linear_encoder"
+        params = core_wiring.component_parameters(instance, places, model)
+        assert params["linear"] is True
+        assert params["resolution"] == pytest.approx(1.0 / 60000.0, rel=1e-15)
+        assert params["coordinate"].kind == core.CoordinateKind.linear
+        assert params["coordinate"].body == places[f"{axis}_axis"].body
+        assert core_wiring.CORE_TYPES[instance.type] == "incremental_encoder"
+        assert core.make_signal_component("incremental_encoder", instance.name, params) is not None
+    rotary = _instances(built)["x_encoder"].model_copy(update={"type": "incremental_encoder"})  # type: ignore[attr-defined]
+    assert "linear" not in core_wiring.component_parameters(rotary, places, model)
 
 
 @pytest.mark.req("FW-028")

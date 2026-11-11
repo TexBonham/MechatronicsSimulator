@@ -127,6 +127,15 @@ class StepPayload(StrictModel):
     direction: Literal["forward", "backward"]
 
 
+class AdvancePayload(StrictModel):
+    run_id: RunId
+    dt: SimTime = Field(description="Seconds of simulated time to advance the playing cursor by (ruling 22).")
+
+
+class ListRunsPayload(StrictModel):
+    pass
+
+
 class ReplayRefPayload(StrictModel):
     run_id: RunId = Field(description="An open replay's run id.")
 
@@ -281,6 +290,16 @@ class StepRequest(_Envelope):
     payload: StepPayload
 
 
+class AdvanceRequest(_Envelope):
+    kind: Literal["advance"]
+    payload: AdvancePayload
+
+
+class ListRunsRequest(_Envelope):
+    kind: Literal["list_runs"]
+    payload: ListRunsPayload
+
+
 class EventsRequest(_Envelope):
     kind: Literal["events"]
     payload: ReplayRefPayload
@@ -366,6 +385,8 @@ Message = Annotated[
     | ScrubRequest
     | PauseRequest
     | StepRequest
+    | AdvanceRequest
+    | ListRunsRequest
     | EventsRequest
     | TimelineRequest
     | GeometryRequest

@@ -368,6 +368,14 @@ def test_conformance_fac_008(ws: ClientConnection, session: Session) -> None:
     assert stepped["index"] == 11998
     resumed = request(ws, "pause", {"run_id": RUN_ID, "paused": False}).answer["payload"]["result"]
     assert resumed["paused"] is False
+    # Ruling 22: the client plays back with `advance`; 2 ms from the 1 ms tick at index 11998 (t = 11.999 s) is the
+    # sample at 12.001 s, index 12000.
+    advanced = request(ws, "advance", {"run_id": RUN_ID, "dt": 0.002}).answer["payload"]["result"]
+    assert advanced["index"] == 12000
+    assert advanced["t"] == pytest.approx(12.001, abs=1e-12)
+    runs = request(ws, "list_runs", {}).answer["payload"]["result"]["runs"]
+    assert [(entry["run_id"], entry["open"]) for entry in runs if entry["run_id"] == RUN_ID] == [(RUN_ID, True)]
+    assert_error(request(ws, "advance", {"run_id": "nothing", "dt": 0.001}), "not_found", "FAC-008")
     assert_error(request(ws, "scrub", {"run_id": "nothing", "t": 0.0}), "not_found", "FAC-008")
 
 

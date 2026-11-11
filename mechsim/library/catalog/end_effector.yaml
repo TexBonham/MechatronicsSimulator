@@ -1,0 +1,49 @@
+# End effector (LIB-031): what carries a payload at its attach point, with a rated capacity and attach and release
+# events (a case's payload attached at t = 0, and its payload_change to 0 kg, TST-020). Numeric part values are
+# placeholders.
+types:
+  - name: end_effector
+    version: 1.0.0
+    category: end_effector
+    description: Hook, gripper or magnet that attaches and releases a payload at its attach point.
+    parameters:
+      - name: mass
+        dimension: "[mass]"
+        minimum: "0 kg"
+      - name: capacity
+        dimension: "[mass]"
+        minimum: "0 kg"
+        minimum_exclusive: true
+    tiers:
+      - name: ideal
+        parameters: [mass, capacity]
+    mechanical:
+      mass:
+        source: parameter
+        parameter: mass
+      mounts:
+        - name: attach
+          kind: face
+          offset: ["0 mm", "0 mm", "0 mm"]
+    electrical:
+      pins: []
+    ratings:
+      absolute_maximums:
+        - name: capacity
+          parameter: capacity
+    thermal:
+      held_constant: true
+      temperature: "298.15 K"
+    events: [attach, release]
+    plugin:
+      python: mechsim.builder.payload:with_payload
+parts:
+  - name: hook_generic
+    type: end_effector
+    tier: ideal
+    description: Crane hook; its mass is the design's hook body, so the part's mass is zero.
+    source: placeholder values, no datasheet assigned
+    values:
+      mass: "0 kg"
+      capacity: "5 kg"
+    placeholders: [capacity]

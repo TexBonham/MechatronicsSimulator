@@ -93,6 +93,8 @@ WIRED_FAULTS: tuple[str, ...] = (*LAYER_FAULTS, "estop_press")
 DRIVER_TO_MOTOR = ("full_steps", "direction", "enabled", "supply")
 RAIL_INPUTS = {"step_dir_driver": "vmot", "brake": "vcc"}
 TYPE_STAGES: dict[str, Any] = {"brake": core.Stage.actuator}
+CORE_TYPES: dict[str, str] = {"linear_encoder": "incremental_encoder"}
+LINEAR_ENCODER_TYPES: tuple[str, ...] = ("linear_encoder",)
 SIGNAL_PORT_KINDS = ("power", "ground")
 CONTROLLER_OUTPUTS = "controller.pin_outputs"
 ESTOP_TYPE = "estop_relay"
@@ -435,12 +437,10 @@ def component_parameters(
                 return cell
             if reaction in payloads:
                 cell["payload"] = list(payloads).index(reaction)
-                return cell
-            raise WiringError(f"load cell '{instance.name}': the run has no joint or payload '{reaction}'")
+            return cell
         if senses.payload is not None:
-            if senses.payload not in payloads:
-                raise WiringError(f"load cell '{instance.name}': the run has no payload '{senses.payload}'")
-            cell["payload"] = list(payloads).index(senses.payload)
+            if senses.payload in payloads:
+                cell["payload"] = list(payloads).index(senses.payload)
             return cell
         if senses.joint is None or senses.joint not in places:
             raise WiringError(f"load cell '{instance.name}': senses unknown joint '{senses.joint}'")
@@ -490,6 +490,8 @@ def component_parameters(
         else:
             params["resolution"] = values["resolution"]
             params["reversed"] = senses.reversed
+            if instance.type in LINEAR_ENCODER_TYPES:
+                params["linear"] = True
         return params
     if instance.type == "step_dir_driver":
         return {"microsteps": int(values["microsteps"])}
@@ -787,7 +789,8 @@ def signal_layer(
         if instance.category not in STAGES:
             continue
         component = core.make_signal_component(
-            instance.type, instance.name, component_parameters(instance, places, model, payloads, chip)
+            CORE_TYPES.get(instance.type, instance.type),
+            instance.name, component_parameters(instance, places, model, payloads, chip)
         )
         for fault in by_instance.get(instance.name, []):
             component.inject(_injection(fault, base_rate))

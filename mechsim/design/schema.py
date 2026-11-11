@@ -630,6 +630,7 @@ class Senses(_Strict):
 SENSES_FIELDS: dict[str, tuple[str, ...]] = {
     "limit_switch": ("position", "actuate_above"),
     "incremental_encoder": ("reversed",),
+    "linear_encoder": ("reversed",),
 }
 SENSES_REQUIRED: dict[str, tuple[str, ...]] = {"limit_switch": ("position", "actuate_above")}
 SENSES_TARGETS: dict[str, tuple[str, ...]] = {

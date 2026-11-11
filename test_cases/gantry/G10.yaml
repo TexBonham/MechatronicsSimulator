@@ -9,9 +9,8 @@
 # at most 0.2 m/s x 0.9 s + v^2 / 2a = 0.18 m + 0.04 m past its position at the fault start (motion stops, ACC-019:
 # slip_carriage_stopped). Homing from at most (0.4, 0.25) at the 0.02 m/s homing speed takes 20 s, so the second move
 # starts at 30 s.
-# Known defect (M2-X3, open): under the slip the bridge's drive reflection reports the shaft as x / c plus the slip
-# offset and the stepper's predicted rest runs ahead on it, so the carriage accelerates to about 0.78 m/s during the
-# window and coasts on; slip_carriage_stopped fails until that is fixed in core.
+# The encoders sense the axis joints, frame side (round 4 ruling 32), so the stall and the slip both show as a
+# step-count versus encoder mismatch; the slip runs on the bridge's slip dynamics (brief M2-C2).
 id: G10
 title: Belt slip and motor stall mid-move
 design:
