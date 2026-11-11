@@ -26,10 +26,11 @@ case "$tree" in
 esac
 preset="${1:?preset name}"
 shift || true
+ctest_args="$(printf ' %q' "$@")"
 exec flock "$lock" bash -c "
     set -euo pipefail
     cd '$dir'
     if [ ! -f 'build/$preset/CMakeCache.txt' ]; then cmake --preset '$preset'; fi
     cmake --build --preset '$preset'
-    ctest --preset '$preset' $*
+    ctest --preset '$preset'$ctest_args
 "
