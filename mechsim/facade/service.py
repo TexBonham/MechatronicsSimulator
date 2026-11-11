@@ -436,7 +436,7 @@ class Facade:
         target = self._inside(path)
         if not target.is_file():
             raise FacadeError("not_found", f"{path}: no such file", "FAC-017", "path")
-        text = target.read_text(encoding="utf-8")
+        text = target.read_bytes().decode("utf-8")
         kind = self._writable_kind(target, text, path)
         return FileContent(path=path.as_posix(), kind=kind, text=text)
 
@@ -461,7 +461,7 @@ class Facade:
             if target.is_file():
                 previous = target.read_bytes()
             target.parent.mkdir(parents=True, exist_ok=True)
-            target.write_text(text, encoding="utf-8")
+            target.write_bytes(text.encode("utf-8"))
             _, errors = validate_file(target, self._services.designs_root)
             if len(errors) > 0:
                 if previous is None:
