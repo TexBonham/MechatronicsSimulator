@@ -16,3 +16,4 @@ type live in the root `CLAUDE.md` dispatch table once measured.
 | 2026-11-10 | M2-A1: sensor fidelity, fault modes, debounce, tangent detent, 57 signal cases (wip/04-a1 86eecaf) | module-writer (opus), worktree | 213K | 69 calls, 32 min; one foreign controller test, binding gap for fidelity |
 | 2026-11-10 | Invariant audit: wave 1a (G, C, A1) | invariant-auditor (sonnet) | 37K | 6 calls, 0.5 min; clean, one accepted minor |
 | 2026-11-10 | M2-D: suite file, regression diff and report, interval and no_overlap criteria, overrides and part substitution (wip/04-d 525fff3) | module-writer (opus), worktree | 232K | 81 calls, 31 min; 3 foreign invariant-test failures on suite.yaml, fixed at merge-back |
+| 2026-11-10 | Invariant audit: wave 1b (D, E) | invariant-auditor (sonnet) | ~35K | clean, one accepted minor |
