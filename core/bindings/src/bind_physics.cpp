@@ -76,6 +76,7 @@ private:
 };
 
 void bind_types(py::module_& m) {
+    m.attr("kWorldBody") = kernel::kWorldBody;
     py::class_<kernel::Wrench>(m, "Wrench")
         .def(py::init<>())
         .def_readwrite("moment", &kernel::Wrench::moment)

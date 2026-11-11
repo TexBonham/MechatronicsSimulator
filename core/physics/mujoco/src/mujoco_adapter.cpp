@@ -327,6 +327,7 @@ struct MujocoAdapter::Engine {
     std::vector<double> shaft_torque;
     std::vector<double> driven_velocity;
     std::vector<double> shaft_gain;  // eta driving, 1 / eta back-driven, for the step taken
+    std::vector<double> shaft_transmitted;  // 1 - s on the explicit torque path, for the step taken
     std::vector<kernel::PowerFlow> shaft_flow;
     std::size_t velocity_dofs = 0;
     kernel::PhysicsInputs pending;
@@ -574,6 +575,7 @@ void MujocoAdapter::Engine::map_shafts(const std::vector<std::string>& body_name
     shaft_torque.assign(shafts.size(), 0.0);
     driven_velocity.assign(shafts.size(), 0.0);
     shaft_gain.assign(shafts.size(), 1.0);
+    shaft_transmitted.assign(shafts.size(), 1.0);
     shaft_flow.assign(shafts.size(), kernel::PowerFlow::Static);
 }
 
@@ -676,7 +678,10 @@ void MujocoAdapter::Engine::collect_forces() {
         kernel::TransmissionState& out = outputs.transmissions[i];
         out.shaft_load_torque =
             shaft_torque[i] + drive_shaft_torque[i] - (shaft.inertia * acceleration / shaft.coefficient);
-        out.force = shaft_gain[i] * out.shaft_load_torque / shaft.coefficient;
+        // Slip scales only the explicit-torque path; the drive's equality force reaches the driven joint unscaled
+        // (coordinator ruling 9, PHY-006), so the force applied is the sum of the two paths.
+        const double lost = (1.0 - shaft_transmitted[i]) * shaft_torque[i];
+        out.force = shaft_gain[i] * (out.shaft_load_torque - lost) / shaft.coefficient;
         out.power_flow = shaft_flow[i];
         out.slip = shaft.slip_accum;
         out.slipping = shaft.slip > 0.0;
@@ -807,7 +812,8 @@ void MujocoAdapter::Engine::apply_inputs() {
     for (std::size_t i = 0; i < shafts.size(); ++i) {
         shaft_torque[i] = 0.0;
         driven_velocity[i] = d.qvel[shafts[i].driven_dof];
-        shaft_gain[i] = shafts[i].efficiency * (1.0 - shafts[i].slip);
+        shaft_gain[i] = shafts[i].efficiency;
+        shaft_transmitted[i] = 1.0 - shafts[i].slip;
         shaft_flow[i] = kernel::PowerFlow::Static;
         shafts[i].offset_rate = 0.0;
     }
@@ -822,17 +828,16 @@ void MujocoAdapter::Engine::apply_inputs() {
                 const double power = tau * driven_velocity[index] * shaft.coefficient;
                 // A slipping coupling transmits (1 - s) of the shaft torque: the approximation for a torque-driven
                 // shaft, whose lost travel has no commanded rest to measure it against (PHY-006).
-                const double transmitted = 1.0 - shaft.slip;
-                shaft_gain[index] = transmitted / shaft.efficiency;
+                shaft_gain[index] = 1.0 / shaft.efficiency;
                 shaft_flow[index] = kernel::PowerFlow::Backward;
                 if (power >= 0.0) {
-                    shaft_gain[index] = transmitted * shaft.efficiency;
+                    shaft_gain[index] = shaft.efficiency;
                     shaft_flow[index] = kernel::PowerFlow::Forward;
                 }
                 if (power == 0.0) {
                     shaft_flow[index] = kernel::PowerFlow::Static;
                 }
-                const double force = shaft_gain[index] * tau / shaft.coefficient;
+                const double force = shaft_transmitted[index] * shaft_gain[index] * tau / shaft.coefficient;
                 d.qfrc_applied[shaft.driven_dof] += force;
                 ++offset;
                 continue;
@@ -872,6 +877,7 @@ void MujocoAdapter::Engine::apply_drives() {
     }
     drives.clear();
     const double h = m.opt.timestep;
+    std::vector<bool> received(shafts.size(), false);
     for (const kernel::JointDrive& drive : pending.joint_drives) {
         const CoordinateMap& coordinate = coordinates[drive.joint];
         drives.push_back({drive.joint, -1});
@@ -907,10 +913,18 @@ void MujocoAdapter::Engine::apply_drives() {
         double rest = drive.rest;
         if (joints[drive.joint].shaft >= 0) {
             rest = shafts[to_size(joints[drive.joint].shaft)].receive(drive.rest, h);
+            received[to_size(joints[drive.joint].shaft)] = true;
         }
         m.eq_data[mjNEQDATA * eq] = rest * c;
         d.eq_active[coordinate.equality] = true;
         drives.back().equality = coordinate.equality;
+    }
+    // A step without an enabled drive ends tracking: the next enabled rest restarts the slip and play references
+    // there, counting no increment, with the band re-centred (coordinator ruling 10, PHY-006).
+    for (std::size_t i = 0; i < shafts.size(); ++i) {
+        if (!received[i]) {
+            shafts[i].tracking = false;
+        }
     }
 }
 

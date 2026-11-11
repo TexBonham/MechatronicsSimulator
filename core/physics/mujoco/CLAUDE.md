@@ -42,12 +42,14 @@ springs and payload changes on a shaft body throw `AdapterError`.
 
 | Call | Does |
 |---|---|
-| `set_transmission_slip(t, s)` | s in [0, 1] (0 clears), else `AdapterError`; drive rest gets (1 - s) of each commanded increment, `slip_accum += s Delta r_cmd` (kept when cleared); explicit shaft torque scaled by (1 - s) (approximation) |
+| `set_transmission_slip(t, s)` | s in [0, 1] (0 clears), else `AdapterError`; drive rest gets (1 - s) of each commanded increment, `slip_accum += s Delta r_cmd` (kept when cleared); explicit shaft torque scaled by (1 - s), drive force unscaled, `force` = gain (tau_load - s tau_explicit) / c (approximation, ruling 9) |
 | backlash | numeric [13] = b / abs(c), shaft rad; play with memory on the drive rest (after slip), band centred on the first rest; torque-driven shafts pass torque without play (approximation) |
 | `release_load(p)`, `set_payload_attachment(p, kWorldBody)` | weld `<p>.attach` off; `p` must be a `mechsim:payloads` body |
 | `set_payload_attachment(p, carrier)` | weld on at the translated relative pose; any other carrier throws (no re-parenting) |
 
 Shaft output under slip or play: angle + (r_cmd - r_eff), rate + (Delta r_cmd - Delta r_eff) / h (`ShaftMap::receive`).
+A step with no enabled drive on the shaft ends tracking; the next enabled rest restarts there, no increment counted,
+band re-centred on rest - slip_accum, `slip_accum` kept (ruling 10).
 
 ## Joint drives (PHY-034)
 
@@ -71,12 +73,12 @@ bodies release or re-attach (no ropes).
 | Supported elements | 35 |
 | Helpers | 61 |
 | Engine | 309 |
-| Element maps | 352 |
-| Shafts | 530 |
-| Outputs | 580 |
-| Inputs | 801 |
-| Adapter | 923 |
-| Mid-run changes | 1068 |
+| Element maps | 353 |
+| Shafts | 531 |
+| Outputs | 582 |
+| Inputs | 806 |
+| Adapter | 937 |
+| Mid-run changes | 1082 |
 
 ## Build notes
 

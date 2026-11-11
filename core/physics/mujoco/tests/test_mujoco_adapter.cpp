@@ -914,7 +914,7 @@ TEST_CASE("MuJoCo slip scales an explicit shaft torque by (1 - s)", "[PHY-006][T
     CHECK(adapter->outputs().transmissions[0].slip == 0.0);
 }
 
-TEST_CASE("MuJoCo slip refuses unknown transmissions and fractions outside [0, 1]", "[PHY-006][PHY-009]") {
+TEST_CASE("MuJoCo slip refuses unknown transmissions and fractions outside [0, 1]", "[PHY-006][TST-015][PHY-009]") {
     auto adapter = loaded("lead_screw.xml");
     CHECK_NOTHROW(adapter->set_transmission_slip(0, 0.0));
     CHECK_NOTHROW(adapter->set_transmission_slip(0, 1.0));
@@ -990,7 +990,7 @@ void coast(MujocoAdapter& adapter, int steps) {
 
 }  // namespace
 
-TEST_CASE("MuJoCo payload weld carries m g and steps with a mass change", "[PHY-006][ENG-035][reference]") {
+TEST_CASE("MuJoCo payload weld carries m g and steps with a mass change", "[PHY-006][ENG-035][TST-020][reference]") {
     // payload.xml: 2 kg on a free joint welded to a fixed hook, gravity 9.81. The weld (solref 2 h, 1; MuJoCo's
     // default equality solimp 0.9) at rest: v = 0, so a_ref = -k r - b v = 0 at the first step and the solved row
     // force is f = (a_ref - a0) / (A + R) with a0 = -g, A = 1 / m (com at the body origin, the hook has no DOF) and
@@ -1019,7 +1019,7 @@ TEST_CASE("MuJoCo payload weld carries m g and steps with a mass change", "[PHY-
     CHECK(relative(adapter->outputs().payloads[0].force[2], 3.0 * gravity) < 1e-6);
 }
 
-TEST_CASE("MuJoCo released payload falls freely and re-attaches at its carrier", "[PHY-006][ENG-035][reference]") {
+TEST_CASE("MuJoCo released payload falls freely and re-attaches at its carrier", "[PHY-006][ENG-035][TST-020][reference]") {
     // Released at rest, the free body under gravity alone follows semi-implicit Euler exactly: after n steps it has
     // fallen g h^2 n (n + 1) / 2 (held to 1e-6, rounding), which at t = n h = 0.2 s is g t^2 / 2 = 0.19620 m times
     // (1 + 1 / n), within the brief's 1 percent. Re-attached where it hangs (no step in between), the weld finds the
@@ -1058,7 +1058,7 @@ TEST_CASE("MuJoCo released payload falls freely and re-attaches at its carrier",
     CHECK(again->outputs().payloads[0].attached);
 }
 
-TEST_CASE("MuJoCo payload operations refuse what the translation did not weld", "[PHY-006][ENG-035][PHY-009]") {
+TEST_CASE("MuJoCo payload operations refuse what the translation did not weld", "[PHY-006][ENG-035][TST-020][PHY-009]") {
     auto adapter = loaded("payload.xml");
     CHECK_THROWS_AS(adapter->release_load(hook_body), AdapterError);
     CHECK_THROWS_AS(adapter->release_load(2), AdapterError);
@@ -1069,4 +1069,52 @@ TEST_CASE("MuJoCo payload operations refuse what the translation did not weld", 
     replace(text, R"(data="load:hook")", R"(data="load:crane")");
     MujocoAdapter unknown;
     CHECK_THROWS_AS(unknown.load(PreparedModel{"", text, "0.1.0"}, Rate(1000)), AdapterError);
+}
+
+TEST_CASE("MuJoCo slip scales the explicit torque path only; the drive force reaches the joint whole",
+          "[PHY-006][TST-015][PHY-033]") {
+    // Lead screw at rest, eta = 1, s = 0.5, explicit tau = 0.1 N m plus a drive toward rest 0.01 rad (no damping).
+    // Applied on the driven DOF: (1 - s) tau / c + F_d, with F_d the drive's equality force (published as F_d c).
+    // The carriage alone takes m a = (1 - s) tau / c + F_d - (J / c^2) a, and the published force is that applied force
+    // less the rotor's share: gain (tau_load - s tau) / c with tau_load = tau + F_d c - J a / c. One step from rest
+    // (implicitfast, no damping): a = v / h, so the published force must equal m v / h to rounding.
+    constexpr double tau = 0.1;
+    constexpr double s = 0.5;
+    auto adapter = loaded("lead_screw.xml");
+    adapter->set_transmission_slip(0, s);
+    PhysicsInputs inputs = shaft_torque(tau);
+    inputs.joint_drives = {JointDrive{0, 0.01, hold_stiffness, 0.0, true}};
+    adapter->set_inputs(inputs);
+    adapter->step();
+    const PhysicsOutputs& out = adapter->outputs();
+    const double drive_force = out.joint_drive_torques[0].torque / lead_c;
+    const double v = out.bodies[1].linear_velocity[0];
+    REQUIRE(drive_force > 0.0);
+    CHECK(relative(v, h * (((1.0 - s) * tau / lead_c) + drive_force) / reflected_mass) < 1e-9);
+    CHECK(relative(out.transmissions[0].force, carriage_mass * v / h) < 1e-9);
+}
+
+TEST_CASE("MuJoCo drive re-enabled at a distant rest restarts the slip and play references there",
+          "[PHY-006][TST-015][PHY-034]") {
+    // lead_screw_backlash.xml, band b = 0.1 pi rad, s = 0.5. Ten rests 0.01 k (k = 0..9) give 9 increments:
+    // slip = 0.5 * 0.09 = 0.045 rad. Three steps with the drive disabled while the rest moves to 2 rad, then enabled
+    // there: no increment is counted (slip stays 0.045) and the band re-centres on the input 2 - slip, so with no load
+    // the carriage settles exactly at c (2 - 0.045), and the shaft reports q_driven / c + slip = 2 rad.
+    constexpr double s = 0.5;
+    auto adapter = loaded("lead_screw_backlash.xml");
+    adapter->set_transmission_slip(0, s);
+    for (int k = 0; k < 10; ++k) {
+        hold(*adapter, 0.01 * k, 1);
+    }
+    const double slip = adapter->outputs().transmissions[0].slip;
+    CHECK(relative(slip, s * 0.09) < 1e-12);
+    for (int k = 1; k <= 3; ++k) {
+        adapter->set_inputs(driven(JointDrive{0, 0.5 * k, hold_stiffness, hold_damping(), false}));
+        adapter->step();
+    }
+    hold(*adapter, 2.0, 1000);
+    const PhysicsOutputs& out = adapter->outputs();
+    CHECK(out.transmissions[0].slip == slip);
+    CHECK(relative(out.joint_positions[1], lead_c * (2.0 - slip)) < 1e-9);
+    CHECK(relative(out.joint_positions[0], 2.0) < 1e-9);
 }

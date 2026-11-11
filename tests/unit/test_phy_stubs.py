@@ -75,6 +75,7 @@ def test_phy_006() -> None:
         payload.step()
     released = payload.outputs().payloads[0]
     assert not released.attached
+    assert released.carrier == core.kWorldBody
     assert released.force == [0.0, 0.0, 0.0]
     assert payload.outputs().bodies[1].position[2] < height
     payload.set_payload_attachment(1, 0)

@@ -65,7 +65,7 @@ enum class PowerFlow : std::uint8_t { Static, Forward, Backward, Locked };
 
 // Transmission state after the step, one per neutral transmission in file order (PHY-006, ENG-048, PHY-033).
 struct TransmissionState {
-    double slip = 0.0;  // m or rad, output side
+    double slip = 0.0;  // shaft travel lost to slip, shaft units (rad or m)
     bool slipping = false;
     double shaft_load_torque = 0.0;  // torque the shaft must supply along its + axis, N m (PHY-033)
     double force = 0.0;              // on the driven joint: N (belt, screw) or N m (gear)
