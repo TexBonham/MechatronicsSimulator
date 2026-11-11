@@ -2,7 +2,7 @@
 
 Reviewer: Fable (general-purpose). Read-only; spec and diff only; never a writer's report; no builds, tests or CLI
 runs; call cap 50. Worktree `/home/tex/dev/MechatronicsSimulator-04-x1`, branch `wip/04-x1`, range db7e1de..HEAD
-excluding C2's commits (6032236, 0814bb6, already accepted): review `git -C <worktree> diff db7e1de...<X5 commit>`
+excluding C2's commits (6032236, 0814bb6, already accepted): review `git -C <worktree> diff db7e1de...88aa526`
 and treat the bridge and brake changes from C2 as accepted context. Briefs `m2-x4.md`, `m2-a4.md`, `m2-x5.md`;
 rulings 22, 28 to 33 in `docs/queue.md`; the first-part review's findings (its high on G7 and G9 hold criteria,
 its mediums) must be closed by this diff. Spec rows ACC-013 to ACC-028, PHY-016, DES-045, SIG-011, SIG-014,
