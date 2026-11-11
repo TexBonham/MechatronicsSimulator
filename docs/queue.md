@@ -31,6 +31,7 @@ origin round/04-milestone-2`) or adds a rule for `round/*` and `wip/*`.
 | 12 | A1 review (low): encoder noise and noisy-fault magnitude are in radians of shaft angle (the sensed quantity), not counts; alters the M1-D reading. | radians | coordinator ruling, for confirmation |
 | 13 | A1 review (low): debounce passes a pulse of N = periods_ceil(debounce_time) samples (the brief's rule), although an N-sample pulse is only known to have held (N - 1) periods. | N samples | coordinator ruling, for confirmation |
 | 14 | E review: FW-021 trips on any end switch active outside its own slow zone while READY or MOVING (wider than "moving away"); consistent with G11 "position tracking treated as wrong". | accept, row edited | coordinator ruling, for confirmation |
+| 15 | F1: `mechsim.viewer` may be imported under `mechsim/facade/` (the facade serves the viewer's probes, timeline and geometry, VIE-014); invariant 9 keeps display code inside `mechsim/viewer/` and that package still imports no Qt or OpenGL. `tools/check_imports.py` rule and its test updated. | allowed | coordinator ruling, for confirmation |
 | 6 | Placeholders set by the coordinator for the gantry team's slots: overload limit rated + 15 percent (3.45 kg), heartbeat period 10 ms, watchdog timeout 50 ms, brownout threshold 2.0 V, encoder mismatch threshold 2 mm, ADC 12 bits at 3.3 V | as listed | open |
 
 ## Next
