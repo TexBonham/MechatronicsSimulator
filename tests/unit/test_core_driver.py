@@ -14,6 +14,7 @@ import pytest
 from mechsim import _core as core
 from mechsim.physics.mujoco.prepare import StartStateError, prepare_model
 from mechsim.physics.mujoco.translate import UnmappableElementError
+from mechsim.physics.neutral import LeadScrew
 from mechsim.record import Recorder, RunArchive, archives_identical
 from mechsim.record.tick import CouplingSample, RecordError, TickRecord
 from mechsim.testing.core_driver import (
@@ -272,9 +273,12 @@ def test_prepared_model_keeps_the_report_and_places_starts_exactly() -> None:
     built = core_builder(gantry()).physics
     assert built is not None
     assert [item.backlash for item in built.transmissions] == [0.0, 0.0, 0.0]
-    lashed = tuple(item.model_copy(update={"backlash": 1e-4}) for item in built.transmissions)
-    with pytest.raises(UnmappableElementError, match="backlash"):
-        prepare_model(built.model_copy(update={"transmissions": lashed}))
+    locked = tuple(
+        item.model_copy(update={"self_locking": True}) if isinstance(item, LeadScrew) else item
+        for item in built.transmissions
+    )
+    with pytest.raises(UnmappableElementError, match="self-locking"):
+        prepare_model(built.model_copy(update={"transmissions": locked}))
     physics = built
     plain = prepare_model(physics)
     assert len(plain.report) > 0

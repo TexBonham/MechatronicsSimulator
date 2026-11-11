@@ -14,6 +14,7 @@ from mechsim import _core as core
 from mechsim.builder.result import BuildResult
 from mechsim.design.schema import Design
 from mechsim.physics.mujoco.translate import UnmappableElementError
+from mechsim.physics.neutral import LeadScrew
 from mechsim.record.archive import RunArchive
 from mechsim.scoring.score import SuiteScore, report_text
 from mechsim.testing import core_driver, core_wiring
@@ -57,8 +58,11 @@ def _run_failed(result: RunResult, *fragments: str) -> None:
 def _lashed(design: Design) -> BuildResult:
     built = core_builder(design)
     assert built.physics is not None
-    lashed = tuple(item.model_copy(update={"backlash": 1e-4}) for item in built.physics.transmissions)
-    return built.model_copy(update={"physics": built.physics.model_copy(update={"transmissions": lashed})})
+    locked = tuple(
+        item.model_copy(update={"self_locking": True}) if isinstance(item, LeadScrew) else item
+        for item in built.physics.transmissions
+    )
+    return built.model_copy(update={"physics": built.physics.model_copy(update={"transmissions": locked})})
 
 
 def _off_inertia(design: Design) -> BuildResult:
@@ -96,10 +100,10 @@ def _prepared_driver(case: Path, builder: Any = core_builder) -> CoreDriver:
 @pytest.mark.req("PHY-019")
 def test_an_unmappable_design_is_a_driver_error_and_a_run_error_score() -> None:
     driver = _prepared_driver(G3, _lashed)
-    with pytest.raises(DriverError, match="backlash") as raised:
+    with pytest.raises(DriverError, match="self-locking") as raised:
         driver.run(EndSpec(max_tick=TICKS, at_tick=TICKS))
     assert isinstance(raised.value.__cause__, UnmappableElementError)
-    _run_failed(run_case(G3, _services(_lashed)), "backlash")
+    _run_failed(run_case(G3, _services(_lashed)), "self-locking")
 
 
 @pytest.mark.req("TST-023")
