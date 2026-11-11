@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import io
 import os
+import re
+import socket
 import subprocess
 import sys
 from pathlib import Path
@@ -294,6 +296,59 @@ def test_replay_of_a_missing_archive_or_without_a_reader_is_an_error(tmp_path: P
     code, _, err = call(["replay", str(tmp_path / "none.h5")], CliServices(None, FakeArchiveReader()))
     assert (code, err) == (EXIT_ERROR, f"error: {tmp_path / 'none.h5'}: no such archive\n")
     assert call(["replay", str(tmp_path / "none.h5")])[0] == EXIT_ERROR
+
+
+# ===== serve ===========================================================
+
+
+SERVE_URL = r"http://127\.0\.0\.1:(\d+)/\?token=([A-Za-z0-9_-]+)\n"
+
+
+@pytest.mark.req("VIE-012")
+def test_serve_check_prints_the_page_url_and_exits_0(tmp_path: Path) -> None:
+    """`serve --check` starts the facade with the browser client on 127.0.0.1, prints the one URL line and stops."""
+    services = CliServices(files_root=tmp_path)
+    code, out, err = call(
+        ["serve", "--check", "--files-root", str(tmp_path), "--runs", str(tmp_path / "runs")], services
+    )
+    assert (code, err) == (EXIT_PASS, "")
+    match = re.fullmatch(SERVE_URL, out)
+    assert match is not None, out
+    assert int(match.group(1)) > 0
+    assert len(match.group(2)) >= 32
+    again = call(["serve", "--check"], services)[1]
+    assert re.fullmatch(SERVE_URL, again) is not None
+    assert again != out
+
+
+@pytest.mark.req("VIE-012")
+def test_serve_on_a_port_in_use_exits_2(tmp_path: Path) -> None:
+    with socket.socket() as taken:
+        taken.bind(("127.0.0.1", 0))
+        taken.listen()
+        port = taken.getsockname()[1]
+        code, out, err = call(["serve", "--check", "--port", str(port)], CliServices(files_root=tmp_path))
+    assert (code, out) == (EXIT_ERROR, "")
+    assert err.startswith("error: ")
+
+
+@pytest.mark.req("VIE-012")
+def test_serve_rejects_a_bad_port_as_a_usage_error(tmp_path: Path) -> None:
+    assert call(["serve", "--port", "http"], CliServices(files_root=tmp_path))[0] == EXIT_ERROR
+
+
+@pytest.mark.req("VIE-012")
+def test_serve_check_runs_from_the_console_entry() -> None:
+    result = subprocess.run(
+        [sys.executable, "-m", "mechsim.cli", "serve", "--check"],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=60,
+    )
+    assert result.returncode == EXIT_PASS, result.stderr
+    assert re.fullmatch(SERVE_URL, result.stdout) is not None
 
 
 # ===== headless ========================================================

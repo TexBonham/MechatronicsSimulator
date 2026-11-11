@@ -1,5 +1,6 @@
 """The command-line client (ADR 0006 first client, ADR 0012 L9): validate, run, suite, replay, every one through
-the facade and nothing else (TST-034, FAC-001). Headless (TST-035).
+the facade and nothing else (TST-034, FAC-001). Headless (TST-035). `serve` runs the facade service and the browser
+client (VIE-012).
 
 Exit status: 0 passed (or every file valid), 1 failed (a criterion failed, or a file is invalid), 2 error (a run error
 or a case that could not run, an unknown file kind, a missing path, a usage error, or no simulation driver wired).
@@ -8,12 +9,16 @@ or a case that could not run, an unknown file kind, a missing path, a usage erro
 from __future__ import annotations
 
 import argparse
+import asyncio
+import dataclasses
+import secrets
 import sys
 from collections.abc import Callable, Sequence
 from pathlib import Path
 from typing import TextIO
 
 from mechsim.facade.files import file_kind
+from mechsim.facade.server import serve
 from mechsim.facade.service import Facade, FacadeError, FacadeServices, default_services
 
 EXIT_PASS = 0
@@ -119,6 +124,35 @@ def _replay(arguments: argparse.Namespace, facade: Facade, out: TextIO) -> int:
     return EXIT_PASS
 
 
+# ===== serve ===========================================================
+
+
+async def _serve(arguments: argparse.Namespace, facade: Facade, out: TextIO) -> int:
+    """The facade service with the browser client on one port (VIE-012); `--check` starts and stops it."""
+    token = secrets.token_urlsafe(24)
+    server = await serve(facade, "127.0.0.1", arguments.port, token=token)
+    try:
+        out.write(server.page_url() + "\n")
+        out.flush()
+        if arguments.check:
+            return EXIT_PASS
+        await asyncio.Event().wait()
+    finally:
+        await server.close()
+    return EXIT_PASS
+
+
+def _serve_command(arguments: argparse.Namespace, services: CliServices | None, out: TextIO) -> int:
+    chosen = services or default_services()
+    if arguments.files_root is not None:
+        chosen = dataclasses.replace(chosen, files_root=arguments.files_root.resolve())
+    facade = Facade(chosen, arguments.runs)
+    try:
+        return asyncio.run(_serve(arguments, facade, out))
+    except KeyboardInterrupt:
+        return EXIT_PASS
+
+
 def _error_text(error: FacadeError) -> str:
     if error.field == "design":
         return f"--design {error.message}"
@@ -147,6 +181,11 @@ def build_parser() -> argparse.ArgumentParser:
     suite.add_argument("--design", type=Path, default=None, help="the cases' design file, <designs>/<name>/design.yaml")
     replay = commands.add_parser("replay", help="print a run's event timeline from its archive")
     replay.add_argument("archive", type=Path)
+    served = commands.add_parser("serve", help="serve the facade and the browser client on 127.0.0.1")
+    served.add_argument("--files-root", type=Path, default=None, help="root that request paths are relative to")
+    served.add_argument("--runs", type=Path, default=Path("runs"), help="archive folder for runs (default ./runs)")
+    served.add_argument("--port", type=int, default=0, help="port (default: a free one)")
+    served.add_argument("--check", action="store_true", help="start, print the URL and stop without serving")
     return parser
 
 
@@ -164,6 +203,12 @@ def main(
         if error.code == 0:
             return EXIT_PASS
         return EXIT_ERROR
+    if arguments.command == "serve":
+        try:
+            return _serve_command(arguments, services, stdout)
+        except OSError as error:
+            stderr.write(f"error: {error}\n")
+            return EXIT_ERROR
     facade = Facade(services or default_services())
     handlers: dict[str, Callable[[], int]] = {
         "validate": lambda: _validate(arguments.paths, facade, stdout, stderr),

@@ -15,12 +15,13 @@ from dataclasses import dataclass, field
 from http import HTTPStatus
 from pathlib import Path
 from typing import Any
-from urllib.parse import parse_qs, urlsplit
+from urllib.parse import parse_qs, unquote, urlsplit
 
 import numpy as np
 from pydantic import BaseModel, ValidationError
 from websockets.asyncio.server import Server, ServerConnection
 from websockets.asyncio.server import serve as ws_serve
+from websockets.datastructures import Headers
 from websockets.exceptions import ConnectionClosed
 from websockets.http11 import Request, Response
 
@@ -68,6 +69,12 @@ REQUEST_KINDS = frozenset(
     }
 )
 Frame = str | bytes
+WEB_ROOT = Path(__file__).resolve().parents[2] / "web"
+STATIC_TYPES = {
+    ".html": "text/html; charset=utf-8",
+    ".js": "text/javascript; charset=utf-8",
+    ".css": "text/css; charset=utf-8",
+}
 
 
 def _message_id() -> str:
@@ -214,9 +221,10 @@ class _Connection:
 class FacadeServer:
     """A running service: `port`, `url`, `close()` (every connection closed with 1001 going away)."""
 
-    def __init__(self, facade: Facade, token: str) -> None:
+    def __init__(self, facade: Facade, token: str, web_root: Path = WEB_ROOT) -> None:
         self.facade = facade
         self._token = token
+        self.web_root = web_root
         self._server: Server | None = None
         self._run_lock = threading.Lock()
         self._facade_lock = threading.Lock()
@@ -233,7 +241,14 @@ class FacadeServer:
     def url(self) -> str:
         return f"ws://{self.host}:{self.port}/?token={self._token}"
 
+    def page_url(self) -> str:
+        """The browser client's address; the page reads the token and opens `/ws?token=` on the same origin."""
+        return f"http://{self.host}:{self.port}/?token={self._token}"
+
     def _authorize(self, connection: ServerConnection, request: Request) -> Response | None:
+        """A WebSocket upgrade needs the token (FAC-005); a plain GET is the static route of `web/` (VIE-012)."""
+        if request.headers.get("Upgrade", "").lower() != "websocket":
+            return static_response(self.web_root, request.path)
         offered = parse_qs(urlsplit(request.path).query).get("token", [""])[0]
         if hmac.compare_digest(offered.encode(), self._token.encode()):
             return None
@@ -438,13 +453,73 @@ class FacadeServer:
         return summary
 
 
-async def serve(facade: Facade, host: str = "127.0.0.1", port: int = 0, *, token: str) -> FacadeServer:
-    """Starts the service; `port=0` picks a free port (`FacadeServer.port`). The token is required (FAC-005)."""
+def static_file(web_root: Path, request_path: str) -> Path | None:
+    """The file under `web_root` a GET path names: `/` is `index.html`; top-level `*.html`, `*.js`, `*.css` and
+    `vendor/*` only. None for anything else, `..`, an absolute or encoded-absolute path, or a path resolving outside
+    `web_root` (VIE-012)."""
+    path = unquote(urlsplit(request_path).path)
+    if not path.startswith("/") or path.startswith("//") or "\\" in path or "\x00" in path:
+        return None
+    relative = path[1:]
+    if relative == "":
+        relative = "index.html"
+    parts = relative.split("/")
+    for part in parts:
+        if part in ("", ".", "..") or ":" in part:
+            return None
+    allowed = False
+    if len(parts) == 1 and Path(parts[0]).suffix in STATIC_TYPES:
+        allowed = True
+    if len(parts) == 2 and parts[0] == "vendor":
+        allowed = True
+    if not allowed:
+        return None
+    root = web_root.resolve()
+    candidate = (root / Path(*parts)).resolve()
+    if not candidate.is_relative_to(root) or not candidate.is_file():
+        return None
+    return candidate
+
+
+def static_response(web_root: Path, request_path: str) -> Response:
+    """200 with the file and its content type, or 404; never a file outside `web_root`."""
+    found = static_file(web_root, request_path)
+    if found is None:
+        body = b"not found\n"
+        headers = Headers([("Content-Type", "text/plain; charset=utf-8"), ("Content-Length", str(len(body)))])
+        return Response(HTTPStatus.NOT_FOUND.value, HTTPStatus.NOT_FOUND.phrase, headers, body)
+    body = found.read_bytes()
+    content_type = STATIC_TYPES.get(found.suffix, "application/octet-stream")
+    headers = Headers(
+        [
+            ("Content-Type", content_type),
+            ("Content-Length", str(len(body))),
+            ("Cache-Control", "no-store"),
+            ("X-Content-Type-Options", "nosniff"),
+        ]
+    )
+    return Response(HTTPStatus.OK.value, HTTPStatus.OK.phrase, headers, body)
+
+
+async def serve(
+    facade: Facade, host: str = "127.0.0.1", port: int = 0, *, token: str, web_root: Path = WEB_ROOT
+) -> FacadeServer:
+    """Starts the service; `port=0` picks a free port (`FacadeServer.port`). The token is required (FAC-005). Plain
+    GETs on the same port serve the browser client from `web_root` (VIE-012)."""
     if token == "":
         raise ValueError("the facade service needs a non-empty token")
-    server = FacadeServer(facade, token)
+    server = FacadeServer(facade, token, web_root)
     await server.start(host, port)
     return server
 
 
-__all__ = ["FacadeServer", "classify", "error_message", "ok_message", "serve", "tick_batch_frames"]
+__all__ = [
+    "FacadeServer",
+    "classify",
+    "error_message",
+    "ok_message",
+    "serve",
+    "static_file",
+    "static_response",
+    "tick_batch_frames",
+]
