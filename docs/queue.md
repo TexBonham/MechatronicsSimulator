@@ -51,7 +51,34 @@ behaviour or the architecture and need explicit confirmation at the gate.
 | 31 | X review: the placeholder NEMA 17 on the 40 mm lead cannot lower a 4 kg overload or take a 1 to 4 kg step (G5, G6 use 3.6 kg in 1 kg steps); recorded in `docs/gantry-team-inputs.md` as an owed motor and lead sizing item. The 5 N axis friction placeholder keeps the coasting carriage inside G7's homing window (the alternative is a longer window). | recorded | owner, gantry team |
 | 32 | C2 and G10: the gantry's encoders sense the axis joints (frame side; the inputs record says so), not the motor shafts, so belt slip and stall both show as a step-count versus encoder mismatch. Design change in X4. | frame side | coordinator ruling, for confirmation |
 | 33 | C2 (PHY-034): the bridge applies each joint drive as exact backward Euler (`eq_data = rest c - qvel h`, `d = Z / (1 + Z)`, `Z = (K_d h^2 + D_d h) A0`), consistent with the stepper's end-of-tick rests; this changes milestone 1 drive behaviour (the reference tier and the G1 to G4 baselines are re-validated at the gate). The brake slip phase is a soft slip drive (`K_s = 1e-5 K_b`). | adopted | coordinator ruling, owner review at the gate |
+| 34 | Gate review: ACC-038 (stepper pull-out versus the published curve) is M2-tagged but was not in the plan's scope and stays a strict-xfail stub; re-tag to M3 with brief P's engine work, or keep and note the omission. | re-tag M3 | open, owner |
 | 6 | Placeholders set by the coordinator for the gantry team's slots: overload limit rated + 15 percent (3.45 kg), heartbeat period 10 ms, watchdog timeout 50 ms, brownout threshold 2.0 V, encoder mismatch threshold 2 mm, ADC 12 bits at 3.3 V | as listed | open |
+
+## Milestone 2 gate report (coordinator, 2026-11-11)
+
+Fable gate review at f01c3a7: pass with owner confirmations. Reference tier 27 of 27 C++ and 9 Python, no
+tolerance miss; the 13-case suite passes with a 74-entry baseline; G3 byte-identical on a rerun; debug-sanitize 347
+ctest cases; firmware host 92; Python 3707 passed, 191 xfailed. Round cost about 6.0M tokens against the 5.5M to
+6.1M estimate (the integration wave cost 2.5M against a planned 1.0M: the drive-mapping and payload rework).
+
+Blocking until done, owner action: push `round/04-milestone-2` and get one green CI run on it (Windows jobs included)
+before the gate commit is accepted; the session cannot push.
+
+Owner confirmations needed (change milestone 1 behaviour or the architecture): rulings 33, 23, 11, 24, 25, 29, 12,
+15, 17, 18, 32. Confirm in a batch: 9, 10, 13, 14, 16, 19, 20, 22, 27, 28, 30. Gantry team placeholders: 1, 2, 6, 7,
+8, 26, 31. Process: 3, 4, 5, 21, 34.
+
+Carry to milestone 3 by ID: ENG-016 to ENG-021, ENG-035 (engine side), LIB-009, ACC-038 (ruling 34), PHY-020,
+PHY-021, the playwright client test (ruling 21), the limit handling for the real 8 mm lead (ruling 26), LIB-017
+through the real builder (needs a second shipped stepper part), the G6 `fault:overload` assertion (G6 proves the
+position bound only), G13's "defined policy" once the gantry team rules.
+
+Silent dependencies (gate review item 4): the case windows hard-code sums of placeholders (G7 12.021 s = press +
+relay cutoff; G8 9.07 s = freeze + heartbeat + timeout + cutoff; G14 0.5 to 2.3 s from accel, cruise and slow zone;
+G6 25 cm from the lift speed; command times from the homing speed), all riding on `gantry_config.h`,
+`watchdog.yaml`, `estop_relay.yaml`; a placeholder change breaks a window silently until the windows become open
+parameters (M3 housekeeping). `docs/gantry-team-inputs.md` contradicts itself on the encoder mismatch threshold
+("not set" versus the ruling 6 row, 2 mm): the 2 mm row stands.
 
 ## Next
 
