@@ -6,10 +6,12 @@
 # while one is open (SCO-025 on real events). Interval (SCO-021 on real events): the first command, `target (20, 10)`
 # at 8 s, starts from the homed origin; the first `motion_end` after it is the Y axis's (0.1 m, the shorter travel;
 # an axis with no travel logs no profile). Every other command in the move is refused (busy while moving, workspace,
-# malformed, nothing to reset), so nothing interrupts it. Bounds: at most the 0.2 m/s cruise speed, so 0.1 m takes at
-# least 0.5 s; at or above the 0.05 m/s slow-zone speed except for the 0.1 s ramps at each end (0.05 m/s / 0.5 m/s^2),
-# so at most 0.1 / 0.05 + 0.2 = 2.2 s, plus the 15-byte line at 115200 baud (1.3 ms) and one control tick, under
-# 2.3 s. Policies are the firmware placeholders (reject; FW-026, FW-027).
+# malformed, nothing to reset), so nothing interrupts it. Bounds (gantry team limits of 2026-11-11, 0.05 m/s^2 and
+# 0.1 m/s): accelerating and braking at no more than 0.05 m/s^2, 0.1 m takes at least 2 sqrt(d / a) = 2.83 s, so at
+# least 2.8 s; at or above the 0.05 m/s slow-zone speed except for the 1 s ramps at each end (0.05 m/s / 0.05 m/s^2),
+# so at most 0.1 / 0.05 + 2 = 4 s, plus the 15-byte line at 115200 baud (1.3 ms) and one control tick, under 4.1 s.
+# The X axis's 0.2 m (d / v + v / a = 4 s) ends at 12 s, so the commands to 12 s are refused; the new-target policy is
+# operator choice, default reject (gantry team 2026-11-11; FW-026), the lift-while-moving policy a placeholder (FW-027).
 id: G14
 title: Rapid-fire and conflicting commands
 design:
@@ -270,13 +272,13 @@ criteria:
     start_event: message:target
     end_event: event:motion_end
     comparison: at_least
-    limit: 0.5 s
+    limit: 2.8 s
   - name: first_move_not_too_slow
     check: interval
     start_event: message:target
     end_event: event:motion_end
     comparison: below
-    limit: 2.3 s
+    limit: 4.1 s
   - name: malformed_refused
     check: event
     event: fault:malformed

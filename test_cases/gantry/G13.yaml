@@ -3,11 +3,11 @@
 # reject (gantry_config.h; owed by the gantry team, `lift_while_moving_policy` in docs/gantry-team-inputs.md): the
 # `lift 0.3` at 8.5 s, 0.5 s into the move from the origin to (40, 25), is refused with fault busy (the controller's
 # reported fault, `fault:busy`, round 4 ruling 30) and a `refused` event, and the lift does not move. Window bound: the
-# X travel of 0.4 m at no more than the 0.2 m/s cruise speed takes at least 2 s, so the move lasts past 10 s and the
+# X travel of 0.4 m at no more than the 0.1 m/s cruise speed takes at least 4 s, so the move lasts past 12 s and the
 # window 8.5 s to 10 s lies inside it; no lift step pulse in it and the lift within the 1 cm hold band (position
-# accuracy). The move then completes: the speed stays at or above the 0.05 m/s slow-zone speed except for the 0.1 s
-# ramps at each end (0.05 m/s / 0.5 m/s^2), so 0.4 m takes at most 0.4 / 0.05 + 0.2 = 8.2 s, arriving by 16.2 s; the
-# run ends at 18 s with the hook within 1 cm of (40, 25).
+# accuracy). The move then completes: the speed stays at or above the 0.05 m/s slow-zone speed except for the 1 s
+# ramps at each end (0.05 m/s / 0.05 m/s^2, gantry team limits of 2026-11-11), so 0.4 m takes at most 0.4 / 0.05 + 2 =
+# 10 s, arriving by 18 s; the run ends at 20 s with the hook within 1 cm of (40, 25).
 id: G13
 title: Lift command while moving
 design:
@@ -54,8 +54,8 @@ commands:
     payload:
       z: 30 cm
 end:
-  at: 18 s
-  max_duration: 18 s
+  at: 20 s
+  max_duration: 20 s
 criteria:
   - name: lift_refused_busy
     check: event

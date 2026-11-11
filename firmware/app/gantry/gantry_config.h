@@ -1,5 +1,6 @@
 /* Gantry controller parameters. Every value marked PLACEHOLDER belongs to an open parameter of the gantry design
- * (docs/spec/fw.md, Open parameters; designs/gantry/design.yaml open_parameters) and is overridable at build time.
+ * (docs/spec/fw.md, Open parameters; designs/gantry/design.yaml open_parameters) and is overridable at build time;
+ * values marked "gantry team 2026-11-11" are the team's answers (docs/gantry-team-inputs.md).
  * Lengths in micrometres, speeds in micrometres per second, accelerations in micrometres per second squared.
  */
 #ifndef GANTRY_CONFIG_H
@@ -8,17 +9,17 @@
 #include "mechsim_board.h"
 #include "channels.h"
 
-/* PLACEHOLDER: workspace_x, workspace_y (FW-016). Targets in [0, limit] inclusive are accepted. */
+/* Gantry team 2026-11-11: workspace_x, workspace_y 0.5 m each (FW-016). Targets in [0, limit] inclusive are accepted. */
 #ifndef GANTRY_WORKSPACE_X_UM
-#define GANTRY_WORKSPACE_X_UM 1000000
+#define GANTRY_WORKSPACE_X_UM 500000
 #endif
 #ifndef GANTRY_WORKSPACE_Y_UM
-#define GANTRY_WORKSPACE_Y_UM 800000
+#define GANTRY_WORKSPACE_Y_UM 500000
 #endif
 
-/* PLACEHOLDER: per-axis step scale, 200 full steps at 16 microsteps on every axis. X and Y: GT2 20-tooth pulley
- * (40 mm/rev). The lift: the design's lead-screw ratio, 40 mm/rev until the bridge runs the TR8x8's 8 mm lead stably
- * (then 400000 steps/m, 300000 counts/m; test_gantry_scale builds that). */
+/* PLACEHOLDER: per-axis step scale, 200 full steps at 16 microsteps on every axis, every axis belt-driven (gantry team
+ * 2026-11-11, no lead screw): GT2 20-tooth pulley, 40 mm/rev, so 3200 / 0.04 m = 80000 steps/m on X, Y and the lift.
+ * The step angle and pulley stay placeholders. */
 #ifndef GANTRY_STEPS_PER_M_X
 #define GANTRY_STEPS_PER_M_X 80000
 #endif
@@ -28,7 +29,8 @@
 #ifndef GANTRY_STEPS_PER_M_LIFT
 #define GANTRY_STEPS_PER_M_LIFT 80000
 #endif
-/* PLACEHOLDER: 600 ppr quadrature (2400 counts/rev) on each motor shaft; encoder_placement is open. */
+/* PLACEHOLDER: counts per metre of the frame-side linear encoders (encoder_placement axis side, gantry team
+ * 2026-11-11, ruling 32). */
 #ifndef GANTRY_COUNTS_PER_M_X
 #define GANTRY_COUNTS_PER_M_X 60000
 #endif
@@ -45,26 +47,27 @@
 #define GANTRY_BRAKE_RELEASE_WAIT_MS 50
 #endif
 
-/* PLACEHOLDER: acceleration and deceleration limit (FW-022), cruise speed. */
+/* Gantry team 2026-11-11: acceleration and deceleration limit 0.05 m/s^2 (FW-022), cruise speed 0.1 m/s. */
 #ifndef GANTRY_MAX_ACCEL_UM_S2
-#define GANTRY_MAX_ACCEL_UM_S2 500000
+#define GANTRY_MAX_ACCEL_UM_S2 50000
 #endif
 #ifndef GANTRY_MAX_SPEED_UM_S
-#define GANTRY_MAX_SPEED_UM_S 200000
+#define GANTRY_MAX_SPEED_UM_S 100000
 #endif
-/* PLACEHOLDER: slow-down zone at each travel end and its speed cap (FW-023). */
+/* Gantry team 2026-11-11: slow-down zone at each travel end, 50 mm, and its speed cap 0.05 m/s (FW-023). */
 #ifndef GANTRY_SLOW_ZONE_UM
 #define GANTRY_SLOW_ZONE_UM 50000
 #endif
 #ifndef GANTRY_SLOW_SPEED_UM_S
 #define GANTRY_SLOW_SPEED_UM_S 50000
 #endif
-/* PLACEHOLDER: homing approach speed, and the travel after which a missing switch faults the homing. */
+/* Gantry team 2026-11-11: homing approach speed 0.02 m/s, and the travel after which a missing switch faults the
+ * homing, 10 cm (FW-014). */
 #ifndef GANTRY_HOMING_SPEED_UM_S
 #define GANTRY_HOMING_SPEED_UM_S 20000
 #endif
 #ifndef GANTRY_HOMING_MAX_TRAVEL_UM
-#define GANTRY_HOMING_MAX_TRAVEL_UM 1200000
+#define GANTRY_HOMING_MAX_TRAVEL_UM 100000
 #endif
 
 /* PLACEHOLDER: electrical levels of the switches and drivers. */
@@ -84,12 +87,13 @@
 #define GANTRY_ENABLE_INACTIVE_LEVEL MECHSIM_LEVEL_LOW
 #endif
 
-/* PLACEHOLDER: ticks between `position x y` status lines in READY and MOVING. */
+/* Gantry team 2026-11-11: ticks between `position x y` status lines in READY and MOVING (FW-029). */
 #ifndef GANTRY_STATUS_PERIOD_TICKS
 #define GANTRY_STATUS_PERIOD_TICKS 100u
 #endif
 
-/* PLACEHOLDER: new target while MOVING (FW-026 owed by the gantry team): reject, or hold one queued target. */
+/* Operator choice (gantry team 2026-11-11): new target while MOVING (FW-026), reject or hold one queued target;
+ * default reject. */
 #define GANTRY_POLICY_REJECT 0
 #define GANTRY_POLICY_QUEUE 1
 #ifndef GANTRY_NEW_TARGET_POLICY
@@ -102,7 +106,7 @@
 #define GANTRY_LIFT_WHILE_MOVING_POLICY GANTRY_NEW_TARGET_POLICY
 #endif
 
-/* PLACEHOLDER (ruling 6): lift workspace from the lift home (min) switch, positive up. */
+/* Gantry team 2026-11-11: lift travel 0.5 m from the lift home (min) switch, positive up. */
 #ifndef GANTRY_LIFT_TRAVEL_UM
 #define GANTRY_LIFT_TRAVEL_UM 500000
 #endif
@@ -123,16 +127,19 @@
 #define GANTRY_CH_HEARTBEAT_OUT MECHSIM_CH_WATCHDOG_HEARTBEAT
 #endif
 
-/* PLACEHOLDER (ruling 6): load cell scale in integer ADC counts, and the overload limit, rated 3 kg + 15 percent
- * (FW-018, FW-019). Over the limit means strictly above it; mid-lift it must hold for GANTRY_OVERLOAD_TICKS ticks. */
+/* PLACEHOLDER (ruling 6): load cell scale in integer ADC counts, 600 per kg so the 12-bit ADC spans 6.8 kg (no weight
+ * sensor declared by the gantry team, 2026-11-11). Gantry team 2026-11-11: overload limit = rated 10 lb (4.536 kg)
+ * + 15 percent = 5.216 kg (FW-018, FW-019). Over the limit means strictly above it; mid-lift it must hold for
+ * GANTRY_OVERLOAD_TICKS ticks. */
 #ifndef GANTRY_LOAD_COUNTS_PER_KG
-#define GANTRY_LOAD_COUNTS_PER_KG 1000
+#define GANTRY_LOAD_COUNTS_PER_KG 600
 #endif
 #ifndef GANTRY_LOAD_ZERO_COUNTS
 #define GANTRY_LOAD_ZERO_COUNTS 0
 #endif
 #ifndef GANTRY_OVERLOAD_LIMIT_MILLIKG
-#define GANTRY_OVERLOAD_LIMIT_MILLIKG 3450
+#define GANTRY_OVERLOAD_LIMIT_MILLIKG 5216
+
 #endif
 #ifndef GANTRY_OVERLOAD_TICKS
 #define GANTRY_OVERLOAD_TICKS 2u

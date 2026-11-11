@@ -1,10 +1,11 @@
 # G11 (Requirements doc, Test cases, gantry suite): a limit switch trips mid-workspace. During the move to (40, 25) the
-# x_max_switch is forced high at 8.5 s for 0.2 s (a switch fault; the carriage is near x = 0.2 m, far from the switch at
-# the end of travel). The firmware treats a travel-end switch active outside its own slow zone as position tracking
+# x_max_switch is forced high at 8.5 s for 0.2 s (a switch fault; 0.5 s into the move the carriage is within
+# a t^2 / 2 = 6.25 mm of the origin, far from the switch at the end of the 0.5 m travel). The firmware treats a travel-end switch active outside its own slow zone as position tracking
 # gone wrong (FW-021, round 4 ruling 14): it stops at its deceleration limit (ACC-022), faults with limit_trip
 # (ACC-023, asserted by the fault's name through `fault:limit_trip`, round 4 ruling 30), refuses a `target` at 10 s (fault limit_trip) and moves again only after `home` at 10.5 s (ACC-024).
-# Stop bound: the switch's debounce is a few samples, the stop at 0.5 m/s^2 from at most 0.2 m/s takes v / a = 0.4 s,
-# so no driver steps from 8.5 s + 0.2 s window + 0.4 s = 9.1 s until the home.
+# Stop bound (gantry team limits of 2026-11-11, 0.05 m/s^2 and 0.1 m/s): the switch's debounce is a few samples within
+# the 0.2 s window, by whose end the speed is at most a t = 0.05 m/s^2 x 0.7 s = 0.035 m/s, and the stop takes
+# v / a = 0.7 s, so no driver steps from 8.5 s + 0.2 s window + 0.7 s = 9.4 s until the home.
 id: G11
 title: Limit switch trips mid-workspace
 design:
@@ -64,7 +65,7 @@ criteria:
     expect: present
     window:
       start: 8.5 s
-      end: 9.1 s
+      end: 9.4 s
   - name: stopped_x
     check: value
     quantity: signal:x_driver.step
@@ -72,7 +73,7 @@ criteria:
     comparison: at_most
     limit: "0"
     window:
-      start: 9.1 s
+      start: 9.4 s
       end: 10.5 s
   - name: stopped_y
     check: value
@@ -81,7 +82,7 @@ criteria:
     comparison: at_most
     limit: "0"
     window:
-      start: 9.1 s
+      start: 9.4 s
       end: 10.5 s
   - name: target_refused
     check: event

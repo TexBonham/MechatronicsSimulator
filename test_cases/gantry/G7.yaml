@@ -3,9 +3,13 @@
 # status output, bound to the controller and equal to its contacts, too); the hook does not drop (ACC-014: the lift
 # stays within the hold band of its position at the press until the reset); motion resumes only after a reset and a
 # new command (ACC-015, FW-024: no step pulses on any axis from the cutoff until the new command, the target reached
-# after). The hook is first lifted to 30 cm (as in G5) so that the brake, not the lift's lower joint limit, holds the
-# load through the cutoff (X review, high); the lift takes 0.3 m at the 0.2 m/s lift speed, 1.5 s plus its ramps, so
-# the target follows at 11 s. The release at the window end closes the E-stop loop and the relay returns the rail
+# after). The hook is first lifted to 5 cm so that the brake, not the lift's lower joint limit, holds the load through
+# the cutoff (X review, high); 5 cm, not 30 cm, because the `home` after the reset homes the lift too and the homing
+# travel is 10 cm (gantry team 2026-11-11). At 0.05 m/s^2 the 5 cm lift is a triangle, 2 sqrt(d / a) = 2 s plus the
+# 50 ms brake release wait, done by 10.05 s, so the target follows at 11 s; the press at 12 s is 1 s into the move,
+# the carriage within a t^2 / 2 = 2.5 cm of the origin, so the `home` at 15 s (at most 0.1 m / 0.02 m/s + 0.4 s ramp
+# = 5.2 s) is done by 20.2 s, and the target at 22 s (0.4 m: d / v + v / a = 0.4 / 0.1 + 2 = 6 s) arrives by 28 s,
+# scored at 30 s. The release at the window end closes the E-stop loop and the relay returns the rail
 # (`manual_reset: false`, round 4 ruling 25); `reset` returns the firmware to not_homed (round 4 ruling 7), so `home`
 # precedes the target. Windows after the press at 12 s (press + 20 ms cutoff_delay of estop_relay_24v_generic): the
 # relay opens in the layer step at 12.020 s and rows are stamped at the end of their step (KER-009), so the rail and
@@ -53,7 +57,7 @@ commands:
   - at: ${homing_time}
     message: lift
     payload:
-      z: 30 cm
+      z: 5 cm
   - at: 11 s
     message: target
     payload:
@@ -63,7 +67,7 @@ commands:
     message: reset
   - at: 15 s
     message: home
-  - at: 39 s
+  - at: 22 s
     message: target
     payload:
       x: 40 cm
@@ -74,8 +78,8 @@ faults:
     start: 12 s
     duration: 1 s
 end:
-  at: 45 s
-  max_duration: 45 s
+  at: 30 s
+  max_duration: 30 s
 criteria:
   - name: power_cut
     check: value
