@@ -496,7 +496,7 @@ def test_files_are_read_and_written_only_as_valid_designs_and_cases(tmp_path: Pa
     text = content.text
     edited = text.replace("description: Single rigid link", "description: Edited rigid link")
     assert facade.write_file(design, edited).kind == "design"
-    assert (tmp_path / design).read_text(encoding="utf-8") == edited
+    assert (tmp_path / design).read_bytes().decode("utf-8") == edited
     before = (tmp_path / design).read_bytes()
     with pytest.raises(FacadeError) as raised:
         facade.write_file(design, edited.replace("mass: 1 kg", "mass: -1 kg"))
