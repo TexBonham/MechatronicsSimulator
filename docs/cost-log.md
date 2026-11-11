@@ -18,3 +18,6 @@ type live in the root `CLAUDE.md` dispatch table once measured.
 | 2026-11-10 | M2-D: suite file, regression diff and report, interval and no_overlap criteria, overrides and part substitution (wip/04-d 525fff3) | module-writer (opus), worktree | 232K | 81 calls, 31 min; 3 foreign invariant-test failures on suite.yaml, fixed at merge-back |
 | 2026-11-10 | Invariant audit: wave 1b (D, E) | invariant-auditor (sonnet) | ~35K | clean, one accepted minor |
 | 2026-11-10 | M2 review: G and C | general-purpose (fable) | ~120K | 16 calls; G accept, C accept with fixes (1 medium, 5 low, 2 rulings) |
+| 2026-11-10 | M2 review: A1 | general-purpose (fable) | 127K | 16 calls; accept with fixes (1 high: predicted-lead detent, 1 medium, 3 low) |
+| 2026-11-10 | M2 review: D and E | general-purpose (fable) | 201K | 28 calls; both accept, 2 owner rulings, event recording owed to X1 |
+| 2026-11-10 | M2-G stage landed: merge wip/04-g, chip fixture fix, matrix regenerated, full suite 3330 passed | inline | ~15K | coordinator |

@@ -1827,6 +1827,10 @@ def test_chips_from_context_replace_the_shipped_set() -> None:
             "status": "placeholder",
             "platform_description": "placeholder",
             "svd": "placeholder",
+            "core_voltage": "3.3 V",
+            "brownout_threshold": "2.0 V",
+            "adc": {"resolution_bits": 12, "reference_voltage": "3.3 V"},
+            "counter_bits": 16,
             "pins": [{"name": "PA0", "modes": ["digital_output"]}],
         }
     )

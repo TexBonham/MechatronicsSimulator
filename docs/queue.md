@@ -13,7 +13,7 @@ in `docs/briefs/round-04/`. Worktrees `../MechatronicsSimulator-04-<letter>` on 
 
 | # | Question | Planned default | Status |
 |---|---|---|---|
-| 1 | G9 hold on the bridge: the self-locking screw is refused by the bridge, so a de-energised lift falls. Brake on the lift as the `power_loss_hold` placeholder (a), a bridge self-locking approximation (b), or both (c)? | (a) brake | open |
+| 1 | G9 hold on the bridge: the self-locking screw is refused by the bridge, so a de-energised lift falls. Brake on the lift as the `power_loss_hold` placeholder (a), a bridge self-locking approximation (b), or both (c)? E's firmware now turns the lift driver off in NOT_HOMED, so the hold rests on the brake output (reviewer: (a) or (c) needed for ACC-018). | (a) brake | open |
 | 2 | IMU electrical interface: the chip vocabulary has no I2C or SPI mode. Model the IMU with analog outputs (accel x, y, z; gyro x, y, z) until a serial peripheral mode exists? | analog outputs, placeholder | open |
 | 3 | FW-008 identical warning flags: on MSVC the host preset cannot share GCC flags. Read FW-008 as GCC host versus arm-none-eabi only, with the closest MSVC equivalent (`/W4 /WX`) on Windows? | yes | open |
 | 4 | Re-tag ENG-016 to 021 (own-engine collision and contact) and LIB-009 (Python slow-path plugin) from M2 to M3? | re-tag | open |
@@ -22,6 +22,10 @@ in `docs/briefs/round-04/`. Worktrees `../MechatronicsSimulator-04-<letter>` on 
 | 8 | Lift operator message is `lift <z>`, z in metres from the lift home switch; lowering is a lower z? | yes | open |
 | 9 | C review: for a drive-driven shaft under slip, only the explicit-torque path is scaled by (1 - s); the reported transmission force is the force actually applied. Recorded as an approximation. | as stated | coordinator ruling, for confirmation |
 | 10 | C review: a drive disabled then re-enabled under slip or backlash resets the slip and play references to the new rest, counting no increment. | as stated | coordinator ruling, for confirmation |
+| 11 | A1 review (high): the stepper detent tangent is taken at the predicted lead delta_p = theta_cmd - (theta + omega h), rest theta + omega h + tau(delta_p) / K_t(delta_p), pull-out on delta_p; exact in steady tracking, identical to milestone 1 at rest. SIG-033 row edited. | adopted | coordinator ruling, for confirmation |
+| 12 | A1 review (low): encoder noise and noisy-fault magnitude are in radians of shaft angle (the sensed quantity), not counts; alters the M1-D reading. | radians | coordinator ruling, for confirmation |
+| 13 | A1 review (low): debounce passes a pulse of N = periods_ceil(debounce_time) samples (the brief's rule), although an N-sample pulse is only known to have held (N - 1) periods. | N samples | coordinator ruling, for confirmation |
+| 14 | E review: FW-021 trips on any end switch active outside its own slow zone while READY or MOVING (wider than "moving away"); consistent with G11 "position tracking treated as wrong". | accept, row edited | coordinator ruling, for confirmation |
 | 6 | Placeholders set by the coordinator for the gantry team's slots: overload limit rated + 15 percent (3.45 kg), heartbeat period 10 ms, watchdog timeout 50 ms, brownout threshold 2.0 V, encoder mismatch threshold 2 mm, ADC 12 bits at 3.3 V | as listed | open |
 
 ## Next
