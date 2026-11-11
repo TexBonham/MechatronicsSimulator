@@ -16,13 +16,33 @@
 #define GANTRY_WORKSPACE_Y_UM 800000
 #endif
 
-/* PLACEHOLDER: GT2 20-tooth pulley (40 mm/rev), 200 full steps at 16 microsteps. */
-#ifndef GANTRY_STEPS_PER_M
-#define GANTRY_STEPS_PER_M 80000
+/* PLACEHOLDER: per-axis step scale, 200 full steps at 16 microsteps on every axis. X and Y: GT2 20-tooth pulley
+ * (40 mm/rev). The lift: the design's lead-screw ratio, 40 mm/rev until the bridge runs the TR8x8's 8 mm lead stably
+ * (then 400000 steps/m, 300000 counts/m; test_gantry_scale builds that). */
+#ifndef GANTRY_STEPS_PER_M_X
+#define GANTRY_STEPS_PER_M_X 80000
 #endif
-/* PLACEHOLDER: 600 ppr quadrature (2400 counts/rev) on the pulley shaft; encoder_placement is open. */
-#ifndef GANTRY_COUNTS_PER_M
-#define GANTRY_COUNTS_PER_M 60000
+#ifndef GANTRY_STEPS_PER_M_Y
+#define GANTRY_STEPS_PER_M_Y 80000
+#endif
+#ifndef GANTRY_STEPS_PER_M_LIFT
+#define GANTRY_STEPS_PER_M_LIFT 80000
+#endif
+/* PLACEHOLDER: 600 ppr quadrature (2400 counts/rev) on each motor shaft; encoder_placement is open. */
+#ifndef GANTRY_COUNTS_PER_M_X
+#define GANTRY_COUNTS_PER_M_X 60000
+#endif
+#ifndef GANTRY_COUNTS_PER_M_Y
+#define GANTRY_COUNTS_PER_M_Y 60000
+#endif
+#ifndef GANTRY_COUNTS_PER_M_LIFT
+#define GANTRY_COUNTS_PER_M_LIFT 60000
+#endif
+
+/* PLACEHOLDER: after the brake release output goes high the lift issues no steps for this long, so it never steps
+ * against a brake still engaged (the catalog brake's release delay 30 ms, plus margin) (FW-018, FW-024). */
+#ifndef GANTRY_BRAKE_RELEASE_WAIT_MS
+#define GANTRY_BRAKE_RELEASE_WAIT_MS 50
 #endif
 
 /* PLACEHOLDER: acceleration and deceleration limit (FW-022), cruise speed. */
@@ -123,9 +143,10 @@
 #define GANTRY_HEARTBEAT_PERIOD_TICKS 10u
 #endif
 
-/* PLACEHOLDER (ruling 6): encoder against commanded position, 2 mm at 60000 counts/m (FW-020); over it faults. */
-#ifndef GANTRY_ENCODER_MISMATCH_COUNTS
-#define GANTRY_ENCODER_MISMATCH_COUNTS 120
+/* PLACEHOLDER (ruling 6): encoder against commanded position, 2 mm (FW-020), in counts per axis at its scale; over it
+ * faults. */
+#ifndef GANTRY_ENCODER_MISMATCH_UM
+#define GANTRY_ENCODER_MISMATCH_UM 2000
 #endif
 
 /* Buffer sizes: longest accepted command line, queued transmit bytes and queued events across ticks. */

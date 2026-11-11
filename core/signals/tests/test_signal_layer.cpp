@@ -1,10 +1,13 @@
 #include <catch2/catch_test_macros.hpp>
 #include <cmath>
+#include <cstddef>
 #include <cstdint>
 #include <memory>
 #include <numbers>
+#include <span>
 #include <stdexcept>
 #include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -390,4 +393,100 @@ TEST_CASE("At a 4 kHz layer and a 1 kHz controller every counter delta, UART byt
     CHECK(fast.rx == equal.rx);
     CHECK(equal.full_steps == 200.0);
     CHECK(fast.full_steps == equal.full_steps);
+}
+
+// ===== Layer: drives on one joint combine (ruling 23) ==============================================================
+
+namespace {
+
+class FixedDrives final : public SignalComponent {
+public:
+    FixedDrives(std::string instance, std::vector<mechsim::kernel::JointDrive> drives)
+        : instance_(std::move(instance)), drives_(std::move(drives)) {}
+
+    [[nodiscard]] std::string_view instance_name() const override { return instance_; }
+    [[nodiscard]] std::span<const std::string> inputs() const override { return {}; }
+    [[nodiscard]] std::span<const std::string> outputs() const override { return {}; }
+    void sample(const PhysicalState& /*state*/) override {}
+    void set_inputs(std::span<const double> /*values*/) override {}
+    void latch_outputs() override {}
+    [[nodiscard]] std::span<const double> output_values() const override { return {}; }
+    void inject(const FailureInjection& /*injection*/) override {}
+    [[nodiscard]] std::span<const mechsim::kernel::JointDrive> joint_drives() const override { return drives_; }
+
+private:
+    std::string instance_;
+    std::vector<mechsim::kernel::JointDrive> drives_;
+};
+
+mechsim::kernel::JointDrive drive(std::size_t joint, double rest, double stiffness, double damping, bool enabled) {
+    mechsim::kernel::JointDrive d;
+    d.joint = joint;
+    d.rest = rest;
+    d.stiffness = stiffness;
+    d.damping = damping;
+    d.enabled = enabled;
+    return d;
+}
+
+std::vector<mechsim::kernel::JointDrive> publish(std::vector<std::vector<mechsim::kernel::JointDrive>> sources) {
+    SignalLayer layer(SignalLayerConfig{});
+    for (std::size_t i = 0; i < sources.size(); ++i) {
+        layer.add_component(std::make_unique<FixedDrives>("src" + std::to_string(i), std::move(sources[i])),
+                            Stage::actuator);
+    }
+    layer.start(Rate(1000));
+    layer.set_physical_state(state_at(0.0, 0.0, 0.0));
+    layer.step(SimTime(0), Duration(1));
+    return layer.physics_inputs().joint_drives;
+}
+
+}  // namespace
+
+TEST_CASE("Two drives on one joint publish one drive: parallel springs", "[SIG-020][KER-027]") {
+    // Parallel linear springs: the sum of K_i (r_i - q) = (sum K_i) (rest - q) for every q exactly when
+    // K = sum K_i and rest = sum K_i r_i / K; dampers in parallel add. K1 = 100 at 0.2, K2 = 300 at 0.6:
+    // K = 400, rest = (20 + 180) / 400 = 0.5, D = 1 + 2 = 3. A disabled drive on the joint contributes nothing.
+    const std::vector<mechsim::kernel::JointDrive> out =
+        publish({{drive(1, 0.2, 100.0, 1.0, true), drive(0, -0.4, 50.0, 0.5, true)},
+                 {drive(1, 0.6, 300.0, 2.0, true)},
+                 {drive(1, 9.0, 1.0e6, 1.0e3, false)}});
+    REQUIRE(out.size() == 2);
+    CHECK(out[0].joint == 1);
+    CHECK(out[0].enabled);
+    CHECK(std::fabs(out[0].stiffness - 400.0) < 1e-12);
+    CHECK(std::fabs(out[0].rest - 0.5) < 1e-12);
+    CHECK(std::fabs(out[0].damping - 3.0) < 1e-12);
+    const double q = 0.37;
+    CHECK(std::fabs(out[0].stiffness * (out[0].rest - q) - (100.0 * (0.2 - q) + 300.0 * (0.6 - q))) < 1e-12);
+    CHECK(out[1].joint == 0);
+    CHECK(out[1].rest == -0.4);
+    CHECK(out[1].stiffness == 50.0);
+    CHECK(out[1].damping == 0.5);
+}
+
+TEST_CASE("One enabled drive among disabled ones passes unchanged; all disabled publishes one disabled drive",
+          "[SIG-020][KER-027]") {
+    const std::vector<mechsim::kernel::JointDrive> one =
+        publish({{drive(2, 0.1, 10.0, 0.0, false)}, {drive(2, 0.3, 7.0, 0.25, true)}});
+    REQUIRE(one.size() == 1);
+    CHECK(one[0].enabled);
+    CHECK(one[0].rest == 0.3);
+    CHECK(one[0].stiffness == 7.0);
+    CHECK(one[0].damping == 0.25);
+
+    const std::vector<mechsim::kernel::JointDrive> none =
+        publish({{drive(2, 0.1, 10.0, 0.0, false)}, {drive(2, 0.3, 7.0, 0.25, false)}});
+    REQUIRE(none.size() == 1);
+    CHECK_FALSE(none[0].enabled);
+    CHECK(none[0].rest == 0.1);
+}
+
+TEST_CASE("Enabled drives with no stiffness add their damping and keep the first rest", "[SIG-020][KER-027]") {
+    const std::vector<mechsim::kernel::JointDrive> out =
+        publish({{drive(0, 0.2, 0.0, 1.5, true)}, {drive(0, 0.8, 0.0, 2.5, true)}});
+    REQUIRE(out.size() == 1);
+    CHECK(out[0].rest == 0.2);
+    CHECK(out[0].stiffness == 0.0);
+    CHECK(out[0].damping == 4.0);
 }

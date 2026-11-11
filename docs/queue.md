@@ -5,14 +5,13 @@ State for the coordinating session. A new session reads this, then `docs/rulings
 ## Current checkpoint
 
 Round 4 (milestone 2) in flight on `round/04-milestone-2`, cut from main at 46cbfe6 on 2026-11-10. Plan of record:
-`docs/briefs/round-04/plan.md` (signed off 2026-11-10). Wave 0 and wave 1 landed as stage commits: prep (8aa11f3),
-G chip data and catalog types (b99aba9), D suites and regression (7b98dda), C and A1 bridge faults and sensor
-fidelity (fea1b9c), W Windows CI and native runtime on Windows (e0d817e). E (gantry firmware G5 to G14, accepted at
-review, `wip/04-e` 5bf3179) is held for the integration wave: its new E-stop status channel is unbound in the design
-and faults the firmware end to end. Wave 2 in flight: A2 (`wip/04-a2`), F1 (`wip/04-f1`), B (`wip/04-b`), all from
-e0d817e. Briefs of record in `docs/briefs/round-04/`. Worktrees `../MechatronicsSimulator-04-<letter>`. The round
-branch is not pushed: the session's permission classifier refuses `git push`; the owner pushes (`! git push -u
-origin round/04-milestone-2`) or adds a rule for `round/*` and `wip/*`.
+`docs/briefs/round-04/plan.md`. Stage commits landed: prep 8aa11f3, G b99aba9, D 7b98dda, C and A1 fea1b9c, W
+e0d817e, F1 76e5738, A2 and B 66f6127; F2 merged at 9100c8b (verification running, stage commit next). E (gantry
+firmware G5 to G14, accepted) is merged into `wip/04-x1` and lands with X1. In flight: X1 (`wip/04-x1` from 58725e9,
+integration G5 to G8). Next: X2 (G9 to G11 plus the review carry-overs listed in `m2-x2.md`), X3 (G13, G14), gate.
+Worktrees `../MechatronicsSimulator-04-<letter>`; finished ones (g, c, a1, w, d, e, a2, b, f1, f2) can be removed at
+the round close. The round branch is not pushed: the session's permission classifier refuses `git push`; the owner
+pushes (`! git push -u origin round/04-milestone-2`) or adds a rule for `round/*` and `wip/*`.
 
 ## Round 4 open rulings (owner answers when available; the planned default applies until then)
 
@@ -39,6 +38,9 @@ origin round/04-milestone-2`) or adds a rule for `round/*` and `wip/*`.
 | 20 | A2 review: SCO-013 widens to layer `approximation` events (the load cell's saturation line) so they reach the score report; spec edit and scoring change in X2. | widen | coordinator ruling, for confirmation |
 | 21 | F2: the browser client is verified without a browser (protocol-kind scan against the schema, same-origin check, vendored three.js hash, a coarse domain-logic screen) plus a manual checklist the owner runs once at the gate; a playwright-driven test and its dependency are deferred to M3 unless the owner wants them now. | deferred | open |
 | 22 | F2 review: `list_runs` and `advance` are added as request kinds in X2 (additive); until then the client plays back on its own clock issuing `scrub` per frame, and lists only runs it started. The X2 client fix also keeps the cursor's own sample in the decimated window. | X2 | coordinator ruling, for confirmation |
+| 23 | X1 blocker: the bridge refuses a drive on a transmission's driven joint, so the lift brake was not applied. The brake acts on the motor shaft joint (a motor brake), and the signal layer combines drives published on one joint as parallel springs (K = sum K_i, rest = sum K_i r_i / K, D = sum D_i; exact for linear springs) before publishing, so KER-027's one-drive-per-joint rule holds at the kernel. | as stated | coordinator ruling, for confirmation |
+| 24 | X1 blocker: a payload attached in the case's initial state is built as a fixed child body of its carrier (rigid, no equality); the weld equality is used only for a mid-run attach or release (`set_payload_attachment`). BLD-036 row as X1 wrote it, amended. | as stated | coordinator ruling, for confirmation |
+| 25 | G7: the gantry's `estop_relay` instance runs `manual_reset: false` as the placeholder (the motor rail returns when the E-stop loop closes); the firmware's `reset` message gates motion after an E-stop (FW-024), which is what ACC-015 observes. Gantry team owes the real relay's reset arrangement. | as stated | coordinator ruling, for confirmation |
 | 6 | Placeholders set by the coordinator for the gantry team's slots: overload limit rated + 15 percent (3.45 kg), heartbeat period 10 ms, watchdog timeout 50 ms, brownout threshold 2.0 V, encoder mismatch threshold 2 mm, ADC 12 bits at 3.3 V | as listed | open |
 
 ## Next

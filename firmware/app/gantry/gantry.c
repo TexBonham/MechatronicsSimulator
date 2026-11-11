@@ -12,7 +12,10 @@
 #if MECHSIM_APP_TICK_HZ < 1
 #error "MECHSIM_APP_TICK_HZ must be at least 1"
 #endif
-#if (GANTRY_WORKSPACE_X_UM < 1) || (GANTRY_WORKSPACE_Y_UM < 1) || (GANTRY_STEPS_PER_M < 1) || (GANTRY_COUNTS_PER_M < 1)
+#if (GANTRY_WORKSPACE_X_UM < 1) || (GANTRY_WORKSPACE_Y_UM < 1) || (GANTRY_STEPS_PER_M_X < 1) || (GANTRY_STEPS_PER_M_Y < 1)
+#error "gantry workspace and scale parameters must be positive"
+#endif
+#if (GANTRY_STEPS_PER_M_LIFT < 1) || (GANTRY_COUNTS_PER_M_X < 1) || (GANTRY_COUNTS_PER_M_Y < 1) || (GANTRY_COUNTS_PER_M_LIFT < 1)
 #error "gantry workspace and scale parameters must be positive"
 #endif
 #if (GANTRY_MAX_ACCEL_UM_S2 < 1) || (GANTRY_MAX_SPEED_UM_S < 1) || (GANTRY_SLOW_SPEED_UM_S < 1)
@@ -27,7 +30,7 @@
 #if (GANTRY_LIFT_TRAVEL_UM < 1) || (GANTRY_LOAD_COUNTS_PER_KG < 1) || (GANTRY_OVERLOAD_LIMIT_MILLIKG < 0)
 #error "gantry lift and load parameters out of range"
 #endif
-#if (GANTRY_HEARTBEAT_PERIOD_TICKS < 1) || (GANTRY_OVERLOAD_TICKS < 1) || (GANTRY_ENCODER_MISMATCH_COUNTS < 0)
+#if (GANTRY_HEARTBEAT_PERIOD_TICKS < 1) || (GANTRY_OVERLOAD_TICKS < 1) || (GANTRY_ENCODER_MISMATCH_UM < 0)
 #error "gantry heartbeat, overload filter and encoder threshold out of range"
 #endif
 #if (GANTRY_CH_LOAD_ADC < 0) || (GANTRY_CH_LOAD_ADC >= MECHSIM_ADC_COUNT)
@@ -63,16 +66,18 @@ typedef struct gantry_axis {
     uint32_t steps_this_tick;
 } gantry_axis;
 
+/* Every length, speed and acceleration in each axis's own steps (its GANTRY_STEPS_PER_M_*). */
 typedef struct gantry_limits {
-    int64_t accel_q16;
-    int64_t speed_q16;
-    int64_t slow_speed_q16;
-    int64_t homing_speed_q16;
-    int64_t slow_zone_q16;
-    int64_t homing_max_q16;
+    int64_t accel_q16[GANTRY_AXIS_COUNT];
+    int64_t speed_q16[GANTRY_AXIS_COUNT];
+    int64_t slow_speed_q16[GANTRY_AXIS_COUNT];
+    int64_t homing_speed_q16[GANTRY_AXIS_COUNT];
+    int64_t slow_zone_q16[GANTRY_AXIS_COUNT];
+    int64_t homing_max_q16[GANTRY_AXIS_COUNT];
     int64_t workspace_q16[GANTRY_AXIS_COUNT];
     int32_t workspace_steps[GANTRY_AXIS_COUNT];
-    int32_t slow_zone_steps;
+    int32_t slow_zone_steps[GANTRY_AXIS_COUNT];
+    int64_t mismatch_counts[GANTRY_AXIS_COUNT];
 } gantry_limits;
 
 #define GANTRY_QUEUED_NONE 0u
@@ -104,35 +109,44 @@ typedef struct gantry_app {
     mechsim_board_event event_queue[GANTRY_EVENT_QUEUE_COUNT];
     uint32_t event_head;
     uint32_t event_count;
+    uint32_t brake_released_ticks;
 } gantry_app;
 
 static gantry_app g_app;
 
+#define GANTRY_BRAKE_RELEASE_WAIT_TICKS \
+    ((((uint32_t)GANTRY_BRAKE_RELEASE_WAIT_MS * (uint32_t)MECHSIM_APP_TICK_HZ) + 999u) / 1000u)
+
 // ===== Fixed point ====================================================================================================
 
-static int64_t speed_to_q16(int64_t um_per_s)
+static const int64_t steps_per_m[GANTRY_AXIS_COUNT] = {
+    (int64_t)GANTRY_STEPS_PER_M_X, (int64_t)GANTRY_STEPS_PER_M_Y, (int64_t)GANTRY_STEPS_PER_M_LIFT};
+static const int64_t counts_per_m[GANTRY_AXIS_COUNT] = {
+    (int64_t)GANTRY_COUNTS_PER_M_X, (int64_t)GANTRY_COUNTS_PER_M_Y, (int64_t)GANTRY_COUNTS_PER_M_LIFT};
+
+static int64_t speed_to_q16(uint32_t index, int64_t um_per_s)
 {
-    return (um_per_s * (int64_t)GANTRY_STEPS_PER_M * Q16_ONE) / ((int64_t)UM_PER_M * (int64_t)MECHSIM_APP_TICK_HZ);
+    return (um_per_s * steps_per_m[index] * Q16_ONE) / ((int64_t)UM_PER_M * (int64_t)MECHSIM_APP_TICK_HZ);
 }
 
-static int64_t accel_to_q16(int64_t um_per_s2)
+static int64_t accel_to_q16(uint32_t index, int64_t um_per_s2)
 {
     int64_t hz = (int64_t)MECHSIM_APP_TICK_HZ;
-    int64_t value = (um_per_s2 * (int64_t)GANTRY_STEPS_PER_M * Q16_ONE) / ((int64_t)UM_PER_M * hz * hz);
+    int64_t value = (um_per_s2 * steps_per_m[index] * Q16_ONE) / ((int64_t)UM_PER_M * hz * hz);
     if (value < 1) {
         return 1;
     }
     return value;
 }
 
-static int64_t length_to_q16(int64_t um)
+static int64_t length_to_q16(uint32_t index, int64_t um)
 {
-    return ((um * (int64_t)GANTRY_STEPS_PER_M + (UM_PER_M / 2)) / UM_PER_M) * Q16_ONE;
+    return ((um * steps_per_m[index] + (UM_PER_M / 2)) / UM_PER_M) * Q16_ONE;
 }
 
-static int32_t um_to_steps(int64_t um)
+static int32_t um_to_steps(uint32_t index, int64_t um)
 {
-    return (int32_t)((um * (int64_t)GANTRY_STEPS_PER_M + (UM_PER_M / 2)) / UM_PER_M);
+    return (int32_t)((um * steps_per_m[index] + (UM_PER_M / 2)) / UM_PER_M);
 }
 
 static int64_t isqrt64(uint64_t value)
@@ -251,18 +265,18 @@ static uint32_t append_metres(uint8_t *buffer, uint32_t length, int64_t um)
     return append_unsigned(buffer, length, (uint32_t)(magnitude % (uint64_t)UM_PER_M), 6u);
 }
 
-static int64_t encoder_um(const gantry_axis *axis)
+static int64_t encoder_um(uint32_t index)
 {
-    return ((int64_t)axis->encoder_counts * UM_PER_M) / (int64_t)GANTRY_COUNTS_PER_M;
+    return ((int64_t)g_app.axis[index].encoder_counts * UM_PER_M) / counts_per_m[index];
 }
 
 static void send_position(void)
 {
     uint8_t line[48];
     uint32_t length = append_text(line, 0u, "current_position ");
-    length = append_metres(line, length, encoder_um(&g_app.axis[GANTRY_AXIS_X]));
+    length = append_metres(line, length, encoder_um(GANTRY_AXIS_X));
     line[length] = (uint8_t)' ';
-    length = append_metres(line, length + 1u, encoder_um(&g_app.axis[GANTRY_AXIS_Y]));
+    length = append_metres(line, length + 1u, encoder_um(GANTRY_AXIS_Y));
     line[length] = (uint8_t)'\n';
     send_bytes(line, length + 1u);
 }
@@ -322,11 +336,11 @@ static void stop_axes(void)
  * FW-022): with v the last tick's speed and a the limit, (v - a) v / 2a leaves stop_speed_cap at v - a on this tick. */
 static void begin_stop(uint8_t reason)
 {
-    const int64_t accel = g_app.limits.accel_q16;
     uint32_t index;
     g_app.stop_reason = reason;
     g_app.queued_kind = GANTRY_QUEUED_NONE;
     for (index = 0u; index < GANTRY_AXIS_COUNT; index = index + 1u) {
+        const int64_t accel = g_app.limits.accel_q16[index];
         gantry_axis *axis = &g_app.axis[index];
         int64_t distance = 0;
         if (axis->velocity_q16 > accel) {
@@ -535,8 +549,8 @@ static void handle_target(uint8_t parsed, int64_t x_um, int64_t y_um)
         refuse(GANTRY_FAULT_OUTSIDE_WORKSPACE);
         return;
     }
-    target_steps[GANTRY_AXIS_X] = um_to_steps(x_um);
-    target_steps[GANTRY_AXIS_Y] = um_to_steps(y_um);
+    target_steps[GANTRY_AXIS_X] = um_to_steps(GANTRY_AXIS_X, x_um);
+    target_steps[GANTRY_AXIS_Y] = um_to_steps(GANTRY_AXIS_Y, y_um);
     if (g_app.state == GANTRY_STATE_MOVING) {
         if ((GANTRY_NEW_TARGET_POLICY != GANTRY_POLICY_QUEUE) || (g_app.stop_reason != GANTRY_FAULT_NONE)) {
             refuse(GANTRY_FAULT_BUSY);
@@ -580,7 +594,7 @@ static void handle_lift(uint8_t parsed, int64_t z_um)
         refuse(GANTRY_FAULT_OUTSIDE_WORKSPACE);
         return;
     }
-    target_steps[GANTRY_AXIS_LIFT] = um_to_steps(z_um);
+    target_steps[GANTRY_AXIS_LIFT] = um_to_steps(GANTRY_AXIS_LIFT, z_um);
     if ((g_app.overloaded != 0u) && (lift_is_up(target_steps[GANTRY_AXIS_LIFT]) == 1u)) {
         refuse(GANTRY_FAULT_OVERLOAD);
         return;
@@ -741,15 +755,15 @@ static int64_t zone_speed_cap(const gantry_axis *axis, uint32_t index)
     int64_t distance_q16;
     uint64_t squared;
     if (axis->move_sign > 0) {
-        distance_q16 = (limits->workspace_q16[index] - limits->slow_zone_q16) - position_q16;
+        distance_q16 = (limits->workspace_q16[index] - limits->slow_zone_q16[index]) - position_q16;
     } else {
-        distance_q16 = position_q16 - limits->slow_zone_q16;
+        distance_q16 = position_q16 - limits->slow_zone_q16[index];
     }
     if (distance_q16 <= 0) {
-        return limits->slow_speed_q16;
+        return limits->slow_speed_q16[index];
     }
-    squared = (uint64_t)(limits->slow_speed_q16 * limits->slow_speed_q16)
-        + (uint64_t)(2 * limits->accel_q16) * (uint64_t)distance_q16;
+    squared = (uint64_t)(limits->slow_speed_q16[index] * limits->slow_speed_q16[index])
+        + (uint64_t)(2 * limits->accel_q16[index]) * (uint64_t)distance_q16;
     return isqrt64(squared);
 }
 
@@ -759,21 +773,36 @@ static int64_t stop_speed_cap(int64_t accel_q16, int64_t remaining_q16)
     return (isqrt64(squared) - accel_q16) / 2;
 }
 
+/* The lift waits while its brake may still hold after the release output went high. */
+static uint8_t lift_brake_settling(uint32_t index)
+{
+    if (index != GANTRY_AXIS_LIFT) {
+        return 0u;
+    }
+    if (g_app.brake_released_ticks < GANTRY_BRAKE_RELEASE_WAIT_TICKS) {
+        return 1u;
+    }
+    return 0u;
+}
+
 static uint8_t move_axis(gantry_axis *axis, uint32_t index)
 {
     const gantry_limits *limits = &g_app.limits;
     int64_t remaining_q16 = axis->move_total_q16 - axis->move_progress_q16;
     int64_t velocity;
     uint32_t steps;
+    if ((remaining_q16 > 0) && (lift_brake_settling(index) != 0u)) {
+        return 0u;
+    }
     if (remaining_q16 <= 0) {
         axis->velocity_q16 = 0;
         profile_end(index);
         return 1u;
     }
-    velocity = min64(axis->velocity_q16 + limits->accel_q16, limits->speed_q16);
-    velocity = min64(velocity, max64(zone_speed_cap(axis, index), axis->velocity_q16 - limits->accel_q16));
-    velocity = min64(velocity, stop_speed_cap(limits->accel_q16, remaining_q16));
-    velocity = max64(velocity, limits->accel_q16);
+    velocity = min64(axis->velocity_q16 + limits->accel_q16[index], limits->speed_q16[index]);
+    velocity = min64(velocity, max64(zone_speed_cap(axis, index), axis->velocity_q16 - limits->accel_q16[index]));
+    velocity = min64(velocity, stop_speed_cap(limits->accel_q16[index], remaining_q16));
+    velocity = max64(velocity, limits->accel_q16[index]);
     velocity = min64(velocity, remaining_q16);
     steps = advance_progress(&axis->move_progress_q16, velocity);
     axis->velocity_q16 = velocity;
@@ -867,12 +896,12 @@ static void supervise_encoders(void)
     }
     for (index = 0u; index < GANTRY_AXIS_COUNT; index = index + 1u) {
         const gantry_axis *axis = &g_app.axis[index];
-        int64_t expected = ((int64_t)axis->position_steps * (int64_t)GANTRY_COUNTS_PER_M) / (int64_t)GANTRY_STEPS_PER_M;
+        int64_t expected = ((int64_t)axis->position_steps * counts_per_m[index]) / steps_per_m[index];
         int64_t difference = (int64_t)axis->encoder_counts - expected;
         if (difference < 0) {
             difference = -difference;
         }
-        if (difference > (int64_t)GANTRY_ENCODER_MISMATCH_COUNTS) {
+        if (difference > g_app.limits.mismatch_counts[index]) {
             begin_stop(GANTRY_FAULT_ENCODER_MISMATCH);
             return;
         }
@@ -896,11 +925,11 @@ static void supervise_limits(const mechsim_board_inputs *inputs)
     for (index = 0u; index < GANTRY_AXIS_COUNT; index = index + 1u) {
         int32_t position = g_app.axis[index].position_steps;
         if ((inputs->digital_in[min_channel[index]] == GANTRY_SWITCH_ACTIVE_LEVEL)
-            && (position > limits->slow_zone_steps)) {
+            && (position > limits->slow_zone_steps[index])) {
             tripped = 1u;
         }
         if ((inputs->digital_in[max_channel[index]] == GANTRY_SWITCH_ACTIVE_LEVEL)
-            && (position < limits->workspace_steps[index] - limits->slow_zone_steps)) {
+            && (position < limits->workspace_steps[index] - limits->slow_zone_steps[index])) {
             tripped = 1u;
         }
     }
@@ -936,11 +965,14 @@ static void run_homing(const mechsim_board_inputs *inputs)
             continue;
         }
         all_homed = 0u;
-        if (axis->homing_progress_q16 >= limits->homing_max_q16) {
+        if (lift_brake_settling(index) != 0u) {
+            continue;
+        }
+        if (axis->homing_progress_q16 >= limits->homing_max_q16[index]) {
             enter_fault(GANTRY_FAULT_HOMING_FAILED);
             return;
         }
-        axis->velocity_q16 = min64(axis->velocity_q16 + limits->accel_q16, limits->homing_speed_q16);
+        axis->velocity_q16 = min64(axis->velocity_q16 + limits->accel_q16[index], limits->homing_speed_q16[index]);
         axis->steps_this_tick = advance_progress(&axis->homing_progress_q16, axis->velocity_q16);
     }
     if (all_homed == 1u) {
@@ -1038,6 +1070,11 @@ static void write_brake(mechsim_board_outputs *outputs)
         && (outputs->digital_out[MECHSIM_CH_LIFT_DRIVER_ENABLE] == GANTRY_ENABLE_ACTIVE_LEVEL)) {
         outputs->digital_out[GANTRY_CH_BRAKE_RELEASE_OUT] = MECHSIM_LEVEL_HIGH;
     }
+    if (outputs->digital_out[GANTRY_CH_BRAKE_RELEASE_OUT] != MECHSIM_LEVEL_HIGH) {
+        g_app.brake_released_ticks = 0u;
+    } else if (g_app.brake_released_ticks < GANTRY_BRAKE_RELEASE_WAIT_TICKS) {
+        g_app.brake_released_ticks = g_app.brake_released_ticks + 1u;
+    }
 }
 
 /* FW-025: toggles every GANTRY_HEARTBEAT_PERIOD_TICKS ticks from init, first on the first tick; held low in FAULT so
@@ -1093,19 +1130,22 @@ void mechsim_app_init(void)
     }
     g_app.state = GANTRY_STATE_NOT_HOMED;
     g_app.heartbeat = MECHSIM_LEVEL_LOW;
-    g_app.limits.accel_q16 = accel_to_q16(GANTRY_MAX_ACCEL_UM_S2);
-    g_app.limits.speed_q16 = speed_to_q16(GANTRY_MAX_SPEED_UM_S);
-    g_app.limits.slow_speed_q16 = speed_to_q16(GANTRY_SLOW_SPEED_UM_S);
-    g_app.limits.homing_speed_q16 = speed_to_q16(GANTRY_HOMING_SPEED_UM_S);
-    g_app.limits.slow_zone_q16 = length_to_q16(GANTRY_SLOW_ZONE_UM);
-    g_app.limits.homing_max_q16 = length_to_q16(GANTRY_HOMING_MAX_TRAVEL_UM);
-    g_app.limits.workspace_q16[GANTRY_AXIS_X] = length_to_q16(GANTRY_WORKSPACE_X_UM);
-    g_app.limits.workspace_q16[GANTRY_AXIS_Y] = length_to_q16(GANTRY_WORKSPACE_Y_UM);
-    g_app.limits.workspace_q16[GANTRY_AXIS_LIFT] = length_to_q16(GANTRY_LIFT_TRAVEL_UM);
-    g_app.limits.workspace_steps[GANTRY_AXIS_X] = um_to_steps(GANTRY_WORKSPACE_X_UM);
-    g_app.limits.workspace_steps[GANTRY_AXIS_Y] = um_to_steps(GANTRY_WORKSPACE_Y_UM);
-    g_app.limits.workspace_steps[GANTRY_AXIS_LIFT] = um_to_steps(GANTRY_LIFT_TRAVEL_UM);
-    g_app.limits.slow_zone_steps = um_to_steps(GANTRY_SLOW_ZONE_UM);
+    for (index = 0u; index < GANTRY_AXIS_COUNT; index = index + 1u) {
+        g_app.limits.accel_q16[index] = accel_to_q16(index, GANTRY_MAX_ACCEL_UM_S2);
+        g_app.limits.speed_q16[index] = speed_to_q16(index, GANTRY_MAX_SPEED_UM_S);
+        g_app.limits.slow_speed_q16[index] = speed_to_q16(index, GANTRY_SLOW_SPEED_UM_S);
+        g_app.limits.homing_speed_q16[index] = speed_to_q16(index, GANTRY_HOMING_SPEED_UM_S);
+        g_app.limits.slow_zone_q16[index] = length_to_q16(index, GANTRY_SLOW_ZONE_UM);
+        g_app.limits.homing_max_q16[index] = length_to_q16(index, GANTRY_HOMING_MAX_TRAVEL_UM);
+        g_app.limits.slow_zone_steps[index] = um_to_steps(index, GANTRY_SLOW_ZONE_UM);
+        g_app.limits.mismatch_counts[index] = ((int64_t)GANTRY_ENCODER_MISMATCH_UM * counts_per_m[index]) / UM_PER_M;
+    }
+    g_app.limits.workspace_q16[GANTRY_AXIS_X] = length_to_q16(GANTRY_AXIS_X, GANTRY_WORKSPACE_X_UM);
+    g_app.limits.workspace_q16[GANTRY_AXIS_Y] = length_to_q16(GANTRY_AXIS_Y, GANTRY_WORKSPACE_Y_UM);
+    g_app.limits.workspace_q16[GANTRY_AXIS_LIFT] = length_to_q16(GANTRY_AXIS_LIFT, GANTRY_LIFT_TRAVEL_UM);
+    g_app.limits.workspace_steps[GANTRY_AXIS_X] = um_to_steps(GANTRY_AXIS_X, GANTRY_WORKSPACE_X_UM);
+    g_app.limits.workspace_steps[GANTRY_AXIS_Y] = um_to_steps(GANTRY_AXIS_Y, GANTRY_WORKSPACE_Y_UM);
+    g_app.limits.workspace_steps[GANTRY_AXIS_LIFT] = um_to_steps(GANTRY_AXIS_LIFT, GANTRY_LIFT_TRAVEL_UM);
     for (index = 0u; index < GANTRY_AXIS_COUNT; index = index + 1u) {
         g_app.axis[index].direction_level = GANTRY_DIR_NEGATIVE_LEVEL;
     }

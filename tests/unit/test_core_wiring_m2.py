@@ -79,7 +79,10 @@ def test_payload_follows_its_carrier_to_the_start_configuration(built: object) -
 
 
 @pytest.mark.req("BLD-035")
-def test_brake_holding_force_and_inverse_inertia_on_the_lift(built: object) -> None:
+@pytest.mark.req("SIG-020")
+def test_brake_on_the_lift_motor_shaft_reflects_the_lifted_mass(built: object) -> None:
+    # Ruling 23: the brake holds the shaft. Rigid screw x = c theta: kinetic energy (J + m c^2) omega^2 / 2, so the
+    # shaft's inverse inertia is A0 = 1 / (J + m c^2), m every body below the lift joint, the torque as given.
     model = built.physics  # type: ignore[attr-defined]
     places, _ = core_wiring.joint_places(model)
     brake = _instances(built)["lift_brake"]
@@ -87,23 +90,35 @@ def test_brake_holding_force_and_inverse_inertia_on_the_lift(built: object) -> N
     screw = next(item for item in model.transmissions if item.name == "lift_screw")
     c = screw.lead / (2.0 * math.pi)
     names = [body.name for body in model.bodies]
-    below = ("lift_carriage", "hook")
-    mass = sum(model.bodies[names.index(name)].mass for name in below)
+    mass = sum(model.bodies[names.index(name)].mass for name in ("lift_carriage", "hook"))
     shaft = model.bodies[names.index("lift_motor_shaft")]
-    print(f"brake force {params['brake_torque']} N, A0 {params['inverse_inertia']} 1/kg")
-    assert params["joint"] == places["lift_axis"].body
-    assert params["brake_torque"] == pytest.approx(0.5 / c, rel=1e-12)
-    assert params["inverse_inertia"] == pytest.approx(1.0 / (mass + core_wiring.axial_inertia(shaft) / c**2), rel=1e-12)
+    expected = 1.0 / (core_wiring.axial_inertia(shaft) + mass * c * c)
+    print(f"brake torque {params['brake_torque']} N m, A0 {params['inverse_inertia']} (expected {expected}) 1/(kg m^2)")
+    assert params["joint"] == places["lift_motor_spin"].body
+    assert params["brake_torque"] == pytest.approx(0.5, rel=1e-12)
+    assert params["inverse_inertia"] == pytest.approx(expected, rel=1e-12)
+    assert core_wiring.undrivable_brake(brake, model) is None  # type: ignore[arg-type]
 
 
 @pytest.mark.req("BLD-035")
-def test_brake_on_a_driven_joint_is_reported_not_applied(built: object) -> None:
-    brake = _instances(built)["lift_brake"]
-    line = core_wiring.undrivable_brake(brake, built.physics)  # type: ignore[arg-type, attr-defined]
+def test_brake_on_a_driven_prismatic_joint_reflects_the_rotor_and_is_reported(built: object) -> None:
+    model = built.physics  # type: ignore[attr-defined]
+    places, _ = core_wiring.joint_places(model)
+    brake = _instances(built)["lift_brake"].model_copy(update={"acts_on": "lift_axis"})  # type: ignore[attr-defined]
+    params = core_wiring.brake_parameters(brake, places, model)
+    screw = next(item for item in model.transmissions if item.name == "lift_screw")
+    c = screw.lead / (2.0 * math.pi)
+    names = [body.name for body in model.bodies]
+    mass = sum(model.bodies[names.index(name)].mass for name in ("lift_carriage", "hook"))
+    shaft = model.bodies[names.index("lift_motor_shaft")]
+    assert params["joint"] == places["lift_axis"].body
+    assert params["brake_torque"] == pytest.approx(0.5 / c, rel=1e-12)
+    assert params["inverse_inertia"] == pytest.approx(1.0 / (mass + core_wiring.axial_inertia(shaft) / c**2), rel=1e-12)
+    line = core_wiring.undrivable_brake(brake, model)
     assert line is not None
     assert "not applied" in line
     assert "lift_screw" in line
-    assert core_wiring.undrivable_brake(_instances(built)["x_motor"], built.physics) is None  # type: ignore[arg-type, attr-defined]
+    assert core_wiring.undrivable_brake(_instances(built)["x_motor"], model) is None  # type: ignore[arg-type]
 
 
 @pytest.mark.req("BLD-035")

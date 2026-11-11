@@ -40,6 +40,10 @@ def test_reference_cases_ship() -> None:
         "test_cases/gantry/G2.yaml",
         "test_cases/gantry/G3.yaml",
         "test_cases/gantry/G4.yaml",
+        "test_cases/gantry/G5.yaml",
+        "test_cases/gantry/G6.yaml",
+        "test_cases/gantry/G7.yaml",
+        "test_cases/gantry/G8.yaml",
         "test_cases/pendulum/P1_period.yaml",
     ]
 

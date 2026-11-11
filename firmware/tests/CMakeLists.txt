@@ -22,10 +22,16 @@ mechsim_fw_add_app(mechsim_fw_gantry_variant ${MECHSIM_FW_GANTRY_SOURCES})
 target_compile_definitions(mechsim_fw_gantry_variant
     PRIVATE GANTRY_NEW_TARGET_POLICY=1 GANTRY_TX_QUEUE_BYTES=64u
     PUBLIC MECHSIM_APP_TICK_HZ=500u)
+# A third with the lift at the 8 mm screw's own step scale (unequal per-axis scales).
+mechsim_fw_add_app(mechsim_fw_gantry_scale ${MECHSIM_FW_GANTRY_SOURCES})
+target_compile_definitions(mechsim_fw_gantry_scale
+    PUBLIC GANTRY_STEPS_PER_M_LIFT=400000 GANTRY_COUNTS_PER_M_LIFT=300000)
 mechsim_fw_add_test(test_gantry mechsim_fw_gantry)
 mechsim_fw_add_test(test_gantry_variant mechsim_fw_gantry_variant)
+mechsim_fw_add_test(test_gantry_scale mechsim_fw_gantry_scale)
 target_include_directories(test_gantry PRIVATE ${MECHSIM_FW_APP_ROOT}/gantry)
 target_include_directories(test_gantry_variant PRIVATE ${MECHSIM_FW_APP_ROOT}/gantry)
+target_include_directories(test_gantry_scale PRIVATE ${MECHSIM_FW_APP_ROOT}/gantry)
 
 set(fixtures ${CMAKE_CURRENT_SOURCE_DIR}/fixtures)
 function(mechsim_fw_add_include_check name file)

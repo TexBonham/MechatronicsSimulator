@@ -22,13 +22,14 @@ slot in a data file; a value drops in by editing the file named, never code. Pla
 | Controller | Heartbeat period and watchdog timeout; position status period | not set; 100 ticks | fw.md FW-025, FW-029; catalog watchdog |
 | Controller | Limit switch active level; driver direction and enable levels | high; high, high | fw.md open parameters |
 | Controller | Lift commands (milestone 1 firmware never moves the lift) | held enabled, no steps | fw.md, milestone 2 |
-| Sensors | Encoder placement (motor shaft or axis side); counts per metre; steps per metre | frame; 60 000; 80 000 | `encoder_placement`; fw.md |
+| Sensors | Encoder placement (motor shaft or axis side); counts per metre; steps per metre | frame; 60 000 per axis; 80 000 per axis (lift at a placeholder 40 mm/rev ratio; 300 000 and 400 000 at the TR8x8's 8 mm lead) | `encoder_placement`; fw.md |
 | Motors | Stepper datasheet: holding torque, torque-speed curve, rotor inertia, viscous damping, rated current, max voltage, phase R and L | catalog placeholders | `mechsim/library/catalog/stepper_behavioral.yaml` |
 | Transmissions | Lead screw lead, efficiency, stiffness, backlash, max axial load; belt efficiency, stiffness, max tension | catalog placeholders | `lead_screw.yaml`, `belt_pulley.yaml` |
 | Components | Limit switch, driver, supply, relay, watchdog, UART link ratings | catalog placeholders | each catalog file's `placeholders` list |
 | Components | Load cell type, if a weight sensor exists | load_cell_5kg_generic on the hook, sensing the case payload | `load_cell_type`; `designs/gantry/design.yaml` `load_cell` |
 | Components | Load cell amplifier part and gain; load scale and zero in counts | load_cell_amplifier_generic at gain 403 (1000 counts per kg on a 12-bit 3.3 V ADC); 1000 counts/kg, zero 0 | `load_amp` overrides; `gantry_config.h` `GANTRY_LOAD_COUNTS_PER_KG`, `GANTRY_LOAD_ZERO_COUNTS` |
 | Controller | Overload limit, heartbeat period, watchdog timeout, encoder mismatch threshold (round 4 ruling 6) | 3.45 kg, 10 ms, 50 ms, 2 mm | `gantry_config.h`; catalog watchdog |
+| Controller | Lift wait after the brake release output goes high (brief M2-X2) | 50 ms | `gantry_config.h` `GANTRY_BRAKE_RELEASE_WAIT_MS` |
 | Electronics | MCU pins of the load ADC, E-stop status input and brake release output | PA11 adc_input, PB7 digital_input, PB8 digital_output | `chips/stm32_placeholder/chip.yaml`; design `pin_bindings` |
 | Cases | G5 to G8 payload masses, fault times, hold band and stop margins | see each case's `open_parameters` | `test_cases/gantry/G5.yaml` to `G8.yaml` |
 | Electronics | STM32 part and target flags, after the peripheral smoke test | `chips/stm32_placeholder` | `chips/`, ADR 0011 |

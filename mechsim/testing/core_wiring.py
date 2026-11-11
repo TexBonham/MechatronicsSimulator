@@ -11,13 +11,16 @@ inside it.
 Milestone 2 instances (BLD-035): a signal wire between two layer instances (an output port to an input port, not
 power, ground or a driver-to-motor coil) is a layer connection; a load cell reads its payload's attachment force by the
 payload's index among the model's payload bodies; the amplifier converts with the design chip's ADC (`Chip.adc`); a
-brake registers at the actuator stage by type and acts on its `acts_on` joint. On a prismatic joint driven by a
-transmission the brake sits on that transmission's shaft: its holding force is brake_torque / c and its drive's inverse
-inertia A0 = 1 / (m + sum J / c^2), m the mass of the joint's child body and every body below it, J the axial inertia
-of each driving shaft body (the rotor inertia, BLD-034), c the transmission's metres per radian (lead / 2 pi for a lead
-screw, the pulley radius for a belt): the joint's inverse inertia at the reference configuration with each rotor
-reflected rigidly, which is MuJoCo's dof_invweight0 for that joint on the bridge. A payload welded to a carrier is a
-separate free body and does not enter m. On a revolute joint the brake torque applies as given and A0 is not set.
+brake registers at the actuator stage by type and acts on its `acts_on` joint. On a motor shaft joint (a revolute
+joint some transmission is driven from, ruling 23) the brake torque applies as given and its drive's inverse inertia is
+A0 = 1 / (J + m c^2), J the shaft body's axial inertia (the rotor inertia, BLD-034), m the mass of the driven joint's
+child body and every body below it (a payload fixed to the carrier included, ruling 24), c the transmission's metres
+per radian (lead / 2 pi for a lead screw, the pulley radius for a belt): the shaft's inverse inertia at the reference
+configuration with the driven mass reflected rigidly onto it. The layer combines the brake's drive with the motor's on
+that joint as parallel springs (SIG-020, ruling 23) and the bridge applies it through its shaft reflection. On a
+prismatic joint driven by a transmission the holding force is brake_torque / c and A0 = 1 / (m + sum J / c^2) over its
+driving shafts (the bridge refuses a drive there; kept for an engine that takes one). On any other revolute joint the
+brake torque applies as given and A0 is not set. A payload welded to a carrier is a separate free body and enters no m.
 
 Firmware event-log entries whose code the design names in `firmware.event_codes` are
 collected by the runner party from `controller.pin_outputs` and recorded as `controller` events of that name, the
@@ -315,6 +318,17 @@ def brake_parameters(instance: InstanceWiring, places: Mapping[str, JointPlace],
         "power_off_engaged": values["power_off_engaged"],
     }
     if place.kind == "revolute":
+        driven = [item for item in model.transmissions if item.shaft_joint == joint]
+        if len(driven) == 0:
+            return params
+        if len(driven) > 1:
+            raise WiringError(f"brake '{instance.name}': shaft joint '{joint}' drives {len(driven)} transmissions")
+        shaft = next(body for body in model.bodies if body.joint is not None and body.joint.name == joint)
+        c = _metres_per_radian(driven[0])
+        driven_child = next(
+            body.name for body in model.bodies if body.joint is not None and body.joint.name == driven[0].driven_joint
+        )
+        params["inverse_inertia"] = 1.0 / (axial_inertia(shaft) + _subtree_mass(model, driven_child) * c * c)
         return params
     if place.kind != "prismatic":
         raise WiringError(f"brake '{instance.name}': acts on a {place.kind} joint; only revolute and prismatic")

@@ -2074,11 +2074,11 @@ def _m2_errors(data: dict[str, Any]) -> list[str]:
 
 
 @pytest.mark.req("DES-043")
-def test_shipped_gantry_load_cell_senses_the_payload_and_the_brake_acts_on_the_lift() -> None:
+def test_shipped_gantry_load_cell_senses_the_payload_and_the_brake_acts_on_the_lift_motor_shaft() -> None:
     data = gantry()
     assert _m2_errors(data) == []
     assert component(data, "load_cell")["senses"] == {"payload": "payload"}
-    assert component(data, "lift_brake")["acts_on"] == {"joint": "lift_axis"}
+    assert component(data, "lift_brake")["acts_on"] == {"joint": "lift_motor_spin"}
 
 
 @pytest.mark.req("DES-043")

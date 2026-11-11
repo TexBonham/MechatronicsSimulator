@@ -15,6 +15,10 @@ namespace {
 constexpr std::int64_t accuracy_um = 10000;
 constexpr std::uint32_t max_steps_per_tick = 16U;
 constexpr std::uint32_t slow_steps_per_tick = 4U;
+// The lift at its own scale: 0.2 m/s x GANTRY_STEPS_PER_M_LIFT / 1000 Hz steps per tick.
+constexpr std::uint32_t lift_max_steps_per_tick =
+    static_cast<std::uint32_t>(GANTRY_MAX_SPEED_UM_S * gantry_test::lift_steps_per_m / 1000000 / 1000);
+constexpr std::int64_t lift_mm = gantry_test::lift_steps_per_m / 1000;
 constexpr std::int64_t slow_zone_steps = 4000;
 
 std::uint32_t steps_x(const mechsim_board_outputs& out)
@@ -58,11 +62,11 @@ MoveTrace run_move(Plant& plant, const std::string& command)
     return trace;
 }
 
-void require_profile_limits(const std::vector<std::uint32_t>& steps)
+void require_profile_limits(const std::vector<std::uint32_t>& steps, std::uint32_t limit = max_steps_per_tick)
 {
     std::int64_t previous = 0;
     for (std::uint32_t value : steps) {
-        REQUIRE(value <= max_steps_per_tick);
+        REQUIRE(value <= limit);
         REQUIRE(std::llabs(static_cast<std::int64_t>(value) - previous) <= 2);
         previous = static_cast<std::int64_t>(value);
     }
@@ -723,14 +727,46 @@ TEST_CASE("lift: homing takes the lift to its min switch with X and Y", "[FW-014
     REQUIRE(has_event(plant.take_events(), GANTRY_EVENT_ORIGIN, GANTRY_AXIS_LIFT));
 }
 
+TEST_CASE("lift: homing waits out the brake release before the lift steps; X and Y start at once", "[FW-014][FW-018]")
+{
+    // The release output goes high on the first homing tick; the brake may hold for its release delay after that, so
+    // the lift issues no step for GANTRY_BRAKE_RELEASE_WAIT_MS (50 ticks at 1 kHz) counted from that tick, then steps.
+    constexpr std::int64_t wait_ticks = (std::int64_t{GANTRY_BRAKE_RELEASE_WAIT_MS} * 1000 + 999) / 1000;
+    STATIC_REQUIRE(wait_ticks == 50);
+    Plant plant(1600, 800, 2400);
+    mechsim_board_outputs out = plant.tick("home\n");
+    REQUIRE(brake_released(out));
+    REQUIRE(steps_lift(out) == 0U);
+    std::uint32_t x_steps = steps_x(out);
+    for (std::int64_t tick = 1; tick < wait_ticks; ++tick) {
+        out = plant.tick();
+        REQUIRE(brake_released(out));
+        REQUIRE(steps_lift(out) == 0U);
+        x_steps = x_steps + steps_x(out);
+    }
+    REQUIRE(x_steps > 0U);
+    REQUIRE(plant.position[2] == 2400);
+    // From rest the homing speed ramps by a = 0.5 m/s^2 x GANTRY_STEPS_PER_M_LIFT / 1000 Hz^2 steps per tick (0.04
+    // at 80000 steps/m), so the first whole step falls within 1 / a + 1 ticks.
+    const std::int64_t ramp_ticks =
+        1 + (std::int64_t{1000000} * 1000000) / (std::int64_t{GANTRY_MAX_ACCEL_UM_S2} * gantry_test::lift_steps_per_m);
+    std::uint32_t lift_steps = 0U;
+    for (std::int64_t tick = 0; tick <= ramp_ticks; ++tick) {
+        lift_steps = lift_steps + steps_lift(plant.tick());
+    }
+    REQUIRE(lift_steps > 0U);
+    REQUIRE(plant.run_until(ready_state, 200000) > 0);
+    REQUIRE(plant.position[2] <= 0);
+}
+
 TEST_CASE("lift: a lift and a lower inside the travel are reached within the limits", "[FW-018][FW-022][FW-029]")
 {
     Plant plant(0, 0, 0);
     plant.home();
     std::vector<std::uint32_t> trace = run_lift(plant, "lift 0.1\n");
-    require_profile_limits(trace);
-    REQUIRE(*std::max_element(trace.begin(), trace.end()) == max_steps_per_tick);
-    REQUIRE(plant.position[2] == 8000);
+    require_profile_limits(trace, lift_max_steps_per_tick);
+    REQUIRE(*std::max_element(trace.begin(), trace.end()) == lift_max_steps_per_tick);
+    REQUIRE(plant.position[2] == 100 * lift_mm);
     REQUIRE(plant.position[0] == 0);
     REQUIRE(plant.take_lines().back() == "status 3 0");
 
@@ -738,7 +774,7 @@ TEST_CASE("lift: a lift and a lower inside the travel are reached within the lim
     REQUIRE(plant.last.digital_out[MECHSIM_CH_LIFT_DRIVER_DIR] == GANTRY_DIR_NEGATIVE_LEVEL);
     REQUIRE(plant.run_until(ready_state, 100000) > 0);
     plant.tick();
-    REQUIRE(plant.position[2] == 4000);
+    REQUIRE(plant.position[2] == 50 * lift_mm);
 
     run_lift(plant, "lift 0.5\n");
     REQUIRE(plant.position[2] == gantry_test::lift_travel_steps);
@@ -794,14 +830,14 @@ TEST_CASE("G5: with the load over the limit a lift is refused and a lower is exe
     for (int tick = 0; tick < 50; ++tick) {
         REQUIRE(steps_lift(plant.tick()) == 0U);
     }
-    REQUIRE(plant.position[2] == 16000);
+    REQUIRE(plant.position[2] == 200 * lift_mm);
 
     mechsim_board_outputs out = plant.tick("lift 0.2\n");
     REQUIRE(out.fault_code == GANTRY_FAULT_NONE);
     REQUIRE(out.state_code == GANTRY_STATE_READY);
 
     run_lift(plant, "lift 0.1\n");
-    REQUIRE(plant.position[2] == 8000);
+    REQUIRE(plant.position[2] == 100 * lift_mm);
     run_move(plant, "target 0.1 0.1\n");
     REQUIRE(plant.position[0] == 8000);
 }
@@ -812,7 +848,7 @@ TEST_CASE("G5: a load exactly at the limit is not an overload", "[FW-018]")
     plant.home();
     plant.load_adc = load_at_limit;
     run_lift(plant, "lift 0.05\n");
-    REQUIRE(plant.position[2] == 4000);
+    REQUIRE(plant.position[2] == 50 * lift_mm);
 }
 
 TEST_CASE("G6: an overload for two consecutive ticks mid-lift stops the lift and lowering works", "[FW-019][FW-022]")
@@ -825,7 +861,7 @@ TEST_CASE("G6: an overload for two consecutive ticks mid-lift stops the lift and
         trace.push_back(steps_lift(out));
         out = plant.tick();
     }
-    REQUIRE(steps_lift(out) == max_steps_per_tick);
+    REQUIRE(steps_lift(out) == lift_max_steps_per_tick);
     plant.take_lines();
     plant.take_events();
     plant.load_adc = load_over;
@@ -844,11 +880,16 @@ TEST_CASE("G6: an overload for two consecutive ticks mid-lift stops the lift and
         trace.push_back(steps_lift(out));
     }
     REQUIRE(out.state_code == GANTRY_STATE_READY);
-    require_profile_limits(trace);
-    REQUIRE(plant.position[2] < 32000);
-    // From 16 steps per tick at 0.04 steps per tick squared the stop takes v^2 / 2a = 3200 steps.
-    REQUIRE(plant.position[2] - detected_at > 3100);
-    REQUIRE(plant.position[2] - detected_at < 3300);
+    require_profile_limits(trace, lift_max_steps_per_tick);
+    REQUIRE(plant.position[2] < 400 * lift_mm);
+    // At 0.2 m/s and 0.5 m/s^2 the stop takes v^2 / 2a = 40 mm on any scale: 3200 steps at 80000 steps/m (v = 16,
+    // a = 0.04 steps per tick), 16000 at 400000 (v = 80, a = 0.2). The second overloaded tick still steps at v before
+    // the stop begins and the shortened profile is (v - a) v / 2a = v^2 / 2a - v / 2, so the travel after detection
+    // lies within 40 mm +- v; the window +-1.25 mm (40 mm / 32: 100 or 500 steps) holds v (16 or 80 steps) and the
+    // Q16 rounding of a.
+    const std::int64_t stop_steps = 40 * lift_mm;
+    REQUIRE(plant.position[2] - detected_at > stop_steps - stop_steps / 32);
+    REQUIRE(plant.position[2] - detected_at < stop_steps + stop_steps / 32);
     const std::int64_t stopped_at = plant.position[2];
     for (int tick = 0; tick < 20; ++tick) {
         REQUIRE(steps_lift(plant.tick()) == 0U);
@@ -877,7 +918,7 @@ TEST_CASE("G6: an overload reading for a single tick mid-lift does not stop the 
     plant.load_adc = 0U;
     REQUIRE(plant.run_until(ready_state, 100000) > 0);
     plant.tick();
-    REQUIRE(plant.position[2] == 16000);
+    REQUIRE(plant.position[2] == 200 * lift_mm);
     REQUIRE(plant.take_lines().back() == "status 3 0");
 }
 
@@ -1138,21 +1179,21 @@ TEST_CASE("G10: a mismatch of exactly the threshold is tolerated and one count m
     Plant tolerated(0, 0, 0);
     tolerated.home();
     tolerated.tick("target 0.2 0\n");
-    tolerated.extra_counts[0] = GANTRY_ENCODER_MISMATCH_COUNTS;
+    tolerated.extra_counts[0] = gantry_test::mismatch_counts[0];
     REQUIRE(tolerated.run_until(ready_state, 100000) > 0);
     REQUIRE(tolerated.last.fault_code == GANTRY_FAULT_NONE);
 
     Plant over(0, 0, 0);
     over.home();
     over.tick("target 0.2 0\n");
-    over.extra_counts[0] = GANTRY_ENCODER_MISMATCH_COUNTS + 1;
+    over.extra_counts[0] = gantry_test::mismatch_counts[0] + 1;
     run_until_fault(over, MECHSIM_CH_X_DRIVER_STEP);
     REQUIRE(over.last.fault_code == GANTRY_FAULT_ENCODER_MISMATCH);
 
     Plant under(0, 0, 0);
     under.home();
     under.tick("target 0.2 0\n");
-    under.extra_counts[0] = -(GANTRY_ENCODER_MISMATCH_COUNTS + 1);
+    under.extra_counts[0] = -(gantry_test::mismatch_counts[0] + 1);
     run_until_fault(under, MECHSIM_CH_X_DRIVER_STEP);
     REQUIRE(under.last.fault_code == GANTRY_FAULT_ENCODER_MISMATCH);
 }

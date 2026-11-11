@@ -24,7 +24,7 @@ directory); tests `mechsim_signals_tests`.
 Pin outputs (via slots) and externals onto the bus; power stage; rails (supply > 0 and every gate 1, consumers get
 the voltage); sensor, front_end, driver, actuator stages (registration order; `Stage::front_end` is the last enum
 value, run second after rails); each component's `take_notes()` becomes an `approximation` event; pin inputs from slots only (SIG-024);
-applied actuator outputs summed into `generalized_forces[dof]`; every component's `joint_drives()` (defaulted empty) appended to `joint_drives` in registration order (KER-027). Every component input needs exactly one source: connection,
+applied actuator outputs summed into `generalized_forces[dof]`; every component's `joint_drives()` (defaulted empty) gathered in registration order and combined per joint as parallel springs before publishing `joint_drives` (ruling 23: over the enabled drives K = sum K_i, rest = sum K_i r_i / K, D = sum D_i; at most one enabled drive passes unchanged; K = 0 keeps the first enabled rest; joints in first-drive order), so KER-027's one drive per joint holds. Each component reads back the combined drive's torque on its joint. Every component input needs exactly one source: connection,
 output slot, external, rail consumer. `ChannelSlot{signal, PinField, channel}` places a bound signal in an array
 element; counter channels may sum several signals (A + B).
 

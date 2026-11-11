@@ -134,12 +134,12 @@ TEST_CASE("G13: under the queue policy a lift during a move waits in the one slo
     }
     out = plant.tick();
     REQUIRE(plant.position[0] == 4000);
-    REQUIRE(plant.position[2] == 1600);
+    REQUIRE(plant.position[2] == gantry_test::lift_steps_per_m * 2 / 100);
     REQUIRE(out.state_code == GANTRY_STATE_MOVING);
     REQUIRE(plant.run_until(ready, 100000) > 0);
     plant.tick();
     REQUIRE(plant.position[0] == 0);
-    REQUIRE(plant.position[2] == 1600);
+    REQUIRE(plant.position[2] == gantry_test::lift_steps_per_m * 2 / 100);
 }
 
 TEST_CASE("G5: a queued lift up is refused with overload when it would start under an overload", "[FW-027][FW-018]")

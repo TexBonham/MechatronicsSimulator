@@ -514,9 +514,9 @@ components:
     type: lead_screw
     part: tr8x8_generic
     # Milestone 1: the MuJoCo bridge refuses backlash until milestone 2 (PHY-006), so the design zeroes it here; the
-    # catalog part keeps its 0.1 mm. PLACEHOLDER lead (ratio) 40 mm/turn: the gantry firmware scales every axis by one
-    # GANTRY_STEPS_PER_M (80 000, the 40 mm/rev belts), so the lift screw matches it until the firmware takes a
-    # per-axis scale (owed, M2-X2); the part's 8 mm lead returns then.
+    # catalog part keeps its 0.1 mm. PLACEHOLDER lead (ratio) 40 mm/turn, matched by the firmware's per-axis
+    # GANTRY_STEPS_PER_M_LIFT (80 000): with the part's 8 mm lead the lift held by its stepper at the lower joint limit
+    # diverges on the bridge (M2-X2 open issue); the 8 mm lead returns with 400 000 steps/m when that is fixed.
     overrides:
       backlash: 0 mm
       ratio: 40 mm/turn
@@ -679,8 +679,8 @@ components:
       - name: load_amp.out
         pin: out
         direction: emits
-  # PLACEHOLDER lift brake (open parameter power_loss_hold): a spring-applied brake on the lift motor shaft, modeled
-  # on the lift joint it holds; its coil is on the motor rail, so a power loss or E-stop engages it.
+  # PLACEHOLDER lift brake (open parameter power_loss_hold): a spring-applied brake on the lift motor shaft (a motor
+  # brake, ruling 23); its coil is on the motor rail, so a power loss or E-stop engages it.
   - name: lift_brake
     type: brake
     part: brake_24v_generic
@@ -692,7 +692,7 @@ components:
         pin: release
         direction: consumes
     acts_on:
-      joint: lift_axis
+      joint: lift_motor_spin
   - name: motor_supply
     type: power_supply
     part: psu_24v_10a_generic
@@ -703,9 +703,13 @@ components:
     overrides:
       output_voltage: 3.3 V
       max_current: 1 A
+  # PLACEHOLDER relay reset (round 4 ruling 25): no manual reset, the motor rail returns when the E-stop loop closes;
+  # the firmware's `reset` message gates motion after an E-stop (FW-024). The real relay's arrangement is owed.
   - name: estop
     type: estop_relay
     part: estop_relay_24v_generic
+    overrides:
+      manual_reset: false
     signals:
       - name: estop.status
         pin: status

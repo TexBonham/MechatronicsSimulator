@@ -17,13 +17,25 @@ extern "C" {
 
 namespace gantry_test {
 
-constexpr std::int64_t steps_per_m = 80000;
-constexpr std::int64_t counts_per_m = 60000;
-constexpr std::int64_t workspace_x_steps = 80000;
-constexpr std::int64_t workspace_y_steps = 64000;
-constexpr std::int64_t lift_travel_steps = 40000;
-constexpr std::int64_t max_switch_margin_steps = 80;
 constexpr std::uint32_t axis_count = 3U;
+// Per-axis scale (GANTRY_STEPS_PER_M_*, GANTRY_COUNTS_PER_M_*): X and Y 40 mm/rev belts, the lift an 8 mm/rev screw.
+constexpr std::int64_t axis_steps_per_m[axis_count] = {
+    GANTRY_STEPS_PER_M_X, GANTRY_STEPS_PER_M_Y, GANTRY_STEPS_PER_M_LIFT};
+constexpr std::int64_t axis_counts_per_m[axis_count] = {
+    GANTRY_COUNTS_PER_M_X, GANTRY_COUNTS_PER_M_Y, GANTRY_COUNTS_PER_M_LIFT};
+constexpr std::int64_t steps_per_m = GANTRY_STEPS_PER_M_X;
+constexpr std::int64_t lift_steps_per_m = GANTRY_STEPS_PER_M_LIFT;
+constexpr std::int64_t workspace_x_steps = std::int64_t{GANTRY_WORKSPACE_X_UM} * GANTRY_STEPS_PER_M_X / 1000000;
+constexpr std::int64_t workspace_y_steps = std::int64_t{GANTRY_WORKSPACE_Y_UM} * GANTRY_STEPS_PER_M_Y / 1000000;
+constexpr std::int64_t lift_travel_steps = std::int64_t{GANTRY_LIFT_TRAVEL_UM} * GANTRY_STEPS_PER_M_LIFT / 1000000;
+// The max switches sit 1 mm past the travel end.
+constexpr std::int64_t max_switch_margin_steps[axis_count] = {
+    GANTRY_STEPS_PER_M_X / 1000, GANTRY_STEPS_PER_M_Y / 1000, GANTRY_STEPS_PER_M_LIFT / 1000};
+// The encoder mismatch threshold in counts on each axis (GANTRY_ENCODER_MISMATCH_UM at its scale).
+constexpr std::int64_t mismatch_counts[axis_count] = {
+    GANTRY_ENCODER_MISMATCH_UM * GANTRY_COUNTS_PER_M_X / 1000000,
+    GANTRY_ENCODER_MISMATCH_UM * GANTRY_COUNTS_PER_M_Y / 1000000,
+    GANTRY_ENCODER_MISMATCH_UM * GANTRY_COUNTS_PER_M_LIFT / 1000000};
 constexpr std::uint32_t step_channel[axis_count] = {
     MECHSIM_CH_X_DRIVER_STEP, MECHSIM_CH_Y_DRIVER_STEP, MECHSIM_CH_LIFT_DRIVER_STEP};
 constexpr std::uint32_t dir_channel[axis_count] = {
@@ -41,13 +53,13 @@ struct Event {
     std::uint16_t arg;
 };
 
-std::int64_t counts_of(std::int64_t steps)
+std::int64_t counts_of(std::uint32_t axis, std::int64_t steps)
 {
-    std::int64_t scaled = steps * counts_per_m;
+    std::int64_t scaled = steps * axis_counts_per_m[axis];
     if (scaled < 0) {
-        return -((-scaled + steps_per_m - 1) / steps_per_m);
+        return -((-scaled + axis_steps_per_m[axis] - 1) / axis_steps_per_m[axis]);
     }
-    return scaled / steps_per_m;
+    return scaled / axis_steps_per_m[axis];
 }
 
 // Integrates step pulses into true carriage position on X, Y and the lift, emits frame-side encoder deltas on channel
@@ -153,7 +165,7 @@ private:
             MECHSIM_CH_X_MAX_SWITCH_OUT, MECHSIM_CH_Y_MAX_SWITCH_OUT, MECHSIM_CH_LIFT_MAX_SWITCH_OUT};
         static constexpr std::int64_t workspace[axis_count] = {workspace_x_steps, workspace_y_steps, lift_travel_steps};
         for (std::uint32_t axis = 0U; axis < axis_count; ++axis) {
-            std::int64_t before = counts_of(position[axis]);
+            std::int64_t before = counts_of(axis, position[axis]);
             std::int64_t steps = static_cast<std::int64_t>(last.step_count[step_channel[axis]]);
             if (stalled[axis]) {
                 steps = 0;
@@ -168,14 +180,14 @@ private:
                 position[axis] = position[axis] - steps;
             }
             inputs.counter_delta[enc_channel[axis]] =
-                static_cast<std::int32_t>(counts_of(position[axis]) - before + extra_counts[axis]);
+                static_cast<std::int32_t>(counts_of(axis, position[axis]) - before + extra_counts[axis]);
             extra_counts[axis] = 0;
             if (switches_work
                 && ((position[axis] <= 0) || on_min_switch_override || min_switch_override_axis[axis])) {
                 inputs.digital_in[min_channel[axis]] = GANTRY_SWITCH_ACTIVE_LEVEL;
             }
             if (switches_work
-                && ((position[axis] >= workspace[axis] + max_switch_margin_steps) || max_switch_override[axis])) {
+                && ((position[axis] >= workspace[axis] + max_switch_margin_steps[axis]) || max_switch_override[axis])) {
                 inputs.digital_in[max_channel[axis]] = GANTRY_SWITCH_ACTIVE_LEVEL;
             }
         }

@@ -48,10 +48,33 @@ end:
   at: 12 s
   max_duration: 12 s
 criteria:
-  - name: motors_stopped
-    check: no_motion
-    actuators: [x_motor, y_motor, lift_motor]
-    threshold: 0.00196 rad
+  # ACC-016: the motors stop: no driver gets a step pulse once the heartbeat timeout plus the cutoff delay (50 ms +
+  # 20 ms placeholders) has passed, the watchdog having dropped the motor rail. A carriage on frictionless joints may
+  # coast on once its motor is off; that motion is not the motor's, so shaft motion is not the criterion.
+  - name: x_no_steps
+    check: value
+    quantity: signal:x_driver.step
+    statistic: maximum
+    comparison: at_most
+    limit: "0"
+    window:
+      start: 9.07 s
+      end: 10 s
+  - name: y_no_steps
+    check: value
+    quantity: signal:y_driver.step
+    statistic: maximum
+    comparison: at_most
+    limit: "0"
+    window:
+      start: 9.07 s
+      end: 10 s
+  - name: lift_no_steps
+    check: value
+    quantity: signal:lift_driver.step
+    statistic: maximum
+    comparison: at_most
+    limit: "0"
     window:
       start: 9.07 s
       end: 10 s

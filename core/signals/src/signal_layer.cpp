@@ -6,6 +6,7 @@
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <iterator>
 #include <limits>
 #include <memory>
 #include <optional>
@@ -104,6 +105,59 @@ std::string format_number(double value) {
 
 bool ends_with_stalled(std::string_view name) noexcept {
     return name.ends_with(".stalled");
+}
+
+struct DriveSum {
+    kernel::JointDrive first;
+    double stiffness = 0.0;
+    double weighted_rest = 0.0;
+    double damping = 0.0;
+    std::size_t enabled_count = 0;
+};
+
+// Drives on one joint act as parallel springs (ruling 23): K = sum K_i, rest = sum K_i r_i / K, D = sum D_i over the
+// enabled drives, exact for linear springs, so KER-027's one drive per joint holds at the kernel. Joints keep the order
+// of their first drive. A joint with at most one enabled drive publishes that drive (else its first) unchanged; enabled
+// drives with K = 0 keep the first enabled drive's rest.
+std::vector<kernel::JointDrive> combine_drives(const std::vector<kernel::JointDrive>& drives) {
+    std::vector<DriveSum> sums;
+    for (const kernel::JointDrive& drive : drives) {
+        const auto found = std::find_if(sums.begin(), sums.end(),
+                                        [&drive](const DriveSum& sum) { return sum.first.joint == drive.joint; });
+        const auto index = static_cast<std::size_t>(std::distance(sums.begin(), found));
+        if (found == sums.end()) {
+            DriveSum fresh;
+            fresh.first = drive;
+            sums.push_back(fresh);
+        }
+        DriveSum& sum = sums[index];
+        if (!drive.enabled) {
+            continue;
+        }
+        if (sum.enabled_count == 0) {
+            sum.first = drive;
+        }
+        sum.enabled_count += 1;
+        sum.stiffness += drive.stiffness;
+        sum.weighted_rest += drive.stiffness * drive.rest;
+        sum.damping += drive.damping;
+    }
+    std::vector<kernel::JointDrive> combined;
+    combined.reserve(sums.size());
+    for (const DriveSum& sum : sums) {
+        if (sum.enabled_count <= 1) {
+            combined.push_back(sum.first);
+            continue;
+        }
+        kernel::JointDrive drive = sum.first;
+        drive.stiffness = sum.stiffness;
+        drive.damping = sum.damping;
+        if (sum.stiffness > 0.0) {
+            drive.rest = sum.weighted_rest / sum.stiffness;
+        }
+        combined.push_back(drive);
+    }
+    return combined;
 }
 
 }  // namespace
@@ -524,11 +578,12 @@ void SignalLayer::step(kernel::SimTime t, kernel::Duration /*dt*/) {
             physics_inputs_.generalized_forces[actuators_[i].second] += bus_[actuators_[i].first];
         }
     }
-    physics_inputs_.joint_drives.clear();
+    std::vector<kernel::JointDrive> published;
     for (const Entry& entry : entries_) {
         const std::span<const kernel::JointDrive> drives = entry.component->joint_drives();
-        physics_inputs_.joint_drives.insert(physics_inputs_.joint_drives.end(), drives.begin(), drives.end());
+        published.insert(published.end(), drives.begin(), drives.end());
     }
+    physics_inputs_.joint_drives = combine_drives(published);
     for (std::size_t i = 0; i < stall_outputs_.size(); ++i) {
         const double stalled = bus_[stall_outputs_[i]];
         if (level(stalled) && !level(last_stall_[i])) {
