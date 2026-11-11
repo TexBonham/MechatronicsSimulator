@@ -60,7 +60,10 @@ archive: Python mirror `tick.py`, `layout.py` `FIXED_SERIES` entries `physics/jo
 m by joint type from the first row's metadata, axis tick) and `physics/joint_drive_torques/<joint>` (N m or N),
 written and read back by `archive.py`, exported like every series, included in `archives_identical`. Extend the
 REC-027 row text to name them (same commit) and the archive layout section of `mechsim/record/CLAUDE.md`. Record
-the transmission `slip` output (C's new field) the same way under `physics/transmissions/<name>/slip`.
+the transmission `slip` output (C's new field) the same way under `physics/transmissions/<name>/slip`, and C's
+`PhysicsOutputs.payloads` (`PayloadState{body, carrier, attached, force}`) under `physics/payloads/<body>/{attached,
+force}`. From C's report: `core/kernel/CLAUDE.md` must gain `set_transmission_slip(transmission, fraction)` and the
+`payloads` output (C could not edit it); payload release is `set_payload_attachment(p, kWorldBody)`, index based.
 
 ## 4. Conversions
 
