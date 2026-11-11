@@ -42,6 +42,32 @@
             "cacheVariables": {
                 "CMAKE_BUILD_TYPE": "Release"
             }
+        },
+        {
+            "name": "windows-debug",
+            "displayName": "Windows MSVC Debug (no sanitizers: MSVC has no UBSan; no clang-tidy)",
+            "inherits": "base",
+            "condition": {
+                "type": "equals",
+                "lhs": "${hostSystemName}",
+                "rhs": "Windows"
+            },
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Debug"
+            }
+        },
+        {
+            "name": "windows-release",
+            "displayName": "Windows MSVC Release",
+            "inherits": "base",
+            "condition": {
+                "type": "equals",
+                "lhs": "${hostSystemName}",
+                "rhs": "Windows"
+            },
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Release"
+            }
         }
     ],
     "buildPresets": [
@@ -58,6 +84,26 @@
         {
             "name": "release",
             "configurePreset": "release",
+            "jobs": 2
+        },
+        {
+            "name": "windows-debug",
+            "configurePreset": "windows-debug",
+            "condition": {
+                "type": "equals",
+                "lhs": "${hostSystemName}",
+                "rhs": "Windows"
+            },
+            "jobs": 2
+        },
+        {
+            "name": "windows-release",
+            "configurePreset": "windows-release",
+            "condition": {
+                "type": "equals",
+                "lhs": "${hostSystemName}",
+                "rhs": "Windows"
+            },
             "jobs": 2
         }
     ],
@@ -93,6 +139,36 @@
         {
             "name": "release",
             "configurePreset": "release",
+            "output": {
+                "outputOnFailure": true
+            },
+            "execution": {
+                "jobs": 2
+            }
+        },
+        {
+            "name": "windows-debug",
+            "configurePreset": "windows-debug",
+            "condition": {
+                "type": "equals",
+                "lhs": "${hostSystemName}",
+                "rhs": "Windows"
+            },
+            "output": {
+                "outputOnFailure": true
+            },
+            "execution": {
+                "jobs": 2
+            }
+        },
+        {
+            "name": "windows-release",
+            "configurePreset": "windows-release",
+            "condition": {
+                "type": "equals",
+                "lhs": "${hostSystemName}",
+                "rhs": "Windows"
+            },
             "output": {
                 "outputOnFailure": true
             },

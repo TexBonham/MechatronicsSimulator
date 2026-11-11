@@ -27,3 +27,28 @@ jobs:
         run: uv run mypy
       - name: Tests
         run: uv run pytest
+
+  python-windows:
+    runs-on: windows-2022
+    env:
+      # scikit-build-core and the per-process firmware host build (CTL-007) both use cl and Ninja from the
+      # developer environment below.
+      CMAKE_GENERATOR: Ninja
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+      - uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+      - name: Sync environment
+        run: uv sync --locked
+      - name: Lint
+        run: uv run ruff check .
+      - name: Format
+        run: uv run ruff format --check .
+      - name: Types
+        run: uv run mypy
+      - name: Tests
+        run: uv run pytest
