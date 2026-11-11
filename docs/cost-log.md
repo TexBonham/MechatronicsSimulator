@@ -14,3 +14,4 @@ type live in the root `CLAUDE.md` dispatch table once measured.
 | 2026-11-10 | M2-C: bridge slip, payload attach and release, backlash; PHY-006 converted (wip/04-c f29a552) | module-writer (opus), worktree | 216K | 71 calls, 30 min; 2 foreign fixtures expect refused backlash, fixed at merge-back |
 | 2026-11-10 | M2-G: chip fields, four catalog types, front_end category, schemas regenerated (wip/04-g ab1f65e) | schema-author (opus), worktree | 144K | 51 calls, 37 min; one foreign chip fixture to fix at merge-back |
 | 2026-11-10 | M2-A1: sensor fidelity, fault modes, debounce, tangent detent, 57 signal cases (wip/04-a1 86eecaf) | module-writer (opus), worktree | 213K | 69 calls, 32 min; one foreign controller test, binding gap for fidelity |
+| 2026-11-10 | Invariant audit: wave 1a (G, C, A1) | invariant-auditor (sonnet) | 37K | 6 calls, 0.5 min; clean, one accepted minor |
