@@ -57,3 +57,4 @@ type live in the root `CLAUDE.md` dispatch table once measured.
 | 2026-11-11 | M2 review: C2 (physics derivation of the drive mapping) | general-purpose (fable) | 116K | 11 calls; accept with one medium (envelope throw at Z > 400), 4 low |
 | 2026-11-11 | M2-C2 fix round: envelope throw at Z > 400, spec rows, derivation (wip/04-c2 0814bb6) | module-writer (opus), resumed | ~14K | 7 calls |
 | 2026-11-11 | M2-C2 re-review | general-purpose (fable), resumed | ~25K | 4 calls; accept, low finding withdrawn |
+| 2026-11-11 | M2-X4: event argument kinds, brake error, fault ref, export labels, G13 and G14, review fixes; G11, G13, G14 pass, G7 and G9 wait on C2 (wip/04-x1 317e419) | module-writer (opus), fresh in the X1 worktree | ~248K | 147 calls, 39 min |
