@@ -33,3 +33,4 @@ type live in the root `CLAUDE.md` dispatch table once measured.
 | 2026-11-10 | M2-W stage landed: merge wip/04-w, x64 guard on the MSVC intrinsic, debug-sanitize 278 passed, invariant tier 159 passed; Windows CI green on the wip branch twice | inline | ~15K | coordinator |
 | 2026-11-10 | M2-F1: facade service, WebSocket server, viewer module, conformance suite, CLI through the facade (wip/04-f1 112de83) | module-writer (opus), worktree | 258K | 81 calls, 35 min; 7 import-rule test failures, ruling 15 |
 | 2026-11-10 | M2 review: F1 | general-purpose (fable) | ~110K | 19 calls; accept after one fix round (1 major: reader seam, 8 minor) |
+| 2026-11-10 | M2-A2: load cell, amplifier, IMU, brake, power-loss fault, fidelity binding, front_end stage; 308 ctest, full suite green (wip/04-a2 1e03870) | module-writer (opus), worktree | ~250K | 100 calls, 65 min; corrected the brief reference arithmetic (635 counts, not 318) |
