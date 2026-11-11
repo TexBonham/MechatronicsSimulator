@@ -1,6 +1,6 @@
 #include "mechsim/kernel/time.hpp"
 
-#if defined(_MSC_VER)
+#if defined(_MSC_VER) && defined(_M_X64)
 #include <intrin.h>
 #endif
 
@@ -14,7 +14,7 @@ namespace {
 
 std::int64_t checked_multiply(std::int64_t a, std::int64_t b) {
     std::int64_t result = 0;
-#if defined(_MSC_VER)
+#if defined(_MSC_VER) && defined(_M_X64)
     // MSVC has no __builtin_mul_overflow: the full 128-bit product fits int64 exactly when its high half is the sign
     // extension of its low half.
     std::int64_t high = 0;
