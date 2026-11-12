@@ -35,6 +35,15 @@ struct Joint {
     Eigen::VectorXd stiffness;  // finite, >= 0; N/m or N m/rad
     Eigen::VectorXd damping;    // finite, >= 0; N s/m or N m s/rad
     Eigen::VectorXd rest;       // finite; rest coordinates, m or rad; empty is zero
+    // Travel limits (ENG-013), Revolute and Prismatic only, each empty (none) or one entry: one-sided rows in the
+    // velocity pass, active once the coordinate has reached the bound, zero restitution; the position projection
+    // returns a coordinate that passed the bound to it. -inf / +inf leaves that side open; lower == upper locks.
+    Eigen::VectorXd lower;      // not NaN, not +inf; m or rad
+    Eigen::VectorXd upper;      // not NaN, not -inf, >= lower; m or rad
+    // Coulomb friction magnitude per velocity DOF (ENG-014, ruling 38), Revolute, Prismatic, Planar; empty is none:
+    // an implicit damping friction / max(|v_start|, friction_slip_threshold) frozen at the step's start rate, so a
+    // load L below it creeps at friction_slip_threshold L / friction.
+    Eigen::VectorXd friction;   // finite, >= 0; N or N m
 };
 
 struct Body {
@@ -87,7 +96,7 @@ struct MultibodyConfig {
     double drift_threshold_m = default_drift_threshold_m;            // finite, > 0
     double drift_threshold_rad = default_drift_threshold_rad;        // finite, > 0
     double unit_tolerance = default_unit_tolerance;                  // finite, > 0
-    // Below this relative rate Coulomb friction (the rope attachment's) acts as the viscous damping
+    // Below this relative rate Coulomb friction (the rope attachment's and the joints') acts as the viscous damping
     // friction / threshold, so D stays bounded at zero rate; at and above it the torque is the full Coulomb value.
     double friction_slip_threshold = default_friction_slip_threshold;  // finite, > 0
 };

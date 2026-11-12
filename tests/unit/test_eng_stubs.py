@@ -9,18 +9,58 @@ from mechsim import _core as core
 from mechsim.physics.native import _engine as eng
 
 
+def _slider(axis: tuple[float, float, float], mass: float) -> Any:
+    body = eng.Body()
+    body.name = "slider"
+    body.joint.type = eng.JointType.Prismatic
+    body.joint.axis = list(axis)
+    body.mass = mass
+    return body
+
+
+def _single(body: Any) -> Any:
+    model = eng.MultibodyModel()
+    model.bodies = [body]
+    return eng.MultibodyProvider(model)
+
+
 @pytest.mark.req("ENG-013")
-@pytest.mark.xfail(strict=True, reason="stub")
 def test_eng_013() -> None:
     """The engine shall enforce joint travel limits as one-sided constraints."""
-    raise NotImplementedError
+    # 2 kg on a vertical prismatic joint resting on its lower stop: the row returns the step's -g h to zero with
+    # impulse m g h, so the stop carries m g (1e-9) and the coordinate sits on the bound with v exactly zero.
+    body = _slider((0.0, 0.0, 1.0), 2.0)
+    body.joint.lower = [0.0]
+    provider = _single(body)
+    state = eng.State([0.0], [0.0])
+    integrator = eng.SemiImplicitEuler()
+    provider.step(integrator, state)
+    assert state.q[0] == 0.0
+    assert state.v[0] == 0.0
+    assert provider.outputs.joints[0].limit_force[0] == pytest.approx(2.0 * 9.81, rel=1e-9)
+    # One-sided: a lift F = 30 N > m g leaves at (F - m g) / m from the first step, the stop carrying nothing.
+    provider.set_generalized_forces([30.0])
+    provider.step(integrator, state)
+    assert state.v[0] == pytest.approx(1e-3 * (30.0 - 2.0 * 9.81) / 2.0, rel=1e-12)
+    assert provider.outputs.joints[0].limit_force[0] == 0.0
 
 
 @pytest.mark.req("ENG-014")
-@pytest.mark.xfail(strict=True, reason="stub")
 def test_eng_014() -> None:
     """The engine shall apply joint friction and joint damping from per-joint parameters."""
-    raise NotImplementedError
+    # Friction F = 2 N held against L = 1.5 N: below v_s the friction is the damper F / v_s, whose fixed point is
+    # the creep speed v_s L / F = 7.5e-5 m/s (ruling 38); the step contracts the error by 1 / 21.
+    body = _slider((1.0, 0.0, 0.0), 1.0)
+    body.joint.friction = [2.0]
+    provider = _single(body)
+    state = eng.State([0.0], [0.0])
+    integrator = eng.SemiImplicitEuler()
+    for _ in range(40):
+        provider.set_generalized_forces([1.5])
+        provider.step(integrator, state)
+    creep = eng.MultibodyConfig().friction_slip_threshold * 1.5 / 2.0
+    assert state.v[0] == pytest.approx(creep, rel=1e-9)
+    assert provider.outputs.joints[0].friction_creep[0] == pytest.approx(creep, rel=1e-9)
 
 
 @pytest.mark.req("ENG-015")
