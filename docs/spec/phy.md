@@ -29,7 +29,7 @@ proposed <value>)".
 | PHY-001 | Every adapter shall implement one interface whose load operation takes an engine-neutral physics model. | ADR 0003; ruling R-10 | M1 | unit | n/a |
 | PHY-002 | The adapter interface shall advance the loaded model by one physics step per call. | Architecture doc, Modules: core, Physics engine (adapter) row; ADR 0003 | M1 | unit | n/a |
 | PHY-003 | The adapter interface shall report body poses, velocities, joint forces and contact forces after every step. | Architecture doc, Modules: core, Physics engine (adapter) row | M1 | unit | n/a |
-| PHY-004 | The adapter interface shall report rope tension after every step for every rope in the model. | Architecture doc, Modules: core, Physics engine (adapter) row | M3 | unit | n/a |
+| PHY-004 | The adapter interface shall report, after every step and for every rope in the model, the tension of every segment, the maximum segment tension and the load-end tension. | Architecture doc, Modules: core, Physics engine (adapter) row; ADR 0016 | M3 | unit | n/a |
 | PHY-005 | The adapter interface shall accept actuator torques and forces from the signal layer before every step. | Architecture doc, Modules: core, Physics engine (adapter) row | M1 | unit | n/a |
 | PHY-006 | The adapter interface shall accept injected physical faults: transmission slip and payload change. | Architecture doc, Modules: core, Physics engine (adapter) row; motor stall belongs to the signal layer (SIG-034) | M2 | unit | n/a |
 | PHY-007 | Every adapter that carries milestone 3 or later shall publish live member end-loads every tick. | ADR 0010, Interface requirement and Consequences; ADR 0003, Consequences | M3 | unit | n/a |

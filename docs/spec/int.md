@@ -83,7 +83,7 @@ proposed <value>)".
 | Fatigue accumulation scope (beyond one run: suite or lifetime) | not set | owner |
 | Resonance screening band | not set | owner |
 | Limits of each build-time design rule | not set | owner |
-| Where the optional halt is configured (test case or design) and its default | not set | phase 1 schemas (ADR 0010 open item) |
+| Where the optional halt is configured (test case or design) and its default | Test-case field `integrity.halt_on_crossing`, default false (ADR 0010, amendment 2026-11-11; round 5 ruling 4) | owner confirms at the milestone 3 gate |
 | Split of tier 2 failure modes between milestones 3 and 4 | not set (M4 shown as the latest) | milestone 3 plan (ADR 0010 open item) |
 | Load-case and FEA import file formats | not set | INT module plan |
 

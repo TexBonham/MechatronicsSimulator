@@ -67,7 +67,7 @@ proposed <value>)".
 | ACC-034 | Pendulum design, rigid link: the swing amplitude decay shall match the closed-form decay for the link's stated joint damping within the decay tolerance. | Ruling R-03; Architecture doc, Technology recommendation, Validation; Repository starting point, milestone 1 paragraph | M1 | acceptance | not set (owed by owner) |
 | ACC-035 | Acceptance criterion 1: the simulator shall build the reference design from data files or an imported URDF with no design-specific code. | Requirements doc, Outputs and acceptance criteria, criterion 1; Architecture doc, Repository starting point, invariant 2 | M1 | acceptance | n/a |
 | ACC-036 | Acceptance criterion 2: the simulator shall run G1 to G16 in one batch and produce the pass/fail report. | Requirements doc, Outputs and acceptance criteria, criterion 2 | M3 | acceptance | n/a |
-| ACC-037 | Acceptance criterion 3, rewritten: the rope pendulum's period and swing decay shall match their closed-form values within tolerance. | Requirements doc, Outputs and acceptance criteria, criterion 3; Architecture doc, Decisions log row 24; Technology recommendation, Validation | M3 | acceptance | not set (owed by owner) |
+| ACC-037 | Acceptance criterion 3, rewritten: the rope pendulum's small-amplitude period shall match the chain's closed-form period with the rope's added mass and static stretch derived (ADR 0016), and its swing amplitude shall match the closed-form decay, within tolerance. | Requirements doc, Outputs and acceptance criteria, criterion 3; Architecture doc, Decisions log rows 24, 48; Technology recommendation, Validation; ADR 0016 | M3 | acceptance | proposed: 0.1 % of the period; 2 % of the amplitude over 20 periods (owner) |
 | ACC-038 | Acceptance criterion 3, rewritten: the stepper's pull-out torque shall match its published curve within tolerance. | Requirements doc, Outputs and acceptance criteria, criterion 3; Architecture doc, Decisions log row 24; Technology recommendation, Validation | M2 | acceptance | not set (owed by owner) |
 | ACC-039 | Acceptance criterion 3, rewritten: the settle time of a step response shall match its closed-form value within tolerance. | Requirements doc, Outputs and acceptance criteria, criterion 3; Architecture doc, Decisions log row 24; Technology recommendation, Validation | M3 | acceptance | not set (owed by owner) |
 | ACC-040 | Acceptance criterion 4, rewritten: a cantilever beam's static deflection shall match the closed-form value within tolerance. | Requirements doc, Outputs and acceptance criteria, criterion 4; Architecture doc, Decisions log row 24; Technology recommendation, Validation | M3 | acceptance | not set (owed by owner) |
@@ -93,7 +93,8 @@ proposed <value>)".
 | Reference design (gantry): motion threshold for "no actuator motion" (G1, G4, G9) | not set | gantry team |
 | Pendulum period tolerance (ACC-033) | 0.1 % of the damped period, consistent with ENG-036 (owner ruling 2026-11-04) | owner |
 | Pendulum swing decay tolerance (ACC-034) | not set; proposed 2 % of the closed-form amplitude envelope over 20 periods | owner |
-| Analytical tolerances of criteria 3 and 4 (ACC-037 to ACC-043) | not set | owner |
+| Rope pendulum tolerances (ACC-037) | not set; proposed 0.1 % of the closed-form period and 2 % of the closed-form amplitude over 20 periods (ADR 0016) | owner |
+| Analytical tolerances of criteria 3 and 4 (ACC-038 to ACC-043) | not set | owner |
 | Design-load rule of the reference design | rated load plus 15 % (hoist, trolley); rated load not set | gantry team |
 
 ## Out of scope
