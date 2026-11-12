@@ -33,3 +33,4 @@ type live in the root `CLAUDE.md` dispatch table once measured.
 | 2026-11-11 | M3-R fix round: member frame, two-axis sections, tier filter, rope names, rope integrity table; round branch merged in (wip/05-r 6c8001b) | module-writer (opus), resumed | ~45K | 28 calls |
 | 2026-11-11 | M3-R re-review after the fix round: accept, two carry notes (N brief, queue) | Fable review (general-purpose), resumed | 151K | 6 calls |
 | 2026-11-11 | M3-I1 integrity plugins and checks, FAC-013 (wip/05-i1 2b4957a) | module-writer (opus) | 260K | 95 calls; fix round follows (merge R, rope table, wiring) |
+| 2026-11-11 | M3-I1 fix round: merge R, two-axis stress, rope table, core_services wiring, integrity file kind (wip/05-i1 d26c5f8) | module-writer (opus), resumed | ~39K | 31 calls; full suite 4234 passed, 144 xfail |
