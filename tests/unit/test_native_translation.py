@@ -257,7 +257,9 @@ def test_the_drive_line_names_the_engine_scheme_decay_form() -> None:
 
 
 @pytest.mark.req("PHY-031")
-@pytest.mark.parametrize(("x", "kept", "ratio", "unresolved"), [(0.1, 0.730813, 0.996687, False), (1.3, 0.0335, 0.704, True)])
+@pytest.mark.parametrize(
+    ("x", "kept", "ratio", "unresolved"), [(0.1, 0.730813, 0.996687, False), (1.3, 0.0335, 0.704, True)]
+)
 def test_mode_lines_publish_x_the_amplitude_kept_and_the_frequency_ratio(
     x: float, kept: float, ratio: float, unresolved: bool
 ) -> None:
@@ -315,7 +317,14 @@ def test_friction_lines_publish_the_creep_bound_and_planar_limits_are_refused() 
     assert len(lines) == 1
     assert "creeps at v_s L / F = 5e-05 L" in lines[0]
     plate = slider("plate")
-    plate["joint"] = {"name": "plate_joint", "type": "planar", "position": ("0 m", "0 m", "0 m"), "axis": (0, 0, 1)}
+    plate["joint"] = {
+        "name": "plate_joint",
+        "type": "planar",
+        "position": ("0 m", "0 m", "0 m"),
+        "axis": (0, 0, 1),
+        "linear": [{}, {}],
+        "angular": [{}],
+    }
     data["bodies"] = [plate]
     built = model_of(data)
     joint = built.bodies[0].joint
@@ -324,8 +333,10 @@ def test_friction_lines_publish_the_creep_bound_and_planar_limits_are_refused() 
     assert len(dofs) == 3
     limited = joint.linear[0].model_copy(update={"lower": -0.1})
     unvalidated_joint = joint.model_copy(update={"linear": (limited, *joint.linear[1:])})
-    unvalidated = built.model_copy(update={"bodies": (built.bodies[0].model_copy(update={"joint": unvalidated_joint}),)})
-    with pytest.raises(UnmappableElementError, match="joint 'plate_joint'.*limits on a planar joint"):
+    unvalidated = built.model_copy(
+        update={"bodies": (built.bodies[0].model_copy(update={"joint": unvalidated_joint}),)}
+    )
+    with pytest.raises(UnmappableElementError, match=r"joint 'plate_joint'.*limits on a planar joint"):
         translate(unvalidated)
 
 

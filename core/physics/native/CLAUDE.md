@@ -37,14 +37,18 @@ characters in strings are ParseErrors; nesting capped at 64 levels; empty or tru
 |---|---|---|
 | Supported elements | src/native_adapter.cpp | 38 |
 | Helpers | src/native_adapter.cpp | 69 |
-| Joint extras | src/native_adapter.cpp | 212 |
-| Engine | src/native_adapter.cpp | 351 |
-| Adapter (load) | src/native_adapter.cpp | 429 |
-| Inputs | src/native_adapter.cpp | 824 |
-| Step and outputs | src/native_adapter.cpp | 900 |
-| Mid-run changes | src/native_adapter.cpp | 1072 |
-| Fixtures and helpers | tests/test_native_adapter.cpp | 25 |
-| Joint drives | tests/test_native_adapter.cpp | 183 |
-| Transmissions | tests/test_native_adapter.cpp | 280 |
-| Payloads and mid-run changes | tests/test_native_adapter.cpp | 346 |
-| Members and ropes | tests/test_native_adapter.cpp | 418 |
+| Joint extras | src/native_adapter.cpp | 238 |
+| Engine | src/native_adapter.cpp | 325 |
+| Adapter (load) | src/native_adapter.cpp | 415 |
+| Inputs | src/native_adapter.cpp | 829 |
+| Step and outputs | src/native_adapter.cpp | 922 |
+| Mid-run changes | src/native_adapter.cpp | 1162 |
+| Fixtures and helpers | tests/test_native_adapter.cpp | 26 |
+| Joint drives | tests/test_native_adapter.cpp | 193 |
+| Friction and limits | tests/test_native_adapter.cpp | 250 |
+| Transmissions | tests/test_native_adapter.cpp | 390 |
+| Drives through transmissions | tests/test_native_adapter.cpp | 456 |
+| Payloads and mid-run changes | tests/test_native_adapter.cpp | 637 |
+| Members and ropes | tests/test_native_adapter.cpp | 709 |
+| Model change events | tests/test_native_adapter.cpp | 766 |
+| JSON reader | tests/test_native_adapter.cpp | 924 |

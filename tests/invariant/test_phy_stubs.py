@@ -200,8 +200,9 @@ def test_phy_010_run_twice_bitwise(
 ) -> None:
     """The same neutral model and inputs run twice on one adapter give identical outputs at every step, bit for bit:
     a driven transmission (a varying shaft torque through a compliant belt), a real joint drive on that shaft
-    toward a moving rest (disabled every 97th tick), a lumped cantilever (end-loads and node poses), a contact case (a tilted box landing on the floor,
-    friction and per-corner contacts) and a rope case (a swinging load whose rope snaps; the bridge maps no ropes)."""
+    toward a moving rest (disabled every 97th tick), a lumped cantilever (end-loads and node poses), a contact case
+    (a tilted box landing on the floor, friction and per-corner contacts) and a rope case (a swinging load whose rope
+    snaps; the bridge maps no ropes)."""
     first = _run(model(), adapter, inputs, 600)
     second = _run(model(), adapter, inputs, 600)
     assert len(first) == len(second) == 600

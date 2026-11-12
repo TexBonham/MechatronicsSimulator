@@ -92,6 +92,8 @@ def clamped_calibration(
     values = linalg.eigh(stiffness_scale * reduced, basis.T @ inertia @ basis, eigvals_only=True)
     omega = math.sqrt(max(float(values[0]), 0.0))
     return CalibrationScales(stiffness_scale, (omega / (2.0 * math.pi * frequency_hz)) ** 2)
+
+
 LUMPED_ENDS = ("free", "roller", "clamped")
 
 
