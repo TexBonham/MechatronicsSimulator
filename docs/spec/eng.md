@@ -106,14 +106,18 @@ proposed <value>)".
 | Beam roller mass fraction (ENG-022, ENG-040, ENG-041) | 1e-3 of member mass (change by reviewed spec edit, T4) | owner |
 | Transmission coupling model (ENG-043 to ENG-046, ENG-048) | Compliant spring-damper from n theta to the driven joint, finite stiffness required (rigid coupling as a constraint: next tier); backlash a total dead band at the output; slip a fraction of shaft motion not transmitted, reaction at full ratio; efficiency by the sign of the power flow at the step start, lossless at zero shaft speed, no threshold speed; self-locking lead screw passes no back-driving or static unopposed load torque (change by reviewed spec edit) | owner |
 | Transmission unit-test tolerance (ENG-043 to ENG-046, ENG-048) | 1e-9 relative or tighter, per-case values in the header of `core/engine/tests/test_transmissions.cpp`; transient decayed to 1e-20 by the scheme's spectral radius, 20 000-step cap (change by reviewed spec edit, T4) | owner |
-| Milestone of each tier 2 model change (ENG-031 to ENG-034) | not set; tier 2 spans milestones 3 and 4 | owner, milestone 3 plan (ADR 0010, Open items) |
+| Milestone of each tier 2 model change (ENG-031 to ENG-034) | Engine calls for all four land in milestone 3; their use: yield offset and rope snap milestone 3, buckling collapse and fastener break milestone 4 (round 5 ruling 3, planned default) | owner, milestone 3 plan (ADR 0010, Open items) |
+| Mid-run change semantics (ENG-031 to ENG-034) | Applied from the next step and persistent; spring index (member, node) with nodes the spring-carrying segments root to tip; an offset sets rest = built rest + offset; stiffness finite and >= 0; a disabled constraint (fastener break or `release_load`) keeps its rows at zero; a second disable or release is an error; each change and each rope snap is listed in the step's event list (proposed, brief M3-E2) | owner |
+| Member end-load convention (ENG-030) | Wrench of the support on the member at x = 0 and x = L, moments about the end point, member root frame axes, from the step's start state (proposed, brief M3-E2) | owner |
+| Rope chain (ENG-047, ENG-034) | ADR 0016 (proposed): N segments (default 8), N - 1 point nodes on 3-DOF Translation joints, end half-masses on the end bodies; tension-only spring-damper, slack or taut fixed at the step start, axial plus geometric stiffness implicit; top attachment damping and Coulomb friction (round 5 ruling 14; friction as a damping frozen at the start-of-step rate, none at zero rate); snap on one step over `breaking_tension` releases `to_body`; omega_s h = sqrt(EA / (L M)) h over 0.2 published as a snatch flag (ruling 15) | owner |
+| Member, change and rope test tolerances (ENG-030 to ENG-034, ENG-047, ENG-043 stiffness path) | 1e-9 relative for static closed forms (settled by the stated decay); rope pendulum period 0.5 % of 2 pi sqrt(L / g) at negligible rope mass and 1 ms; ACC-037 proposal (ADR 0016) at h = 50 us: period 0.1 % of T_N, amplitude 2 % over 20 periods; attachment decrement 2 %; belt frequency 1 % of sqrt(k / m) at omega h = 0.1 (proposed, brief M3-E2; change by reviewed spec edit, T4) | owner |
 
 ## Out of scope
 
 | Item | Seam it belongs to |
 |---|---|
 | Translating the neutral physics model into engine objects | PHY (native adapter) |
-| Rope model detail beyond ENG-047 | Milestone 3 ADR (ADR 0003, P4) |
+| Rope model detail beyond ENG-047 | ADR 0016 (proposed); winch drum coupling and pulleys M4 or later |
 | Stepper torque-speed curve, stall and missed steps | SIG (behavioral stepper, SIG-032 to SIG-034) |
 | Mesh contact | Later contact tier (ADR 0002) |
 | Convex decomposition of imported meshes | BLD (library, ADR 0002) |

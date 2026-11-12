@@ -119,6 +119,7 @@ LumpedBeam add_lumped_beam(MultibodyModel& model, const BeamSpec& spec, Eigen::I
         model.constraints.push_back(end);
         beam.roller_constraint = static_cast<Eigen::Index>(model.constraints.size()) - 1;
     }
+    model.members.push_back(beam);
     return beam;
 }
 

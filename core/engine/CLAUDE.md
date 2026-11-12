@@ -16,7 +16,9 @@ Namespace `mechsim::engine`; q (nq), v (nv). Eigen only, dense (ENG-001).
 | `multibody_model.hpp` | `JointType`, `Joint`, `Body`, `LoopConstraint` (Point 3, Hinge 5 rows), `MultibodyModel`, `MultibodyConfig` |
 | `multibody_provider.hpp` | `MultibodyProvider`, output structs |
 | `transmission.hpp` | `Transmission` (belt, screw, gear), `TransmissionOutput`, `PowerFlow`, `couple` (derivation) |
-| `lumped_beam.hpp` | `BeamSpec`, `add_lumped_beam(model, spec, parent, position, orientation)`, `beam_point(beam, x)` (ENG-022) |
+| `lumped_beam.hpp` | `BeamSpec`, `add_lumped_beam(model, spec, parent, position, orientation)` (registers `model.members`), `beam_point(beam, x)` (ENG-022) |
+| `member_loads.hpp` | `LumpedBeam`, `member_nodes(beam)`, `MemberOutput` (start/end moment, force), `member_end_loads` (ENG-030) |
+| `rope.hpp` | `Rope`, `RopeOutput`, `add_rope(model, rope, from_world, to_world)`, `rope_segment`, `validate_rope_parameters` (ENG-047, ADR 0016) |
 
 ## DynamicsProvider hooks
 
@@ -37,7 +39,8 @@ defaulted: `solve_constraints(t, h, q, system, v) -> iterations` (0), `project(q
 H by CRBA (lower triangle mirrored), c by RNEA (gravity as base acceleration).
 Joint springs (ENG-051): `Joint.stiffness/damping/rest` per v DOF (empty = none); diagonal K, D; f gets
 -K(q - rest) - D v; stiffness only on Revolute, Prismatic, Planar.
-Joints: Revolute 1/1, Prismatic 1/1, Fixed 0/0, Planar 3/3 [x, y, theta], Spherical 4/3, Free 7/6 [p, quat w-first];
+Joints: Revolute 1/1, Prismatic 1/1, Fixed 0/0, Planar 3/3 [x, y, theta], Spherical 4/3, Free 7/6 [p, quat w-first],
+Translation 3/3 [p] (rope nodes);
 spherical/free v in child coordinates; quaternions renormalized in `integrate_positions`.
 Constraints: block Gauss-Seidel (per-constraint pseudo-inverse of J A^-1 J^T) until `max|J v| <= velocity_tolerance`,
 cap `iteration_cap` (50) else `SolverNonConvergenceError`; then `projection_iterations` (3) Gauss-Newton
@@ -53,21 +56,36 @@ Transmissions: Revolute shaft to Prismatic or (gear) Revolute output; K, D += k,
 = g F, the torque the shaft must supply along its + axis (PHY-033; `couple()` keeps the applied sign -g F internally);
 `power_flow` not for per-step energy bookkeeping. Slip offsets move only in `step()`.
 
+Members (ENG-030): `outputs().members` per `model.members`, support-on-member wrench at x = 0 and x = L, moments about
+the end point, member root frame axes, from the step's start state like `joints`.
+Mid-run changes (ENG-031 to 034), next step on, each listed in the next step's `outputs().events` (`ModelChange`):
+`set_spring_offset(member, node, offset)` (rest = built + offset), `set_spring_stiffness(member, node, k)`,
+`disable_constraint(c)` / `release_load(c)` (zero rows; twice throws), `release_rope(r)`; `constraint_enabled`, `rope_attached`.
+Ropes (ENG-047, ADR 0016, rulings 14, 15): N segments, N - 1 Translation nodes, end half-masses on the end bodies;
+tension-only spring-dampers, slack or taut from the step start; K gets k n n^T + (T / d)(I - n n^T), D gets c n n^T;
+top attachment damping and friction (spherical joint torque, in D); `set_rope_rest_length(r, L)` (winch);
+`outputs().ropes` per segment tension, max, load end, `snatch_omega_h` (flag above 0.2); snap: end-of-step tension
+over `breaking_tension` releases `to_body` from the next step, event `RopeSnapped`.
+Swing modes go through K, so they integrate as backward Euler: about pi omega h amplitude loss per period
+(1 % at 1 ms for a 1 m pendulum); belts likewise (frequency error (omega h)^2 / 3, 1 % at f = 27 Hz at 1 kHz).
+
 ## Section index, `src/multibody_provider.cpp`
 
 | Section | Line |
 |---|---|
 | Helpers | 39 |
-| Construction | 262 |
-| Kinematics | 338 |
-| Dynamics | 405 |
-| Transmissions | 509 |
-| Constraints | 607 |
-| Inputs and outputs | 750 |
+| Construction | 264 |
+| Kinematics | 341 |
+| Dynamics | 413 |
+| Transmissions | 519 |
+| Constraints | 618 |
+| Members, ropes and model changes | 768 |
+| Inputs and outputs | 1132 |
 
 ## Lumped beam
 
 N segments, spring E I / l at each segment midpoint; clamped or pinned root, free or roller end.
+Euler buckling (ENG-042): N = 8 critical load (2N / L)^2 E I sin^2(pi / 2N) = 0.9872 P_Euler.
 Planar bending about root z; two-axis bending plus torsion: next tier. Derivation in the header.
 
 ## Tests

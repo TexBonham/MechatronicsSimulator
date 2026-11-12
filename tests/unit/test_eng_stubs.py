@@ -52,52 +52,8 @@ def test_eng_029() -> None:
     raise NotImplementedError
 
 
-@pytest.mark.req("ENG-030")
-@pytest.mark.xfail(strict=True, reason="stub")
-def test_eng_030() -> None:
-    """The engine shall publish the end-loads (three forces and three moments at each end) of every lumped member
-    every step.
-    """
-    raise NotImplementedError
-
-
-@pytest.mark.req("ENG-031")
-@pytest.mark.xfail(strict=True, reason="stub")
-def test_eng_031() -> None:
-    """The engine shall accept a mid-run change that sets a permanent offset on a lumped spring."""
-    raise NotImplementedError
-
-
-@pytest.mark.req("ENG-032")
-@pytest.mark.xfail(strict=True, reason="stub")
-def test_eng_032() -> None:
-    """The engine shall accept a mid-run change of a lumped spring's stiffness."""
-    raise NotImplementedError
-
-
-@pytest.mark.req("ENG-033")
-@pytest.mark.xfail(strict=True, reason="stub")
-def test_eng_033() -> None:
-    """The engine shall accept a mid-run disable of a constraint."""
-    raise NotImplementedError
-
-
-@pytest.mark.req("ENG-034")
-@pytest.mark.xfail(strict=True, reason="stub")
-def test_eng_034() -> None:
-    """The engine shall accept a mid-run release of a load from its attachment."""
-    raise NotImplementedError
-
-
 @pytest.mark.req("ENG-035")
 @pytest.mark.xfail(strict=True, reason="stub")
 def test_eng_035() -> None:
     """The engine shall accept a mid-run change of a payload's mass or attachment at a scheduled time."""
-    raise NotImplementedError
-
-
-@pytest.mark.req("ENG-047")
-@pytest.mark.xfail(strict=True, reason="stub")
-def test_eng_047() -> None:
-    """The engine shall simulate a rope as a lumped chain with unilateral tension, slack and length change."""
     raise NotImplementedError

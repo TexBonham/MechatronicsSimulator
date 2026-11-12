@@ -6,6 +6,8 @@
 #include <string>
 #include <vector>
 
+#include "mechsim/engine/member_loads.hpp"
+#include "mechsim/engine/rope.hpp"
 #include "mechsim/engine/transmission.hpp"
 
 namespace mechsim::engine {
@@ -17,7 +19,8 @@ namespace mechsim::engine {
 //   Planar    3; 3  [x, y, theta]: translation x u + y w in the plane normal to axis, then rotation theta about it
 //   Spherical 4; 3  q unit quaternion [w, x, y, z]; v angular velocity in child coordinates, rad/s
 //   Free      7; 6  q [p (m, parent joint frame), quaternion]; v [omega; velocity of child origin], child coordinates
-enum class JointType : std::uint8_t { Revolute, Prismatic, Fixed, Planar, Spherical, Free };
+//   Translation 3; 3  q p (m, parent joint frame); v its rate; no rotation (rope nodes, ENG-047)
+enum class JointType : std::uint8_t { Revolute, Prismatic, Fixed, Planar, Spherical, Free, Translation };
 
 // The joint frame is placed in the parent body frame; at zero joint coordinates the child body frame equals it.
 // Joint springs and dampers (ENG-051), per velocity DOF, each empty (none) or sized to the joint's velocity count:
@@ -63,6 +66,8 @@ struct MultibodyModel {
     std::vector<Body> bodies;
     std::vector<LoopConstraint> constraints;
     std::vector<Transmission> transmissions;  // ENG-043 to ENG-046, ENG-048
+    std::vector<LumpedBeam> members;          // ENG-030; add_lumped_beam registers each beam
+    std::vector<Rope> ropes;                  // ENG-047; add_rope registers each rope
     Eigen::Vector3d gravity = Eigen::Vector3d(0.0, 0.0, -9.81);  // world frame, m/s^2
 };
 

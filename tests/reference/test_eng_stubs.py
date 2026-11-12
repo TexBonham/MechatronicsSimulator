@@ -19,10 +19,3 @@ def test_eng_021() -> None:
     stop a body driven into a fixed hard stop.
     """
     raise NotImplementedError
-
-
-@pytest.mark.req("ENG-042")
-@pytest.mark.xfail(strict=True, reason="stub")
-def test_eng_042() -> None:
-    """A lumped pinned-pinned column under axial load shall lose stability at the Euler load pi^2*E*I/L^2."""
-    raise NotImplementedError

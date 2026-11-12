@@ -2,6 +2,7 @@
 
 #include <Eigen/Core>
 #include <Eigen/Geometry>
+#include <cstdint>
 #include <vector>
 
 #include "mechsim/engine/dynamics_provider.hpp"
@@ -42,12 +43,35 @@ struct ContactOutput {
     Eigen::Vector3d force = Eigen::Vector3d::Zero();  // on body_a, world, N
 };
 
+// Mid-run model changes (ENG-031 to ENG-034, PHY-008) and rope snaps, as the adapter reads them.
+enum class ModelChange : std::uint8_t {
+    SpringOffset,        // target member, index node, value offset (rad)
+    SpringStiffness,     // target member, index node, value stiffness (N m/rad)
+    ConstraintDisabled,  // target constraint
+    LoadReleased,        // target constraint holding the load
+    RopeReleased,        // target rope
+    RopeSnapped          // target rope, index segment, value tension (N), limit breaking tension (N)
+};
+
+struct ModelChangeEvent {
+    ModelChange kind = ModelChange::SpringOffset;
+    Eigen::Index target = -1;
+    Eigen::Index index = -1;
+    double value = 0.0;
+    double limit = 0.0;
+    double time = 0.0;  // s: a requested change takes effect at this time (the next step's start); a snap at the
+                        // end of the step whose tension exceeded the limit
+};
+
 struct MultibodyOutputs {
     std::vector<BodyOutput> bodies;
     std::vector<JointOutput> joints;  // one per body, the joint to its parent
     std::vector<ConstraintOutput> constraints;
     std::vector<ContactOutput> contacts;
     std::vector<TransmissionOutput> transmissions;  // at the end state, slip offset advanced by the step
+    std::vector<MemberOutput> members;  // per model.members, at the step's start state like joints (ENG-030)
+    std::vector<RopeOutput> ropes;      // per model.ropes, at the end state (PHY-004)
+    std::vector<ModelChangeEvent> events;  // changes applied in this step and snaps detected at its end
     double time = 0.0;  // end of the step, s
 };
 
@@ -93,6 +117,19 @@ public:
     [[nodiscard]] std::vector<TransmissionOutput> transmission_states(const Eigen::VectorXd& q,
                                                                       const Eigen::VectorXd& v) const;
 
+    // Mid-run model changes (ENG-031 to ENG-034, PHY-008), persistent from the next step on; each is listed in the
+    // next step's outputs().events. Node j of a member is member_nodes(beam)[j], root to tip.
+    void set_spring_offset(Eigen::Index member, Eigen::Index node, double offset);       // rad: rest = built + offset
+    void set_spring_stiffness(Eigen::Index member, Eigen::Index node, double stiffness);  // N m/rad, finite, >= 0
+    void disable_constraint(Eigen::Index constraint);  // fastener break; zero rows from then on
+    void release_load(Eigen::Index constraint);        // a load held by a loop constraint (ENG-034)
+    void release_rope(Eigen::Index rope);              // the rope's to_body attachment (ENG-034)
+    [[nodiscard]] bool constraint_enabled(Eigen::Index constraint) const;
+    [[nodiscard]] bool rope_attached(Eigen::Index rope) const;
+    // Rope rest length for the next step on (winch), m, finite and > 0 (ENG-047); not an event.
+    void set_rope_rest_length(Eigen::Index rope, double length);
+    [[nodiscard]] std::vector<RopeOutput> rope_states(const Eigen::VectorXd& q, const Eigen::VectorXd& v) const;
+
     StepHealth step(Integrator& integrator, State& state);
     [[nodiscard]] const MultibodyOutputs& outputs() const noexcept;
 
@@ -115,6 +152,17 @@ private:
     [[nodiscard]] TransmissionCoupling coupling(Eigen::Index transmission, const Eigen::VectorXd& q,
                                                 const Eigen::VectorXd& v) const;
     void add_transmission_terms(const Eigen::VectorXd& q, const Eigen::VectorXd& v, DynamicsTerms& terms) const;
+    struct RopePoint;
+    [[nodiscard]] RopePoint rope_point(const Kinematics& kin, Eigen::Index body, const Eigen::Vector3d& local,
+                                       bool jacobian) const;
+    [[nodiscard]] std::vector<RopePoint> rope_points(const Kinematics& kin, Eigen::Index rope, bool jacobian) const;
+    [[nodiscard]] std::vector<RopeSegment> rope_segments(const std::vector<RopePoint>& points,
+                                                         Eigen::Index rope) const;
+    void add_rope_wrenches(const Kinematics& kin, std::vector<spatial::Vector6d>& wrenches) const;
+    void add_rope_terms(const Kinematics& kin, DynamicsTerms& terms) const;
+    void setup_members_and_ropes();
+    void record_members_and_ropes(const State& before, const State& after, double h);
+    void check_constraint_change(Eigen::Index constraint) const;
 
     MultibodyModel model_;
     MultibodyConfig config_;
@@ -133,6 +181,10 @@ private:
     std::vector<double> slip_;               // per transmission, persistent
     std::vector<double> slip_offset_;        // s per transmission, advanced by step()
     MultibodyOutputs outputs_;
+    std::vector<std::uint8_t> constraint_enabled_;  // per constraint, persistent (ENG-033)
+    std::vector<double> rope_rest_;                 // per rope, current rest length, m
+    std::vector<std::uint8_t> rope_attached_;       // per rope, to_body attachment held
+    std::vector<ModelChangeEvent> pending_events_;  // listed in the next step's outputs
     // Written by the const step hooks for step(); single-threaded by ENG-023.
     mutable std::vector<Eigen::VectorXd> impulse_;
     mutable std::vector<ConstraintError> error_;
