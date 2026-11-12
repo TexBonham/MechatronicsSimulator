@@ -28,3 +28,4 @@ type live in the root `CLAUDE.md` dispatch table once measured.
 | 2026-11-11 | M3-E2 fix round: friction floor, snatch wording, T4 rows, scheme_decay outputs, one release_load path (wip/05-e2 ca0cd72) | module-writer (opus), resumed | ~45K | est. |
 | 2026-11-11 | M3-E1 fix round: GJK and EPA cap errors with CollisionLimits, ENG-019 oracle wording, witness-point note, weld note, WeldAttachment and model-change events (wip/05-e1 5f8878d) | module-writer (opus), resumed | ~30K | est. |
 | 2026-11-11 | M3-R: structural series, integrity result and event shapes, structural criteria, settle time, sweeps and variations, overlays, cursor fraction (wip/05-r f6a7926) | module-writer (opus), worktree | ~283K | 119 calls |
+| 2026-11-11 | Invariant audit: R | invariant-auditor (sonnet) | ~30K | clean |
