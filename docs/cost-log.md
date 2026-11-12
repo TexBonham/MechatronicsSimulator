@@ -21,3 +21,4 @@ type live in the root `CLAUDE.md` dispatch table once measured.
 | 2026-11-11 | M3-D: structural design rows, flexible beam, hook and rope types, member list, lumped beams with calibration, fasteners, rope element (wip/05-d d3f520e) | module-writer (opus), worktree | ~251K | 104 calls, 30 min |
 | 2026-11-11 | Invariant audit: M and D | invariant-auditor (sonnet) | ~35K | clean |
 | 2026-11-11 | M3 review: M and D | general-purpose (fable) | ~95K | 20 calls; M accept, D accept with fixes (2 medium: segment defaults; 5 low; rulings 19, 20) |
+| 2026-11-11 | M3-E2: member end-loads, mid-run changes, Euler buckling, rope chain on translation joints, belt compliance; 389 ctest (wip/05-e2 a3638a4) | module-writer (opus), worktree | est. 300K | pending usage; backward-Euler swing damping finding (ruling 21) |
