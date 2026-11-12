@@ -26,3 +26,4 @@ type live in the root `CLAUDE.md` dispatch table once measured.
 | 2026-11-11 | M3 review: E1 and E2 (physics; integrator derivation) | general-purpose (fable) | ~95K | 17 calls; both accept with follow-ups, ruling 21 settled against the midpoint proposal |
 | 2026-11-11 | M3-D fix round: segment defaults 8, optional breaking tension, calibration bounds and notes, materials wiring, overrides file kind, DES-046; M merged in (wip/05-d fbcd19a) | module-writer (opus), resumed | ~75K | 59 calls |
 | 2026-11-11 | M3-E2 fix round: friction floor, snatch wording, T4 rows, scheme_decay outputs, one release_load path (wip/05-e2 ca0cd72) | module-writer (opus), resumed | ~45K | est. |
+| 2026-11-11 | M3-E1 fix round: GJK and EPA cap errors with CollisionLimits, ENG-019 oracle wording, witness-point note, weld note, WeldAttachment and model-change events (wip/05-e1 5f8878d) | module-writer (opus), resumed | ~30K | est. |
