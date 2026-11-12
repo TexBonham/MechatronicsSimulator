@@ -131,7 +131,9 @@ class ChipConfig(_Out):
 
 
 class LumpedRecord(_Out):
-    """A lumped member as the engine will lump it, with the calibration the design records for it (BLD-019)."""
+    """A lumped member as the engine will lump it, with the calibration the design records for it and the scale
+    factors applied to the member's E (`stiffness_scale`) and density (`mass_scale`) to reproduce it (BLD-019);
+    `calibrated` false: the member uses its section and material as is."""
 
     member: str
     body: str
@@ -140,10 +142,13 @@ class LumpedRecord(_Out):
     node_stiffness: float
     spans: tuple[float, ...]
     masses: tuple[float, ...]
-    calibration_source: str
-    calibration_load: float
-    calibration_deflection: float
-    calibration_frequency: float
+    calibrated: bool
+    calibration_source: str | None = None
+    calibration_load: float | None = None
+    calibration_deflection: float | None = None
+    calibration_frequency: float | None = None
+    stiffness_scale: float | None = None
+    mass_scale: float | None = None
 
 
 class BuildResult(_Out):
