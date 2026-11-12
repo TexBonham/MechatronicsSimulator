@@ -64,6 +64,8 @@ REQUEST_KINDS = frozenset(
         "geometry",
         "value_at",
         "probe",
+        "member_stress",
+        "swing_angle",
         "report",
         "diff",
         "read_file",
@@ -343,6 +345,10 @@ class FacadeServer:
             "geometry": lambda: self._call(lambda: facade.geometry(payload.run_id)),
             "value_at": lambda: self._call(lambda: facade.value_at(payload.run_id, payload.ref, payload.t)),
             "probe": lambda: self._call(lambda: facade.probe(payload.run_id, payload.probe, payload.name)),
+            "member_stress": lambda: self._call(lambda: facade.member_stress(payload.run_id)),
+            "swing_angle": lambda: self._call(
+                lambda: facade.swing_angle(payload.run_id, payload.load, payload.attachment)
+            ),
             "report": lambda: self._call(lambda: facade.report(payload.suite_id)),
             "diff": lambda: self._call(lambda: facade.diff(payload.suite_id)),
             "read_file": lambda: self._call(lambda: facade.read_file(Path(payload.path))),

@@ -412,6 +412,20 @@ def test_conformance_fac_011(ws: ClientConnection, session: Session) -> None:
     assert_error(request(ws, "value_at", missing), "not_found", "FAC-011")
 
 
+@pytest.mark.req("VIE-010", "VIE-011")
+def test_conformance_overlays(ws: ClientConnection, session: Session) -> None:
+    """Member stress and swing angle overlays as additive requests on an open replay: P1 is rigid with no structural
+    members (an empty member list) and its link swings about the world origin; an unknown body is not_found."""
+    open_replay(ws, session)
+    stress = request(ws, "member_stress", {"run_id": RUN_ID}).answer["payload"]["result"]
+    assert (stress["unit"], stress["members"], len(stress["times"])) == ("Pa", [], 24400)
+    swing = request(ws, "swing_angle", {"run_id": RUN_ID, "load": "link", "attachment": "world"}).answer
+    result = swing["payload"]["result"]
+    assert (result["unit"], len(result["values"])) == ("rad", 24400)
+    missing = {"run_id": RUN_ID, "load": "nothing", "attachment": "world"}
+    assert_error(request(ws, "swing_angle", missing), "not_found", "VIE-011")
+
+
 # ===== Reports, errors, files (FAC-012, FAC-014, FAC-015, FAC-017) ======
 
 UNRUNNABLE = (ROOT / "test_cases" / "pendulum" / "P1_period.yaml").read_text(encoding="utf-8")

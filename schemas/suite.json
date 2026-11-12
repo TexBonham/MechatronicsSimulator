@@ -20,6 +20,96 @@
       ],
       "title": "DesignRef",
       "type": "object"
+    },
+    "Sweep": {
+      "additionalProperties": false,
+      "description": "One run per value of a design parameter: `${name}` for an open parameter, else `<section>.<item>.<field>`.",
+      "properties": {
+        "parameter": {
+          "pattern": "^(\\$\\{[a-z][a-z0-9_]*\\}|(bodies|joints|components)\\.[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)+|instance:[a-z][a-z0-9_]*\\.[a-z][a-z0-9_]*)$",
+          "title": "Parameter",
+          "type": "string"
+        },
+        "values": {
+          "items": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Values",
+          "type": "array"
+        }
+      },
+      "required": [
+        "parameter",
+        "values"
+      ],
+      "title": "Sweep",
+      "type": "object"
+    },
+    "Variation": {
+      "additionalProperties": false,
+      "description": "A seeded spread about the nominal value: standard deviation (normal) or half width (uniform).",
+      "properties": {
+        "distribution": {
+          "enum": [
+            "normal",
+            "uniform"
+          ],
+          "title": "Distribution",
+          "type": "string"
+        },
+        "parameter": {
+          "pattern": "^(\\$\\{[a-z][a-z0-9_]*\\}|(bodies|joints|components)\\.[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)+|instance:[a-z][a-z0-9_]*\\.[a-z][a-z0-9_]*)$",
+          "title": "Parameter",
+          "type": "string"
+        },
+        "spread": {
+          "anyOf": [
+            {
+              "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s+\\S.*)?$",
+              "type": "string"
+            },
+            {
+              "pattern": "^\\$\\{[a-z][a-z0-9_]*\\}$",
+              "type": "string"
+            }
+          ],
+          "title": "Spread"
+        }
+      },
+      "required": [
+        "parameter",
+        "distribution",
+        "spread"
+      ],
+      "title": "Variation",
+      "type": "object"
+    },
+    "Variations": {
+      "additionalProperties": false,
+      "description": "`count` seeded variations (TST-026): variation k runs with its own integer seed, derived from the case seed\nand k, which also draws each parameter's value about its nominal; rerun alone from that seed.",
+      "properties": {
+        "count": {
+          "minimum": 1,
+          "title": "Count",
+          "type": "integer"
+        },
+        "parameters": {
+          "items": {
+            "$ref": "#/$defs/Variation"
+          },
+          "minItems": 1,
+          "title": "Parameters",
+          "type": "array"
+        }
+      },
+      "required": [
+        "count",
+        "parameters"
+      ],
+      "title": "Variations",
+      "type": "object"
     }
   },
   "$id": "suite.json",
@@ -63,6 +153,26 @@
       ],
       "default": null,
       "title": "Note"
+    },
+    "sweeps": {
+      "description": "sweeps run for every case of the suite, after the case's own (TST-007)",
+      "items": {
+        "$ref": "#/$defs/Sweep"
+      },
+      "title": "Sweeps",
+      "type": "array"
+    },
+    "variations": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/Variations"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "seeded variations for every case that defines none of its own (TST-007)"
     }
   },
   "required": [

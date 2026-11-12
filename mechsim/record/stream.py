@@ -24,6 +24,7 @@ from mechsim.record.layout import (
     JOINT_FORCE,
     JOINT_POSITIONS,
     NAMED_GROUPS,
+    ROPE_MAX_TENSION,
     TICK_AXIS,
     Columns,
     Recording,
@@ -123,7 +124,11 @@ def _drive_columns(row: TickRecord) -> tuple[list[float], list[bool]]:
 def _check_widths(layout: _Layout, columns: Mapping[str, Columns], time: int) -> None:
     for path, labels in columns.items():
         width = layout.payloads
-        if path.startswith("physics/transmissions/"):
+        if path.startswith("physics/members/"):
+            width = layout.members
+        elif path.startswith("physics/ropes/"):
+            width = layout.ropes
+        elif path.startswith("physics/transmissions/"):
             width = layout.transmissions
         elif path.startswith("physics/joint"):
             width = layout.joint_coordinates
@@ -243,6 +248,7 @@ class Recorder:
         buffers["physics/members/end_force"].append([member.end.force for member in physics.members])
         buffers["physics/ropes/tension"].append([rope.tension for rope in physics.ropes])
         buffers["physics/ropes/slack"].append([rope.slack for rope in physics.ropes])
+        buffers[ROPE_MAX_TENSION].append([rope.max_tension for rope in physics.ropes])
         buffers["physics/transmissions/slip"].append([item.slip for item in physics.transmissions])
         buffers["physics/transmissions/slipping"].append([item.slipping for item in physics.transmissions])
         buffers["physics/transmissions/shaft_load_torque"].append(
@@ -356,6 +362,7 @@ def _make_buffers(layout: _Layout) -> dict[str, _Buffer]:
         "physics/members/end_force": (layout.members, 3),
         "physics/ropes/tension": (layout.ropes,),
         "physics/ropes/slack": (layout.ropes,),
+        ROPE_MAX_TENSION: (layout.ropes,),
         "physics/transmissions/slip": (layout.transmissions,),
         "physics/transmissions/slipping": (layout.transmissions,),
         "physics/transmissions/shaft_load_torque": (layout.transmissions,),

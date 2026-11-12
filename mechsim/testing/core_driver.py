@@ -13,6 +13,7 @@ from __future__ import annotations
 import hashlib
 import json
 from collections.abc import Callable, Mapping, Sequence
+from dataclasses import replace
 from fractions import Fraction
 from pathlib import Path
 from typing import Any
@@ -31,7 +32,7 @@ from mechsim.physics.mujoco.translate import UnmappableElementError
 from mechsim.physics.neutral import PhysicsModel
 from mechsim.record.archive import RunEnd, RunFault, RunIdentity, repository_commit, tool_version
 from mechsim.record.archive import write_archive as write_record_archive
-from mechsim.record.layout import DRIVE_DRIVEN, DRIVE_TORQUE, JOINT_POSITIONS, Columns
+from mechsim.record.layout import DRIVE_DRIVEN, DRIVE_TORQUE, JOINT_POSITIONS, MEMBER_SERIES, ROPE_SERIES, Columns
 from mechsim.record.reader import DriverError as DriverError
 from mechsim.record.reader import JointKinematics as JointKinematics
 from mechsim.record.reader import Kinematics as Kinematics
@@ -70,6 +71,7 @@ from mechsim.testing.core_wiring import (
     work_directory,
 )
 from mechsim.testing.driver import (
+    MATERIAL_OVERRIDES_KEY,
     BuildResult,
     EndReason,
     EndSpec,
@@ -78,6 +80,7 @@ from mechsim.testing.driver import (
     RunReport,
     ScheduledCommand,
     ScheduledFault,
+    members_json,
 )
 from mechsim.testing.runner import Services
 from mechsim.testing.schema import DESIGNS_ROOT, ROOT, Case, InitialState, Quantity
@@ -182,7 +185,10 @@ def tick_record(row: Any, events: Mapping[int, Sequence[RowEvent]] | None = None
         )
         for m in physics["members"]
     )
-    ropes = tuple(RopeTension(float(r["tension"]), bool(r["slack"])) for r in physics["ropes"])
+    ropes = tuple(
+        RopeTension(float(r["tension"]), bool(r["slack"]), float(r.get("max_tension", r["tension"])))
+        for r in physics["ropes"]
+    )
     transmissions = tuple(
         TransmissionState(
             float(t["slip"]),
@@ -440,6 +446,7 @@ class CoreDriver:
             sink.subscribe(subscriber)
         report = kernel.run(core.EndCondition(_seconds(stop, config.base_rate)), sink)
         recorder = Recorder(config.base_rate, model_columns(model, sorted(payloads)))
+        frames = member_frames(model)
         decoded: list[RowEvent] = []
         if self._runner is not None:
             decoded = [RowEvent(tick, "controller", kind, detail) for tick, kind, detail in self._runner.events]
@@ -453,7 +460,7 @@ class CoreDriver:
             while taken < len(decoded) and decoded[taken].time <= row_tick:
                 due.append(decoded[taken])
                 taken += 1
-            recorder.write_row(tick_record(row, {row_tick: due}))
+            recorder.write_row(member_frame_loads(tick_record(row, {row_tick: due}), frames))
         self.subscriber_errors = tuple(str(error) for error in sink.subscriber_errors())
         self._view = RecordingView(
             recorder.recording(),
@@ -635,10 +642,93 @@ def model_columns(model: PhysicsModel, payloads: Sequence[str] = ()) -> dict[str
     if len(payloads) > 0:
         for field in ("body", "carrier", "attached", "force"):
             columns[f"physics/payloads/{field}"] = Columns(tuple(payloads))
+    members = tuple(member.structural_member or member.name for member in model.lumped_members)
+    if len(members) > 0:
+        for path in MEMBER_SERIES:
+            columns[path] = Columns(members)
+    ropes = tuple(rope.name for rope in model.ropes)
+    if len(ropes) > 0:
+        for path in ROPE_SERIES:
+            columns[path] = Columns(ropes)
     return columns
 
 
+# ===== Member frames ====================================================
+
+
+def _rotate(q: Quat, v: Vec) -> Vec:
+    w, x, y, z = q
+    tx = 2.0 * (y * v[2] - z * v[1])
+    ty = 2.0 * (z * v[0] - x * v[2])
+    tz = 2.0 * (x * v[1] - y * v[0])
+    return (
+        v[0] + w * tx + (y * tz - z * ty),
+        v[1] + w * ty + (z * tx - x * tz),
+        v[2] + w * tz + (x * ty - y * tx),
+    )
+
+
+def _multiply(a: Quat, b: Quat) -> Quat:
+    aw, ax, ay, az = a
+    bw, bx, by, bz = b
+    return (
+        aw * bw - ax * bx - ay * by - az * bz,
+        aw * bx + ax * bw + ay * bz - az * by,
+        aw * by - ax * bz + ay * bw + az * bx,
+        aw * bz + ax * by - ay * bx + az * bw,
+    )
+
+
+def _conjugate(q: Quat) -> Quat:
+    return (q[0], -q[1], -q[2], -q[3])
+
+
+def member_frames(model: PhysicsModel) -> tuple[tuple[int, Quat], ...]:
+    """Per lumped member, in neutral order: the index of its parent body (-1 for world) and its root frame's
+    orientation in the parent frame (x along the member, ruling 24)."""
+    index = {body.name: position for position, body in enumerate(model.bodies)}
+    frames: list[tuple[int, Quat]] = []
+    for member in model.lumped_members:
+        parent = index.get(member.parent, -1)
+        q = member.orientation
+        frames.append((parent, (float(q[0]), float(q[1]), float(q[2]), float(q[3]))))
+    return tuple(frames)
+
+
+def member_frame_loads(record: TickRecord, frames: Sequence[tuple[int, Quat]]) -> TickRecord:
+    """The bridge publishes member end-loads along world axes; ENG-030 states them in the member frame (x from the
+    start to the end node, y and z the section's principal axes; ruling 24). Each wrench is rotated by the inverse
+    of the member root frame's world orientation, the parent body's recorded orientation times the member's placement;
+    the root frame stands for the member frame while the deflection is small. The native adapter publishes the member
+    frame directly."""
+    members = record.physics.members
+    if len(members) == 0:
+        return record
+    if len(members) != len(frames):
+        raise DriverError(f"{len(members)} member end-loads for {len(frames)} lumped members")
+    bodies = record.physics.bodies
+    loads: list[MemberEndLoads] = []
+    for loads_of, (parent, placement) in zip(members, frames, strict=True):
+        world = placement
+        if parent >= 0:
+            world = _multiply(bodies[parent].orientation, placement)
+        inverse = _conjugate(world)
+        loads.append(
+            MemberEndLoads(
+                Wrench(_rotate(inverse, loads_of.start.moment), _rotate(inverse, loads_of.start.force)),
+                Wrench(_rotate(inverse, loads_of.end.moment), _rotate(inverse, loads_of.end.force)),
+            )
+        )
+    return replace(record, physics=replace(record.physics, members=tuple(loads)))
+
+
 # ===== Archives =========================================================
+
+
+def _pairs(pairs: tuple[tuple[str, str], ...] | None) -> list[list[str]] | None:
+    if pairs is None:
+        return None
+    return [list(item) for item in pairs]
 
 
 def _case_file(case_hash: str, root: Path) -> bytes:
@@ -701,7 +791,14 @@ class RecordArchiver:
             "states": json.dumps(recording.states, sort_keys=True),
             "sink_errors": json.dumps(list(report.sink_errors)),
             "hook_errors": json.dumps(list(report.hook_errors)),
+            "members": members_json(metadata.members),
+            "variation": json.dumps(_pairs(metadata.variation)),
         }
+        if metadata.material_overrides is not None:
+            extra[MATERIAL_OVERRIDES_KEY] = metadata.material_overrides.text
+            extra[f"{MATERIAL_OVERRIDES_KEY}_sha256"] = metadata.material_overrides.sha256
+        if metadata.integrity is not None:
+            extra["integrity"] = metadata.integrity.to_json()
         write_record_archive(path, identity, end, recording.recording, extra)
         return hashlib.sha256(path.read_bytes()).hexdigest()
 

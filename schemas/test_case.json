@@ -1312,7 +1312,7 @@
           "type": "string"
         },
         "quantity": {
-          "pattern": "^(signal:[a-z][a-z0-9_]*\\.[a-z][a-z0-9_]*|pose:[a-z][a-z0-9_]*\\.(x|y|z|roll|pitch|yaw)|joint:[a-z][a-z0-9_]*\\.(position|velocity)|rail:[a-z][a-z0-9_]*(\\.voltage)?|state:[a-z][a-z0-9_]*|fault:[a-z][a-z0-9_]*|count:(message|state|fault)\\.[a-z][a-z0-9_]*)$",
+          "pattern": "^(signal:[a-z][a-z0-9_]*\\.[a-z][a-z0-9_]*|pose:[a-z][a-z0-9_]*\\.(x|y|z|roll|pitch|yaw)|joint:[a-z][a-z0-9_]*\\.(position|velocity)|rail:[a-z][a-z0-9_]*(\\.voltage)?|state:[a-z][a-z0-9_]*|fault:[a-z][a-z0-9_]*|count:(message|state|fault)\\.[a-z][a-z0-9_]*|safety_factor:[a-z][a-z0-9_]*|deflection:[a-z][a-z0-9_]*)$",
           "title": "Quantity",
           "type": "string"
         },
@@ -1508,7 +1508,7 @@
           "type": "string"
         },
         "quantity": {
-          "pattern": "^(signal:[a-z][a-z0-9_]*\\.[a-z][a-z0-9_]*|pose:[a-z][a-z0-9_]*\\.(x|y|z|roll|pitch|yaw)|joint:[a-z][a-z0-9_]*\\.(position|velocity)|rail:[a-z][a-z0-9_]*(\\.voltage)?|state:[a-z][a-z0-9_]*|fault:[a-z][a-z0-9_]*|count:(message|state|fault)\\.[a-z][a-z0-9_]*)$",
+          "pattern": "^(signal:[a-z][a-z0-9_]*\\.[a-z][a-z0-9_]*|pose:[a-z][a-z0-9_]*\\.(x|y|z|roll|pitch|yaw)|joint:[a-z][a-z0-9_]*\\.(position|velocity)|rail:[a-z][a-z0-9_]*(\\.voltage)?|state:[a-z][a-z0-9_]*|fault:[a-z][a-z0-9_]*|count:(message|state|fault)\\.[a-z][a-z0-9_]*|safety_factor:[a-z][a-z0-9_]*|deflection:[a-z][a-z0-9_]*)$",
           "title": "Quantity",
           "type": "string"
         },
@@ -1620,7 +1620,7 @@
     },
     "Variations": {
       "additionalProperties": false,
-      "description": "Stored only: v1 runs use nominal values (Architecture doc, Seams reserved for the roadmap).",
+      "description": "`count` seeded variations (TST-026): variation k runs with its own integer seed, derived from the case seed\nand k, which also draws each parameter's value about its nominal; rerun alone from that seed.",
       "properties": {
         "count": {
           "minimum": 1,

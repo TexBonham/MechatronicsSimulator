@@ -29,7 +29,17 @@ from mechsim.scoring.statistics import (
     within,
 )
 from mechsim.testing.baseline import RunIdentity, baseline_text, diff_baselines, load_baseline
-from mechsim.testing.driver import FAULT_KIND, MESSAGE_KIND, RecordedEvent, RunReport
+from mechsim.testing.driver import (
+    FAULT_KIND,
+    INTEGRITY_KIND,
+    INTEGRITY_SOURCE,
+    MESSAGE_KIND,
+    IntegrityCrossing,
+    IntegrityResults,
+    MemberIntegrity,
+    RecordedEvent,
+    RunReport,
+)
 from mechsim.testing.schema import Case, DesignRef
 from tests.unit.test_runner_fakes import FakeRecording, Row, recording_from
 
@@ -823,3 +833,141 @@ def test_layer_approximation_events_reach_the_score_once_each_after_the_bridge_l
         "bridge line",
         "load_cell: load past its overload limit, held at the limit",
     )
+
+
+# ===== Damped settle, structural criteria, crossings, variations (brief R) ===
+
+
+@pytest.mark.req("SCO-024")
+def test_settle_time_of_a_damped_oscillation_matches_its_envelope() -> None:
+    # x(t) = 1 + A e^(-t / tau) cos(2 pi t / T), A = 1 V, tau = 1.5 s, T = 1 s, sampled every T / 2 = 0.5 s, so every
+    # sample is a peak or trough: |x - 1| = A e^(-t / tau). It is out of the 0.05 V band while t < tau ln(A / b) =
+    # 1.5 ln 20 = 4.4936 s; the last sample out is t = 4.0 s and the series stays in from t = 4.5 s on, so the
+    # settle time is 4.5 s with the worst time 4.0 s.
+    amplitude, tau, period, band = 1.0, 1.5, 1.0, 0.05
+    times = [0.5 * n for n in range(21)]
+    values = [1.0 + amplitude * math.exp(-t / tau) * math.cos(2.0 * math.pi * t / period) for t in times]
+    expected_last_out = max(t for t in times if t < tau * math.log(amplitude / band))
+    expected = expected_last_out + 0.5
+    print(f"settle closed form {expected} s (last out {expected_last_out} s)")
+    criterion = {
+        "name": "settle",
+        "check": "settle_time",
+        "quantity": "signal:s.v",
+        "band": f"{band} V",
+        "target": "1 V",
+        "comparison": "at_most",
+        "limit": "5 s",
+    }
+    recording = recording_from(times, {"signal:s.v": values}, "V")
+    result = score_one(criterion, recording)
+    print(f"settle measured {result.measured} s")
+    assert (result.status, result.measured, result.worst_time) == ("pass", expected, expected_last_out)
+    assert score_one({**criterion, "limit": "4 s"}, recording).status == "fail"
+
+
+def _structural(quantity: str, statistic_name: str, comparison: str, limit: str) -> dict[str, Any]:
+    return value(statistic_name, comparison, limit, name="structure", quantity=quantity)
+
+
+INTEGRITY = IntegrityResults(
+    (
+        MemberIntegrity("rail_x", 3.0e7, 1.5, 0.012, 1.75, 1.2, 1.5, ("tier1",)),
+        MemberIntegrity("rail_y", 1.0e7, 0.5, 0.004, 0.25, 3.0, 0.5),
+    )
+)
+
+
+def _structural_recording() -> FakeRecording:
+    # Series under the same names hold other values: scoring must read the integrity table, never these.
+    return recording_from(TIMES, {"safety_factor:rail_x": [9.0] * 4, "deflection:rail_x": [9.0] * 4}, "")
+
+
+@pytest.mark.req("SCO-014")
+@pytest.mark.parametrize(
+    ("quantity", "statistic_name", "comparison", "limit", "status", "measured", "unit", "worst"),
+    [
+        ("safety_factor:rail_x", "minimum", "at_least", "1.5", "fail", 1.2, "", 1.5),
+        ("safety_factor:rail_y", "minimum", "at_least", "1.5", "pass", 3.0, "", 0.5),
+        ("deflection:rail_x", "maximum", "at_most", "1 cm", "fail", 0.012, "m", 1.75),
+        ("deflection:rail_y", "final", "below", "1 cm", "pass", 0.004, "m", 0.25),
+    ],
+)
+def test_structural_criteria_read_the_integrity_results(
+    quantity: str,
+    statistic_name: str,
+    comparison: str,
+    limit: str,
+    status: str,
+    measured: float,
+    unit: str,
+    worst: float,
+) -> None:
+    case = case_with(_structural(quantity, statistic_name, comparison, limit))
+    result = score_run(case, _structural_recording(), ENDED, integrity=INTEGRITY).criteria[0]
+    assert (result.status, result.measured, result.unit, result.worst_time) == (status, measured, unit, worst)
+
+
+@pytest.mark.req("SCO-014")
+def test_structural_criteria_without_integrity_results_or_the_member_are_errors() -> None:
+    case = case_with(_structural("safety_factor:rail_x", "minimum", "at_least", "1.5"))
+    missing = score_run(case, _structural_recording(), ENDED).criteria[0]
+    assert (missing.status, missing.note) == ("error", "safety_factor:rail_x: the run has no integrity results")
+    unknown = case_with(_structural("deflection:rail_z", "maximum", "at_most", "1 cm"))
+    result = score_run(unknown, _structural_recording(), ENDED, integrity=INTEGRITY).criteria[0]
+    assert (result.status, result.note) == ("error", "deflection:rail_z: integrity reports no member 'rail_z'")
+
+
+@pytest.mark.req("SCO-014")
+def test_a_structural_limit_has_the_quantity_dimension() -> None:
+    with pytest.raises(ValueError, match="expected"):
+        case_with(_structural("deflection:rail_x", "maximum", "at_most", "1 s"))
+
+
+def _crossing_recording(detail: str) -> FakeRecording:
+    rows = [Row({"signal:s.v": sample}) for sample in SAMPLES]
+    rows[2].events.append(RecordedEvent(2.0, INTEGRITY_SOURCE, INTEGRITY_KIND, detail))
+    return FakeRecording(TIMES, rows, {"signal:s.v": "V"})
+
+
+@pytest.mark.req("SCO-015")
+def test_a_recorded_tier_1_crossing_fails_the_case() -> None:
+    case = case_with(value("maximum", "at_most", "3 V", name="a"))
+    detail = IntegrityCrossing("rail_x", "stress", 3.5e7, 3.0e7).detail()
+    scored = score_run(case, _crossing_recording(detail), ENDED, run=IDENTITY)
+    assert scored.criteria[0].status == "pass"
+    assert scored.status == "fail"
+    assert scored.crossings == ("rail_x stress 35000000 crossed limit 30000000 at 2 s (tier 1)",)
+    text = report_text(_suite(scored))
+    assert "  integrity crossing: rail_x stress 35000000 crossed limit 30000000 at 2 s (tier 1)" in text
+    assert "- Integrity crossing: rail_x stress" in report_markdown(_suite(scored), None)
+    clean = score_run(case, recording_from(TIMES, {"signal:s.v": SAMPLES}, "V"), ENDED)
+    assert (clean.status, clean.crossings) == ("pass", ())
+
+
+@pytest.mark.req("SCO-015")
+def test_a_crossing_keeps_an_errored_run_errored_only_tier_1_counts_and_an_unreadable_one_fails() -> None:
+    case = case_with(value("maximum", "at_most", "3 V", name="a"))
+    detail = IntegrityCrossing("rail_x", "stress", 3.5e7, 3.0e7).detail()
+    errored = score_run(case, _crossing_recording(detail), RunReport("run_error", 2, Fraction(1), "boom"))
+    assert errored.status == "error"
+    tier_two = IntegrityCrossing("rope", "tension", 1200.0, 1000.0, tier=2).detail()
+    later = score_run(case, _crossing_recording(tier_two), ENDED)
+    assert (later.status, later.crossings) == ("pass", ())
+    unreadable = score_run(case, _crossing_recording("garbage"), ENDED)
+    assert unreadable.status == "fail"
+    assert unreadable.crossings[0].startswith("unreadable crossing at 2 s: integrity event detail 'garbage'")
+
+
+@pytest.mark.req("SCO-019")
+def test_variation_runs_are_reported_per_seed_and_not_baselined() -> None:
+    nominal = _scored("a", "3 V")
+    first = CaseScore(**{**_scored("a", "3 V").__dict__, "seed": 101, "variation": (("${gain}", "1.2 V"),)})
+    second = CaseScore(**{**_scored("a", "2 V").__dict__, "seed": 202, "variation": (("${gain}", "0.9 V"),)})
+    text = report_text(_suite(nominal, first, second))
+    assert "Case X1 [variation seed 101: ${gain} = 1.2 V]: PASS" in text
+    assert (
+        "Variations of X1\n| criterion | seed 101 | seed 202 |\n|---|---|---|\n| ${gain} | 1.2 V | 0.9 V |\n"
+        "| a | 3 V (pass) | 3 V (fail) |\n"
+    ) in text
+    assert [entry.case for entry in suite_baseline(_suite(nominal, first, second)).entries] == ["X1"]

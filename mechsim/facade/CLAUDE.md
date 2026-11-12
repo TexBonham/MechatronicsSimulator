@@ -26,6 +26,7 @@ runner, recorder, scoring and viewer.
 | `report(suite_id)`, `diff(suite_id)` | text + Markdown; diff entries in report order (FAC-012) |
 | `replay_open(archive)` | `ReplayHandle` keyed by run id; archive reader only (FAC-008) |
 | `events`, `timeline`, `probe(run_id, kind, name)`, `geometry` | viewer results (VIE-002 to VIE-006, VIE-015) |
+| `member_stress(run_id)`, `swing_angle(run_id, load, attachment)` | `MemberStressResult` (unit Pa, times, members with area, second moments y and z, fibres y and z, start, end), `SwingAngleResult` (unit rad, times, values; down from the archived design's gravity, an unreadable archive `not_found`); VIE-010, VIE-011 |
 | `series(run_id, names, t_start, t_end, points)` | `SeriesWindow`, decimated; archive untouched (FAC-007) |
 | `value_at(run_id, ref, t)` | latest sample at or before t; refs `pose:`, `joint:`, `signal:`, `actuator:` |
 | `scrub`, `pause`, `step`, `advance` | `CursorResult` (index, t, paused, samples) |
@@ -41,7 +42,7 @@ runner, recorder, scoring and viewer.
 | `replay_open`, `scrub`, `pause`, `step`, `advance` (`dt`, ruling 22) | the replay and its cursor |
 | `list_runs` | `list_runs()`: `RunList` of `<runs_dir>/*.h5` by run id plus open replays (`open`), sorted (ruling 22) |
 | `subscribe_series` | open replay: `ok` then one batch; otherwise held for the next run of that run id on the connection |
-| `events`, `timeline`, `geometry`, `value_at`, `probe`, `read_file`, `write_file` | same-named methods |
+| `events`, `timeline`, `geometry`, `value_at`, `probe`, `member_stress`, `swing_angle`, `read_file`, `write_file` | same-named methods |
 
 Static route (M2-F2, VIE-012): `process_request` answers a request without `Upgrade: websocket` from `web/` (`/` is
 `index.html`; top-level `*.html`, `*.js`, `*.css`; `vendor/*`; else 404; `..`, `.`, empty segments, `:`, backslash,
@@ -83,7 +84,7 @@ Envelope: `version`, `message_id`, `kind`, `payload`.
 
 | Group | Kinds |
 |---|---|
-| Requests | `list_designs`, `validate_design`, `run_case`, `run_suite`, `replay_open`, `subscribe_series`, `scrub`, `pause` (`paused` bool), `step` (`forward`/`backward`), `advance` (`run_id`, `dt`), `list_runs` (M2-X5, ruling 22); M2-F1: `events`, `timeline`, `geometry` (`run_id`), `value_at` (`run_id`, `ref`, `t`), `probe` (`run_id`, `probe`, `name`), `report`, `diff` (`suite_id`), `read_file` (`path`), `write_file` (`path`, `text`) |
+| Requests | `list_designs`, `validate_design`, `run_case`, `run_suite`, `replay_open`, `subscribe_series`, `scrub`, `pause` (`paused` bool), `step` (`forward`/`backward`), `advance` (`run_id`, `dt`), `list_runs` (M2-X5, ruling 22); M2-F1: `events`, `timeline`, `geometry` (`run_id`), `value_at` (`run_id`, `ref`, `t`), `probe` (`run_id`, `probe`, `name`), `member_stress` (`run_id`), `swing_angle` (`run_id`, `load`, `attachment`) (brief R), `report`, `diff` (`suite_id`), `read_file` (`path`), `write_file` (`path`, `text`) |
 | Responses | `ok` (`request_id`, `result`), `error` (`request_id` or null, `code`, `message`, `requirement_id`) |
 | Events | `run_progress`, `run_ended` (`reason`), `tick_batch`, `timeline_event` (`category`, `label`) |
 
@@ -108,11 +109,11 @@ column first, float64 little-endian; one sample means `t_start == t_end` (FAC-01
 
 | Section | File | Line |
 |---|---|---|
-| Frames and messages | server.py | 82 |
-| Listener and connections | server.py | 188 |
-| Facade server | server.py | 225 |
-| Static files | server.py | 463 |
-| Serve entry point | server.py | 512 |
-| Result models | service.py | 84 |
-| Helpers | service.py | 274 |
-| Facade | service.py | 363 |
+| Frames and messages | server.py | 84 |
+| Listener and connections | server.py | 190 |
+| Facade server | server.py | 227 |
+| Static files | server.py | 469 |
+| Serve entry point | server.py | 518 |
+| Result models | service.py | 97 |
+| Helpers | service.py | 315 |
+| Facade | service.py | 404 |

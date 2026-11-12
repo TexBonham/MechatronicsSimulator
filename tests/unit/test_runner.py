@@ -24,18 +24,24 @@ from mechsim.testing.runner import (
     Services,
     case_files,
     command_timeline,
+    draw_variation,
     end_spec,
     exact_tick,
     fault_timeline,
+    get_design_path,
     module_seeds,
     next_tick,
     prepare,
     rational_lcm,
     run_case,
     run_suite,
+    run_variation,
+    set_design_path,
     sweep_runs,
+    variation_runs,
+    variation_seed,
 )
-from mechsim.testing.schema import Case
+from mechsim.testing.schema import Case, SuiteFile
 from tests.unit.test_runner_fakes import (
     MACHINE_CASE,
     FakeArchiver,
@@ -552,7 +558,7 @@ def test_a_sweep_runs_once_per_value_recording_the_value(tmp_path: Path) -> None
     assert run.runs[1].metadata is not None
     assert run.runs[1].metadata.sweep == ("${link_mass}", "2 kg")
     assert run.runs[2].metadata is not None
-    assert run.runs[2].metadata.run_id == "M1-seed7-sweep0-1"
+    assert run.runs[2].metadata.run_id == "M1-seed7-sweep0-1-3_kg"
 
 
 @pytest.mark.req("TST-025")
@@ -940,3 +946,243 @@ def test_a_bad_override_in_the_cases_parameters_is_an_error(tmp_path: Path) -> N
     case = _gantry_case(tmp_path, "parameters:\n  instance:x_motor.rotor_inertia: 5 kg\n")
     with pytest.raises(RunnerError, match=r"stepper_behavioral\.rotor_inertia"):
         prepare(case, {}, GANTRY_DESIGNS)
+
+
+# ===== Seeded variations and suite-file sweeps (brief R) ================
+
+VARIATIONS = """variations:
+  count: 3
+  parameters:
+    - parameter: ${link_mass}
+      distribution: normal
+      spread: 0.1 kg
+"""
+
+
+class FreshDrivers:
+    """A new fake driver per run, kept for inspection."""
+
+    def __init__(self) -> None:
+        self.made: list[InMemoryFakeDriver] = []
+
+    def __call__(self) -> InMemoryFakeDriver:
+        driver = fake()
+        self.made.append(driver)
+        return driver
+
+
+def _expected_seed(case_seed: int, index: int) -> int:
+    return int(np.random.SeedSequence(case_seed, spawn_key=(index,)).generate_state(1, dtype=np.uint64)[0])
+
+
+@pytest.mark.req("TST-026")
+def test_each_variation_runs_with_its_own_seed_and_drawn_value(tmp_path: Path) -> None:
+    # Variation k's seed is SeedSequence(7) child k (D1); its value is nominal 1 kg + 0.1 kg times the first standard
+    # normal draw of default_rng(seed), derived here independently of the runner.
+    designs, case = machine(tmp_path, MACHINE_CASE + VARIATIONS)
+    drivers = FreshDrivers()
+    builder = FakeBuilder()
+    results = variation_runs(case, Services(drivers, builder, designs_root=designs), BIND, None)
+    seeds = [_expected_seed(7, index) for index in range(3)]
+    assert [variation_seed(7, index) for index in range(3)] == seeds
+    assert len(set(seeds)) == 3
+    masses = [1.0 + 0.1 * float(np.random.default_rng(seed).standard_normal()) for seed in seeds]
+    assert [design.bodies[0].mass_properties.mass for design in builder.built] == pytest.approx(masses, rel=1e-15)
+    assert [driver.config.seed for driver in drivers.made if driver.config is not None] == seeds
+    for result, seed, mass in zip(results, seeds, masses, strict=True):
+        assert result.metadata is not None
+        assert result.metadata.run_id == f"M1-variation-seed{seed}"
+        assert result.metadata.seed == seed
+        assert result.metadata.variation == (("${link_mass}", f"{mass:.17g} kg"),)
+        assert result.score.seed == seed
+        assert result.score.variation == result.metadata.variation
+        assert result.score.sweep is None
+
+
+@pytest.mark.req("TST-026")
+def test_a_variation_reruns_alone_with_an_identical_result(tmp_path: Path) -> None:
+    designs, case = machine(tmp_path, MACHINE_CASE + VARIATIONS)
+    batch = variation_runs(case, Services(FreshDrivers(), FakeBuilder(), FakeArchiver(), designs), BIND, tmp_path / "a")
+    seed = variation_seed(7, 1)
+    alone = run_variation(
+        case, Services(FreshDrivers(), FakeBuilder(), FakeArchiver(), designs), seed, BIND, tmp_path / "b"
+    )
+    assert alone.score == batch[1].score
+    assert alone.metadata == batch[1].metadata
+    assert batch[1].archive is not None
+    assert alone.archive is not None
+    assert alone.archive.read_bytes() == batch[1].archive.read_bytes()
+
+
+@pytest.mark.req("TST-026")
+def test_a_uniform_variation_stays_within_its_half_width(tmp_path: Path) -> None:
+    designs, case = machine(tmp_path, MACHINE_CASE + VARIATIONS.replace("normal", "uniform").replace("3", "20", 1))
+    builder = FakeBuilder()
+    variation_runs(case, Services(FreshDrivers(), builder, designs_root=designs), BIND, None)
+    masses = [design.bodies[0].mass_properties.mass for design in builder.built]
+    assert len(masses) == 20
+    assert all(0.9 <= mass <= 1.1 for mass in masses)
+
+
+@pytest.mark.req("TST-026")
+def test_a_variation_over_a_design_field_varies_about_the_design_value(tmp_path: Path) -> None:
+    designs = write_designs(tmp_path)
+    shipped = Path(__file__).resolve().parents[2] / "test_cases" / "pendulum" / "P1_period.yaml"
+    text = shipped.read_text(encoding="utf-8") + (
+        "variations:\n  count: 1\n  parameters:\n    - parameter: joints.pivot.angular.damping\n"
+        "      distribution: normal\n      spread: 0.001 N*m*s/rad\n"
+    )
+    case = write_case(tmp_path / "cases", text, "P1_period.yaml")
+    builder = FakeBuilder()
+    driver = fake(reported={})
+    result = variation_runs(case, services(designs, driver, builder), None, None)[0]
+    seed = variation_seed(0, 0)
+    expected = 0.04520785330006282 + 0.001 * float(np.random.default_rng(seed).standard_normal())
+    assert builder.built[0].joints[0].angular[0].damping == pytest.approx(expected, rel=1e-15)
+    assert result.score.ran
+
+
+@pytest.mark.req("TST-026")
+@pytest.mark.parametrize(
+    ("variations", "message"),
+    [
+        (VARIATIONS.replace("0.1 kg", "0.1 m"), "spread '0.1 m' does not match nominal '1 kg'"),
+        (
+            VARIATIONS.replace("${link_mass}", "instance:pivot_motor.inertia"),
+            "unknown component instance 'pivot_motor'",
+        ),
+        (
+            VARIATIONS.replace("${link_mass}", "bodies.link.missing"),
+            "'bodies.link.missing' does not name a design field",
+        ),
+    ],
+)
+def test_a_variation_that_cannot_be_drawn_is_an_errored_unrun_case(
+    tmp_path: Path, variations: str, message: str
+) -> None:
+    designs, case = machine(tmp_path, MACHINE_CASE + variations)
+    results = variation_runs(case, services(designs, fake()), BIND, None)
+    assert len(results) == 3
+    for result in results:
+        assert (result.score.status, result.score.ran) == ("error", False)
+        assert message in str(result.score.error)
+        assert result.score.variation == ()
+
+
+@pytest.mark.req("TST-026")
+def test_a_case_without_variations_has_no_variation_runs(tmp_path: Path) -> None:
+    designs, case = machine(tmp_path)
+    assert variation_runs(case, services(designs, fake()), BIND, None) == []
+    alone = run_variation(case, services(designs, fake()), 5, BIND)
+    assert (alone.score.status, alone.score.seed) == ("error", 5)
+    assert "the case defines no variations" in str(alone.score.error)
+
+
+@pytest.mark.req("TST-007")
+@pytest.mark.req("TST-025")
+@pytest.mark.req("TST-026")
+def test_a_suite_file_sweeps_and_varies_every_case(tmp_path: Path) -> None:
+    designs = write_designs(tmp_path)
+    suite = tmp_path / "suite"
+    write_case(suite, MACHINE_CASE)
+    write_case(suite, MACHINE_CASE.replace("id: M1", "id: M2") + VARIATIONS.replace("count: 3", "count: 1"), "M2.yaml")
+    (suite / "baseline.yaml").write_text(unrun_baseline("demo", ["M1", "M2"]), encoding="utf-8")
+    (suite / "suite.yaml").write_text(
+        "name: demo\ndesign:\n  name: machine\n  version: 0.1.0\ncases: [M1.yaml, M2.yaml]\nbaseline: baseline.yaml\n"
+        "sweeps:\n  - parameter: ${link_mass}\n    values: [2 kg]\n"
+        "variations:\n  count: 2\n  parameters:\n    - parameter: ${link_mass}\n      distribution: uniform\n"
+        "      spread: 0.5 kg\n",
+        encoding="utf-8",
+    )
+    services_ = Services(FreshDrivers(), FakeBuilder(), FakeArchiver(), designs)
+    run = run_suite(suite / "suite.yaml", services_, BIND, tmp_path / "runs")
+    shape = [(case.case_id, case.sweep, case.variation is not None) for case in run.score.cases]
+    assert shape == [
+        ("M1", None, False),
+        ("M1", ("${link_mass}", "2 kg"), False),
+        ("M1", None, True),
+        ("M1", None, True),
+        ("M2", None, False),
+        ("M2", ("${link_mass}", "2 kg"), False),
+        ("M2", None, True),
+    ]
+    assert [case.seed for case in run.score.cases if case.variation is not None] == [
+        variation_seed(7, 0),
+        variation_seed(7, 1),
+        variation_seed(7, 0),
+    ]
+    assert run.errors == ()
+
+
+@pytest.mark.req("TST-007")
+def test_a_suite_file_rejects_a_repeated_sweep_parameter(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="duplicate sweep parameter"):
+        SuiteFile.model_validate(
+            {
+                "name": "demo",
+                "design": {"name": "machine", "version": "0.1.0"},
+                "cases": ["M1.yaml"],
+                "baseline": "baseline.yaml",
+                "sweeps": [{"parameter": "${a}", "values": ["1 kg"]}, {"parameter": "${a}", "values": ["2 kg"]}],
+            }
+        )
+
+
+@pytest.mark.req("TST-025")
+def test_set_and_get_design_path_reach_every_per_dof_entry() -> None:
+    data: dict[str, Any] = {
+        "joints": [{"name": "j", "angular": [{"damping": "1 N*m*s/rad"}, {"damping": "1 N*m*s/rad"}]}]
+    }
+    assert get_design_path(data, "joints.j.angular.damping") == "1 N*m*s/rad"
+    set_design_path(data, "joints.j.angular.damping", "2 N*m*s/rad")
+    assert [entry["damping"] for entry in data["joints"][0]["angular"]] == ["2 N*m*s/rad", "2 N*m*s/rad"]
+    data["joints"][0]["angular"][1]["damping"] = "3 N*m*s/rad"
+    with pytest.raises(RunnerError, match="the entries differ"):
+        get_design_path(data, "joints.j.angular.damping")
+    with pytest.raises(RunnerError, match="no joints item 'k'"):
+        set_design_path(data, "joints.k.angular.damping", "1 N*m*s/rad")
+    with pytest.raises(RunnerError, match="the design has no bodies"):
+        get_design_path(data, "bodies.b.mass")
+
+
+@pytest.mark.req("TST-025")
+@pytest.mark.req("SCO-018")
+def test_the_pendulum_damping_sweep_on_the_core(tmp_path: Path) -> None:
+    # P2 sweeps the pivot damping d = zeta * 2 I omega0 (I = 1/12 kg m^2, omega0 = 2 pi / T0, T0 = 1.1582031 s) over
+    # zeta = 0.02, 0.05, 0.1; the damped period is T0 / sqrt(1 - zeta^2). Each run's period is held to ACC-033's 0.1
+    # percent of its own closed form; backward Euler's period error (omega h)^2 / 3 = 1e-5 at 1 ms is far inside it.
+    from mechsim.scoring.score import SuiteScore, report_text
+    from mechsim.testing.core_driver import core_services
+
+    case = Path(__file__).resolve().parents[2] / "test_cases" / "pendulum" / "P2_damping_sweep.yaml"
+    runs = sweep_runs(case, core_services(), None, tmp_path)
+    t0 = 2.0 * np.pi * np.sqrt((1.0 / 12.0) / (1.0 * 9.81 * 0.25))
+    for run, zeta in zip(runs, (0.02, 0.05, 0.1), strict=True):
+        expected = t0 / np.sqrt(1.0 - zeta**2)
+        measured = run.score.criteria[0].measured
+        print(f"zeta {zeta}: closed form {expected:.7f} s, measured {measured} s")
+        assert measured is not None
+        assert abs(measured - expected) <= 1e-3 * expected
+        assert run.metadata is not None
+        assert run.metadata.sweep is not None
+        assert run.metadata.run_id.endswith(run.metadata.sweep[1].replace(" ", "_").replace("*", "_").replace("/", "_"))
+    text = report_text(SuiteScore("pendulum", runs[0].score.design, tuple(run.score for run in runs)))
+    assert "Sweep P2 over joints.pivot.angular.damping\n| criterion | 0.018083141320025128 N*m*s/rad |" in text
+
+
+@pytest.mark.req("TST-026")
+def test_drawing_a_variation_needs_a_nominal_and_a_resolved_matching_spread() -> None:
+    variations = minimal_case(
+        variations={
+            "count": 1,
+            "parameters": [{"parameter": "instance:m.inertia", "distribution": "normal", "spread": "1 kg*m^2"}],
+        }
+    ).variations
+    assert variations is not None
+    with pytest.raises(RunnerError, match="no nominal value to vary about"):
+        draw_variation(variations, 1, {})
+    with pytest.raises(RunnerError, match="does not match nominal"):
+        draw_variation(variations, 1, {"instance:m.inertia": "1 kg"})
+    drawn = draw_variation(variations, 1, {"instance:m.inertia": "2 kg*m^2"})
+    expected = 2.0 + float(np.random.default_rng(1).standard_normal())
+    assert drawn == (("instance:m.inertia", f"{expected:.17g} kg * m ** 2"),)

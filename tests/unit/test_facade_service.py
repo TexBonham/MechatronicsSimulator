@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import ast
 import hashlib
+import math
 from collections.abc import Callable, Sequence
+from dataclasses import replace
 from fractions import Fraction
 from pathlib import Path
 from typing import Any
@@ -14,11 +16,13 @@ import pytest
 from mechsim.facade.decimate import bucket_select, decimate
 from mechsim.facade.live import Batch, LiveDriver, Subscription
 from mechsim.facade.service import Facade, FacadeError, FacadeServices
+from mechsim.record.archive import write_archive
 from mechsim.record.layout import PINS, Recording
+from mechsim.record.stream import Recorder
 from mechsim.record.tick import TickRecord
-from mechsim.testing.driver import EndSpec, RunConfig, RunReport, Series
+from mechsim.testing.driver import EndSpec, MemberSection, RunConfig, RunMetadata, RunReport, Series
 from mechsim.testing.runner import Services
-from tests.unit.test_record_support import synthetic_rows
+from tests.unit.test_record_support import finished, identity, synthetic_rows
 from tests.unit.test_runner_fakes import (
     MACHINE_CASE,
     FakeArchiver,
@@ -26,6 +30,7 @@ from tests.unit.test_runner_fakes import (
     FakeBuilder,
     InMemoryFakeDriver,
     Row,
+    recording_from,
     unrun_baseline,
     write_case,
     write_designs,
@@ -519,3 +524,91 @@ def test_files_are_read_and_written_only_as_valid_designs_and_cases(tmp_path: Pa
     with pytest.raises(FacadeError) as raised:
         facade.read_file(Path("designs/none.yaml"))
     assert raised.value.code == "not_found"
+
+
+# ===== Overlays (VIE-010, VIE-011) and the cursor's carried time (VIE-009) ===
+
+
+class _OverlayReader:
+    """An archive reader whose view carries the structural rows' recording and a hanging load's poses."""
+
+    def __init__(self, members: tuple[MemberSection, ...]) -> None:
+        self.members = members
+
+    def open(self, path: Path) -> tuple[RunMetadata, Any]:
+        from tests.unit.test_record_structural import TICKS, _columns, _row
+
+        recorder = Recorder(Fraction(1000), _columns())
+        for tick in range(TICKS):
+            recorder.write_row(_row(tick))
+        times = [tick / 1000.0 for tick in range(TICKS)]
+        angles = [0.01 * tick for tick in range(TICKS)]
+        poses = {
+            "pose:hook.x": [0.0] * TICKS,
+            "pose:hook.y": [0.0] * TICKS,
+            "pose:hook.z": [2.0] * TICKS,
+            "pose:load.x": [math.sin(a) for a in angles],
+            "pose:load.y": [0.0] * TICKS,
+            "pose:load.z": [2.0 - math.cos(a) for a in angles],
+        }
+        view = recording_from(times, poses, "m")
+        view.recording = recorder.recording()  # type: ignore[attr-defined]
+        report = RunReport("end_time", TICKS - 1, Fraction(1000))
+        metadata = RunMetadata("S1-seed0", "S1", "machine", "0.1.0", "a", "b", 0, None, None, report)
+        return replace(metadata, members=self.members), view
+
+
+# Rectangle w = 0.02 m (z), h = 0.04 m (y): I_z = w h^3 / 12, I_y = h w^3 / 12, c_y = 0.02 m, c_z = 0.01 m.
+I_Z, I_Y = 0.02 * 0.04**3 / 12.0, 0.04 * 0.02**3 / 12.0
+SECTIONS = (
+    MemberSection("rail_x", "petg_printed", 8e-4, I_Z, 0.5, I_Y, 0.02, 0.01),
+    MemberSection("rail_y", "petg_printed", 8e-4, I_Z, 0.5, I_Y, 0.015, 0.01),
+)
+
+
+def _overlay_facade(tmp_path: Path, members: tuple[MemberSection, ...] = SECTIONS) -> Facade:
+    tmp_path.mkdir(parents=True, exist_ok=True)
+    archive = tmp_path / "S1-seed0.h5"
+    write_archive(archive, identity(design_file=b""), finished(6), Recorder(Fraction(1000)).recording())
+    facade = Facade(FacadeServices(reader=_OverlayReader(members)))
+    facade.replay_open(archive)
+    return facade
+
+
+@pytest.mark.req("VIE-010")
+def test_the_facade_serves_member_stress_per_member_over_time(tmp_path: Path) -> None:
+    result = _overlay_facade(tmp_path).member_stress("S1-seed0")
+    assert (result.run_id, result.unit, result.times) == ("S1-seed0", "Pa", [0.0, 0.001, 0.002, 0.003, 0.004, 0.005])
+    assert [entry.member for entry in result.members] == ["rail_x", "rail_y"]
+    # Member 0 at tick t: start force (0, t, 0.5), start moment (t, 2 t, -1): N = 0, sigma = 2 t c_z / I_y + c_y / I_z.
+    expected = [2.0 * t * 0.01 / I_Y + 0.02 / I_Z for t in range(6)]
+    assert result.members[0].start == pytest.approx(expected, rel=1e-12)
+    assert (result.members[1].fibre_y, result.members[1].fibre_z) == (0.015, 0.01)
+    with pytest.raises(FacadeError) as raised:
+        _overlay_facade(tmp_path / "short", SECTIONS[:1]).member_stress("S1-seed0")
+    assert (raised.value.code, raised.value.requirement_id) == ("not_found", "VIE-010")
+
+
+@pytest.mark.req("VIE-011")
+def test_the_facade_serves_the_swing_angle_of_a_load(tmp_path: Path) -> None:
+    facade = _overlay_facade(tmp_path)
+    result = facade.swing_angle("S1-seed0", "load", "hook")
+    # The load hangs 1 m below the hook at angle 0.01 t rad; the archived design file is empty, so down is -z.
+    assert (result.load, result.attachment, result.unit) == ("load", "hook", "rad")
+    assert result.values == pytest.approx([0.01 * t for t in range(6)], abs=1e-12)
+    with pytest.raises(FacadeError) as raised:
+        facade.swing_angle("S1-seed0", "load", "crane")
+    assert (raised.value.code, raised.value.requirement_id, raised.value.field) == ("not_found", "VIE-011", "load")
+    (tmp_path / "S1-seed0.h5").write_bytes(b"not an hdf5 file")
+    with pytest.raises(FacadeError) as raised:
+        facade.swing_angle("S1-seed0", "load", "hook")
+    assert (raised.value.code, raised.value.field) == ("not_found", "run_id")
+    assert "cannot read the design from the archive" in raised.value.message
+
+
+@pytest.mark.req("VIE-009")
+def test_the_facade_cursor_carries_leftover_play_time(tmp_path: Path) -> None:
+    facade = _overlay_facade(tmp_path)
+    facade.pause("S1-seed0", False)
+    assert facade.advance("S1-seed0", 0.0006).index == 0
+    assert facade.advance("S1-seed0", 0.0006).index == 1
