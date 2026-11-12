@@ -7,7 +7,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-from mechsim.integrity.config import IntegrityConfig, config_for
+from mechsim.integrity.config import FILE_NAME, IntegrityConfig, load_config
 from mechsim.integrity.inputs import run_inputs
 from mechsim.integrity.plugin import MaterialView
 from mechsim.integrity.table import IntegrityReport, evaluate
@@ -17,8 +17,9 @@ from mechsim.testing.schema import DESIGNS_ROOT, Case
 
 
 class IntegrityService:
-    """`(build, case, recording) -> IntegrityReport`. The design's folder is `designs_root / <design name>` unless
-    `design_dir` maps the design to it; `config` overrides the folder's `integrity.yaml`."""
+    """`(build, case, recording) -> IntegrityReport | None`. The configuration is `integrity.yaml` beside the design
+    file, in `designs_root / <design name>` unless `design_dir` maps the design to its folder; without that file the
+    run carries no table (None). `config` replaces the file."""
 
     def __init__(
         self,
@@ -35,12 +36,15 @@ class IntegrityService:
             return self.design_dir(design)
         return self.designs_root / str(design.name)
 
-    def __call__(self, build: Any, case: Case, recording: RecordView) -> IntegrityReport:
+    def __call__(self, build: Any, case: Case, recording: RecordView) -> IntegrityReport | None:
         design = build.design
         folder = self._folder(design)
         config = self.config
         if config is None:
-            config = config_for(folder)
+            path = folder / FILE_NAME
+            if not path.is_file():
+                return None
+            config = load_config(path)
         overrides: Path | None = None
         if design.materials is not None and design.materials.overrides is not None:
             overrides = folder / design.materials.overrides

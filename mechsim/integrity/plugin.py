@@ -118,6 +118,7 @@ class SectionProperties:
     i_z: float
     c_y: float
     c_z: float
+    single_axis: bool = False
 
     def i_min(self) -> float:
         return min(self.i_y, self.i_z)
@@ -158,6 +159,16 @@ class MemberInputs:
 
 
 @dataclass(frozen=True)
+class RopeLoads:
+    """A rope (ADR 0016) with its recorded largest segment tension per sample (N) and its breaking tension (None:
+    never snaps, ruling 19)."""
+
+    name: str
+    tension: FloatArray
+    breaking_tension: float | None = None
+
+
+@dataclass(frozen=True)
 class JointLoads:
     """A mount or fastener set (BLD-031) with its joint's recorded reaction, world-aligned, arrays (rows, 3).
     `member` is the structural member a mount holds; `rating` the fastener's load limit (N) when known."""
@@ -193,6 +204,8 @@ class RunInputs:
     deflection_limit: float | None = None
     joints: tuple[JointLoads, ...] = ()
     series: Excitation = _no_series
+    ropes: tuple[RopeLoads, ...] = ()
+    design_tension: float | None = None
 
     def material(self, name: str) -> MaterialView:
         if name not in self.materials:
@@ -282,6 +295,7 @@ __all__ = [
     "MaterialView",
     "MemberInputs",
     "NoParameters",
+    "RopeLoads",
     "RunInputs",
     "SectionProperties",
     "Spread",

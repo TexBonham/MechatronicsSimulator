@@ -11,11 +11,15 @@ import math
 from dataclasses import dataclass
 from typing import Any
 
+from mechsim.integrity.beam import peak
 from mechsim.integrity.config import IntegrityConfig
 from mechsim.integrity.plugin import CheckResult, CheckRow, RunInputs
-from mechsim.testing.driver import IntegrityResults, MemberIntegrity
+from mechsim.testing.driver import IntegrityResults, MemberIntegrity, RopeIntegrity
 
 THERMAL_NOTE = "thermal check slot: accepted, not evaluated in v1 (INT-036)"
+SINGLE_AXIS = "approximation: single-axis section"
+SNAP = "snap"
+DESIGN_LOAD = "design_load"
 _STRESS = ("normal_stress", "mount_stress")
 
 
@@ -42,7 +46,7 @@ class IntegrityReport(IntegrityResults):
             ],
             "cycle_counts": self.cycle_counts(),
             "load_factor": self.load_factor,
-            "members": json.loads(self.to_json()),
+            "table": json.loads(self.to_json()),
             "notes": list(self.notes),
         }
         return json.dumps(data, sort_keys=True, indent=1)
@@ -57,8 +61,24 @@ def evaluate(config: IntegrityConfig, inputs: RunInputs) -> IntegrityReport:
         notes += result.notes
     if config.thermal is not None:
         notes.append(THERMAL_NOTE)
-    members = tuple(_row(subject, results) for subject in _subjects(inputs))
-    return IntegrityReport(members, tuple(results), inputs.load_factor, tuple(notes))
+    single = {member.name for member in inputs.members if member.section.single_axis}
+    members = tuple(_row(subject, results, subject in single) for subject in _subjects(inputs))
+    return IntegrityReport(members, _ropes(inputs), tuple(results), inputs.load_factor, tuple(notes))
+
+
+def _ropes(inputs: RunInputs) -> tuple[RopeIntegrity, ...]:
+    """Per rope: peak of the largest segment tension; `snap` above the breaking tension (none set: never, ruling 19);
+    `design_load` above the design-load weight rated_load (1 + allowance) |g| when the design states the rule."""
+    out: list[RopeIntegrity] = []
+    for rope in inputs.ropes:
+        value, time = peak(rope.tension, inputs.times)
+        flags: list[str] = []
+        if inputs.design_tension is not None and value > inputs.design_tension:
+            flags.append(DESIGN_LOAD)
+        if rope.breaking_tension is not None and value > rope.breaking_tension:
+            flags.append(SNAP)
+        out.append(RopeIntegrity(rope.name, value, time, tuple(sorted(flags))))
+    return tuple(out)
 
 
 def _subjects(inputs: RunInputs) -> list[str]:
@@ -75,7 +95,7 @@ def _rows(results: list[CheckResult], check: str, subject: str) -> list[CheckRow
     return out
 
 
-def _row(subject: str, results: list[CheckResult]) -> MemberIntegrity:
+def _row(subject: str, results: list[CheckResult], single_axis: bool) -> MemberIntegrity:
     stress = 0.0
     stress_time = 0.0
     factor = math.inf
@@ -93,6 +113,8 @@ def _row(subject: str, results: list[CheckResult]) -> MemberIntegrity:
         deflection = row.value
         deflection_time = row.time
     flags: set[str] = set()
+    if single_axis:
+        flags.add(SINGLE_AXIS)
     for result in results:
         for row in result.rows:
             if row.subject == subject:

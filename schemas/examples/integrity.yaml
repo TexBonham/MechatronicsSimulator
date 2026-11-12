@@ -1,0 +1,28 @@
+# Integrity configuration (INT-002): beside a design's design.yaml as integrity.yaml.
+schema_version: 1
+halt_on_crossing: false
+checks:
+  - check: strength
+    tier: 2
+  - check: deflection
+  - check: buckling
+  - check: fatigue
+    parameters:
+      damage_limit: 1.0
+  - check: fastener
+    parameters:
+      ratings:
+        bracket_bolts: 4 kN
+  - check: impact
+    parameters:
+      impact_factor: 2.0
+      step_threshold: 50 N
+      window: 20 ms
+  - check: resonance
+    parameters:
+      band: 0.2
+      excitations:
+        - series: joint:x_axis.velocity
+          hz_per_unit: 125.0
+thermal:
+  parameters: {}

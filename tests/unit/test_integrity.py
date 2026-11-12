@@ -57,36 +57,7 @@ from tests.reference.test_integrity_checks import (
     member,
 )
 
-EXAMPLE_TEXT = """\
-# Integrity configuration (INT-002): beside a design's design.yaml as integrity.yaml.
-schema_version: 1
-halt_on_crossing: false
-checks:
-  - check: strength
-    tier: 2
-  - check: deflection
-  - check: buckling
-  - check: fatigue
-    parameters:
-      damage_limit: 1.0
-  - check: fastener
-    parameters:
-      ratings:
-        bracket_bolts: 4 kN
-  - check: impact
-    parameters:
-      impact_factor: 2.0
-      step_threshold: 50 N
-      window: 20 ms
-  - check: resonance
-    parameters:
-      band: 0.2
-      excitations:
-        - series: joint:x_axis.velocity
-          hz_per_unit: 125.0
-thermal:
-  parameters: {}
-"""
+EXAMPLE = Path(__file__).resolve().parents[2] / "schemas" / "examples" / "integrity.yaml"
 SHIPPED = ("buckling", "deflection", "fastener", "fatigue", "impact", "resonance", "strength")
 
 
@@ -241,9 +212,9 @@ def test_an_unreadable_configuration_is_an_error(tmp_path: Path) -> None:
 def test_the_schema_is_current_and_validates_the_example() -> None:
     assert config_module.SCHEMA_PATH.read_text(encoding="utf-8") == config_module.schema_text()
     schema = json.loads(config_module.schema_text())
-    example = config_module.yaml_loader().load(EXAMPLE_TEXT)
+    example = config_module.yaml_loader().load(EXAMPLE.read_text(encoding="utf-8"))
     jsonschema.validate(json.loads(json.dumps(example)), schema)
-    parse_config(example, "example")
+    load_config(EXAMPLE)
     with pytest.raises(jsonschema.ValidationError):
         jsonschema.validate({"schema_version": 1, "checks": [{"check": "nope"}]}, schema)
 
@@ -283,7 +254,7 @@ def _design(allowance: str | None, minimum: str | None = None, target: float = 0
         name="machine",
         materials=None,
         structural=structural,
-        environment=SimpleNamespace(ambient_temperature=TEMPERATURE),
+        environment=SimpleNamespace(ambient_temperature=TEMPERATURE, gravity=[0.0, 0.0, -9.81]),
     )
 
 
@@ -364,7 +335,9 @@ def test_a_design_without_a_structural_section_applies_no_rule() -> None:
         SimpleNamespace(design=_design(None), members=(_member(),)), _recorded(_cantilever_rows(1.0)), _views()
     )
     assert (run.load_factor, run.minimum_safety_factor, run.deflection_limit) == (1.0, None, None)
-    assert evaluate(IntegrityConfig(schema_version=1), run).member("rail").flags == ()
+    assert evaluate(IntegrityConfig(schema_version=1), run).member("rail").flags == (
+        "approximation: single-axis section",
+    )
 
 
 @pytest.mark.req("INT-019", "INT-022")
@@ -406,11 +379,18 @@ def test_run_inputs_read_sections_supports_mounts_and_joint_reactions() -> None:
 
 @pytest.mark.req("INT-022")
 def test_section_properties_prefer_both_axes_when_the_section_states_them() -> None:
-    section = SimpleNamespace(**vars(_section()), i_y=1e-9, i_z=2e-9, c_y=0.03, c_z=0.01, extreme_fibre=0.5)
+    # Ruling 25: I_z = second_moment_of_area, I_y = second_moment_y, c_y = fibre_y, c_z = fibre_z.
+    section = SimpleNamespace(**vars(_section()), second_moment_y=1e-9, fibre_y=0.03, fibre_z=0.01)
     props = section_properties(section)
-    assert (props.i_y, props.i_z, props.c_y, props.c_z) == (1e-9, 2e-9, 0.03, 0.01)
-    stated = section_properties(SimpleNamespace(**vars(_section()), extreme_fibre=0.025))
-    assert (stated.c_y, stated.c_z, stated.i_y) == (0.025, 0.025, I_Z)
+    assert (props.i_y, props.i_z, props.c_y, props.c_z, props.single_axis) == (1e-9, I_Z, 0.03, 0.01, False)
+    # Single-axis fallback: I_y = I_z, c_y = c_z = sqrt(3 I / A) (solid rectangle), flagged.
+    bare = section_properties(_section())
+    fibre = math.sqrt(3.0 * I_Z / AREA)
+    assert (bare.i_y, bare.c_y, bare.c_z, bare.single_axis) == (I_Z, fibre, fibre, True)
+    partial = section_properties(SimpleNamespace(**vars(_section()), second_moment_y=None, fibre_y=0.025, fibre_z=None))
+    assert (partial.i_y, partial.c_y, partial.c_z, partial.single_axis) == (I_Z, 0.025, 0.025, True)
+    only_z = section_properties(SimpleNamespace(**vars(_section()), second_moment_y=None, fibre_y=None, fibre_z=0.01))
+    assert (only_z.c_y, only_z.c_z) == (0.01, 0.01)
 
 
 @pytest.mark.req("INT-022")
@@ -519,7 +499,7 @@ def test_the_report_and_load_case_are_written_beside_the_archive(tmp_path: Path)
         "M1-seed0.load_case.csv",
     ]
     report = json.loads(written[0].read_text(encoding="utf-8"))
-    assert report["members"] == json.loads(table.to_json())
+    assert report["table"] == json.loads(table.to_json())
     assert report["load_factor"] == 1.0
     case = json.loads(written[1].read_text(encoding="utf-8"))
     assert case["design"] == {"name": "machine", "version": "1.2.0"}
@@ -565,10 +545,12 @@ def test_the_service_evaluates_a_build_with_the_designs_folder_configuration(tmp
     strength = next(result for result in report.checks if result.check == "strength")
     assert strength.tier == 2
     assert report.member("rail").safety_factor < report.member("rail").peak_stress
-    mapped = IntegrityService(design_dir=lambda design: tmp_path / "nowhere")(
-        build, None, _recorded(_cantilever_rows(1.0))
-    )  # type: ignore[arg-type]
-    assert [result.check for result in mapped.checks] == ["strength", "deflection"]
+    absent = IntegrityService(design_dir=lambda design: tmp_path / "nowhere")
+    assert absent(build, None, _recorded(_cantilever_rows(1.0))) is None  # type: ignore[arg-type]
+    given = IntegrityService(tmp_path / "nowhere", config=IntegrityConfig(schema_version=1))
+    report = given(build, None, _recorded(_cantilever_rows(1.0)))  # type: ignore[arg-type]
+    assert report is not None
+    assert [result.check for result in report.checks] == ["strength", "deflection"]
 
 
 # ===== Thermal slot and wear seam (INT-036, INT-037) ====================

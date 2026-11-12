@@ -16,7 +16,7 @@ from collections.abc import Callable, Mapping, Sequence
 from dataclasses import replace
 from fractions import Fraction
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import numpy as np
 
@@ -25,6 +25,7 @@ from mechsim.builder import BuildError, build
 from mechsim.builder.payload import with_payload
 from mechsim.builder.result import BuildResult as CoreBuild
 from mechsim.design.schema import Design, DesignError, blob_hash, design_materials
+from mechsim.integrity.service import IntegrityService
 from mechsim.library.registry import default_registry
 from mechsim.materials.schema import MaterialError
 from mechsim.physics.mujoco.prepare import StartStateError, prepare_model
@@ -75,6 +76,7 @@ from mechsim.testing.driver import (
     BuildResult,
     EndReason,
     EndSpec,
+    IntegrityCheck,
     RunConfig,
     RunMetadata,
     RunReport,
@@ -816,7 +818,12 @@ def core_builder(design: Design) -> CoreBuild:
 
 
 def core_services(designs_root: Path = DESIGNS_ROOT) -> Services:
-    """The runner's real services: a fresh `CoreDriver` per run, the builder, the record archiver."""
+    """The runner's real services: a fresh `CoreDriver` per run, the builder, the record archiver, and integrity
+    over the recording when the design has an `integrity.yaml` beside its design file (INT-022)."""
     return Services(
-        driver=CoreDriver, builder=core_builder, archiver=RecordArchiver(designs_root), designs_root=designs_root
+        driver=CoreDriver,
+        builder=core_builder,
+        archiver=RecordArchiver(designs_root),
+        designs_root=designs_root,
+        integrity=cast(IntegrityCheck, IntegrityService(designs_root)),
     )

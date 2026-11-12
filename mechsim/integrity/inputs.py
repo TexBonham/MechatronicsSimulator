@@ -15,6 +15,7 @@ from mechsim.integrity.plugin import (
     JointLoads,
     MaterialView,
     MemberInputs,
+    RopeLoads,
     RunInputs,
     SectionProperties,
     Wrenches,
@@ -29,31 +30,38 @@ MEMBER_SERIES = (
 )
 REACTION_FORCE = "physics/joints/reaction_force"
 REACTION_MOMENT = "physics/joints/reaction_moment"
+ROPE_MAX_TENSION = "physics/ropes/max_tension"
 
 
 def section_properties(section: Any) -> SectionProperties:
-    """Both bending axes (ruling 25): `i_y`, `i_z`, `c_y`, `c_z` when the section carries them; otherwise the single
-    second moment for both axes and c from `extreme_fibre`, else the solid rectangle with this A and I,
-    sqrt(3 I / A)."""
+    """Both bending axes (ruling 25): I_z is the section's `second_moment_of_area`, I_y `second_moment_y`, c_y
+    `fibre_y`, c_z `fibre_z`. A section missing any y-axis field is evaluated single-axis (ruling 25 fallback):
+    I_y = I_z, c_y = c_z = the stated fibre or that of the solid rectangle with this A and I, sqrt(3 I / A); flagged."""
     area = float(section.area)
-    second = float(section.second_moment_of_area)
-    fibre = getattr(section, "extreme_fibre", None)
-    if fibre is None:
-        fibre = math.sqrt(3.0 * second / area)
-    values = {"i_y": second, "i_z": second, "c_y": float(fibre), "c_z": float(fibre)}
-    for key in values:
-        stated = getattr(section, key, None)
-        if stated is not None:
-            values[key] = float(stated)
+    i_z = float(section.second_moment_of_area)
+    i_y = getattr(section, "second_moment_y", None)
+    c_y = getattr(section, "fibre_y", None)
+    c_z = getattr(section, "fibre_z", None)
+    single = i_y is None or c_y is None or c_z is None
+    fallback = math.sqrt(3.0 * i_z / area)
+    if c_y is None:
+        c_y = c_z
+    if c_y is None:
+        c_y = fallback
+    if c_z is None:
+        c_z = c_y
+    if i_y is None:
+        i_y = i_z
     return SectionProperties(
         area=area,
         elastic_modulus=float(section.elastic_modulus),
         density=float(section.density),
         length=float(section.length),
-        i_y=values["i_y"],
-        i_z=values["i_z"],
-        c_y=values["c_y"],
-        c_z=values["c_z"],
+        i_y=float(i_y),
+        i_z=i_z,
+        c_y=float(c_y),
+        c_z=float(c_z),
+        single_axis=single,
     )
 
 
@@ -118,9 +126,12 @@ def run_inputs(build: Any, recording: RecordView, materials: Mapping[str, Materi
     load_factor = 1.0
     minimum: float | None = None
     limit: float | None = None
+    design_tension: float | None = None
     structural = design.structural
     if structural is not None:
         load_factor = 1.0 + float(structural.design_load.allowance)
+        gravity = float(np.linalg.norm(np.asarray(design.environment.gravity, dtype=np.float64)))
+        design_tension = float(structural.design_load.rated_load) * load_factor * gravity
         if structural.minimum_safety_factor is not None:
             minimum = float(structural.minimum_safety_factor)
         limit = float(structural.accuracy_target)
@@ -134,7 +145,32 @@ def run_inputs(build: Any, recording: RecordView, materials: Mapping[str, Materi
         deflection_limit=limit,
         joints=joints,
         series=_series_reader(recording),
+        ropes=_ropes(build, series, rows),
+        design_tension=design_tension,
     )
+
+
+def _ropes(build: Any, series: Mapping[str, Any], rows: int) -> tuple[RopeLoads, ...]:
+    physics = getattr(build, "physics", None)
+    if physics is None:
+        return ()
+    ropes = tuple(getattr(physics, "ropes", ()))
+    if not ropes:
+        return ()
+    if ROPE_MAX_TENSION not in series:
+        raise IntegrityError(f"the recording has no {ROPE_MAX_TENSION}")
+    stored = series[ROPE_MAX_TENSION]
+    names = tuple(stored.names)
+    values = np.asarray(stored.values, dtype=np.float64).reshape(rows, -1)
+    out: list[RopeLoads] = []
+    for rope in ropes:
+        if rope.name not in names:
+            raise IntegrityError(f"rope {rope.name!r}: no recorded tension in {ROPE_MAX_TENSION}")
+        breaking = rope.breaking_tension
+        if breaking is not None:
+            breaking = float(breaking)
+        out.append(RopeLoads(str(rope.name), values[:, names.index(rope.name)].copy(), breaking))
+    return tuple(out)
 
 
 def _joints(build: Any, series: Mapping[str, Any], holder: Mapping[str, str], rows: int) -> tuple[JointLoads, ...]:
