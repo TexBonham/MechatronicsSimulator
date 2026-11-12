@@ -54,3 +54,4 @@ type live in the root `CLAUDE.md` dispatch table once measured.
 | 2026-11-12 | M3-N re-review after N2 and N2b: accept as a stage commit; rulings 45 and 46; findings carried to N3 | Fable review (general-purpose), resumed | ~76K | 12 calls |
 | 2026-11-12 | M3-N2 and N2b invariant audit: clean, kernel spec row owed | invariant-auditor (sonnet) | 23K | 4 calls |
 | 2026-11-12 | M3-E4 fix round: additive drive, anticipatory limit row, driven-only decay with the two-DOF root (wip/05-e4 0f38738) | module-writer (opus), resumed | ~60K | 26 calls; ctest debug-sanitize 478 |
+| 2026-11-12 | M3-E4 re-review: accept; zero-stretch coupling defect in the E2 transmission code found, fixed in a short E4 follow-up | Fable review (general-purpose), resumed | ~35K | 6 calls |
