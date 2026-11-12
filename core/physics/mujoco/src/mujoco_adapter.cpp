@@ -93,6 +93,48 @@ struct ShaftMap {
     Vec3 position{};
     std::array<double, 4> orientation{1.0, 0.0, 0.0, 0.0};
     Vec3 axis{0.0, 0.0, 1.0};
+    double backlash = 0.0;     // play band on the drive rest, shaft units
+    double slip = 0.0;         // injected slip fraction (PHY-006)
+    double slip_accum = 0.0;   // commanded shaft travel lost to slip, never recovered
+    bool tracking = false;     // a drive rest has been received
+    double commanded = 0.0;    // last commanded drive rest
+    double effective = 0.0;    // rest the driven joint receives
+    double offset_rate = 0.0;  // commanded minus effective rest rate over the step taken
+
+    // Commanded minus effective rest: the motor-side travel the driven joint does not see (slip and play).
+    [[nodiscard]] double offset() const { return commanded - effective; }
+
+    // The driven joint receives (1 - s) of each commanded rest increment (slip) through a play element of width
+    // `backlash` with memory, which moves only when the input leaves the band around it and stops at its edge.
+    double receive(double rest, double step) {
+        if (!tracking) {
+            tracking = true;
+            commanded = rest;
+            effective = rest - slip_accum;
+            offset_rate = 0.0;
+            return effective;
+        }
+        const double increment = rest - commanded;
+        commanded = rest;
+        slip_accum += slip * increment;
+        const double input = rest - slip_accum;
+        const double before = effective;
+        const double half = backlash / 2.0;
+        if (input - half > effective) {
+            effective = input - half;
+        } else if (input + half < effective) {
+            effective = input + half;
+        }
+        offset_rate = (increment - (effective - before)) / step;
+        return effective;
+    }
+};
+
+// A payload body held on its carrier by the weld `<payload>.attach` (PHY-006, ENG-035); neutral body indices.
+struct PayloadMap {
+    std::size_t body = 0;
+    std::size_t carrier = 0;
+    int equality = -1;
 };
 
 struct ConstraintMap {
@@ -121,11 +163,15 @@ struct MemberMap {
     Vec3 position{};
 };
 
-// Impedance range of a joint drive's soft equality (PHY-034): MuJoCo's own floor mjMINIMP, and the stiff end 0.99,
-// where the drive stays stable up to K_d A0 h^2 = 400 (omega h = 20). Width 1e-3 with both ends equal keeps the
-// impedance constant over the violation.
+// Impedance range of a joint drive's soft equality (PHY-034): MuJoCo's own floor mjMINIMP, and the stiff end
+// 400 / 401, where the backward-Euler apparent inertia m (1 + (K_d h^2 + D_d h) A0) is still exact up to
+// (K_d h^2 + D_d h) A0 = 400 (omega h = 20). Width 1e-3 with both ends equal keeps the impedance constant over the
+// violation.
 constexpr double drive_impedance_min = 1e-4;
-constexpr double drive_impedance_max = 0.99;
+constexpr double drive_impedance_max = 400.0 / 401.0;
+// Past Z = 400 the clamp breaks backward Euler, and with the rest shifted by -v h the semi-implicit map needs
+// 3 s0 h^2 + 2 s1 h < 4 and s0 h^2 + s1 h < 2, which fail from Z of about 535: the envelope ends at the clamp.
+constexpr double drive_envelope = 400.0;
 constexpr double drive_impedance_width = 1e-3;
 
 constexpr std::array<int, 3> fatal_warnings{mjWARN_BADQPOS, mjWARN_BADQVEL, mjWARN_BADQACC};
@@ -277,6 +323,7 @@ struct MujocoAdapter::Engine {
     std::vector<ConstraintMap> constraints;
     std::vector<MemberMap> members;
     std::vector<ShaftMap> shafts;
+    std::vector<PayloadMap> payloads;
     std::vector<CoordinateMap> coordinates;
     std::vector<ActiveDrive> drives;  // the step's drives, input order
     std::vector<double> drive_shaft_torque;
@@ -284,6 +331,7 @@ struct MujocoAdapter::Engine {
     std::vector<double> shaft_torque;
     std::vector<double> driven_velocity;
     std::vector<double> shaft_gain;  // eta driving, 1 / eta back-driven, for the step taken
+    std::vector<double> shaft_transmitted;  // 1 - s on the explicit torque path, for the step taken
     std::vector<kernel::PowerFlow> shaft_flow;
     std::size_t velocity_dofs = 0;
     kernel::PhysicsInputs pending;
@@ -298,6 +346,8 @@ struct MujocoAdapter::Engine {
     void collect_solver();
     void map_shafts(const std::vector<std::string>& body_names);
     void map_drives(const std::vector<std::string>& joint_names);
+    void map_payloads(const std::vector<std::string>& body_names);
+    [[nodiscard]] PayloadMap& payload(std::size_t body, const char* operation);
     void apply_inputs();
     void apply_drives();
     void shaft_state(std::size_t body, kernel::BodyState& out) const;
@@ -420,6 +470,45 @@ void MujocoAdapter::Engine::map_elements() {
         members.push_back(map);
     }
     map_drives(joint_names);
+    map_payloads(body_names);
+}
+
+// Each `payload:carrier` entry names a free body and the weld `<payload>.attach` that holds it on its carrier.
+void MujocoAdapter::Engine::map_payloads(const std::vector<std::string>& body_names) {
+    const mjModel& m = *model;
+    for (const std::string& token : split(custom_text(m, "mechsim:payloads"), ' ')) {
+        const std::vector<std::string> parts = split(token, ':');
+        if (parts.size() != 2) {
+            throw AdapterError(0, "malformed mechsim:payloads entry '" + token + "'");
+        }
+        PayloadMap map;
+        for (std::size_t k = 0; k < 2; ++k) {
+            const auto found = std::find(body_names.begin(), body_names.end(), parts[k]);
+            if (found == body_names.end() || bodies[to_size(std::distance(body_names.begin(), found))] < 0) {
+                throw AdapterError(0, "mechsim:payloads entry '" + token + "' names no emitted body '" + parts[k] + "'");
+            }
+            if (k == 0) {
+                map.body = to_size(std::distance(body_names.begin(), found));
+            } else {
+                map.carrier = to_size(std::distance(body_names.begin(), found));
+            }
+        }
+        map.equality = require_id(m, mjOBJ_EQUALITY, parts[0] + ".attach");
+        if (m.eq_type[map.equality] != mjEQ_WELD) {
+            throw AdapterError(0, "equality '" + parts[0] + ".attach' must be a weld");
+        }
+        payloads.push_back(map);
+    }
+}
+
+PayloadMap& MujocoAdapter::Engine::payload(std::size_t body, const char* operation) {
+    for (PayloadMap& map : payloads) {
+        if (map.body == body) {
+            return map;
+        }
+    }
+    throw AdapterError(steps(), std::string(operation) + ": body " + std::to_string(body) +
+                                    " is not a payload; the translation's payloads argument names them");
 }
 
 // Every listed joint carries an inactive soft joint equality `<joint>.drive` on the DOF it moves (PHY-034).
@@ -459,8 +548,8 @@ void MujocoAdapter::Engine::map_shafts(const std::vector<std::string>& body_name
             throw AdapterError(0, "transmission '" + parts[0] + "': shaft body '" + parts[1] + "' is not listed");
         }
         const int frame = require_id(m, mjOBJ_NUMERIC, "mechsim:transmission:" + parts[0]);
-        if (m.numeric_size[frame] != 13) {
-            throw AdapterError(0, "mechsim:transmission:" + parts[0] + " must hold 13 numbers");
+        if (m.numeric_size[frame] != 14) {
+            throw AdapterError(0, "mechsim:transmission:" + parts[0] + " must hold 14 numbers");
         }
         const mjtNum* v = m.numeric_data + to_size(m.numeric_adr[frame]);
         ShaftMap shaft;
@@ -476,9 +565,13 @@ void MujocoAdapter::Engine::map_shafts(const std::vector<std::string>& body_name
         shaft.position = {v[3], v[4], v[5]};
         shaft.orientation = {v[6], v[7], v[8], v[9]};
         shaft.axis = {v[10], v[11], v[12]};
+        shaft.backlash = v[13];
         if (!std::isfinite(shaft.coefficient) || shaft.coefficient == 0.0 || !std::isfinite(shaft.efficiency) ||
             shaft.efficiency <= 0.0 || shaft.efficiency > 1.0) {
             throw AdapterError(0, "transmission '" + parts[0] + "': ratio must be nonzero, efficiency in (0, 1]");
+        }
+        if (!std::isfinite(shaft.backlash) || shaft.backlash < 0.0) {
+            throw AdapterError(0, "transmission '" + parts[0] + "': backlash must be finite and not negative");
         }
         shaft_of_body[to_size(std::distance(body_names.begin(), body))] = static_cast<int>(shafts.size());
         shafts.push_back(shaft);
@@ -486,6 +579,7 @@ void MujocoAdapter::Engine::map_shafts(const std::vector<std::string>& body_name
     shaft_torque.assign(shafts.size(), 0.0);
     driven_velocity.assign(shafts.size(), 0.0);
     shaft_gain.assign(shafts.size(), 1.0);
+    shaft_transmitted.assign(shafts.size(), 1.0);
     shaft_flow.assign(shafts.size(), kernel::PowerFlow::Static);
 }
 
@@ -588,8 +682,31 @@ void MujocoAdapter::Engine::collect_forces() {
         kernel::TransmissionState& out = outputs.transmissions[i];
         out.shaft_load_torque =
             shaft_torque[i] + drive_shaft_torque[i] - (shaft.inertia * acceleration / shaft.coefficient);
-        out.force = shaft_gain[i] * out.shaft_load_torque / shaft.coefficient;
+        // Slip scales only the explicit-torque path; the drive's equality force reaches the driven joint unscaled
+        // (coordinator ruling 9, PHY-006), so the force applied is the sum of the two paths.
+        const double lost = (1.0 - shaft_transmitted[i]) * shaft_torque[i];
+        out.force = shaft_gain[i] * (out.shaft_load_torque - lost) / shaft.coefficient;
         out.power_flow = shaft_flow[i];
+        out.slip = shaft.slip_accum;
+        out.slipping = shaft.slip > 0.0;
+    }
+
+    outputs.payloads.assign(payloads.size(), {});
+    for (std::size_t i = 0; i < payloads.size(); ++i) {
+        const PayloadMap& map = payloads[i];
+        kernel::PayloadState& out = outputs.payloads[i];
+        out.body = map.body;
+        if (!d.eq_active[map.equality]) {
+            continue;
+        }
+        out.attached = true;
+        out.carrier = map.carrier;
+        // Weld rows: 3 translational in the world frame, residual payload minus carrier, so the force on the payload
+        // (body1) is +efc_force; 3 rotational after them.
+        const std::vector<double> rows = equality_rows(d, map.equality);
+        if (rows.size() >= 3) {
+            out.force = {rows[0], rows[1], rows[2]};
+        }
     }
 }
 
@@ -602,6 +719,9 @@ void MujocoAdapter::Engine::collect_kinematics() {
         const CoordinateMap& coordinate = coordinates[i];
         if (coordinate.qpos >= 0) {
             outputs.joint_positions[i] = (d.qpos[coordinate.qpos] - m.qpos0[coordinate.qpos]) / coordinate.coefficient;
+        }
+        if (joints[i].shaft >= 0) {
+            outputs.joint_positions[i] += shafts[to_size(joints[i].shaft)].offset();
         }
     }
     outputs.bodies.assign(bodies.size(), {});
@@ -652,8 +772,8 @@ void MujocoAdapter::Engine::shaft_state(std::size_t body, kernel::BodyState& out
     const mjModel& m = *model;
     const mjData& d = *data;
     const ShaftMap& shaft = shafts[to_size(shaft_of_body[body])];
-    const double angle = (d.qpos[shaft.driven_qpos] - m.qpos0[shaft.driven_qpos]) / shaft.coefficient;
-    const double spin = d.qvel[shaft.driven_dof] / shaft.coefficient;
+    const double angle = ((d.qpos[shaft.driven_qpos] - m.qpos0[shaft.driven_qpos]) / shaft.coefficient) + shaft.offset();
+    const double spin = (d.qvel[shaft.driven_dof] / shaft.coefficient) + shaft.offset_rate;
     const mjtNum* parent_quat = d.xquat + offset(shaft.parent, 4);
     std::array<mjtNum, 4> frame{};
     mju_mulQuat(frame.data(), parent_quat, shaft.orientation.data());
@@ -697,7 +817,9 @@ void MujocoAdapter::Engine::apply_inputs() {
         shaft_torque[i] = 0.0;
         driven_velocity[i] = d.qvel[shafts[i].driven_dof];
         shaft_gain[i] = shafts[i].efficiency;
+        shaft_transmitted[i] = 1.0 - shafts[i].slip;
         shaft_flow[i] = kernel::PowerFlow::Static;
+        shafts[i].offset_rate = 0.0;
     }
     if (!pending.generalized_forces.empty()) {
         std::size_t offset = 0;
@@ -708,6 +830,8 @@ void MujocoAdapter::Engine::apply_inputs() {
                 const double tau = pending.generalized_forces[offset];
                 shaft_torque[index] = tau;
                 const double power = tau * driven_velocity[index] * shaft.coefficient;
+                // A slipping coupling transmits (1 - s) of the shaft torque: the approximation for a torque-driven
+                // shaft, whose lost travel has no commanded rest to measure it against (PHY-006).
                 shaft_gain[index] = 1.0 / shaft.efficiency;
                 shaft_flow[index] = kernel::PowerFlow::Backward;
                 if (power >= 0.0) {
@@ -717,7 +841,7 @@ void MujocoAdapter::Engine::apply_inputs() {
                 if (power == 0.0) {
                     shaft_flow[index] = kernel::PowerFlow::Static;
                 }
-                const double force = shaft_gain[index] * tau / shaft.coefficient;
+                const double force = shaft_transmitted[index] * shaft_gain[index] * tau / shaft.coefficient;
                 d.qfrc_applied[shaft.driven_dof] += force;
                 ++offset;
                 continue;
@@ -739,14 +863,18 @@ void MujocoAdapter::Engine::apply_inputs() {
 }
 
 // A drive (K, D, rest) on the driven DOF, with K_d = K / c^2, D_d = D / c^2, rest_d = rest c, is the soft one-joint
-// equality r = q - qpos0 - rest_d in MuJoCo's direct form (PHY-034). With impedance d and R = (1 - d) / d A0
+// equality r = q - qpos0 - eq_data in MuJoCo's direct form (PHY-034). With impedance d and R = (1 - d) / d A0
 // (A0 = dof_invweight0, MuJoCo's diagApprox for the row), the solved constraint acceleration is
-// a1 = (1 - d) a0 - s1 v - s0 r for solref = (-s0, -s1); multiplied by m = 1 / A0 / (1 - d) that is
-// (m / (1 - d)) a1 = F - D_d v - K_d (q - rest_d) when s0 = (1 - d) K_d A0 and s1 = (1 - d) D_d A0. So stiffness,
-// damping and the static sag F / K_d are exact for any d, and the loop's explicit frequency is sqrt(s0): d is chosen
-// as 1 - 1 / (K_d A0 h^2), clamped to [drive_impedance_min, drive_impedance_max], which keeps s0 h^2 <= 1 and leaves
-// the dynamics exact (d at the minimum) whenever the explicit spring itself is stable. The price above that is an
-// apparent inertia m / (1 - d) under the drive; semi-implicit stability needs s0 h^2 + 2 s1 h < 4, else AdapterError.
+// a1 = (1 - d) a0 - s1 v - s0 r for solref = (-s0, -s1) at the step's start state q, v; multiplied by
+// m = 1 / A0 / (1 - d) that is (m / (1 - d)) a1 = F - D_d v - K_d r when s0 = (1 - d) K_d A0 and s1 = (1 - d) D_d A0.
+// The drive is meant at the step's end state (backward Euler, what the stepper's and the brake's rests assume):
+// m a = F - D_d v' - K_d (q' - rest_d) with v' = v + a h, q' = q + v h + a h^2 (semi-implicit Euler), that is
+// (m + D_d h + K_d h^2) a = F - D_d v - K_d (q + v h - rest_d). Both agree when eq_data = rest_d - v h and
+// 1 / (1 - d) = 1 + Z, Z = (K_d h^2 + D_d h) A0: d = Z / (1 + Z), clamped to [drive_impedance_min,
+// drive_impedance_max]. Evaluated at the start state instead (eq_data = rest_d), a rest a stepper places at the
+// predicted angle theta + omega h stands omega h ahead of the joint, and its braking drive pushes the shaft on
+// (brief M2-C2). Static sag F / K_d and the steady lag D_d w / K_d are exact; past the clamp the step is less than
+// backward Euler, so Z > drive_envelope (400) is an AdapterError.
 void MujocoAdapter::Engine::apply_drives() {
     const mjModel& m = *model;
     const mjData& d = *data;
@@ -757,6 +885,7 @@ void MujocoAdapter::Engine::apply_drives() {
     }
     drives.clear();
     const double h = m.opt.timestep;
+    std::vector<bool> received(shafts.size(), false);
     for (const kernel::JointDrive& drive : pending.joint_drives) {
         const CoordinateMap& coordinate = coordinates[drive.joint];
         drives.push_back({drive.joint, -1});
@@ -767,17 +896,16 @@ void MujocoAdapter::Engine::apply_drives() {
             continue;
         }
         const double weight = m.dof_invweight0[coordinate.dof];
-        double impedance = drive_impedance_min;
-        if (stiffness > 0.0) {
-            impedance = std::clamp(1.0 - (1.0 / (stiffness * weight * h * h)), drive_impedance_min, drive_impedance_max);
-        }
+        const double implicit = ((stiffness * h * h) + (damping * h)) * weight;
+        const double impedance = std::clamp(implicit / (1.0 + implicit), drive_impedance_min, drive_impedance_max);
         const double s0 = (1.0 - impedance) * stiffness * weight;
         const double s1 = (1.0 - impedance) * damping * weight;
-        if ((s0 * h * h) + (2.0 * s1 * h) >= 4.0) {
+        if (implicit > drive_envelope) {
             throw AdapterError(outputs.steps, "drive on joint " + std::to_string(drive.joint) + ": stiffness " +
                                                   std::to_string(drive.stiffness) + " and damping " +
                                                   std::to_string(drive.damping) +
-                                                  " are beyond the bridge's stable drive envelope at this step (PHY-034)");
+                                                  " are beyond the bridge's drive envelope (K_d h^2 + D_d h) A0 <= 400 "
+                                                  "at this step (PHY-034)");
         }
         const auto eq = to_size(coordinate.equality);
         m.eq_solref[(mjNREF * eq) + 0] = -s0;
@@ -789,9 +917,21 @@ void MujocoAdapter::Engine::apply_drives() {
         for (std::size_t k = 0; k < static_cast<std::size_t>(mjNEQDATA); ++k) {
             m.eq_data[(mjNEQDATA * eq) + k] = 0.0;
         }
-        m.eq_data[mjNEQDATA * eq] = drive.rest * c;
+        double rest = drive.rest;
+        if (joints[drive.joint].shaft >= 0) {
+            rest = shafts[to_size(joints[drive.joint].shaft)].receive(drive.rest, h);
+            received[to_size(joints[drive.joint].shaft)] = true;
+        }
+        m.eq_data[mjNEQDATA * eq] = (rest * c) - (d.qvel[coordinate.dof] * h);
         d.eq_active[coordinate.equality] = true;
         drives.back().equality = coordinate.equality;
+    }
+    // A step without an enabled drive ends tracking: the next enabled rest restarts the slip and play references
+    // there, counting no increment, with the band re-centred (coordinator ruling 10, PHY-006).
+    for (std::size_t i = 0; i < shafts.size(); ++i) {
+        if (!received[i]) {
+            shafts[i].tracking = false;
+        }
     }
 }
 
@@ -987,10 +1127,10 @@ void MujocoAdapter::disable_constraint(std::size_t constraint) {
     }
 }
 
+// No ropes on the bridge: a load is a payload body, released by switching its weld off.
 void MujocoAdapter::release_load(std::size_t load) {
-    const Engine& e = engine("release_load()");
-    throw AdapterError(e.steps(), "load " + std::to_string(load) +
-                                      " is not in the model: the MuJoCo adapter maps no ropes in milestone 1");
+    Engine& e = engine("release_load()");
+    e.data->eq_active[e.payload(load, "release_load()").equality] = false;
 }
 
 void MujocoAdapter::set_payload_mass(std::size_t payload, double mass) {
@@ -1019,15 +1159,34 @@ void MujocoAdapter::set_payload_mass(std::size_t payload, double mass) {
     mj_setConst(&m, scratch.get());
 }
 
+// body kWorldBody releases the payload; its translated carrier re-attaches it at the translated relative pose.
 void MujocoAdapter::set_payload_attachment(std::size_t payload, std::size_t body) {
-    const Engine& e = engine("set_payload_attachment()");
-    if (payload >= e.bodies.size()) {
-        throw AdapterError(e.steps(), "payload " + std::to_string(payload) + " is not in the model");
+    Engine& e = engine("set_payload_attachment()");
+    const PayloadMap& map = e.payload(payload, "set_payload_attachment()");
+    if (body == kernel::kWorldBody) {
+        e.data->eq_active[map.equality] = false;
+        return;
     }
     if (body >= e.bodies.size()) {
         throw AdapterError(e.steps(), "body " + std::to_string(body) + " is not in the model");
     }
-    throw AdapterError(e.steps(), "set_payload_attachment(): MuJoCo cannot re-parent a body mid-run (milestone 1)");
+    if (body != map.carrier) {
+        throw AdapterError(e.steps(), "set_payload_attachment(): payload " + std::to_string(payload) +
+                                          " can attach only to its translated carrier " +
+                                          std::to_string(map.carrier) + "; MuJoCo cannot re-parent a body mid-run");
+    }
+    e.data->eq_active[map.equality] = true;
+}
+
+void MujocoAdapter::set_transmission_slip(std::size_t transmission, double fraction) {
+    Engine& e = engine("set_transmission_slip()");
+    if (transmission >= e.shafts.size()) {
+        throw AdapterError(e.steps(), "transmission " + std::to_string(transmission) + " is not in the model");
+    }
+    if (!std::isfinite(fraction) || fraction < 0.0 || fraction > 1.0) {
+        throw AdapterError(e.steps(), "set_transmission_slip(): fraction must be in [0, 1]");
+    }
+    e.shafts[transmission].slip = fraction;
 }
 
 std::string MujocoAdapter::integrator() const {

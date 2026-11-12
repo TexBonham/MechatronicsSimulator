@@ -1,7 +1,9 @@
 # G2 (Requirements doc, Test cases, gantry suite): home. Pass: each homed axis's origin lies within 1 cm of its true
 # origin (ACC-003): with the origin at the min switch, each joint coordinate when homing has finished is within 1 cm of
 # 0 m, the joint's neutral placement; the controller enters ready (ACC-004) and reports it on the "ready / fault"
-# status message. Start position and homing time: open parameters with placeholder defaults (DES-044).
+# status message. Start position and homing time: open parameters with placeholder defaults (DES-044). Homing at the
+# gantry team's 0.02 m/s (2026-11-11) from the 0.1 m starts, exactly the 10 cm homing travel, takes 0.1 m / 0.02 m/s +
+# the 0.02 / 0.05 s ramp = 5.2 s per axis, all at once, plus the lift's 50 ms brake release wait: inside the 15 s budget.
 id: G2
 title: Homing
 design:

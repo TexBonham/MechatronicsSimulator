@@ -60,7 +60,20 @@ TorqueText = Annotated[
 SpeedText = Annotated[float, BeforeValidator(_parser("1 / [time]")), WithJsonSchema(_QUANTITY_SCHEMA)]
 TemperatureText = Annotated[float, BeforeValidator(_parser("[temperature]")), WithJsonSchema(_QUANTITY_SCHEMA)]
 
-Category = Literal["actuator", "driver", "sensor", "transmission", "power", "safety", "body", "joint"]
+Category = Literal[
+    "actuator",
+    "driver",
+    "sensor",
+    "front_end",
+    "transmission",
+    "power",
+    "safety",
+    "body",
+    "joint",
+    "payload",
+    "end_effector",
+]
+EndEffectorEvent = Literal["attach", "release"]
 FailureMode = Literal["stuck", "noisy", "dropped", "forced_level"]
 PinDirection = Literal["input", "output", "bidirectional", "power_in", "power_out", "ground"]
 SignalKind = Literal["digital", "analog", "pwm", "step", "direction", "enable", "quadrature", "power", "ground", "coil"]
@@ -68,7 +81,12 @@ SignalKind = Literal["digital", "analog", "pwm", "step", "direction", "enable", 
 REQUIRED_BY_CATEGORY: dict[str, tuple[str, ...]] = {
     "transmission": ("ratio", "efficiency", "stiffness", "backlash", "self_locking", "slip"),
     "sensor": ("resolution", "noise", "delay", "sample_rate"),
+    "payload": ("mass",),
+    "end_effector": ("capacity",),
 }
+ATTACH_MOUNT = "attach"
+ATTACH_CATEGORIES: tuple[str, ...] = ("payload", "end_effector")
+END_EFFECTOR_EVENTS: tuple[str, ...] = ("attach", "release")
 
 
 class CatalogError(ValueError):
@@ -94,6 +112,7 @@ class QuantityParameter(StrictModel):
     dimension: str = Field(min_length=1)
     default: SIText | None = None
     minimum: SIText | None = None
+    minimum_exclusive: bool = Field(default=False, description="True: a value must lie strictly above the minimum")
     maximum: SIText | None = None
     sweepable: bool = True
     description: str | None = None
@@ -126,6 +145,14 @@ class QuantityParameter(StrictModel):
     def _ordered(self) -> QuantityParameter:
         if self.minimum is not None and self.maximum is not None and self.minimum > self.maximum:
             raise ValueError(f"parameter {self.name!r}: minimum {self.minimum} above maximum {self.maximum}")
+        if self.minimum_exclusive:
+            if self.minimum is None:
+                raise ValueError(f"parameter {self.name!r}: minimum_exclusive needs a minimum")
+            if self.maximum is not None and self.minimum >= self.maximum:
+                raise ValueError(
+                    f"parameter {self.name!r}: exclusive minimum {self.minimum} leaves no value up to maximum "
+                    f"{self.maximum}"
+                )
         if self.default is not None:
             check_bounds(self, self.default)
         return self
@@ -154,6 +181,10 @@ Parameter = Annotated[
 def check_bounds(parameter: QuantityParameter, value: float) -> None:
     if parameter.minimum is not None and value < parameter.minimum:
         raise ValueError(f"parameter {parameter.name!r} value {value} below minimum {parameter.minimum}")
+    if parameter.minimum_exclusive and parameter.minimum is not None and value == parameter.minimum:
+        raise ValueError(
+            f"parameter {parameter.name!r} value {value} must lie above exclusive minimum {parameter.minimum}"
+        )
     if parameter.maximum is not None and value > parameter.maximum:
         raise ValueError(f"parameter {parameter.name!r} value {value} above maximum {parameter.maximum}")
 
@@ -251,6 +282,7 @@ class ComponentType(StrictModel):
     ratings: RatingsFacet
     thermal: ThermalFacet
     failure_modes: list[FailureMode] = Field(default_factory=list)
+    events: list[EndEffectorEvent] = Field(default_factory=list)
     plugin: PluginReference
 
     def parameter(self, name: str) -> QuantityParameter | FlagParameter:
@@ -304,6 +336,18 @@ class ComponentType(StrictModel):
         for required in REQUIRED_BY_CATEGORY.get(self.category, ()):
             if required not in names:
                 raise ValueError(f"{self.category} type {self.name!r} must carry parameter {required!r}")
+        _unique(list(self.events), f"type {self.name!r} event")
+        if self.category in ATTACH_CATEGORIES and ATTACH_MOUNT not in [m.name for m in self.mechanical.mounts]:
+            raise ValueError(f"{self.category} type {self.name!r} must carry an {ATTACH_MOUNT!r} mount (LIB-031)")
+        if self.category == "end_effector":
+            missing = [event for event in END_EFFECTOR_EVENTS if event not in self.events]
+            if len(missing) > 0:
+                raise ValueError(f"end_effector type {self.name!r} must list the events {missing} (LIB-031)")
+            self._reference("capacity", "[mass]", "capacity")
+        elif len(self.events) > 0:
+            raise ValueError(f"type {self.name!r}: only an end_effector lists attach and release events (LIB-031)")
+        if self.category == "payload":
+            self._reference("mass", "[mass]", "payload mass")
         if self.category == "sensor" and len(self.failure_modes) == 0:
             raise ValueError(f"sensor type {self.name!r} must list the failure modes it supports")
         if self.category == "transmission":

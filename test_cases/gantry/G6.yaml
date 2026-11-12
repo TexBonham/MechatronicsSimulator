@@ -1,0 +1,90 @@
+# G6 (Requirements doc, Test cases, gantry suite): the load becomes overweight mid-lift; the lift stops (ACC-011,
+# FW-019) and the load can then be set down (ACC-012). A payload at the rated 10 lb (4.536 kg, gantry team 2026-11-11)
+# is lifted from the homed 0 toward 45 cm; at 10 s, 2 s after the command, it becomes 5.5 kg (over the 5.216 kg limit,
+# rated + 15 percent). Stop bound (2026-11-11 limits, gantry_config.h; coordinator ruling 35): after 2 s at
+# 0.05 m/s^2 the lift has risen at most a t^2 / 2 = 0.1 m at no more than the 0.1 m/s cruise. Detection latency: at
+# most one load cell sample (1 / 80 Hz = 12.5 ms), the 2 Hz amplifier's first-order rise from the rated reading to the
+# limit after the step to 5.5 kg (5.5 - 0.964 exp(-t / tau) = 5.216 kg, tau = 1 / (2 pi 2 Hz) = 79.6 ms, t = tau
+# ln(0.964 / 0.284) = 97.3 ms) and GANTRY_OVERLOAD_TICKS = 2 ms, 111.8 ms in all, so at most 0.1 m/s x 0.1118 s =
+# 1.12 cm more; the stop at 0.05 m/s^2 takes v^2 / 2a = 0.1 m. The lift stays under 0.1 + 0.0112 + 0.1 = 21.1 cm,
+# short of the 45 cm it would reach; it is stopped by 10 + 0.112 + 2 = 12.12 s. Then `lift 0.05` at
+# 13 s lowers it by at most 16.1 cm, done by 13 + 0.161 / 0.1 + 2 + 0.05 = 16.7 s (about 16.85 s with the end slow zone), to within 1 cm of 5 cm at 18 s.
+# Masses (the payload is a fixed child of the hook, ruling 24, so the change is a step load on the moving stepper):
+# on the belt lift (c = 6.37 mm) an undamped step from m0 to m1 peaks at (0.44 kg + m0 + 2 (m1 - m0)) g c, with
+# 0.44 kg of printed carriage, hook and cell; against 1.205 N m of the placeholder NEMA 23 curve at the 0.1 m/s lift
+# speed (150 rpm, 19.3 kg; nema23_class_generic, ruling 31, M2-X7) any m0 >= 0 meets it for m1 = 5.5 kg (the rated
+# 4.536 kg -> 5.5 kg step peaks at 0.431 N m); the rated load is used. M2-X7 found the 10 Hz amplifier passing the
+# microstep jitter of the rigid-belt lift (the rated load read 5.22 kg) as a false overload; ruling 35 sets 2 Hz.
+id: G6
+title: Load becomes overweight mid-lift
+design:
+  name: gantry
+  version: 0.1.0
+controller_mode: native
+seed: 6
+open_parameters:
+  - name: homing_time
+    dimension: "[time]"
+    owed_by: gantry team
+    note: Time allowed for homing before the lift; 0.1 m at the 0.02 m/s homing speed plus its 0.4 s ramp is 5.2 s.
+    default: "8 s"
+  - name: overweight_mass
+    dimension: "[mass]"
+    owed_by: gantry team
+    note: >-
+      Payload mass over the 5.216 kg overload limit (gantry team 2026-11-11); 5.5 kg as in G5.
+    default: "5.5 kg"
+initial_state:
+  joints:
+    - joint: x_axis
+      position: 0.1 m
+      velocity: 0 m/s
+    - joint: y_axis
+      position: 0.1 m
+      velocity: 0 m/s
+    - joint: lift_axis
+      position: 0.1 m
+      velocity: 0 m/s
+  controller:
+    state: not_homed
+  payload:
+    attached: true
+    body: hook
+    mass: 4.536 kg
+commands:
+  - at: 0 s
+    message: home
+  - at: ${homing_time}
+    message: lift
+    payload:
+      z: 45 cm
+  - at: 13 s
+    message: lift
+    payload:
+      z: 5 cm
+faults:
+  - kind: payload_change
+    start: 10 s
+    target: hook
+    mass: ${overweight_mass}
+end:
+  at: 18 s
+  max_duration: 18 s
+criteria:
+  - name: lift_stopped
+    check: value
+    quantity: joint:lift_axis.position
+    statistic: maximum
+    comparison: at_most
+    limit: 21.1 cm
+    window:
+      start: 10 s
+      end: 13 s
+  - name: set_down
+    check: value
+    quantity: joint:lift_axis.position
+    statistic: final
+    comparison: within
+    target: 5 cm
+    limit: 1 cm
+baseline: baseline.yaml

@@ -1,0 +1,186 @@
+# G10 (Requirements doc, Test cases, gantry suite): a motor stall, then a belt slip, during moves. First the X motor
+# stalls (available torque 0 for 0.5 s from 8.5 s, TST-016) during the move to (40, 25): the encoder on the carriage no
+# longer follows the commanded steps, the firmware stops at its deceleration limit, faults with encoder_mismatch
+# (FW-020, ACC-020; `fault:encoder_mismatch`, round 4 ruling 30) and motion stops (ACC-019); a `target` at 10.5 s is
+# refused (fault encoder_mismatch) and the `home` at 11 s re-homes (ACC-021). Then the move is repeated and the X belt
+# slips (fraction 0.3 for 0.5 s from 30.5 s, TST-015): the same fault, stop and refusal, and `home` at 33 s starts
+# homing again. Stop bound per event (gantry team limits of 2026-11-11, 0.05 m/s^2 and 0.1 m/s): the fault starts
+# 0.5 s into the move, the mismatch threshold (2 mm placeholder, ruling 6) is crossed within the 0.5 s fault window,
+# by then the speed is at most a t = 0.05 m/s^2 x 1 s = 0.05 m/s and the stop takes v / a = 1 s, so no driver steps
+# from the fault start + 1.5 s; the carriage starts within a t^2 / 2 = 6.25 mm of the origin and travels at most
+# 0.05 m/s x 0.5 s + v^2 / 2a = 0.025 m + 0.025 m past that (motion stops, ACC-019: slip_carriage_stopped). Homing
+# from there (under the 10 cm homing travel) takes at most 0.1 m / 0.02 m/s + 0.4 s ramp = 5.2 s, so the second move
+# starts at 30 s, well after it. Latch times (M2-X7): the firmware detects the mismatch (over 2 mm = 120 counts at
+# 60 000 counts/m) and begins its stop at the deceleration limit, and latches the fault and emits it when the profile
+# reaches zero velocity (FW-020), so the event comes at detection + v / a. Stall: the carriage halts at 8.5 s while the
+# steps run on from 0.025 m/s at 0.05 m/s^2, 0.025 t + 0.025 t^2 = 2.017 mm at t = 75 ms (8.575 s, 0.0287 m/s), stop
+# 0.575 s, latched by about 9.16 s (9.15 s derived plus one controller tick; measured 9.161 s). Slip 0.3: the mismatch grows at 0.3 v, 0.3 (0.025 t + 0.025 t^2) =
+# 2.017 mm at t = 0.220 s (30.72 s, 0.036 m/s), stop 0.72 s, latched by 31.44 s (measured 31.427 s). Both detections
+# fall inside the 0.5 s fault windows, as the bound assumes; the windows stand.
+# The encoders sense the axis joints, frame side (round 4 ruling 32), so the stall and the slip both show as a
+# step-count versus encoder mismatch; the slip runs on the bridge's slip dynamics (brief M2-C2).
+id: G10
+title: Belt slip and motor stall mid-move
+design:
+  name: gantry
+  version: 0.1.0
+controller_mode: native
+seed: 10
+open_parameters:
+  - name: homing_time
+    dimension: "[time]"
+    owed_by: gantry team
+    note: Time allowed for homing before the target; 0.1 m at the 0.02 m/s homing speed is 5 s.
+    default: "8 s"
+  - name: slip_stop_limit
+    dimension: "[length]"
+    owed_by: gantry team
+    note: >-
+      Highest x the carriage may reach after the slip starts: at most 6.25 mm when the slip starts, plus the 5 cm
+      stop bound in the header, 5.625 cm, rounded up to 5.7 cm.
+    default: "5.7 cm"
+initial_state:
+  joints:
+    - joint: x_axis
+      position: 0.1 m
+      velocity: 0 m/s
+    - joint: y_axis
+      position: 0.1 m
+      velocity: 0 m/s
+    - joint: lift_axis
+      position: 0.1 m
+      velocity: 0 m/s
+  controller:
+    state: not_homed
+  payload:
+    attached: false
+commands:
+  - at: 0 s
+    message: home
+  - at: ${homing_time}
+    message: target
+    payload:
+      x: 40 cm
+      y: 25 cm
+  - at: 10.5 s
+    message: target
+    payload:
+      x: 40 cm
+      y: 25 cm
+  - at: 11 s
+    message: home
+  - at: 30 s
+    message: target
+    payload:
+      x: 40 cm
+      y: 25 cm
+  - at: 32.5 s
+    message: target
+    payload:
+      x: 40 cm
+      y: 25 cm
+  - at: 33 s
+    message: home
+faults:
+  - kind: motor_stall
+    target: x_motor
+    start: 8.5 s
+    duration: 0.5 s
+    available_torque: "0"
+  - kind: slip
+    target: x_belt
+    start: 30.5 s
+    duration: 0.5 s
+    fraction: "0.3"
+end:
+  at: 35 s
+  max_duration: 35 s
+criteria:
+  - name: stall_fault
+    check: event
+    event: fault:encoder_mismatch
+    expect: present
+    window:
+      start: 8.5 s
+      end: 10 s
+  - name: stall_stopped_x
+    check: value
+    quantity: signal:x_driver.step
+    statistic: maximum
+    comparison: at_most
+    limit: "0"
+    window:
+      start: 10 s
+      end: 11 s
+  - name: stall_stopped_y
+    check: value
+    quantity: signal:y_driver.step
+    statistic: maximum
+    comparison: at_most
+    limit: "0"
+    window:
+      start: 10 s
+      end: 11 s
+  - name: stall_target_refused
+    check: event
+    event: event:refused
+    expect: present
+    window:
+      start: 10.5 s
+      end: 11 s
+  - name: stall_rehomed
+    check: event
+    event: state:ready
+    expect: present
+    window:
+      start: 11 s
+      end: 30 s
+  - name: slip_fault
+    check: event
+    event: fault:encoder_mismatch
+    expect: present
+    window:
+      start: 30.5 s
+      end: 32 s
+  - name: slip_stopped_x
+    check: value
+    quantity: signal:x_driver.step
+    statistic: maximum
+    comparison: at_most
+    limit: "0"
+    window:
+      start: 32 s
+      end: 33 s
+  - name: slip_stopped_y
+    check: value
+    quantity: signal:y_driver.step
+    statistic: maximum
+    comparison: at_most
+    limit: "0"
+    window:
+      start: 32 s
+      end: 33 s
+  - name: slip_target_refused
+    check: event
+    event: event:refused
+    expect: present
+    window:
+      start: 32.5 s
+      end: 33 s
+  - name: slip_rehoming
+    check: event
+    event: state:homing
+    expect: present
+    window:
+      start: 33 s
+      end: 35 s
+  - name: slip_carriage_stopped
+    check: value
+    quantity: joint:x_axis.position
+    statistic: maximum
+    comparison: at_most
+    limit: ${slip_stop_limit}
+    window:
+      start: 30.5 s
+      end: 33 s
+baseline: baseline.yaml

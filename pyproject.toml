@@ -13,6 +13,7 @@ dependencies = [
     "pint",
     "h5py",
     "jsonschema",
+    "websockets>=13",
 ]
 
 [project.scripts]

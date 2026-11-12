@@ -3,6 +3,7 @@
 #include <pybind11/stl.h>
 #include <pybind11/stl/filesystem.h>
 
+#include <cstddef>
 #include <cstdint>
 #include <memory>
 #include <optional>
@@ -28,6 +29,7 @@
 #include "mechsim/kernel/run_config.hpp"
 #include "mechsim/pins/pins.hpp"
 #include "mechsim/signals/component_base.hpp"
+#include "mechsim/signals/front_end.hpp"
 #include "mechsim/signals/operator_link.hpp"
 #include "mechsim/signals/safety.hpp"
 #include "mechsim/signals/sensors.hpp"
@@ -45,6 +47,7 @@ using kernel::CouplingValue;
 using kernel::make_payload;
 using kernel::PayloadPtr;
 
+// ===== Parameter readers ===================================================
 template <typename T>
 const T* payload_if(const PayloadPtr& payload) {
     const auto* typed = dynamic_cast<const kernel::TypedPayload<T>*>(payload.get());
@@ -75,6 +78,21 @@ signals::JointCoordinate coordinate(const py::dict& params) {
     return params["coordinate"].cast<signals::JointCoordinate>();
 }
 
+signals::SensorFidelity fidelity(const py::dict& params) {
+    signals::SensorFidelity f;
+    f.noise = number(params, "noise", f.noise);
+    f.delay = number(params, "delay", f.delay);
+    f.sample_rate = number(params, "sample_rate", f.sample_rate);
+    return f;
+}
+
+std::optional<std::size_t> index(const py::dict& params, const char* key) {
+    if (!params.contains(key)) {
+        return std::nullopt;
+    }
+    return params[key].cast<std::size_t>();
+}
+
 void check_known(const std::string& type, const py::dict& params, const std::vector<std::string>& known) {
     for (const auto& item : params) {
         const auto key = item.first.cast<std::string>();
@@ -97,6 +115,7 @@ void check_known(const std::string& type, const py::dict& params, const std::vec
 
 }  // namespace
 
+// ===== Coupling values =====================================================
 py::object coupling_to_python(const CouplingValue& value) {
     if (std::holds_alternative<std::monostate>(value)) {
         return py::none();
@@ -173,11 +192,12 @@ CouplingValue coupling_from_python(const py::handle& value) {
                          "PinOutputs, OperatorCommands, dict[str, float] or a non-empty list of PowerRail");
 }
 
+// ===== Signal components ===================================================
 std::unique_ptr<signals::SignalComponent> make_signal_component(const std::string& type, const std::string& instance,
                                                                 const py::dict& params) {
     if (type == "limit_switch") {
         check_known(type, params, {"coordinate", "position", "actuate_above", "hysteresis", "resolution",
-                                   "debounce_time", "normally_open"});
+                                   "debounce_time", "normally_open", "noise", "delay", "sample_rate"});
         signals::LimitSwitchParams p;
         p.coordinate = coordinate(params);
         p.position = number(params, "position", p.position);
@@ -186,14 +206,18 @@ std::unique_ptr<signals::SignalComponent> make_signal_component(const std::strin
         p.resolution = number(params, "resolution", p.resolution);
         p.debounce_time = number(params, "debounce_time", p.debounce_time);
         p.normally_open = flag(params, "normally_open", p.normally_open);
+        p.fidelity = fidelity(params);
         return std::make_unique<signals::LimitSwitch>(instance, p);
     }
     if (type == "incremental_encoder") {
-        check_known(type, params, {"coordinate", "resolution", "reversed"});
+        check_known(type, params,
+                    {"coordinate", "resolution", "reversed", "linear", "noise", "delay", "sample_rate"});
         signals::EncoderParams p;
         p.coordinate = coordinate(params);
         p.resolution = number(params, "resolution", p.resolution);
         p.reversed = flag(params, "reversed", p.reversed);
+        p.linear = flag(params, "linear", p.linear);
+        p.fidelity = fidelity(params);
         return std::make_unique<signals::IncrementalEncoder>(instance, p);
     }
     if (type == "step_dir_driver") {
@@ -251,11 +275,77 @@ std::unique_ptr<signals::SignalComponent> make_signal_component(const std::strin
         p.manual_reset = flag(params, "manual_reset", p.manual_reset);
         return std::make_unique<signals::Watchdog>(instance, p);
     }
+    if (type == "load_cell") {
+        check_known(type, params, {"payload", "joint", "joint_reaction", "capacity", "sensitivity",
+                                   "excitation_voltage", "resolution", "overload_limit", "nonlinearity", "noise",
+                                   "delay", "sample_rate"});
+        signals::LoadCellParams p;
+        p.payload = index(params, "payload");
+        p.joint = index(params, "joint");
+        p.joint_reaction = index(params, "joint_reaction");
+        p.capacity = number(params, "capacity", p.capacity);
+        p.sensitivity = number(params, "sensitivity", p.sensitivity);
+        p.excitation_voltage = number(params, "excitation_voltage", p.excitation_voltage);
+        p.resolution = number(params, "resolution", p.resolution);
+        p.overload_limit = number(params, "overload_limit", p.overload_limit);
+        p.nonlinearity = number(params, "nonlinearity", p.nonlinearity);
+        p.fidelity = fidelity(params);
+        return std::make_unique<signals::LoadCell>(instance, p);
+    }
+    if (type == "load_cell_amplifier") {
+        check_known(type, params, {"gain", "offset", "output_full_scale", "bandwidth", "adc_bits", "adc_reference"});
+        signals::AmplifierParams p;
+        p.gain = number(params, "gain", p.gain);
+        p.offset = number(params, "offset", p.offset);
+        p.output_full_scale = number(params, "output_full_scale", p.output_full_scale);
+        p.bandwidth = number(params, "bandwidth", p.bandwidth);
+        if (params.contains("adc_bits")) {
+            p.adc.bits = params["adc_bits"].cast<std::int64_t>();
+        }
+        p.adc.reference = number(params, "adc_reference", p.adc.reference);
+        return std::make_unique<signals::LoadCellAmplifier>(instance, p);
+    }
+    if (type == "imu") {
+        check_known(type, params, {"body", "gravity", "accel_range", "gyro_range", "resolution", "gyro_resolution",
+                                   "gyro_noise", "noise", "delay", "sample_rate"});
+        signals::ImuParams p;
+        if (params.contains("body")) {
+            p.body = params["body"].cast<std::size_t>();
+        }
+        if (params.contains("gravity")) {
+            p.gravity = params["gravity"].cast<kernel::Vec3>();
+        }
+        p.accel_range = number(params, "accel_range", p.accel_range);
+        p.gyro_range = number(params, "gyro_range", p.gyro_range);
+        p.resolution = number(params, "resolution", p.resolution);
+        p.gyro_resolution = number(params, "gyro_resolution", p.gyro_resolution);
+        p.gyro_noise = number(params, "gyro_noise", p.gyro_noise);
+        p.fidelity = fidelity(params);
+        return std::make_unique<signals::Imu>(instance, p);
+    }
+    if (type == "brake") {
+        check_known(type, params, {"joint", "brake_torque", "engage_delay", "release_delay", "power_off_engaged",
+                                   "damping", "inverse_inertia"});
+        signals::BrakeParams p;
+        if (params.contains("joint")) {
+            p.joint = params["joint"].cast<std::size_t>();
+        }
+        p.brake_torque = number(params, "brake_torque", p.brake_torque);
+        p.engage_delay = number(params, "engage_delay", p.engage_delay);
+        p.release_delay = number(params, "release_delay", p.release_delay);
+        p.power_off_engaged = flag(params, "power_off_engaged", p.power_off_engaged);
+        p.damping = number(params, "damping", p.damping);
+        if (params.contains("inverse_inertia")) {
+            p.inverse_inertia = params["inverse_inertia"].cast<double>();
+        }
+        return std::make_unique<signals::Brake>(instance, p);
+    }
     throw std::invalid_argument("unknown built-in component type '" + type +
-                                "'; known: estop_relay, incremental_encoder, limit_switch, power_supply, "
-                                "step_dir_driver, stepper_behavioral, watchdog");
+                                "'; known: brake, estop_relay, imu, incremental_encoder, limit_switch, load_cell, "
+                                "load_cell_amplifier, power_supply, step_dir_driver, stepper_behavioral, watchdog");
 }
 
+// ===== Module binding ======================================================
 void bind_cosim(py::module_& m) {
     py::class_<kernel::CouplingReader>(m, "CouplingReader", "A party's read view of its consumed names (KER-008).")
         .def("value", [](const kernel::CouplingReader& r, const std::string& name) {
@@ -309,7 +399,34 @@ void bind_cosim(py::module_& m) {
     py::class_<kernel::PhysicsParty, kernel::Party, py::smart_holder>(
         m, "PhysicsParty", "A loaded PhysicsAdapter as the physics party (KER-016); takes ownership of the adapter.")
         .def(py::init<std::unique_ptr<kernel::PhysicsAdapter>, kernel::PhysicsPartyConfig>(), py::arg("adapter"),
-             py::arg("config") = kernel::PhysicsPartyConfig{});
+             py::arg("config") = kernel::PhysicsPartyConfig{})
+        .def("schedule_slip", &kernel::PhysicsParty::schedule_slip, py::arg("transmission"), py::arg("start"),
+             py::arg("end"), py::arg("fraction"))
+        .def(
+            "schedule_payload_change",
+            [](kernel::PhysicsParty& party, std::size_t payload, kernel::SimTime at, std::optional<double> mass,
+               std::optional<std::int64_t> carrier) {
+                if (mass.has_value() == carrier.has_value()) {
+                    throw kernel::KernelConfigError("schedule_payload_change: give exactly one of mass and carrier");
+                }
+                if (mass.has_value()) {
+                    party.schedule_payload_change(payload, at, kernel::PayloadMass{*mass});
+                    return;
+                }
+                if (*carrier == -1) {
+                    party.schedule_payload_change(payload, at, kernel::PayloadCarrier{kernel::kWorldBody});
+                    return;
+                }
+                if (*carrier < 0) {
+                    throw kernel::KernelConfigError("schedule_payload_change: carrier " + std::to_string(*carrier) +
+                                                    " is neither a body index nor -1 (world)");
+                }
+                party.schedule_payload_change(payload, at,
+                                              kernel::PayloadCarrier{static_cast<std::size_t>(*carrier)});
+            },
+            py::arg("payload"), py::arg("tick"), py::kw_only(), py::arg("mass") = py::none(),
+            py::arg("carrier") = py::none(),
+            "A new mass (kg) or a new carrier body (-1 releases to the world) before the step at `tick`.");
 
     py::class_<controller::ControllerPartyConfig>(m, "ControllerPartyConfig")
         .def(py::init<>())
@@ -317,12 +434,16 @@ void bind_cosim(py::module_& m) {
         .def_readwrite("rate", &controller::ControllerPartyConfig::rate)
         .def_readwrite("pin_inputs", &controller::ControllerPartyConfig::pin_inputs)
         .def_readwrite("rails", &controller::ControllerPartyConfig::rails)
-        .def_readwrite("rail", &controller::ControllerPartyConfig::rail);
+        .def_readwrite("rail", &controller::ControllerPartyConfig::rail)
+        .def_readwrite("latency_ticks", &controller::ControllerPartyConfig::latency_ticks);
     py::class_<controller::ControllerParty, kernel::Party, py::smart_holder>(
         m, "ControllerParty", "A loaded ControllerRuntime as the controller party (KER-020); takes ownership.")
         .def(py::init<std::unique_ptr<controller::ControllerRuntime>, controller::ControllerPartyConfig>(),
              py::arg("runtime"), py::arg("config") = controller::ControllerPartyConfig{})
-        .def("pin_outputs", &controller::ControllerParty::pin_outputs);
+        .def("pin_outputs", &controller::ControllerParty::pin_outputs)
+        .def("schedule_freeze", &controller::ControllerParty::schedule_freeze, py::arg("start"), py::arg("end"))
+        .def("schedule_slowdown", &controller::ControllerParty::schedule_slowdown, py::arg("start"), py::arg("end"),
+             py::arg("factor"));
 
     py::class_<signals::ComponentClock>(m, "ComponentClock", "Base rate, layer period and child seed (SIG-030).")
         .def(py::init<>())
@@ -390,7 +511,8 @@ void bind_cosim(py::module_& m) {
         .value("power", signals::Stage::power)
         .value("sensor", signals::Stage::sensor)
         .value("driver", signals::Stage::driver)
-        .value("actuator", signals::Stage::actuator);
+        .value("actuator", signals::Stage::actuator)
+        .value("front_end", signals::Stage::front_end);
     py::enum_<signals::PinField>(m, "PinField")
         .value("digital_in", signals::PinField::digital_in)
         .value("counter_delta", signals::PinField::counter_delta)

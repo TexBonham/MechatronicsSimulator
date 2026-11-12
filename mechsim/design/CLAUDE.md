@@ -19,17 +19,20 @@ Design files (DES). Schema `schemas/design.json` from `Design`; regenerate with
 | `open_parameters` | name, dimension (pint or `choice`), owed_by, note, optional `default` (quantity string, choice value, or a mapping for a structured choice; DES-044); release: none |
 | `bodies` | material, process, geometry (primitives or step), mass_properties, catalog_part, flexible (A, I, L, supports root/end, calibration), fasteners |
 | `joints` | six types, DOF lists per `DOF_COUNTS`; each body child of exactly one joint, no cycles |
-| `components` | type, part, overrides, mechanical (shaft mounts to joints), signals `instance.pin`; `senses` (DES-043): required on sensor types, forbidden elsewhere; `joint` (OpenName), limit_switch `position` + `actuate_above` (required), incremental_encoder `reversed` (`SENSES_FIELDS`, `SENSES_REQUIRED`) |
+| `components` | type, part, overrides, mechanical (shaft mounts to joints), signals `instance.pin`; `senses` (DES-043): required on sensor types, forbidden elsewhere; `joint` (OpenName), limit_switch `position` + `actuate_above` (required), incremental_encoder `reversed` (`SENSES_FIELDS`, `SENSES_REQUIRED`); load_cell may name `payload` (case payload name, weld force) or `joint_reaction` (a design joint, else a case payload read at its fixed joint `<payload>_fixed`, ruling 24) and imu `body` instead of `joint`, exactly one target (`SENSES_TARGETS`); `acts_on: {joint}` required on brake types, forbidden elsewhere (`ACTS_ON_TYPES`) |
 | `wiring` | `Wire{source, destination}` as `instance.port`; ports are the type's electrical pins; connectivity only in v1 (DES-041) |
 | `pin_bindings` | every signal bound once, MCU pins unique, mode suits direction; pin and mode in the chip's pin map (DES-029) |
 | `power` | rails: supply (power instance), `gated_by` (safety instances), `consumers` (instances); controller rail |
 | `environment` | gravity, ambient; optional `contact`: `default`, `pairs`, `exclusions` as the neutral `ContactModel`, plus `floor` (normal, offset, world only) (DES-042) |
-| others | firmware path, chip, tick, `state_codes`/`fault_codes` (DES-045, `state_name`, `fault_name`); operator messages (no `heartbeat`); structural |
+| others | firmware path, chip, tick, `state_codes`/`fault_codes`/`event_codes` (DES-045; event entries `{name, argument}`, argument `axis`/`fault`/`state`/`number`/`none`, ruling 28; `state_name`, `fault_name`, `event_name`, `event_argument`); operator messages (no `heartbeat`); structural |
 
 ## Chip (`Chip`, `chip.py`)
 
 name (folder name), family, `status` placeholder or verified, `platform_description` and `svd` (path in the chip
 folder or `placeholder`; verified needs both files), `pins` (MCU pin name, `modes` from `PeripheralMode`, no duplicates).
+Electrical facts, all required (CTL-013, SIG-014 consume them): `core_voltage`, `brownout_threshold` (both voltage
+strings > 0, threshold strictly below core), `adc` (`resolution_bits` 1..32, `reference_voltage` > 0), `counter_bits`
+1..64 (timer encoder counter width); SI floats inside.
 `PeripheralMode` is the runtime vocabulary (`core/signals/CLAUDE.md`): digital_input, digital_output, counter_input,
 adc_input, pulse_output, uart_rx, uart_tx; READ_MODES and WRITE_MODES in `schema.py` split them by direction.
 
@@ -46,13 +49,18 @@ adc_input, pulse_output, uart_rx, uart_tx; READ_MODES and WRITE_MODES in `schema
 
 ## Section index
 
-`schema.py`: Open values 110, Bodies 261, Joints 500, Components 591, Power, environment, firmware, messages 658,
-Design 832, Cross-reference checks 877, Files and schema 1312.
+| Section | File | Line |
+|---|---|---|
+| Open values | schema.py | 110 |
+| Bodies | schema.py | 261 |
+| Joints | schema.py | 500 |
+| Components | schema.py | 591 |
+| Power, environment, firmware, messages | schema.py | 678 |
+| Design | schema.py | 889 |
+| Cross-reference checks | schema.py | 934 |
+| Files and schema | schema.py | 1403 |
 
-`tests/unit/test_design_schema.py`: Shipped examples 99, Header and version 190, Open parameters 301, Bodies 397,
-Joints 771, Components 947, Signals and pin bindings 1054, Power 1179, Environment, firmware, structural 1216,
-Wiring and rail consumers 1317, Contact environment 1518, Chip pin map 1763, Operator messages 1839, Errors 1919,
-CAD mass cross-check 1976. Chip file tests: `tests/unit/test_chip_schema.py`.
+Chip file tests: `tests/unit/test_chip_schema.py`.
 
 ## Open
 

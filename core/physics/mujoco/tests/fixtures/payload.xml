@@ -1,0 +1,22 @@
+<mujoco model="payload">
+  <compiler angle="radian" autolimits="false" inertiafromgeom="false" balanceinertia="false" boundmass="0" boundinertia="0" />
+  <option timestep="0.001" gravity="0 0 -9.81" integrator="implicitfast" iterations="50" />
+  <worldbody>
+    <body name="hook" pos="0 0 1.0" quat="1.0 0 0 0">
+      <inertial pos="0 0 0" mass="1.0" fullinertia="0.0001 0.0001 0.0001 0 0 0" />
+    </body>
+    <body name="load" pos="0 0 1.0" quat="1.0 0 0 0">
+      <inertial pos="0 0 0" mass="2.0" fullinertia="0.0001 0.0001 0.0001 0 0 0" />
+      <joint name="float" type="free" />
+    </body>
+  </worldbody>
+  <equality>
+    <weld name="load.attach" body1="load" body2="hook" solref="0.002 1.0" />
+  </equality>
+  <custom>
+    <text name="mechsim:elements" data="body joint.fixed joint.free" />
+    <text name="mechsim:bodies" data="hook load" />
+    <text name="mechsim:joints" data="mount:fixed float:free" />
+    <text name="mechsim:payloads" data="load:hook" />
+  </custom>
+</mujoco>

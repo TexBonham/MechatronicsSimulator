@@ -519,6 +519,18 @@ def _rotor_inertias(design: Design, registry: Registry) -> dict[str, tuple[float
     return rotors
 
 
+def _check_one_actuator_per_shaft(rotors: Mapping[str, tuple[float, list[str]]], collector: Collector) -> None:
+    """Two actuators on one shaft joint would sum their rotor inertias into one body, which the signal layer then
+    refuses (SIG-037); the build refuses first, naming both (BLD-034)."""
+    for joint in sorted(rotors):
+        motors = rotors[joint][1]
+        if len(motors) > 1:
+            names = ", ".join(f"'{name}'" for name in motors)
+            collector.failures.append(
+                f"shaft joint '{joint}': driven by actuators {names}; one actuator per shaft joint (BLD-034)"
+            )
+
+
 def _check_rotor_bodies(design: Design, rotors: Mapping[str, tuple[float, list[str]]], collector: Collector) -> None:
     """A shaft body's axial inertia is its motor's rotor inertia (BLD-034); a declared one would be a second source."""
     bodies = {body.name: body for body in design.bodies}
@@ -612,6 +624,7 @@ def build_physics(
     if not rigid_members:
         _check_supports(design, collector)
     rotors = _rotor_inertias(design, registry)
+    _check_one_actuator_per_shaft(rotors, collector)
     _check_rotor_bodies(design, rotors, collector)
     if len(collector.pending) > 0 or len(collector.failures) > 0:
         return empty

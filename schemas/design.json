@@ -1,5 +1,29 @@
 {
   "$defs": {
+    "ActsOn": {
+      "additionalProperties": false,
+      "description": "The joint a brake-type instance holds (DES-043); a brake on a transmission-driven joint sits on its shaft.",
+      "properties": {
+        "joint": {
+          "anyOf": [
+            {
+              "pattern": "^[a-z][a-z0-9_]*$",
+              "type": "string"
+            },
+            {
+              "pattern": "^\\$\\{[a-z][a-z0-9_]*\\}$",
+              "type": "string"
+            }
+          ],
+          "title": "Joint"
+        }
+      },
+      "required": [
+        "joint"
+      ],
+      "title": "ActsOn",
+      "type": "object"
+    },
     "AngularDof": {
       "additionalProperties": false,
       "properties": {
@@ -468,6 +492,17 @@
     "ComponentInstance": {
       "additionalProperties": false,
       "properties": {
+        "acts_on": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ActsOn"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
         "mechanical": {
           "items": {
             "$ref": "#/$defs/MechanicalBinding"
@@ -805,6 +840,34 @@
       "title": "Environment",
       "type": "object"
     },
+    "EventCode": {
+      "additionalProperties": false,
+      "description": "A named event-log code and how its argument reads (DES-045, round 4 ruling 28): `axis` the instance of the\npulse_output binding of that channel, `fault` or `state` the design's code name (a state argument may pack a\nfrom-to pair as (from << 8) | to, read `from>to`), `number` verbatim, `none` no detail.",
+      "properties": {
+        "argument": {
+          "enum": [
+            "axis",
+            "fault",
+            "state",
+            "number",
+            "none"
+          ],
+          "title": "Argument",
+          "type": "string"
+        },
+        "name": {
+          "pattern": "^[a-z][a-z0-9_]*$",
+          "title": "Name",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "argument"
+      ],
+      "title": "EventCode",
+      "type": "object"
+    },
     "ExtrusionProcess": {
       "additionalProperties": false,
       "properties": {
@@ -885,6 +948,14 @@
             }
           ],
           "title": "Chip"
+        },
+        "event_codes": {
+          "additionalProperties": {
+            "$ref": "#/$defs/EventCode"
+          },
+          "description": "event_log code (0..255) to the event's name and its argument kind (axis, fault, state, number, none)",
+          "title": "Event Codes",
+          "type": "object"
         },
         "fault_codes": {
           "additionalProperties": {
@@ -1900,7 +1971,7 @@
     },
     "Senses": {
       "additionalProperties": false,
-      "description": "What a sensor instance reads (DES-043): the joint coordinate, and per type the switch position along the joint\nand its actuation side (limit_switch) or the count direction (incremental_encoder).",
+      "description": "What a sensor instance reads (DES-043): the joint coordinate, and per type the switch position along the joint\nand its actuation side (limit_switch) or the count direction (incremental_encoder); a load cell may read the case\npayload by name instead of a joint, or the reaction of a joint (`joint_reaction`: a design joint, or a case payload\nby name, read at its fixed joint to the carrier; ruling 24), an IMU reads a body. Exactly one of joint, payload,\njoint_reaction and body.",
       "properties": {
         "actuate_above": {
           "anyOf": [
@@ -1914,6 +1985,23 @@
           "default": null,
           "title": "Actuate Above"
         },
+        "body": {
+          "anyOf": [
+            {
+              "pattern": "^[a-z][a-z0-9_]*$",
+              "type": "string"
+            },
+            {
+              "pattern": "^\\$\\{[a-z][a-z0-9_]*\\}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Body"
+        },
         "joint": {
           "anyOf": [
             {
@@ -1923,9 +2011,39 @@
             {
               "pattern": "^\\$\\{[a-z][a-z0-9_]*\\}$",
               "type": "string"
+            },
+            {
+              "type": "null"
             }
           ],
+          "default": null,
           "title": "Joint"
+        },
+        "joint_reaction": {
+          "anyOf": [
+            {
+              "pattern": "^[a-z][a-z0-9_]*$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Joint Reaction"
+        },
+        "payload": {
+          "anyOf": [
+            {
+              "pattern": "^[a-z][a-z0-9_]*$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Payload"
         },
         "position": {
           "anyOf": [
@@ -1957,9 +2075,6 @@
           "title": "Reversed"
         }
       },
-      "required": [
-        "joint"
-      ],
       "title": "Senses",
       "type": "object"
     },

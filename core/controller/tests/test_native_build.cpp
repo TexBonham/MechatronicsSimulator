@@ -91,7 +91,8 @@ TEST_CASE("The runtime builds the reference stub with the host preset and loads 
     NativeControllerRuntime runtime(native_test::config("reference"));
     runtime.load(FirmwareImage{std::string(native_test::firmware_tree), 1'000});
 
-    CHECK(runtime.library_path() == work / "native-firmware" / "host" / "libmechsim_fw_app_native.so");
+    CHECK(runtime.library_path() ==
+          work / "native-firmware" / "host" / mechsim::controller::native_library_name("mechsim_fw_app"));
     CHECK(fs::is_regular_file(runtime.library_path()));
     CHECK(runtime.build_log().find("--preset host") != std::string::npos);
     CHECK(runtime.build_log().find("-DMECHSIM_APP_TICK_HZ=1000") != std::string::npos);

@@ -5,6 +5,10 @@
 # gantry team rules (DES-044); the workspace and lift travel are the design's. "Not exceeded" is inclusive: each joint
 # stays within its design limits, ends included, because homing (G2) leaves each axis on its limit switch at the
 # origin, 0 m. Precondition: the firmware reports not_homed at power on (DES-045); it enters ready after homing.
+# Timing at the gantry team's limits (2026-11-11: 0.05 m/s^2, 0.1 m/s cruise, 0.02 m/s homing, 10 cm homing travel):
+# homing from the 0.1 m starts takes 0.1 / 0.02 + 0.4 s ramp = 5.2 s (plus 50 ms lift brake wait), inside 15 s; the
+# 0.4 m X travel takes d / v + v / a = 0.4 / 0.1 + 0.1 / 0.05 = 6 s, arriving by 21 s, scored at 25 s; the target lies
+# inside the 0.5 m x 0.5 m workspace.
 id: G3
 title: Target (40, 25) after homing
 design:

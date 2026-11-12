@@ -7,6 +7,7 @@ every comparison is exact equality.
 from __future__ import annotations
 
 import csv
+import dataclasses
 import json
 import math
 from pathlib import Path
@@ -26,6 +27,8 @@ from mechsim.record import (
     export_json,
     export_mat,
 )
+from mechsim.record.export import columns
+from mechsim.record.layout import JOINT_POSITIONS, TICK_AXIS, Columns, Series
 from mechsim.record.tick import BodyState, PhysicsOutputs
 from tests.unit.test_record_support import BASE_RATE, finished, identity, synthetic_rows
 
@@ -181,16 +184,7 @@ def test_rec_022_one_value_change_is_named(tmp_path: Path) -> None:
     bodies = (old.physics.bodies[0], BodyState((9.0, 9.0, 9.0), *(_rest(old.physics.bodies[1]))))
     changed[17] = TickRecord(
         old.time,
-        PhysicsOutputs(
-            old.physics.steps,
-            bodies,
-            old.physics.joints,
-            old.physics.constraints,
-            old.physics.contacts,
-            old.physics.members,
-            old.physics.ropes,
-            old.physics.transmissions,
-        ),
+        dataclasses.replace(old.physics, bodies=bodies),
         old.pin_signals,
         old.rails,
         old.actuator_efforts,
@@ -253,3 +247,77 @@ def test_rec_022_structure_difference_is_named(tmp_path: Path) -> None:
         h5.create_dataset("extra", data=np.zeros(1))
     report = archives_identical(first, extra)
     assert report.first_difference == "extra: only in the second archive"
+
+
+# ===== Per-column names and units (REC-018, ruling 18) ==================
+
+LABELS = Columns(("trolley", "hoist"), ("m", "rad"))
+
+
+def _labelled(tmp_path: Path, columns: dict[str, Columns]) -> Path:
+    rows = [
+        TickRecord(time=tick, physics=PhysicsOutputs(joint_positions=(0.5 * tick, 0.25 * tick))) for tick in range(3)
+    ]
+    recorder = Recorder(BASE_RATE, columns)
+    for row in rows:
+        recorder.write_row(row)
+    path = tmp_path / "labelled.h5"
+    recorder.flush(path, identity(), finished(len(rows)))
+    return path
+
+
+@pytest.mark.req("REC-015", "REC-018")
+def test_csv_header_names_each_index_column_and_its_unit(tmp_path: Path) -> None:
+    path = _labelled(tmp_path, {JOINT_POSITIONS: LABELS})
+    out = tmp_path / "joints.csv"
+    with RunArchive(path) as archive:
+        export_csv(archive, out, [JOINT_POSITIONS])
+    header, rows = _read_csv(out)
+    assert header[-2:] == [f"{JOINT_POSITIONS}[trolley] [m]", f"{JOINT_POSITIONS}[hoist] [rad]"]
+    assert [row[-2:] for row in rows] == [["0.0", "0.0"], ["0.5", "0.25"], ["1.0", "0.5"]]
+
+
+@pytest.mark.req("REC-015", "REC-018")
+def test_csv_header_without_column_labels_keeps_indices_and_the_series_unit(tmp_path: Path) -> None:
+    path = _labelled(tmp_path, {})
+    out = tmp_path / "joints.csv"
+    with RunArchive(path) as archive:
+        export_csv(archive, out, [JOINT_POSITIONS])
+    header, _ = _read_csv(out)
+    assert header[-2:] == [f"{JOINT_POSITIONS}[0] [m or rad]", f"{JOINT_POSITIONS}[1] [m or rad]"]
+
+
+@pytest.mark.req("REC-018")
+def test_names_without_units_label_the_columns_with_the_series_unit() -> None:
+    series = Series(np.zeros((2, 1, 3)), "N", TICK_AXIS, names=("load",))
+    assert [(name, unit) for name, unit, _ in columns("f", series)] == [
+        ("f[load,0]", "N"),
+        ("f[load,1]", "N"),
+        ("f[load,2]", "N"),
+    ]
+
+
+@pytest.mark.req("REC-016", "REC-018")
+def test_json_series_carry_column_names_and_units(tmp_path: Path) -> None:
+    path = _labelled(tmp_path, {JOINT_POSITIONS: LABELS})
+    out = tmp_path / "joints.json"
+    with RunArchive(path) as archive:
+        export_json(archive, out, [JOINT_POSITIONS])
+    document = json.loads(out.read_text(encoding="utf-8"))
+    entry = document["series"][JOINT_POSITIONS]
+    assert (entry["names"], entry["units"]) == (["trolley", "hoist"], ["m", "rad"])
+    assert "names" not in document["series"]["time/seconds"]
+
+
+@pytest.mark.req("REC-017", "REC-018")
+def test_mat_carries_column_names_and_units(tmp_path: Path) -> None:
+    path = _labelled(tmp_path, {JOINT_POSITIONS: LABELS})
+    out = tmp_path / "joints.mat"
+    with RunArchive(path) as archive:
+        export_mat(archive, out, [JOINT_POSITIONS])
+    data = scipy.io.loadmat(out)
+    names = [str(item[0]) for item in data["series_names"][0]]
+    position = names.index(JOINT_POSITIONS)
+    assert [str(item[0]) for item in data["series_columns"][0, position][0]] == ["trolley", "hoist"]
+    assert [str(item[0]) for item in data["series_column_units"][0, position][0]] == ["m", "rad"]
+    assert data["series_columns"][0, names.index("time/seconds")].size == 0

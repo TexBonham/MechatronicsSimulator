@@ -57,6 +57,8 @@ from mechsim.schema_base import StrictModel, format_errors
 
 ROOT = Path(__file__).resolve().parents[2]
 SCHEMA_PATH = ROOT / "schemas" / "test_case.json"
+SUITE_SCHEMA_PATH = ROOT / "schemas" / "suite.json"
+SUITE_FILE = "suite.yaml"
 DESIGNS_ROOT = ROOT / "designs"
 
 ANY = "any"
@@ -68,10 +70,12 @@ CASE_ID_PATTERN = r"^[A-Z][A-Z0-9_]*[0-9]+$"
 _N = r"[a-z][a-z0-9_]*"
 QUANTITY_REF_PATTERN = (
     rf"^(signal:{_N}\.{_N}|pose:{_N}\.(x|y|z|roll|pitch|yaw)|joint:{_N}\.(position|velocity)"
-    rf"|state:{_N}|count:(message|state)\.{_N})$"
+    rf"|rail:{_N}(\.voltage)?|state:{_N}|fault:{_N}|count:(message|state|fault)\.{_N})$"
 )
-EVENT_REF_PATTERN = rf"^(message|state):{_N}$"
-PARAMETER_PATH_PATTERN = rf"^(\$\{{{_N}\}}|(bodies|joints|components)\.{_N}(\.{_N})+)$"
+EVENT_REF_PATTERN = rf"^(message|state|fault|event):{_N}$"
+INSTANCE_PREFIX = "instance:"
+INSTANCE_PATH_PATTERN = rf"^instance:{_N}\.{_N}$"
+PARAMETER_PATH_PATTERN = rf"^(\$\{{{_N}\}}|(bodies|joints|components)\.{_N}(\.{_N})+|instance:{_N}\.{_N})$"
 
 _UNITS = pint.UnitRegistry()
 _LEADING_NUMBER = re.compile(r"^[+-]?(\d+\.?\d*|\.\d+)([eE][+-]?\d+)?(\s|$)")
@@ -479,7 +483,11 @@ def reference_dimension(reference: str) -> str | None:
         if component in ("x", "y", "z"):
             return LENGTH
         return ANGLE
-    if kind in ("state", "count"):
+    if kind in ("state", "fault", "count"):
+        return ANGLE
+    if kind == "rail":
+        if rest.endswith(".voltage"):
+            return "[mass] * [length] ** 2 / [time] ** 3 / [current]"
         return ANGLE
     return None
 
@@ -522,7 +530,7 @@ class ValueCriterion(_Criterion):
                 errors.append(f"comparison {self.comparison!r} needs a limit")
             if self.target is not None or self.relative_limit is not None:
                 errors.append(f"comparison {self.comparison!r} takes no target or relative_limit")
-        if self.statistic == "period" and self.quantity.split(":")[0] in ("state", "count"):
+        if self.statistic == "period" and self.quantity.split(":")[0] in ("state", "fault", "count"):
             errors.append(f"statistic 'period' needs a series, not {self.quantity!r}")
         expected = self.expected_dimension()
         for value, what in ((self.target, "target"), (self.limit, "limit")):
@@ -629,13 +637,34 @@ class HoldBandCriterion(_Criterion):
         return f"every joint within {self.band} of its first sample"
 
 
-class NoOverlapCriterion(_Actuators):
-    """No two commands active at once on the same actuator (SCO-025)."""
+class NoOverlapCriterion(_Criterion):
+    """No two commands active at once on one actuator (SCO-025): the recorded `start_event` and `end_event`
+    occurrences whose detail names `actuator` pair in time order; a start before the previous end fails, and with
+    `closed` so does a start still unpaired when the run ends. Both refs are `event:` refs (firmware log events carry
+    the actuator; operator messages and states do not)."""
 
     check: Literal["no_overlap"]
+    actuator: Name
+    start_event: EventRef
+    end_event: EventRef
+    closed: bool = False
+
+    @model_validator(mode="after")
+    def _event_refs(self) -> NoOverlapCriterion:
+        errors: list[str] = []
+        for ref, what in ((self.start_event, "start_event"), (self.end_event, "end_event")):
+            if not ref.startswith("event:"):
+                errors.append(f"{what} {ref!r} must be an event: ref (a firmware log event naming the actuator)")
+        if self.start_event == self.end_event:
+            errors.append(f"start_event and end_event are both {self.start_event!r}")
+        _raise_if(errors)
+        return self
 
     def limit_text(self) -> str:
-        return "no overlapping commands"
+        text = f"no overlap of {self.start_event} to {self.end_event} on {self.actuator}"
+        if self.closed:
+            text = f"{text}, closed at the end"
+        return text
 
 
 class SettleCriterion(_Criterion):
@@ -749,7 +778,10 @@ class Case(StrictModel):
     open_parameters: list[OpenParameter] = Field(default_factory=list)
     parameters: dict[str, str] = Field(
         default_factory=dict,
-        description="Values for open parameters of the design or the case (DES-044); --set overrides them",
+        description=(
+            "Values for open parameters of the design or the case (DES-044), and instance:<name>.<parameter> or "
+            "instance:<name>.part overrides (LIB-016, LIB-017); --set overrides them"
+        ),
     )
     initial_state: InitialState
     commands: list[Command] = Field(default_factory=list)
@@ -976,18 +1008,30 @@ def _check_reference(
         kind, _, rest = rest.partition(".")
     if kind == "signal" and rest not in design.signal_names():
         errors.append(f"{path}: unknown signal {rest!r}")
+    if kind == "rail":
+        rails: list[str] = []
+        if design.power is not None:
+            rails = [rail.name for rail in design.power.rails]
+        if rest.partition(".")[0] not in rails:
+            errors.append(f"{path}: unknown power rail {rest.partition('.')[0]!r}")
     if kind == "pose" and rest.partition(".")[0] not in bodies:
         errors.append(f"{path}: unknown body {rest.partition('.')[0]!r}")
     if kind == "joint" and rest.partition(".")[0] not in joints:
         errors.append(f"{path}: unknown joint {rest.partition('.')[0]!r}")
     if kind == "message" and rest not in messages:
         errors.append(f"{path}: unknown operator message {rest!r}")
+    if kind == "event" and design.firmware is None:
+        errors.append(f"{path}: firmware event {rest!r} needs a design with firmware")
     if kind == "state" and design.firmware is None:
         errors.append(f"{path}: controller state {rest!r} needs a design with firmware")
     elif kind == "state" and design.firmware is not None:
         names = set(design.firmware.state_codes.values())
         if len(names) > 0 and rest not in names:
             errors.append(f"{path}: unknown controller state {rest!r} (firmware.state_codes)")
+    if kind == "fault" and design.firmware is None:
+        errors.append(f"{path}: controller fault {rest!r} needs a design with firmware")
+    elif kind == "fault" and design.firmware is not None and rest not in set(design.firmware.fault_codes.values()):
+        errors.append(f"{path}: unknown controller fault {rest!r} (firmware.fault_codes)")
 
 
 def _joint_reference_dimension(reference: str, joints: dict[str, Any]) -> str | None:
@@ -1048,6 +1092,11 @@ def _check_criterion(
             errors.append(f"{path}.joints: mixes linear and angular joints under one band")
         for dimension in dimensions:
             _check_value(criterion.band, dimension, f"{path}.band", declared, errors)
+    elif isinstance(criterion, NoOverlapCriterion):
+        if criterion.actuator not in components:
+            errors.append(f"{path}.actuator: unknown component instance {criterion.actuator!r}")
+        for event, what in ((criterion.start_event, "start_event"), (criterion.end_event, "end_event")):
+            _check_reference(f"{path}.{what}", event, design, joints, bodies, messages, errors)
     else:
         for actuator in criterion.actuators:
             if actuator not in components:
@@ -1062,6 +1111,11 @@ def _check_parameter(
         if name not in declared:
             errors.append(f"{path}: references undeclared open parameter {parameter}")
         return
+    if parameter.startswith(INSTANCE_PREFIX):
+        instance = parameter.removeprefix(INSTANCE_PREFIX).partition(".")[0]
+        if instance not in {component.name for component in design.components}:
+            errors.append(f"{path}: unknown component instance {instance!r}")
+        return
     section, item_name, *fields = parameter.split(".")
     items = {item.name: item for item in getattr(design, section)}
     if item_name not in items:
@@ -1073,6 +1127,75 @@ def _check_parameter(
             errors.append(f"{path}: {parameter!r} does not name a design field")
             return
         current = getattr(current, field)
+
+
+# ===== Suite file ======================================================
+
+
+class SuiteError(ValueError):
+    """A suite file failed to load; the message names the file, the path within it and the reason."""
+
+
+class SuiteFile(StrictModel):
+    """Root of `test_cases/<suite>/suite.yaml`: the cases of one suite and the regression baseline it is compared
+    against (TST-008); paths are relative to the suite file."""
+
+    model_config = ConfigDict(extra="forbid", strict=True, title="SuiteFile")
+
+    name: Name
+    design: DesignRef
+    cases: list[RepoPath] = Field(min_length=1, description="test case files, relative to the suite file")
+    baseline: RepoPath = Field(description="the regression baseline the suite is diffed against (TST-008)")
+    note: str | None = Field(default=None, min_length=1)
+
+    @model_validator(mode="after")
+    def _unique(self) -> SuiteFile:
+        errors: list[str] = []
+        _duplicates(self.cases, "case file", errors)
+        _raise_if(errors)
+        return self
+
+
+def _load_suite(path: Path) -> tuple[SuiteFile | None, list[str]]:
+    try:
+        data = yaml_loader().load(path.read_text(encoding="utf-8"))
+    except Exception as error:
+        return None, [f"{path}: YAML parse error: {error}"]
+    try:
+        suite = SuiteFile.model_validate(data)
+    except ValidationError as error:
+        return None, [f"{path}: {message}" for message in format_errors(error)]
+    messages: list[str] = []
+    for index, case in enumerate(suite.cases):
+        if not (path.parent / case).is_file():
+            messages.append(f"{path}: cases[{index}]: missing test case file {case!r}")
+    if not (path.parent / suite.baseline).is_file():
+        messages.append(f"{path}: baseline: missing baseline file {suite.baseline!r}")
+    if len(messages) > 0:
+        return None, messages
+    return suite, []
+
+
+def validate_suite_file(path: Path) -> list[str]:
+    return _load_suite(path)[1]
+
+
+def load_suite_file(path: Path) -> SuiteFile:
+    suite, errors = _load_suite(path)
+    if suite is None:
+        raise SuiteError("\n".join(errors))
+    return suite
+
+
+def suite_json_schema() -> dict[str, Any]:
+    schema = SuiteFile.model_json_schema()
+    schema["$schema"] = "https://json-schema.org/draft/2020-12/schema"
+    schema["$id"] = SUITE_SCHEMA_PATH.name
+    return schema
+
+
+def suite_schema_text() -> str:
+    return json.dumps(suite_json_schema(), indent=2, sort_keys=True) + "\n"
 
 
 # ===== Files and schema ================================================
@@ -1142,10 +1265,14 @@ def schema_text() -> str:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Test case file schema")
     parser.add_argument("--write-schema", action="store_true", help=f"write {SCHEMA_PATH}")
+    parser.add_argument("--write-suite-schema", action="store_true", help=f"write {SUITE_SCHEMA_PATH}")
     parser.add_argument("--validate", type=Path, nargs="*", default=[], help="test case files to validate")
     arguments = parser.parse_args(argv)
-    if arguments.write_schema:
-        SCHEMA_PATH.write_text(schema_text(), encoding="utf-8")
+    if arguments.write_schema or arguments.write_suite_schema:
+        if arguments.write_schema:
+            SCHEMA_PATH.write_text(schema_text(), encoding="utf-8")
+        if arguments.write_suite_schema:
+            SUITE_SCHEMA_PATH.write_text(suite_schema_text(), encoding="utf-8")
         return 0
     if len(arguments.validate) > 0:
         status = 0

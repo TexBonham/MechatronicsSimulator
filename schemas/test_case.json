@@ -278,7 +278,7 @@
           "type": "string"
         },
         "event": {
-          "pattern": "^(message|state):[a-z][a-z0-9_]*$",
+          "pattern": "^(message|state|fault|event):[a-z][a-z0-9_]*$",
           "title": "Event",
           "type": "string"
         },
@@ -436,7 +436,7 @@
           "type": "string"
         },
         "end_event": {
-          "pattern": "^(message|state):[a-z][a-z0-9_]*$",
+          "pattern": "^(message|state|fault|event):[a-z][a-z0-9_]*$",
           "title": "End Event",
           "type": "string"
         },
@@ -459,7 +459,7 @@
           "type": "string"
         },
         "start_event": {
-          "pattern": "^(message|state):[a-z][a-z0-9_]*$",
+          "pattern": "^(message|state|fault|event):[a-z][a-z0-9_]*$",
           "title": "Start Event",
           "type": "string"
         }
@@ -661,20 +661,26 @@
     },
     "NoOverlapCriterion": {
       "additionalProperties": false,
-      "description": "No two commands active at once on the same actuator (SCO-025).",
+      "description": "No two commands active at once on one actuator (SCO-025): the recorded `start_event` and `end_event`\noccurrences whose detail names `actuator` pair in time order; a start before the previous end fails, and with\n`closed` so does a start still unpaired when the run ends. Both refs are `event:` refs (firmware log events carry\nthe actuator; operator messages and states do not).",
       "properties": {
-        "actuators": {
-          "items": {
-            "pattern": "^[a-z][a-z0-9_]*$",
-            "type": "string"
-          },
-          "minItems": 1,
-          "title": "Actuators",
-          "type": "array"
+        "actuator": {
+          "pattern": "^[a-z][a-z0-9_]*$",
+          "title": "Actuator",
+          "type": "string"
         },
         "check": {
           "const": "no_overlap",
           "title": "Check",
+          "type": "string"
+        },
+        "closed": {
+          "default": false,
+          "title": "Closed",
+          "type": "boolean"
+        },
+        "end_event": {
+          "pattern": "^(message|state|fault|event):[a-z][a-z0-9_]*$",
+          "title": "End Event",
           "type": "string"
         },
         "name": {
@@ -682,22 +688,18 @@
           "title": "Name",
           "type": "string"
         },
-        "window": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/Window"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null
+        "start_event": {
+          "pattern": "^(message|state|fault|event):[a-z][a-z0-9_]*$",
+          "title": "Start Event",
+          "type": "string"
         }
       },
       "required": [
         "name",
-        "actuators",
-        "check"
+        "check",
+        "actuator",
+        "start_event",
+        "end_event"
       ],
       "title": "NoOverlapCriterion",
       "type": "object"
@@ -1310,7 +1312,7 @@
           "type": "string"
         },
         "quantity": {
-          "pattern": "^(signal:[a-z][a-z0-9_]*\\.[a-z][a-z0-9_]*|pose:[a-z][a-z0-9_]*\\.(x|y|z|roll|pitch|yaw)|joint:[a-z][a-z0-9_]*\\.(position|velocity)|state:[a-z][a-z0-9_]*|count:(message|state)\\.[a-z][a-z0-9_]*)$",
+          "pattern": "^(signal:[a-z][a-z0-9_]*\\.[a-z][a-z0-9_]*|pose:[a-z][a-z0-9_]*\\.(x|y|z|roll|pitch|yaw)|joint:[a-z][a-z0-9_]*\\.(position|velocity)|rail:[a-z][a-z0-9_]*(\\.voltage)?|state:[a-z][a-z0-9_]*|fault:[a-z][a-z0-9_]*|count:(message|state|fault)\\.[a-z][a-z0-9_]*)$",
           "title": "Quantity",
           "type": "string"
         },
@@ -1442,7 +1444,7 @@
       "description": "One run per value of a design parameter: `${name}` for an open parameter, else `<section>.<item>.<field>`.",
       "properties": {
         "parameter": {
-          "pattern": "^(\\$\\{[a-z][a-z0-9_]*\\}|(bodies|joints|components)\\.[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)+)$",
+          "pattern": "^(\\$\\{[a-z][a-z0-9_]*\\}|(bodies|joints|components)\\.[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)+|instance:[a-z][a-z0-9_]*\\.[a-z][a-z0-9_]*)$",
           "title": "Parameter",
           "type": "string"
         },
@@ -1506,7 +1508,7 @@
           "type": "string"
         },
         "quantity": {
-          "pattern": "^(signal:[a-z][a-z0-9_]*\\.[a-z][a-z0-9_]*|pose:[a-z][a-z0-9_]*\\.(x|y|z|roll|pitch|yaw)|joint:[a-z][a-z0-9_]*\\.(position|velocity)|state:[a-z][a-z0-9_]*|count:(message|state)\\.[a-z][a-z0-9_]*)$",
+          "pattern": "^(signal:[a-z][a-z0-9_]*\\.[a-z][a-z0-9_]*|pose:[a-z][a-z0-9_]*\\.(x|y|z|roll|pitch|yaw)|joint:[a-z][a-z0-9_]*\\.(position|velocity)|rail:[a-z][a-z0-9_]*(\\.voltage)?|state:[a-z][a-z0-9_]*|fault:[a-z][a-z0-9_]*|count:(message|state|fault)\\.[a-z][a-z0-9_]*)$",
           "title": "Quantity",
           "type": "string"
         },
@@ -1590,7 +1592,7 @@
           "type": "string"
         },
         "parameter": {
-          "pattern": "^(\\$\\{[a-z][a-z0-9_]*\\}|(bodies|joints|components)\\.[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)+)$",
+          "pattern": "^(\\$\\{[a-z][a-z0-9_]*\\}|(bodies|joints|components)\\.[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)+|instance:[a-z][a-z0-9_]*\\.[a-z][a-z0-9_]*)$",
           "title": "Parameter",
           "type": "string"
         },
@@ -1856,7 +1858,7 @@
       "additionalProperties": {
         "type": "string"
       },
-      "description": "Values for open parameters of the design or the case (DES-044); --set overrides them",
+      "description": "Values for open parameters of the design or the case (DES-044), and instance:<name>.<parameter> or instance:<name>.part overrides (LIB-016, LIB-017); --set overrides them",
       "title": "Parameters",
       "type": "object"
     },

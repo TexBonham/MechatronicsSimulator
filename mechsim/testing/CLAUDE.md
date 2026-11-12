@@ -1,31 +1,32 @@
 # testing/: contract
 
 Test case files (TST) and regression baselines (SCO, D4). Schemas `schemas/test_case.json` from `Case` and
-`schemas/baseline.json` from `Baseline`; regenerate with `uv run python -m mechsim.testing.schema --write-schema` and
+`schemas/baseline.json` from `Baseline`, `schemas/suite.json` from `SuiteFile`; regenerate with
+`uv run python -m mechsim.testing.schema --write-schema --write-suite-schema` and
 `uv run python -m mechsim.testing.baseline --write-schema`, never hand-edit. `__init__.py` exports nothing.
-Examples: `test_cases/gantry/G1.yaml` to `G4.yaml` (draft design), `test_cases/pendulum/P1_period.yaml` (release),
-`test_cases/gantry/baseline.yaml`.
+Examples: `test_cases/gantry/G1.yaml` to `G11.yaml`, `G13.yaml`, `G14.yaml` (draft design), `test_cases/pendulum/P1_period.yaml` (release),
+`test_cases/gantry/baseline.yaml`, `test_cases/gantry/suite.yaml` (suite file).
 
 | File | Holds |
 |---|---|
-| `schema.py` | `Case` and parts, `Quantity` (any dimension), `cross_check(case, design)`, `validate_test_case_file`, `load_test_case`, CLI |
+| `schema.py` | `Case` and parts, `Quantity` (any dimension), `cross_check(case, design)`, `validate_test_case_file`, `load_test_case`, `SuiteFile`, `load_suite_file`/`validate_suite_file` (`SuiteError`), `INSTANCE_PREFIX`, CLI |
 | `baseline.py` | `Baseline`, `entry_key`, `baseline_text`, `diff_baselines`, `check_against_cases`, `load_baseline`, CLI |
 | `driver.py` | Protocols the runner drives: `SimulationDriver`, `BuildResult`/`Builder`, `RecordView`, `Archiver`, `ArchiveReader`; value types `RunConfig`, `ScheduledCommand`, `ScheduledFault`, `EndSpec`, `RunReport`, `Series`, `RecordedEvent`, `RunMetadata` |
-| `core_driver.py` | `CoreDriver` (physics-only or signal layer + native controller), `RecordingView` (`actuator:<name>.position` = its shaft joint; operator events -> `operator_message` by the design's label table), `RecordArchiver`/`RecordArchiveReader` (extra: kinematics, labels, actuators, sink_errors, hook_errors), `core_services` |
-| `core_wiring.py` | `signal_layer` (slots from bindings, driver-to-motor connections from coil wires, rails, actuator DOFs, sensors on joints, faults injected), `controller_party` (native runtime, app target `mechsim_fw_<design name>`, host library built once per process under `$TMP/mechsim-native-build/<target>-<hz>-<tree hash>`, `host_build_dir`), `RunnerParty` (commands and E-stop presses at its first step at or after their tick, KER-023), `joint_places`, `component_parameters` (steppers also get `shaft_body` and `shaft_axial_inertia` = a^T I a, SIG-037), `axial_inertia` |
-| `runner.py` | `prepare`, `run_case`, `sweep_runs`, `run_suite`, `case_files`, timing (`next_tick`, `exact_tick`, `rational_lcm`), `command_timeline`, `fault_timeline` (`FAULT_OWNERS`), `end_spec`, `check_precondition`, `module_seeds`, `Services`, `RunnerError` |
+| `core_driver.py` | `CoreDriver` (physics-only or signal layer + native controller; payload body from the case (none when the case attaches none: no stand-in, the load cell has no target and reads 0 N, BLD-036), a fixed child of its carrier when attached at t = 0 and never released (ruling 24), else welded, slip and payload changes on `PhysicsParty`, freeze on `ControllerParty`, `model_columns` labels, firmware `event_codes` events from the runner party, argument decoded by kind (ruling 28), `controller_fault` events on each change of the reported fault code from none (`FAULT_KIND`, ruling 30; none at the first sample is no event), firmware events attached to the first row at or after their tick), `RecordArchiver` (extra: kinematics, labels, actuators, sink_errors, hook_errors), `core_services`; re-exports `DriverError`, `Kinematics`, `JointKinematics`, `RecordingView` (`actuator:<name>.position` = its shaft joint; operator events -> `operator_message` by the label table) and `RecordArchiveReader` from `record/reader.py` (engine-free, ruling 17) |
+| `core_wiring.py` | `signal_layer` (M2: each instance built as `core_type(instance)` = its catalog `plugin.cpp`; an encoder whose `resolution` is a length gets `linear: true` (ruling 32); a load cell target that does not resolve is a `WiringError` unless the run has no payload (then 0 N); a brake off a revolute shaft joint is a `WiringError` (ruling 29); signal wires as connections, brake at the actuator stage with `brake_parameters`, load cell payload index, amplifier ADC from `design_chip`, power_loss on the rail's supply, `undrivable_brake` is a `WiringError` naming brake and joint (ruling 29); slots from bindings, driver-to-motor connections from coil wires, rails, actuator DOFs, sensors on joints, faults injected), `controller_party` (native runtime, app target `mechsim_fw_<design name>`, host library built once per process under `$TMP/mechsim-native-build/<target>-<hz>-<tree hash>`, `host_build_dir`), `RunnerParty` (commands and E-stop presses at its first step at or after their tick, KER-023), `joint_places`, `component_parameters` (steppers also get `shaft_body` and `shaft_axial_inertia` = a^T I a, SIG-037), `axial_inertia` |
+| `runner.py` | `prepare`, `run_case`, `sweep_runs`, `run_suite`, `suite_cases`, `case_files`, `split_instance_values`, `apply_instance_overrides`, timing (`next_tick`, `exact_tick`, `rational_lcm`), `command_timeline`, `fault_timeline` (`FAULT_OWNERS`), `end_spec`, `check_precondition`, `module_seeds`, `Services`, `RunnerError` |
 
 ## Runner (`runner.py`, `driver.py`)
 
 | Step | Contract |
 |---|---|
-| prepare | validate case (TST-009), design version before build (TST-011), `cross_check`, resolve `${}` by `resolve_open_values`: `--set`, then the case's `parameters`, then the parameter's `default` (TST-039, DES-044; dimension-checked), substitute in case and design, any `${}` left is an error |
+| prepare | validate case (TST-009), design version before build (TST-011), `cross_check`, resolve `${}` by `resolve_open_values`: `--set`, then the case's `parameters`, then the parameter's `default` (TST-039, DES-044; dimension-checked), substitute in case and design, any `${}` left is an error; `instance:<name>.<parameter>` / `instance:<name>.part` entries of `--set` (wins) and `parameters` go to `apply_instance_overrides` (checked by `Registry.parameter_override` / `substitute_part`, `Services.registry` or the shipped one; design validated with that registry) and into `Prepared.bindings` -> `RunMetadata.bindings` (LIB-016, LIB-017) |
 | driver order | `load(build, case)`, `configure(RunConfig)`, `set_initial_state`, `reported_controller_state` (firmware designs; mismatch is an error), `schedule_command`/`schedule_fault`, `run(EndSpec) -> RunReport`, `recording()` |
 | timing | times to 12 significant digits, then the next base tick; base = lcm(physics, control); fault active start <= n < end; `end.at`, `max_duration` on a tick |
 | seeds | `SeedSequence(seed).spawn` over `BuildResult.module_instances` in registration order (D1) |
 | faults | sensor_*, motor_stall, power_loss (target = rail), estop_press -> signals; slip, payload_change -> physics; controller_freeze -> controller |
 | results | every run scored (`CaseScore`); pre-t0 errors `ran=False`; a `RunnerError`/`DriverError` from `driver.run` -> `run_failed` (TST-023; `CoreDriver.run` types every binding, translation and wiring error as `DriverError`, cause kept); `RunReport.approximations` = the bridge report (SCO-013); `RunMetadata.control_rate` = the run config's, archived (base rate without a controller); archive `<out>/<run_id>.h5` when an `Archiver` and `out_dir` are given |
-| suites | `case_files` (YAML with `criteria`, natural order), nominal run plus each sweep value; one baseline named by the cases, diffed |
+| suites | `run_suite(path)`: a `suite.yaml` (or a folder holding one) gives name, cases in its order, design (each case must match) and baseline (a case naming another is an error, TST-008); a folder without one: `case_files` (YAML with `criteria`, natural order), the baseline the cases name, else the folder's `baseline.yaml`. Nominal run plus each sweep value (`instance:` sweeps bind as overrides); `SuiteRun.baseline` = next baseline, `.diff` = `regression_diff` (TST-027); a baseline that fails to load or names another suite is a `SuiteRun.errors` line |
 
 `RecordView.series(ref)` takes case refs plus `actuator:<name>.position`; operator messages are events of kind
 `operator_message` with the message name as detail. Tests use `tests/unit/test_runner_fakes.py` (`InMemoryFakeDriver`).
@@ -39,8 +40,16 @@ Examples: `test_cases/gantry/G1.yaml` to `G4.yaml` (draft design), `test_cases/p
 | `commands` | non-decreasing `at`, operator-sourced messages, payload = message fields |
 | `faults` | `kind` discriminated: sensor_stuck/noisy/dropped/forced, slip, motor_stall, power_loss (`rail`), controller_freeze, estop_press: window `end` xor `duration`; payload_change instantaneous |
 | `end` | one of at/message/controller_state, required `max_duration` |
-| `criteria` | `check` discriminated: value, interval, event, no_motion, hold_band (joints within band of their first sample, SCO-026), no_overlap, settle_time; below/at_most/above/at_least/within; refs `signal:`, `pose:`, `joint:`, `state:`, `count:`; `limit_text()` feeds baselines |
-| others | sweeps, variations (stored only), `baseline` path relative to the case |
+| `criteria` | `check` discriminated: value, interval, event, no_motion, hold_band (joints within band of their first sample, SCO-026), no_overlap (`actuator`, `start_event`, `end_event` both `event:` refs and different, `closed` default false), settle_time; below/at_most/above/at_least/within; quantity refs `signal:`, `pose:`, `joint:`, `rail:<name>` (1 on, 0 off; `.voltage`; ruling 27, scored from the rails group), `state:`, `fault:<name>` (1 while the controller reports that fault, ruling 30), `count:` (message, state, fault); event refs `message:`, `state:`, `fault:` (each change to that fault), `event:` (needs firmware); `limit_text()` feeds baselines |
+| others | sweeps, variations (stored only; parameter `${name}`, `<section>.<item>.<field>` or `instance:<name>.<field>`), `baseline` path relative to the case |
+
+## Criteria on recorded events (SCO-021, SCO-025)
+
+| Check | Contract |
+|---|---|
+| `event:<name>` ref | a recorded event of kind `<name>` (`RecordView.events()`); a firmware log event is recorded with kind = its name from the design's event table and detail = its argument decoded by the entry's kind: `axis` the step binding's instance, `fault`/`state` the code name (`from>to` for a packed state pair), `number`, `none` (ruling 28) |
+| `interval` | first start occurrence to the first end occurrence at or after it; start never recorded, end never recorded, or ends only before the first start: each an unevaluable error naming the ref |
+| `no_overlap` | start/end events with detail == `actuator`, ordered by time then record order; a start while one is open is a violation; `closed: true` adds one per start still open at the end (worst time = last sample); measured = violations; no start on the actuator or an end with no open start is an unevaluable error naming the ref |
 
 ## Rules
 
@@ -50,12 +59,36 @@ Examples: `test_cases/gantry/G1.yaml` to `G4.yaml` (draft design), `test_cases/p
 
 ## Section index
 
-`schema.py`: Quantities of any dimension 92, Header 183, Initial state 207, Commands and faults 281, End condition 418,
-Pass criteria 450, Sweeps and variations 688, Test case 734, Cross-check against the design 797, Files and schema 1078.
-`baseline.py`: Diff 130, Files and schema 182.
-`runner.py`: Timing 91, Loading and resolution 119, Timelines 289, Runs 416, Suites 566.
-
-`tests/unit/test_test_case_schema.py`: Shipped examples 113, Header 175, Open parameters 325, Initial state 386,
-Commands 521, Faults 592, End condition 756, Pass criteria 806, Sweeps, variations, baseline 1071, Files 1164.
-`tests/unit/test_runner.py`: Loading 82, Initial state and precondition 146, Command timeline 189, Fault timeline 244,
-End conditions 360, Configuration 436, Suites and sweeps 512.
+| Section | File | Line |
+|---|---|---|
+| Rows | core_driver.py | 91 |
+| Driver | core_driver.py | 234 |
+| Archives | core_driver.py | 640 |
+| Services | core_driver.py | 708 |
+| Errors and runner state | core_wiring.py | 105 |
+| Runner party | core_wiring.py | 159 |
+| Joint places and inertia | core_wiring.py | 249 |
+| Component parameters | core_wiring.py | 326 |
+| Fault injection and ticks | core_wiring.py | 532 |
+| Assembly | core_wiring.py | 557 |
+| Controller build | core_wiring.py | 580 |
+| Signal layer | core_wiring.py | 700 |
+| Event and operator wiring | core_wiring.py | 808 |
+| Timing | runner.py | 98 |
+| Loading and resolution | runner.py | 126 |
+| Timelines | runner.py | 358 |
+| Runs | runner.py | 485 |
+| Suites | runner.py | 638 |
+| Quantities of any dimension | schema.py | 96 |
+| Header | schema.py | 187 |
+| Initial state | schema.py | 211 |
+| Commands and faults | schema.py | 285 |
+| End condition | schema.py | 422 |
+| Pass criteria | schema.py | 454 |
+| Sweeps and variations | schema.py | 717 |
+| Test case | schema.py | 763 |
+| Cross-check against the design | schema.py | 829 |
+| Suite file | schema.py | 1132 |
+| Files and schema | schema.py | 1201 |
+| Diff | baseline.py | 130 |
+| Files and schema | baseline.py | 182 |

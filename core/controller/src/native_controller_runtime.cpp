@@ -1,7 +1,17 @@
 #include "mechsim/controller/native_controller_runtime.hpp"
 
+#if defined(_WIN32)
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+#else
 #include <dlfcn.h>
 #include <unistd.h>
+#endif
 
 #include <algorithm>
 #include <cmath>
@@ -21,6 +31,7 @@
 #include "mechsim/kernel/time.hpp"
 #include "mechsim/pins/pins.hpp"
 #include "mechsim_board.h"
+#include "windows_text.hpp"
 
 namespace mechsim::controller {
 
@@ -75,13 +86,22 @@ void check_voltage(double voltage) {
     }
 }
 
+#if defined(_WIN32)
+using detail::error_text;
+#endif
+
 // dlopen hands back one handle per path, so two runtimes opening the same file would share the firmware's static
 // state; each runtime therefore opens its own copy.
 fs::path private_copy(const fs::path& library, const fs::path& work_dir) {
     static std::size_t instances = 0;
     ++instances;
+#if defined(_WIN32)
+    const fs::path dir = fs::absolute(work_dir) / "native-controller" /
+                         (std::to_string(::GetCurrentProcessId()) + "-" + std::to_string(instances));
+#else
     const fs::path dir = fs::absolute(work_dir) / "native-controller" /
                          (std::to_string(::getpid()) + "-" + std::to_string(instances));
+#endif
     std::error_code error;
     fs::create_directories(dir, error);
     if (!error) {
@@ -96,7 +116,11 @@ fs::path private_copy(const fs::path& library, const fs::path& work_dir) {
 
 template <typename Function>
 Function resolve(void* handle, const char* name, const fs::path& library) {
+#if defined(_WIN32)
+    void* symbol = reinterpret_cast<void*>(::GetProcAddress(static_cast<HMODULE>(handle), name));
+#else
     void* symbol = ::dlsym(handle, name);
+#endif
     if (symbol == nullptr) {
         throw ControllerConfigError(library.string() + " does not export " + name);
     }
@@ -110,6 +134,15 @@ Function resolve(void* handle, const char* name, const fs::path& library) {
 // Owns the dlopen handle and the private copy it was opened from.
 class LoadedApplication {
 public:
+#if defined(_WIN32)
+    LoadedApplication(const fs::path& library, const fs::path& work_dir)
+        : copy_(private_copy(library, work_dir)), handle_(::LoadLibraryW(copy_.c_str())) {
+        if (handle_ == nullptr) {
+            const std::string message = "cannot load " + library.string() + ": " + error_text(::GetLastError());
+            remove_copy();
+            throw ControllerConfigError(message);
+        }
+#else
     LoadedApplication(const fs::path& library, const fs::path& work_dir)
         : copy_(private_copy(library, work_dir)), handle_(::dlopen(copy_.c_str(), RTLD_NOW | RTLD_LOCAL)) {
         if (handle_ == nullptr) {
@@ -122,6 +155,7 @@ public:
             remove_copy();
             throw ControllerConfigError(message);
         }
+#endif
         try {
             init = resolve<InitFunction>(handle_, "mechsim_app_init", library);
             tick = resolve<TickFunction>(handle_, "mechsim_app_tick", library);
@@ -146,7 +180,11 @@ public:
 private:
     void close() noexcept {
         if (handle_ != nullptr) {
+#if defined(_WIN32)
+            ::FreeLibrary(static_cast<HMODULE>(handle_));
+#else
             ::dlclose(handle_);
+#endif
             handle_ = nullptr;
         }
         remove_copy();

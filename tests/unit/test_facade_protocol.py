@@ -33,16 +33,24 @@ VALID: dict[str, dict[str, Any]] = {
     "list_designs": {},
     "validate_design": {"design": "designs/example/design.yaml"},
     "run_case": {"design": "d.yaml", "test_case": "t.yaml", "seed": 0, "mode": "native"},
-    "run_suite": {"design": "d.yaml", "suite": "s.yaml", "seed": 7, "mode": "emulated"},
+    "run_suite": {"design": "d.yaml", "suite": "s.yaml"},
     "replay_open": {"archive": "runs/run-0001.h5"},
     "subscribe_series": {"run_id": "r", "series": ["a.b"], "t_start": 0.0, "t_end": 1.0, "points": 1},
     "scrub": {"run_id": "r", "t": 0.5},
     "pause": {"run_id": "r", "paused": True},
     "step": {"run_id": "r", "direction": "backward"},
+    "advance": {"run_id": "r", "dt": 0.016},
+    "list_runs": {},
     "ok": {"request_id": "c-1", "result": {"designs": ["a", "b"], "count": 2, "nested": {"x": None}}},
     "error": {"request_id": None, "code": "invalid_message", "message": "not JSON"},
     "run_progress": {"run_id": "r", "t": 1.0, "t_end": 2.0},
-    "run_ended": {"run_id": "r", "t": 2.0, "reason": "drift", "message": "energy drift", "requirement_id": "KER-015"},
+    "run_ended": {
+        "run_id": "r",
+        "t": 2.0,
+        "reason": "run_error",
+        "message": "physics: energy drift",
+        "requirement_id": "KER-015",
+    },
     "tick_batch": {
         "run_id": "r",
         "sequence": 0,
@@ -58,7 +66,7 @@ VALID: dict[str, dict[str, Any]] = {
 }
 
 OPTIONAL: dict[str, set[str]] = {
-    "error": {"requirement_id"},
+    "error": {"requirement_id", "run_id", "report"},
     "run_progress": {"t_end"},
     "run_ended": {"requirement_id"},
 }
@@ -66,12 +74,13 @@ OPTIONAL: dict[str, set[str]] = {
 WRONG_TYPES: dict[str, dict[str, Any]] = {
     "validate_design": {"design": 3},
     "run_case": {"seed": "0"},
-    "run_suite": {"seed": 1.5},
+    "run_suite": {"suite": 1.5},
     "replay_open": {"archive": ["a"]},
     "subscribe_series": {"points": "10"},
     "scrub": {"t": "0.5 s"},
     "pause": {"paused": "yes"},
     "step": {"direction": 1},
+    "advance": {"dt": "16 ms"},
     "ok": {"result": [1, 2]},
     "error": {"code": 404},
     "run_progress": {"t": None},

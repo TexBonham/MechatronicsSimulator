@@ -14,17 +14,18 @@ from tests.unit.test_builder_support import gantry
 
 @pytest.mark.req("BLD-034")
 def test_rotor_inertia_lands_on_the_shaft_body_axis() -> None:
-    """Closed form: the placeholder shaft is a solid aluminium cylinder of radius r = 2.5 mm and length L = 20 mm on
-    the z axis, so m = rho pi r^2 L and I_xx = I_yy = m (3 r^2 + L^2) / 12. The shaft body's axial inertia is the
-    rotor inertia (BLD-034): I_zz is set to the NEMA 17 part's J = 54 g cm^2 = 5.4e-6 kg m^2, replacing the
-    cylinder's m r^2 / 2, and only I_zz changes (the shaft axis is z, I + (J - a^T I a) a a^T). Tolerance: 1e-12
-    relative, the round-off of a sum of a few products of SI floats (BLD-034 row)."""
+    """Closed form: the placeholder shaft is a solid steel cylinder (bearing_steel_52100; body_materials covers the
+    printed bodies only) of radius r = 2.5 mm and length L = 20 mm on the z axis, so m = rho pi r^2 L and
+    I_xx = I_yy = m (3 r^2 + L^2) / 12. The shaft body's axial inertia is the rotor inertia (BLD-034): I_zz is set to
+    the NEMA 23 placeholder's J = 280 g cm^2 = 2.8e-5 kg m^2, replacing the cylinder's m r^2 / 2, and only I_zz
+    changes (the shaft axis is z, I + (J - a^T I a) a a^T). Tolerance: 1e-12 relative, the round-off of a sum of a few
+    products of SI floats (BLD-034 row)."""
     registry = default_registry()
     materials = shipped_materials()
     result = build(gantry(), registry, materials, rigid_members=True)
     assert result.physics is not None
-    density = materials["aluminium_6063_t5_extrusion"].density.typ
-    r, length, rotor = 2.5e-3, 20e-3, 5.4e-6
+    density = materials["bearing_steel_52100"].density.typ
+    r, length, rotor = 2.5e-3, 20e-3, 2.8e-5
     mass = density * math.pi * r * r * length
     transverse = mass * (3.0 * r * r + length * length) / 12.0
     shafts = {body.name: body for body in result.physics.bodies if body.name.endswith("_shaft")}

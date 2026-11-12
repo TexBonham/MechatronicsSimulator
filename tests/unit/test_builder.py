@@ -362,8 +362,9 @@ def test_support_pair_without_a_lumped_form_fails(supports: list[str]) -> None:
 
 
 @pytest.mark.req("BLD-005")
-def test_belts_and_lead_screws_become_neutral_transmissions() -> None:
-    """Catalog ratio is travel per shaft turn in SI m/rad: belt pulley radius = 40 mm / 2 pi, screw lead 8 mm."""
+def test_belts_become_neutral_transmissions() -> None:
+    """Catalog ratio is travel per shaft turn in SI m/rad: belt pulley radius = 40 mm / 2 pi on every axis, the lift
+    included (gantry team 2026-11-11: no lead screw)."""
     model = _physics(filled_gantry())
     transmissions = {item.name: item for item in model.transmissions}
     belt = transmissions["x_belt"]
@@ -374,28 +375,27 @@ def test_belts_and_lead_screws_become_neutral_transmissions() -> None:
     assert belt.stiffness == 100000.0
     assert belt.backlash == 0.0
     assert transmissions["y_belt"].driven_joint == "y_axis"
-    screw = transmissions["lift_screw"]
-    assert isinstance(screw, LeadScrew)
-    assert (screw.shaft_joint, screw.driven_joint) == ("lift_motor_spin", "lift_axis")
-    assert screw.lead == pytest.approx(0.008, rel=1e-15)
-    assert screw.self_locking is False
-    # The design zeroes the catalog's 0.1 mm for milestone 1 (PHY-006, M1-X3 ruling 3).
-    assert screw.backlash == 0.0
+    lift = transmissions["lift_belt"]
+    assert isinstance(lift, BeltPulley)
+    assert (lift.shaft_joint, lift.driven_joint) == ("lift_motor_spin", "lift_axis")
+    assert lift.pulley_radius == pytest.approx(0.04 / (2.0 * math.pi), rel=1e-15)
+    assert lift.backlash == 0.0
+    assert not any(isinstance(item, LeadScrew) for item in model.transmissions)
 
 
 @pytest.mark.req("BLD-027")
 def test_instance_overrides_reach_the_transmission() -> None:
     data = gantry_data()
     data["components"][2]["overrides"] = {"ratio": "60 mm/turn", "efficiency": "0.9"}
-    data["components"][8]["overrides"] = {"self_locking": True}
+    data["components"][8]["overrides"] = {"ratio": "20 mm/turn"}
     transmissions = {item.name: item for item in _physics(filled_gantry(data)).transmissions}
     belt = transmissions["x_belt"]
     assert isinstance(belt, BeltPulley)
     assert belt.pulley_radius == pytest.approx(0.06 / (2.0 * math.pi), rel=1e-15)
     assert belt.efficiency == 0.9
-    screw = transmissions["lift_screw"]
-    assert isinstance(screw, LeadScrew)
-    assert screw.self_locking is True
+    lift = transmissions["lift_belt"]
+    assert isinstance(lift, BeltPulley)
+    assert lift.pulley_radius == pytest.approx(0.02 / (2.0 * math.pi), rel=1e-15)
 
 
 @pytest.mark.req("BLD-005")
@@ -553,8 +553,11 @@ def test_module_instances_follow_the_tick_order() -> None:
         "x_encoder",
         "y_encoder",
         "lift_encoder",
+        "load_cell",
+        "load_amp",
         "controller",
         "signals",
+        "lift_brake",
         "motor_supply",
         "logic_psu",
         "estop",
@@ -568,7 +571,8 @@ def test_module_instances_follow_the_tick_order() -> None:
         "lift_motor",
         "x_belt",
         "y_belt",
-        "lift_screw",
+        "lift_belt",
+        "hook_effector",
         "recorder",
     )
     assert result.design == gantry()
@@ -645,9 +649,11 @@ def test_element_the_adapter_cannot_map_fails_naming_element_and_adapter() -> No
     supported = {kind for kind, _name in element_kinds(_physics(filled_gantry()))}
     assert _build(filled_gantry(), supported_elements=supported, adapter="native").physics is not None
     failures = _failures(
-        filled_gantry(), supported_elements=supported - {"transmission.lead_screw", "joint.spherical"}, adapter="native"
+        filled_gantry(),
+        supported_elements=supported - {"transmission.belt_pulley", "joint.spherical"},
+        adapter="native",
     )
-    assert any("'lift_screw'" in failure and "'native'" in failure for failure in failures)
+    assert any("'lift_belt'" in failure and "'native'" in failure for failure in failures)
     assert any("'hook_swing'" in failure for failure in failures)
 
 

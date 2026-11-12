@@ -1,0 +1,133 @@
+# G9 (Requirements doc, Test cases, gantry suite): power lost and restored mid-move with a 2 kg load. The hook is first
+# lifted to 5 cm (as in G7: under the 10 cm homing travel of the `home` after the restore, gantry team 2026-11-11; at
+# 0.05 m/s^2 a 2 s triangle plus the 50 ms brake wait, done by 10.05 s) so that the brake, not the lift's lower joint
+# limit, holds the load (X review, high). Both rails drop at 12 s, 1 s into the move to (40, 25), for 0.5 s. The logic rail below the chip's brownout threshold resets the
+# controller (TST-017), so after the restore the firmware is not_homed (FW-017) and allows no motion until homed
+# (ACC-017): a `target` at 13.5 s is refused (fault not_homed) and no driver gets a step pulse from the restore until
+# the `home` at 14 s, after which homing starts. The load does not drop (ACC-018): the lift brake's coil is on the
+# motor rail, so it engages when the rail drops and holds through the loss (round 4 ruling 1, power_loss_hold brake);
+# the lift stays within the hold band of its position at the loss until the home. Restore at 12.5 s; rows are stamped
+# at the end of their step (KER-009), so the no-step window opens at 12.501 s.
+id: G9
+title: Power loss and restore mid-move
+design:
+  name: gantry
+  version: 0.1.0
+controller_mode: native
+seed: 9
+open_parameters:
+  - name: homing_time
+    dimension: "[time]"
+    owed_by: gantry team
+    note: Time allowed for homing before the target; 0.1 m at the 0.02 m/s homing speed is 5 s.
+    default: "8 s"
+  - name: hold_band
+    dimension: "[length]"
+    owed_by: gantry team
+    note: How far the hook may drop through a power loss; the 1 cm position accuracy.
+    default: "1 cm"
+initial_state:
+  joints:
+    - joint: x_axis
+      position: 0.1 m
+      velocity: 0 m/s
+    - joint: y_axis
+      position: 0.1 m
+      velocity: 0 m/s
+    - joint: lift_axis
+      position: 0.1 m
+      velocity: 0 m/s
+  controller:
+    state: not_homed
+  payload:
+    attached: true
+    body: hook
+    mass: 2 kg
+commands:
+  - at: 0 s
+    message: home
+  - at: ${homing_time}
+    message: lift
+    payload:
+      z: 5 cm
+  - at: 11 s
+    message: target
+    payload:
+      x: 40 cm
+      y: 25 cm
+  - at: 13.5 s
+    message: target
+    payload:
+      x: 40 cm
+      y: 25 cm
+  - at: 14 s
+    message: home
+faults:
+  - kind: power_loss
+    rail: motor_power
+    start: 12 s
+    duration: 0.5 s
+  - kind: power_loss
+    rail: logic
+    start: 12 s
+    duration: 0.5 s
+end:
+  at: 15 s
+  max_duration: 15 s
+criteria:
+  - name: not_homed_after_restore
+    check: event
+    event: state:not_homed
+    expect: present
+    window:
+      start: 12 s
+      end: 13.5 s
+  - name: target_refused
+    check: event
+    event: event:refused
+    expect: present
+    window:
+      start: 13.5 s
+      end: 14 s
+  - name: no_steps_x_until_home
+    check: value
+    quantity: signal:x_driver.step
+    statistic: maximum
+    comparison: at_most
+    limit: "0"
+    window:
+      start: 12.501 s
+      end: 14 s
+  - name: no_steps_y_until_home
+    check: value
+    quantity: signal:y_driver.step
+    statistic: maximum
+    comparison: at_most
+    limit: "0"
+    window:
+      start: 12.501 s
+      end: 14 s
+  - name: no_steps_lift_until_home
+    check: value
+    quantity: signal:lift_driver.step
+    statistic: maximum
+    comparison: at_most
+    limit: "0"
+    window:
+      start: 12.501 s
+      end: 14 s
+  - name: homing_after_home
+    check: event
+    event: event:motion_start
+    expect: present
+    window:
+      start: 14 s
+      end: 15 s
+  - name: load_held
+    check: hold_band
+    joints: [lift_axis]
+    band: ${hold_band}
+    window:
+      start: 12 s
+      end: 14 s
+baseline: baseline.yaml

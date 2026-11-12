@@ -1,0 +1,289 @@
+# G14 (Requirements doc, Test cases, gantry suite): fifty rapid-fire and conflicting commands, one every 0.1 s from
+# 8 s to 12.9 s after homing (targets inside and outside the workspace, lifts inside and outside the 0.5 m lift travel,
+# home, reset, and a malformed target whose x has seven decimals, refused with fault malformed by the line parser,
+# FW-029): no two actuator commands overlap (ACC-028, FW-028). Each axis's profile is logged as `motion_start` and
+# `motion_end` events naming its driver (FW-028, DES-045 axis arguments); `no_overlap` on each driver finds no start
+# while one is open (SCO-025 on real events). Interval (SCO-021 on real events): the first command, `target (20, 10)`
+# at 8 s, starts from the homed origin; the first `motion_end` after it is the Y axis's (0.1 m, the shorter travel;
+# an axis with no travel logs no profile). Every other command in the move is refused (busy while moving, workspace,
+# malformed, nothing to reset), so nothing interrupts it. Bounds (gantry team limits of 2026-11-11, 0.05 m/s^2 and
+# 0.1 m/s): accelerating and braking at no more than 0.05 m/s^2, 0.1 m takes at least 2 sqrt(d / a) = 2.83 s, so at
+# least 2.8 s; at or above the 0.05 m/s slow-zone speed except for the 1 s ramps at each end (0.05 m/s / 0.05 m/s^2),
+# so at most 0.1 / 0.05 + 2 = 4 s, plus the 15-byte line at 115200 baud (1.3 ms) and one control tick, under 4.1 s.
+# The X axis's 0.2 m (d / v + v / a = 4 s) ends at 12 s, so the commands to 12 s are refused; the new-target policy is
+# operator choice, default reject (gantry team 2026-11-11; FW-026), the lift-while-moving policy a placeholder (FW-027).
+id: G14
+title: Rapid-fire and conflicting commands
+design:
+  name: gantry
+  version: 0.1.0
+controller_mode: native
+seed: 14
+open_parameters:
+  - name: homing_time
+    dimension: "[time]"
+    owed_by: gantry team
+    note: Time allowed for homing before the first command; 0.1 m at the 0.02 m/s homing speed is 5 s.
+    default: "8 s"
+initial_state:
+  joints:
+    - joint: x_axis
+      position: 0.1 m
+      velocity: 0 m/s
+    - joint: y_axis
+      position: 0.1 m
+      velocity: 0 m/s
+    - joint: lift_axis
+      position: 0.1 m
+      velocity: 0 m/s
+  controller:
+    state: not_homed
+  payload:
+    attached: false
+commands:
+  - at: 0 s
+    message: home
+  - at: ${homing_time}
+    message: target
+    payload:
+      x: 20 cm
+      y: 10 cm
+  - at: 8.1 s
+    message: target
+    payload:
+      x: 150 cm
+      y: 10 cm
+  - at: 8.2 s
+    message: lift
+    payload:
+      z: 30 cm
+  - at: 8.3 s
+    message: home
+  - at: 8.4 s
+    message: reset
+  - at: 8.5 s
+    message: target
+    payload:
+      x: 0.1234567 m
+      y: 10 cm
+  - at: 8.6 s
+    message: target
+    payload:
+      x: 30 cm
+      y: 20 cm
+  - at: 8.7 s
+    message: lift
+    payload:
+      z: 120 cm
+  - at: 8.8 s
+    message: target
+    payload:
+      x: -10 cm
+      y: 5 cm
+  - at: 8.9 s
+    message: lift
+    payload:
+      z: 5 cm
+  - at: 9.0 s
+    message: target
+    payload:
+      x: 20 cm
+      y: 10 cm
+  - at: 9.1 s
+    message: target
+    payload:
+      x: 150 cm
+      y: 10 cm
+  - at: 9.2 s
+    message: lift
+    payload:
+      z: 30 cm
+  - at: 9.3 s
+    message: home
+  - at: 9.4 s
+    message: reset
+  - at: 9.5 s
+    message: target
+    payload:
+      x: 0.1234567 m
+      y: 10 cm
+  - at: 9.6 s
+    message: target
+    payload:
+      x: 30 cm
+      y: 20 cm
+  - at: 9.7 s
+    message: lift
+    payload:
+      z: 120 cm
+  - at: 9.8 s
+    message: target
+    payload:
+      x: -10 cm
+      y: 5 cm
+  - at: 9.9 s
+    message: lift
+    payload:
+      z: 5 cm
+  - at: 10.0 s
+    message: target
+    payload:
+      x: 20 cm
+      y: 10 cm
+  - at: 10.1 s
+    message: target
+    payload:
+      x: 150 cm
+      y: 10 cm
+  - at: 10.2 s
+    message: lift
+    payload:
+      z: 30 cm
+  - at: 10.3 s
+    message: home
+  - at: 10.4 s
+    message: reset
+  - at: 10.5 s
+    message: target
+    payload:
+      x: 0.1234567 m
+      y: 10 cm
+  - at: 10.6 s
+    message: target
+    payload:
+      x: 30 cm
+      y: 20 cm
+  - at: 10.7 s
+    message: lift
+    payload:
+      z: 120 cm
+  - at: 10.8 s
+    message: target
+    payload:
+      x: -10 cm
+      y: 5 cm
+  - at: 10.9 s
+    message: lift
+    payload:
+      z: 5 cm
+  - at: 11.0 s
+    message: target
+    payload:
+      x: 20 cm
+      y: 10 cm
+  - at: 11.1 s
+    message: target
+    payload:
+      x: 150 cm
+      y: 10 cm
+  - at: 11.2 s
+    message: lift
+    payload:
+      z: 30 cm
+  - at: 11.3 s
+    message: home
+  - at: 11.4 s
+    message: reset
+  - at: 11.5 s
+    message: target
+    payload:
+      x: 0.1234567 m
+      y: 10 cm
+  - at: 11.6 s
+    message: target
+    payload:
+      x: 30 cm
+      y: 20 cm
+  - at: 11.7 s
+    message: lift
+    payload:
+      z: 120 cm
+  - at: 11.8 s
+    message: target
+    payload:
+      x: -10 cm
+      y: 5 cm
+  - at: 11.9 s
+    message: lift
+    payload:
+      z: 5 cm
+  - at: 12.0 s
+    message: target
+    payload:
+      x: 20 cm
+      y: 10 cm
+  - at: 12.1 s
+    message: target
+    payload:
+      x: 150 cm
+      y: 10 cm
+  - at: 12.2 s
+    message: lift
+    payload:
+      z: 30 cm
+  - at: 12.3 s
+    message: home
+  - at: 12.4 s
+    message: reset
+  - at: 12.5 s
+    message: target
+    payload:
+      x: 0.1234567 m
+      y: 10 cm
+  - at: 12.6 s
+    message: target
+    payload:
+      x: 30 cm
+      y: 20 cm
+  - at: 12.7 s
+    message: lift
+    payload:
+      z: 120 cm
+  - at: 12.8 s
+    message: target
+    payload:
+      x: -10 cm
+      y: 5 cm
+  - at: 12.9 s
+    message: lift
+    payload:
+      z: 5 cm
+end:
+  at: 20 s
+  max_duration: 20 s
+criteria:
+  - name: no_overlap_x
+    check: no_overlap
+    actuator: x_driver
+    start_event: event:motion_start
+    end_event: event:motion_end
+  - name: no_overlap_y
+    check: no_overlap
+    actuator: y_driver
+    start_event: event:motion_start
+    end_event: event:motion_end
+  - name: no_overlap_lift
+    check: no_overlap
+    actuator: lift_driver
+    start_event: event:motion_start
+    end_event: event:motion_end
+  - name: first_move_not_too_fast
+    check: interval
+    start_event: message:target
+    end_event: event:motion_end
+    comparison: at_least
+    limit: 2.8 s
+  - name: first_move_not_too_slow
+    check: interval
+    start_event: message:target
+    end_event: event:motion_end
+    comparison: below
+    limit: 4.1 s
+  - name: malformed_refused
+    check: event
+    event: fault:malformed
+    expect: present
+    window:
+      start: 8.5 s
+      end: 8.6 s
+baseline: baseline.yaml

@@ -131,11 +131,12 @@ def test_channels_count_per_mode_in_binding_order() -> None:
         counts[entry.mode] = entry.channel + 1
     assert counts == {
         "pulse_output": 3,
-        "digital_output": 7,
-        "digital_input": 6,
+        "digital_output": 8,
+        "digital_input": 7,
         "counter_input": 6,
         "uart_tx": 1,
         "uart_rx": 1,
+        "adc_input": 1,
     }
     by_signal = {entry.signal: entry for entry in chip.bindings}
     assert (by_signal["x_driver.step"].pin, by_signal["x_driver.step"].channel) == ("PA0", 0)
@@ -184,7 +185,7 @@ def test_open_chip_is_pending() -> None:
     result = _build(Design.model_validate(data))
     assert result.chip is None
     assert "firmware.chip" in result.pending
-    assert len(result.wiring.bindings) == 24
+    assert len(result.wiring.bindings) == 27
 
 
 @pytest.mark.req("BLD-023")
@@ -261,8 +262,8 @@ def test_motor_rail_is_derived_from_the_wiring() -> None:
     motor = rails["motor_power"]
     assert motor.supply == "motor_supply"
     assert motor.gates == ("estop", "watchdog")
-    assert motor.derived == ("x_driver", "y_driver", "lift_driver")
-    assert motor.consumers == ("x_driver", "y_driver", "lift_driver")
+    assert motor.derived == ("x_driver", "y_driver", "lift_driver", "lift_brake")
+    assert motor.consumers == ("x_driver", "y_driver", "lift_driver", "lift_brake")
     assert wiring.controller_rail == "logic"
     entries = {entry.name: entry for entry in wiring.instances}
     assert entries["x_driver"].rails == ("motor_power",)
@@ -277,7 +278,7 @@ def test_rail_with_open_supply_keeps_declared_consumers_pending() -> None:
     logic = next(rail for rail in result.wiring.rails if rail.name == "logic")
     assert logic.supply is None
     assert logic.derived is None
-    assert logic.consumers == ("x_encoder", "y_encoder", "lift_encoder")
+    assert logic.consumers == ("x_encoder", "y_encoder", "lift_encoder", "load_cell", "load_amp")
     assert "power.rails[1].supply" in result.pending
 
 
@@ -329,9 +330,10 @@ def test_ungated_supply_feeding_consumers_directly() -> None:
     design.wiring = [wire for wire in design.wiring if wire.source != "motor_supply.v_out"]
     for driver in ("x_driver", "y_driver", "lift_driver"):
         design.wiring.append(Wire(source="motor_supply.v_out", destination=f"{driver}.vmot"))
+    design.wiring.append(Wire(source="motor_supply.v_out", destination="lift_brake.vcc"))
     rail = next(item for item in _build(design).wiring.rails if item.name == "motor_power")
     assert rail.gates == ()
-    assert rail.derived == ("x_driver", "y_driver", "lift_driver")
+    assert rail.derived == ("x_driver", "y_driver", "lift_driver", "lift_brake")
 
 
 def test_unknown_rail_supply_fails() -> None:

@@ -33,6 +33,10 @@ struct HostBuildResult {
     std::string log;                // tool output of every step
 };
 
+// File name of an application's host-built shared library: lib<app_target>_native.so, or <app_target>_native.dll on
+// Windows (MSVC adds no lib prefix).
+[[nodiscard]] std::string native_library_name(const std::string& app_target);
+
 // Configures the tree with its host preset and builds the application's SHARED <app_target>_native target (CTL-007). Throws ControllerConfigError carrying the tool output on any failure.
 [[nodiscard]] HostBuildResult build_host_firmware(const HostBuildRequest& request);
 

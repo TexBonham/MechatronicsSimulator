@@ -1,6 +1,6 @@
 # G4 (Requirements doc, Test cases, gantry suite): a target outside the workspace after homing. Pass: no actuator
-# moves (ACC-007); the target is rejected with a reported fault, not clipped (ACC-008). The target is 150 cm, 25 cm:
-# x beyond the design's workspace_x. "No actuator moves" from the target on, as in G1: no step pulse and every axis
+# moves (ACC-007); the target is rejected with a reported fault, not clipped (ACC-008). The target is 75 cm, 25 cm:
+# x beyond the design's 0.5 m workspace_x (gantry team 2026-11-11). "No actuator moves" from the target on, as in G1: no step pulse and every axis
 # within its hold band (placeholder 1 mm) of its position when the target arrives; the rejection
 # is the "ready / fault" status message after the target (ACC-008's test reads fault = outside_workspace). Start
 # position and homing time: open parameters with placeholder defaults (DES-044).
@@ -58,7 +58,7 @@ commands:
   - at: ${homing_time}
     message: target
     payload:
-      x: 150 cm
+      x: 75 cm
       y: 25 cm
 end:
   at: 20 s

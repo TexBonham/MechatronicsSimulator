@@ -26,12 +26,22 @@ from mechsim.record import (
     repository_commit,
     tool_version,
 )
-from mechsim.record.archive import CHUNK_ROWS
-from mechsim.record.tick import BodyState, PhysicsOutputs, RecordedEvent, SeriesSample
+from mechsim.record.archive import CHUNK_ROWS, FORMAT_VERSION, write_archive
+from mechsim.record.layout import COLUMN_SERIES, JOINT_POSITIONS, Columns
+from mechsim.record.tick import (
+    WORLD_BODY,
+    BodyState,
+    JointDriveTorque,
+    PayloadState,
+    PhysicsOutputs,
+    RecordedEvent,
+    SeriesSample,
+)
 from tests.unit.test_record_support import (
     BASE_RATE,
     CONSTRAINT_ROWS,
     EFFORTS,
+    JOINT_COORDINATES,
     JOINT_DOFS,
     PINS,
     RAILS,
@@ -44,6 +54,7 @@ from tests.unit.test_record_support import (
 TICKS = 120
 
 
+# ===== Fixtures and helpers =================================================
 def _record(rows: list[TickRecord], path: Path, base_rate: Fraction = BASE_RATE, end: RunEnd | None = None) -> Path:
     recorder = Recorder(base_rate)
     for row in rows:
@@ -69,6 +80,7 @@ def archive(archive_path: Path) -> RunArchive:
     return RunArchive(archive_path)
 
 
+# ===== Body, joint and contact channels =====================================
 @pytest.mark.req("REC-002")
 def test_rec_002_body_pose_and_velocity_every_tick(rows: list[TickRecord], archive: RunArchive) -> None:
     """The recorder shall record every body's pose and velocity on every physics tick."""
@@ -130,6 +142,7 @@ def test_rec_004_member_end_loads_every_tick(rows: list[TickRecord], archive: Ru
             np.testing.assert_array_equal(series.values, np.array([[pick(m) for m in r.physics.members] for r in rows]))
 
 
+# ===== Named signal checks ==================================================
 def _named_check(archive: RunArchive, rows: list[TickRecord], group: str, spec: tuple[tuple[str, str], ...]) -> None:
     attribute = {
         "signals/pins": "pin_signals",
@@ -158,6 +171,7 @@ def test_rec_006_every_rail(rows: list[TickRecord], archive: RunArchive) -> None
         _named_check(archive, rows, "signals/rails", RAILS)
 
 
+# ===== Actuators, joints and payloads =======================================
 @pytest.mark.req("REC-027")
 def test_rec_027_actuator_efforts_every_tick(rows: list[TickRecord], archive: RunArchive) -> None:
     """The recorder shall record the actuator torques and forces the signal layer applies to physics on
@@ -166,6 +180,208 @@ def test_rec_027_actuator_efforts_every_tick(rows: list[TickRecord], archive: Ru
         _named_check(archive, rows, "signals/actuator_efforts", EFFORTS)
 
 
+@pytest.mark.req("REC-027")
+def test_rec_027_joint_positions_and_drive_torques_every_tick(rows: list[TickRecord], archive: RunArchive) -> None:
+    """Joint coordinates and the torque or force each joint drive applied, one column per joint, every tick; an
+    undriven joint reads 0 with `driven` false."""
+    with archive:
+        positions = archive.series("physics/joint_positions")
+        torques = archive.series("physics/joint_drive_torques/torque")
+        driven = archive.series("physics/joint_drive_torques/driven")
+    assert (positions.unit, torques.unit, driven.unit) == ("m or rad", "N or N m", "1")
+    assert positions.axis == torques.axis == driven.axis == "tick"
+    assert positions.values.shape == torques.values.shape == driven.values.shape == (TICKS, JOINT_COORDINATES)
+    for index, row in enumerate(rows):
+        assert tuple(positions.values[index]) == row.physics.joint_positions
+        expected_torque = [0.0] * JOINT_COORDINATES
+        expected_driven = [False] * JOINT_COORDINATES
+        for drive in row.physics.joint_drive_torques:
+            expected_torque[drive.joint] = drive.torque
+            expected_driven[drive.joint] = True
+        assert list(torques.values[index]) == expected_torque
+        assert list(driven.values[index]) == expected_driven
+    assert driven.values[:, 0].all()
+    assert driven.values[::2, 1].all()
+    assert not driven.values[1::2, 1].any()
+
+
+@pytest.mark.req("REC-027")
+def test_rec_027_payload_attachment_and_force_every_tick(rows: list[TickRecord], archive: RunArchive) -> None:
+    """Each payload's body, carrier (-1 once released), attachment and attachment force (N), every tick."""
+    with archive:
+        body = archive.series("physics/payloads/body")
+        carrier = archive.series("physics/payloads/carrier")
+        attached = archive.series("physics/payloads/attached")
+        force = archive.series("physics/payloads/force")
+    assert force.unit == "N"
+    assert force.values.shape == (TICKS, 1, 3)
+    for index, row in enumerate(rows):
+        (payload,) = row.physics.payloads
+        assert body.values[index, 0] == payload.body
+        assert carrier.values[index, 0] == payload.carrier
+        assert bool(attached.values[index, 0]) is payload.attached
+        assert tuple(force.values[index, 0]) == payload.force
+    assert carrier.values[-1, 0] == WORLD_BODY
+
+
+@pytest.mark.req("REC-027")
+@pytest.mark.parametrize(
+    ("physics", "message"),
+    [
+        (PhysicsOutputs(joint_positions=(0.0,), joint_drive_torques=(JointDriveTorque(1, 2.0),)), "outside the 1"),
+        (PhysicsOutputs(joint_drive_torques=(JointDriveTorque(0, 2.0),)), "outside the 0"),
+        (PhysicsOutputs(joint_positions=(0.0,), joint_drive_torques=(JointDriveTorque(-1, 2.0),)), "outside"),
+        (
+            PhysicsOutputs(
+                joint_positions=(0.0, 0.0),
+                joint_drive_torques=(JointDriveTorque(1, 2.0), JointDriveTorque(1, 3.0)),
+            ),
+            "two drive torques on joint 1",
+        ),
+    ],
+)
+def test_rec_027_rejects_drive_torques_off_the_joints(physics: PhysicsOutputs, message: str) -> None:
+    with pytest.raises(RecordError, match=message):
+        Recorder(BASE_RATE).write_row(TickRecord(time=0, physics=physics))
+
+
+@pytest.mark.req("REC-027")
+def test_rec_027_drives_out_of_joint_order_replay_in_joint_order(tmp_path: Path) -> None:
+    drives = (JointDriveTorque(1, 2.0), JointDriveTorque(0, -1.0))
+    row = TickRecord(time=0, physics=PhysicsOutputs(joint_positions=(0.5, 0.25), joint_drive_torques=drives))
+    with RunArchive(_record([row], tmp_path / "drives.h5")) as archive:
+        (replayed,) = archive.records()
+    assert replayed.physics.joint_drive_torques == (JointDriveTorque(0, -1.0), JointDriveTorque(1, 2.0))
+    assert replayed.physics.joint_positions == (0.5, 0.25)
+
+
+JOINT_LABELS = Columns(("trolley", "hoist"), ("m", "rad"))
+TORQUE_LABELS = Columns(("trolley", "hoist"), ("N", "N m"))
+SLIP_LABELS = Columns(("belt",), ("rad",))
+PAYLOAD_LABELS = Columns(("load",))
+
+
+# ===== Index columns and writer labels ======================================
+@pytest.mark.req("REC-018")
+@pytest.mark.req("REC-027")
+def test_rec_018_index_columns_carry_names_and_units(rows: list[TickRecord], tmp_path: Path) -> None:
+    """Driver-supplied labels land as per-series attrs `names` and `units`; unlabelled index series keep the
+    conditional unit with empty `names` and `units`."""
+    columns = {
+        "physics/joint_positions": JOINT_LABELS,
+        "physics/joint_drive_torques/torque": TORQUE_LABELS,
+        "physics/transmissions/slip": SLIP_LABELS,
+        "physics/payloads/force": PAYLOAD_LABELS,
+    }
+    recorder = Recorder(BASE_RATE, columns)
+    for row in rows:
+        recorder.write_row(row)
+    path = tmp_path / "labelled.h5"
+    recorder.flush(path, identity(), finished(len(rows)))
+    with RunArchive(path) as archive:
+        for name, labels in columns.items():
+            series = archive.series(name)
+            assert (series.names, series.units) == (labels.names, labels.units)
+        assert archive.series("physics/joint_positions").unit == "m or rad"
+        unlabelled = archive.series("physics/joint_drive_torques/driven")
+        assert (unlabelled.names, unlabelled.units) == ((), ())
+        assert archive.series("physics/bodies/position").names == ()
+        assert list(archive.records()) == rows
+    with h5py.File(path, "r") as h5:
+        for name in COLUMN_SERIES:
+            assert "names" in h5[name].attrs
+            assert "units" in h5[name].attrs
+        assert "names" not in h5["physics/bodies/position"].attrs
+
+
+@pytest.mark.req("REC-018")
+def test_rec_018_archive_writer_labels_override_recording(rows: list[TickRecord], tmp_path: Path) -> None:
+    recorder = Recorder(BASE_RATE, {"physics/joint_positions": Columns(("a", "b"))})
+    for row in rows[:3]:
+        recorder.write_row(row)
+    path = tmp_path / "override.h5"
+    write_archive(
+        path, identity(), finished(3), recorder.recording(), columns={"physics/joint_positions": JOINT_LABELS}
+    )
+    with RunArchive(path) as archive:
+        series = archive.series("physics/joint_positions")
+    assert (series.names, series.units) == (JOINT_LABELS.names, JOINT_LABELS.units)
+    with pytest.raises(RecordError, match="1 column names for 2 columns"):
+        write_archive(path, identity(), finished(3), recorder.recording(), columns={JOINT_POSITIONS: Columns(("a",))})
+
+
+@pytest.mark.req("REC-018")
+@pytest.mark.parametrize(
+    ("columns", "message"),
+    [
+        ({"physics/bodies/position": Columns(("a",))}, "not an index-column series"),
+        ({JOINT_POSITIONS: Columns(("a", "a"))}, "duplicate column names"),
+        ({JOINT_POSITIONS: Columns(("a", "b"), ("m",))}, "1 units for 2 columns"),
+        ({JOINT_POSITIONS: Columns(("a", "b"), ("m", ""))}, "empty column unit"),
+        ({JOINT_POSITIONS: Columns(("a", "b/c"))}, "contains '/'"),
+        ({JOINT_POSITIONS: Columns(("a", ""))}, "empty series name"),
+        ({JOINT_POSITIONS: Columns(("a", "b"), ("m", "N\0"))}, "NUL"),
+    ],
+)
+def test_rec_018_rejects_bad_column_labels(columns: dict[str, Columns], message: str) -> None:
+    with pytest.raises(RecordError, match=message):
+        Recorder(BASE_RATE, columns)
+
+
+@pytest.mark.req("REC-018")
+@pytest.mark.parametrize(
+    ("path", "labels", "width"),
+    [
+        (JOINT_POSITIONS, Columns(("a",)), JOINT_COORDINATES),
+        ("physics/joint_drive_torques/driven", Columns(("a", "b", "c")), JOINT_COORDINATES),
+        ("physics/transmissions/force", Columns(("a", "b")), 1),
+        ("physics/payloads/attached", Columns(()), 1),
+    ],
+)
+def test_rec_018_column_labels_must_match_the_first_row(path: str, labels: Columns, width: int) -> None:
+    recorder = Recorder(BASE_RATE, {path: labels})
+    with pytest.raises(RecordError, match=f"{path} has {width} columns, {len(labels.names)} names given"):
+        recorder.write_row(synthetic_rows(3, 1)[0])
+
+
+# ===== Archive format version ===============================================
+@pytest.mark.req("REC-012")
+def test_rec_012_archive_format_version_2_and_version_1_still_reads(rows: list[TickRecord], tmp_path: Path) -> None:
+    """Version 2 adds the joint, drive and payload series and column labels; a version 1 archive lacks them and its
+    rows replay with those fields empty. Other versions are refused."""
+    assert FORMAT_VERSION == 2
+    path = _record(rows[:5], tmp_path / "v1.h5")
+    with h5py.File(path, "r+") as h5:
+        assert int(h5.attrs["format_version"]) == 2
+        added = ("physics/joint_positions", "physics/joint_drive_torques", "physics/payloads")
+        kept = [str(name) for name in h5.attrs["series"] if not str(name).startswith(added)]
+        for group in added:
+            del h5[group]
+        for name in COLUMN_SERIES:
+            if name in h5:
+                del h5[name].attrs["names"]
+                del h5[name].attrs["units"]
+        h5.attrs["series"] = np.array(kept, dtype=h5py.string_dtype())
+        h5.attrs["format_version"] = np.int64(1)
+    with RunArchive(path) as archive:
+        assert archive.format_version == 1
+        assert archive.series("physics/transmissions/slip").names == ()
+        replayed = list(archive.records())
+    expected = [
+        dataclasses.replace(
+            row, physics=dataclasses.replace(row.physics, joint_positions=(), joint_drive_torques=(), payloads=())
+        )
+        for row in rows[:5]
+    ]
+    assert replayed == expected
+    for version in (0, 3):
+        with h5py.File(path, "r+") as h5:
+            h5.attrs["format_version"] = np.int64(version)
+        with pytest.raises(RecordError, match=f"format version {version}"):
+            RunArchive(path)
+
+
+# ===== Controller state and fault log =======================================
 @pytest.mark.req("REC-007")
 def test_rec_007_controller_state_and_fault_log(rows: list[TickRecord], archive: RunArchive) -> None:
     """The recorder shall record the controller states and the controller fault log the controller runtime
@@ -498,6 +714,8 @@ def _row(time_: int, **changes: object) -> TickRecord:
     ("first", "second", "message"),
     [
         ({"physics": PhysicsOutputs(bodies=(BodyState(),))}, {}, "bodies changed"),
+        ({"physics": PhysicsOutputs(joint_positions=(0.0,))}, {}, "joint_coordinates changed"),
+        ({"physics": PhysicsOutputs(payloads=(PayloadState(),))}, {}, "payloads changed"),
         ({"pin_signals": (SeriesSample("a.b", "V", 0.0),)}, {"pin_signals": (SeriesSample("a.c", "V", 0.0),)}, "named"),
         ({"rails": (SeriesSample("r", "V", 0.0),)}, {"rails": (SeriesSample("r", "A", 0.0),)}, "named"),
     ],

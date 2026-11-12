@@ -10,13 +10,6 @@ def test_phy_015() -> None:
     raise NotImplementedError
 
 
-@pytest.mark.req("PHY-016")
-@pytest.mark.xfail(strict=True, reason="stub")
-def test_phy_016() -> None:
-    """The MuJoCo adapter shall carry the milestone 2 acceptance cases, G5 to G11, G13 and G14."""
-    raise NotImplementedError
-
-
 @pytest.mark.req("PHY-023")
 @pytest.mark.xfail(strict=True, reason="stub")
 def test_phy_023() -> None:

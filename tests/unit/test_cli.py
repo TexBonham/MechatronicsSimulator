@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import io
 import os
+import re
+import socket
 import subprocess
 import sys
 from pathlib import Path
@@ -74,6 +76,7 @@ def test_validate_tells_the_kinds_apart() -> None:
     assert kinds["designs/pendulum/design.yaml"] == "design"
     assert kinds["test_cases/gantry/G3.yaml"] == "case"
     assert kinds["test_cases/gantry/baseline.yaml"] == "baseline"
+    assert kinds["test_cases/gantry/suite.yaml"] == "suite"
     assert kinds["chips/stm32_placeholder/chip.yaml"] == "chip"
     assert kinds["mechsim/library/catalog/limit_switch.yaml"] == "catalog"
     assert kinds["mechsim/materials/data/abs_printed.yaml"] == "material"
@@ -105,7 +108,8 @@ def test_validate_an_invalid_physics_model_fails(tmp_path: Path) -> None:
 def test_validate_a_folder_runs_nothing() -> None:
     code, out, _ = call(["validate", str(ROOT / "test_cases")])
     assert code == EXIT_PASS
-    assert out.count(": valid ") == 6
+    # G1 to G11, G13, G14, P1, the gantry baseline and suite: 16 files.
+    assert out.count(": valid ") == 16
 
 
 @pytest.mark.req("TST-030")
@@ -224,7 +228,44 @@ def test_suite_prints_the_regression_diff_and_fails_on_a_failing_case(tmp_path: 
     )
     code, out, _ = call(["suite", str(suite), "--set", "link_mass=1 kg", "--out", str(tmp_path / "runs")], services)
     assert code == EXIT_FAIL
-    assert "Regression diff against the baseline:\n  unchanged: 1\n" in out
+    assert "Regression diff against the baseline:\n  unchanged: M1/final_angle (not_run -> fail)\n" in out
+
+
+@pytest.mark.req("SCO-009", "SCO-010", "SCO-011", "SCO-012", "TST-008")
+def test_suite_file_run_prints_the_diff_and_writes_the_report_and_next_baseline(tmp_path: Path) -> None:
+    services = cli_services(tmp_path)
+    suite = tmp_path / "demo"
+    write_case(suite, MACHINE_CASE)
+    write_case(suite, MACHINE_CASE.replace("id: M1", "id: M2"), "M2.yaml")
+    (suite / "baseline.yaml").write_text(unrun_baseline("nightly", ["M1", "M3"]), encoding="utf-8")
+    (suite / "suite.yaml").write_text(
+        "name: nightly\ndesign:\n  name: machine\n  version: 0.1.0\ncases: [M1.yaml, M2.yaml]\n"
+        "baseline: baseline.yaml\n",
+        encoding="utf-8",
+    )
+    code, _, err = call(["validate", str(suite / "suite.yaml")])
+    assert (code, err) == (EXIT_PASS, "")
+    report = tmp_path / "report.md"
+    baseline = tmp_path / "next.yaml"
+    argv = ["suite", str(suite / "suite.yaml"), "--set", "link_mass=1 kg", "--out", str(tmp_path / "runs")]
+    argv += ["--report", str(report), "--write-baseline", str(baseline)]
+    code, out, _ = call(argv, services)
+    assert code == EXIT_PASS
+    assert (
+        "Regression diff against the baseline:\n"
+        "  newly passing: M1/final_angle (not_run -> pass)\n"
+        "  missing: M3/final_angle (not_run -> None)\n"
+        "  added: M2/final_angle (None -> pass)\n"
+    ) in out
+    text = report.read_text(encoding="utf-8")
+    assert text.startswith("# Suite nightly: PASS\n")
+    assert "### Newly passing (1)\n\n- M1 / final_angle: not_run -> pass\n" in text
+    first = baseline.read_text(encoding="utf-8")
+    code, _, _ = call(["validate", str(baseline)])
+    assert code == EXIT_PASS
+    call(argv, services)
+    assert baseline.read_text(encoding="utf-8") == first
+    assert report.read_text(encoding="utf-8") == text
 
 
 def test_suite_with_no_cases_is_an_error(tmp_path: Path) -> None:
@@ -256,6 +297,59 @@ def test_replay_of_a_missing_archive_or_without_a_reader_is_an_error(tmp_path: P
     code, _, err = call(["replay", str(tmp_path / "none.h5")], CliServices(None, FakeArchiveReader()))
     assert (code, err) == (EXIT_ERROR, f"error: {tmp_path / 'none.h5'}: no such archive\n")
     assert call(["replay", str(tmp_path / "none.h5")])[0] == EXIT_ERROR
+
+
+# ===== serve ===========================================================
+
+
+SERVE_URL = r"http://127\.0\.0\.1:(\d+)/\?token=([A-Za-z0-9_-]+)\n"
+
+
+@pytest.mark.req("VIE-012")
+def test_serve_check_prints_the_page_url_and_exits_0(tmp_path: Path) -> None:
+    """`serve --check` starts the facade with the browser client on 127.0.0.1, prints the one URL line and stops."""
+    services = CliServices(files_root=tmp_path)
+    code, out, err = call(
+        ["serve", "--check", "--files-root", str(tmp_path), "--runs", str(tmp_path / "runs")], services
+    )
+    assert (code, err) == (EXIT_PASS, "")
+    match = re.fullmatch(SERVE_URL, out)
+    assert match is not None, out
+    assert int(match.group(1)) > 0
+    assert len(match.group(2)) >= 32
+    again = call(["serve", "--check"], services)[1]
+    assert re.fullmatch(SERVE_URL, again) is not None
+    assert again != out
+
+
+@pytest.mark.req("VIE-012")
+def test_serve_on_a_port_in_use_exits_2(tmp_path: Path) -> None:
+    with socket.socket() as taken:
+        taken.bind(("127.0.0.1", 0))
+        taken.listen()
+        port = taken.getsockname()[1]
+        code, out, err = call(["serve", "--check", "--port", str(port)], CliServices(files_root=tmp_path))
+    assert (code, out) == (EXIT_ERROR, "")
+    assert err.startswith("error: ")
+
+
+@pytest.mark.req("VIE-012")
+def test_serve_rejects_a_bad_port_as_a_usage_error(tmp_path: Path) -> None:
+    assert call(["serve", "--port", "http"], CliServices(files_root=tmp_path))[0] == EXIT_ERROR
+
+
+@pytest.mark.req("VIE-012")
+def test_serve_check_runs_from_the_console_entry() -> None:
+    result = subprocess.run(
+        [sys.executable, "-m", "mechsim.cli", "serve", "--check"],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=60,
+    )
+    assert result.returncode == EXIT_PASS, result.stderr
+    assert re.fullmatch(SERVE_URL, result.stdout) is not None
 
 
 # ===== headless ========================================================

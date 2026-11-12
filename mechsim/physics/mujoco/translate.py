@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import math
 import xml.etree.ElementTree as ET
-from collections.abc import Iterable, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 
 from mechsim.physics.neutral import (
@@ -391,6 +391,7 @@ class _Reflection:
     inertia: float
     shaft: Body
     driven_joint: str
+    backlash: float  # dead band in shaft units (rad), the neutral output-side backlash over |c|
 
 
 def _coefficient(transmission: object) -> float:
@@ -424,10 +425,10 @@ def _reflections(model: PhysicsModel, report: list[str]) -> dict[str, _Reflectio
     for transmission in model.transmissions:
         coefficient = _coefficient(transmission)
         element = f"transmission '{transmission.name}'"
-        if transmission.backlash != 0.0:
-            raise UnmappableElementError(element, "backlash; the milestone 1 coupling is a rigid fixed ratio")
         if transmission.slip != 0.0:
-            raise UnmappableElementError(element, "slip; belt slip is milestone 2 work (PHY-006)")
+            raise UnmappableElementError(
+                element, "a static slip parameter; slip is a fault the adapter injects (set_transmission_slip, PHY-006)"
+            )
         if isinstance(transmission, LeadScrew) and transmission.self_locking:
             raise UnmappableElementError(element, "self-locking; the own engine carries it (milestone 1)")
         shaft = owners[transmission.shaft_joint]
@@ -467,6 +468,13 @@ def _reflections(model: PhysicsModel, report: list[str]) -> dict[str, _Reflectio
             f"{element}: efficiency read lossless on the rotor, (m + J / c^2) a = eta tau / c driving and "
             "tau / (eta c) back-driven; where the loss sits is an owner ruling (PHY-033)"
         )
+        backlash = transmission.backlash / abs(coefficient)
+        if backlash != 0.0:
+            report.append(
+                f"{element}: backlash {_num(transmission.backlash)} at the output is a play element of "
+                f"{_num(backlash)} rad on the shaft's drive rest (PHY-006): no impact dynamics, and a torque-driven "
+                "shaft passes its torque without play"
+            )
         reflected[shaft.name] = _Reflection(
             transmission.name,
             f"transmission.{transmission.type}",
@@ -475,6 +483,7 @@ def _reflections(model: PhysicsModel, report: list[str]) -> dict[str, _Reflectio
             inertia,
             shaft,
             transmission.driven_joint,
+            backlash,
         )
     return reflected
 
@@ -526,6 +535,41 @@ def _reflect(worldbody: ET.Element, reflection: _Reflection) -> None:
     for attribute, value in added.items():
         if value != 0.0:
             driven.set(attribute, _num(float(driven.get(attribute, "0")) + value))
+
+
+# ===== Payloads =========================================================
+
+
+def _payloads(
+    model: PhysicsModel, reflected: dict[str, _Reflection], payloads: Mapping[str, str], report: list[str]
+) -> list[tuple[str, str]]:
+    """(payload, carrier) in body order. A payload is a free body under world held on its carrier by a weld the
+    adapter toggles (PHY-006, ENG-035); MuJoCo cannot re-parent a body, so the carrier is fixed at translation."""
+    bodies = {body.name: body for body in model.bodies}
+    for name, carrier in sorted(payloads.items()):
+        element = f"payload '{name}'"
+        body = bodies.get(name)
+        if body is None:
+            raise UnmappableElementError(element, "not a body in the physics model")
+        if body.joint is None or body.joint.type != "free" or body.parent != WORLD:
+            raise UnmappableElementError(element, "a payload must be a body on a free joint under world")
+        if name in reflected:
+            raise UnmappableElementError(element, "a reflected transmission shaft cannot be a payload")
+        if carrier == name or carrier not in bodies:
+            raise UnmappableElementError(element, f"carrier '{carrier}' is not another body in the physics model")
+        if carrier in reflected:
+            raise UnmappableElementError(element, f"carrier '{carrier}' is a reflected transmission shaft")
+    attached: list[tuple[str, str]] = []
+    for body in model.bodies:
+        if body.name in payloads:
+            carrier = payloads[body.name]
+            attached.append((body.name, carrier))
+            report.append(
+                f"payload '{body.name}': free body held on '{carrier}' by weld '{body.name}.attach' at the translated "
+                "relative pose (equality softness, 2 steps, critically damped); release and re-attach toggle the weld, "
+                "and re-attaching pulls the payload back to that pose"
+            )
+    return attached
 
 
 # ===== Contacts =========================================================
@@ -644,15 +688,19 @@ class Translation:
     report: tuple[str, ...]
 
 
-def translate(model: PhysicsModel, step: float | None = None) -> str:
-    """MJCF text for the neutral model; `step` (s) overrides the run's step. Same model, same text, byte for byte."""
-    return translate_report(model, step).mjcf
+def translate(model: PhysicsModel, step: float | None = None, payloads: Mapping[str, str] | None = None) -> str:
+    """MJCF text for the neutral model; `step` (s) overrides the run's step; `payloads` maps each payload body to the
+    carrier body it starts attached to. Same inputs, same text, byte for byte."""
+    return translate_report(model, step, payloads).mjcf
 
 
-def translate_report(model: PhysicsModel, step: float | None = None) -> Translation:
+def translate_report(
+    model: PhysicsModel, step: float | None = None, payloads: Mapping[str, str] | None = None
+) -> Translation:
     """`translate` with its mapping report."""
     report: list[str] = []
     reflected = _reflections(model, report)
+    attached = _payloads(model, reflected, dict(payloads or {}), report)
     timestep = model.run.step
     if step is not None:
         timestep = step
@@ -712,6 +760,13 @@ def translate_report(model: PhysicsModel, step: float | None = None) -> Translat
         kinds.add(reflection.kind)
         _reflect(worldbody, reflection)
 
+    for payload, carrier in attached:
+        ET.SubElement(
+            equality,
+            "weld",
+            {"name": f"{payload}.attach", "body1": payload, "body2": carrier, "solref": reference},
+        )
+
     drives = _drives(model, reflected, report)
     for neutral_joint, mj_joint in drives:
         ET.SubElement(
@@ -754,6 +809,7 @@ def translate_report(model: PhysicsModel, step: float | None = None) -> Translat
         ("mechsim:constraints", constraints),
         ("mechsim:members", members),
         ("mechsim:drives", [neutral_joint for neutral_joint, _ in drives]),
+        ("mechsim:payloads", [f"{payload}:{carrier}" for payload, carrier in attached]),
         (
             "mechsim:transmissions",
             [
@@ -780,6 +836,7 @@ def translate_report(model: PhysicsModel, step: float | None = None) -> Translat
             *joint.position,
             *joint.orientation,
             *(component / axis_norm for component in joint.axis),
+            reflection.backlash,
         )
         ET.SubElement(
             custom, "numeric", {"name": f"mechsim:transmission:{reflection.transmission}", "data": _vec(values)}

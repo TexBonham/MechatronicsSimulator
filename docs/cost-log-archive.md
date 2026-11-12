@@ -130,3 +130,68 @@ a design defect (sensor placement, stepper hold, explicit-spring stability) mid-
 | 2026-11-04 | M1 review: wave 2 (X2 to X6) | general-purpose (fable) | 327K | 35 calls, 12 min; accept with fixes: 3 major (matrix, typed errors, approximation lines), 4 minor, 4 owner questions |
 | 2026-11-04 | M1-X7: review fixes (typed driver errors, approximation lines in scores, stepper loss of synchronism, SIG-037 wiring) | module-writer (opus), worktree | 173K | 75 calls, 23 min |
 | 2026-11-04 | Wave 2 merge-back: one stage commit (4afdf8f) after a three-stage attempt failed on a never-green intermediate state; host build dir keyed by firmware tree (inline fix) | inline | ~40K | coordinator |
+
+## Round 4 (milestone 2), 2026-11-10 to 2026-11-11: 60 rows, about 6.33M tokens
+
+| Date | Task | Mode | Tokens (est.) | Notes |
+|------|------|------|:-------------:|-------|
+| 2026-11-10 | Resume: README python3-dev row, round/04-milestone-2 cut, milestone 2 plan assembled for sign-off | inline | ~90K | coordinator; 8 calls, spec and stub inventory by grep |
+| 2026-11-10 | M2-W: Windows CI, presets, MuJoCo zip pin, MSVC warnings; firmware green, cpp and python blocked on the POSIX-only native runtime | general-purpose (opus) | 117K | 52 calls, 23 min; continued as M2-W2 |
+| 2026-11-10 | M2-E: gantry firmware G5 to G14, lift axis, 56 host tests, 9 FW stubs converted (wip/04-e 5bf3179) | firmware-builder (opus), worktree | 218K | 50 calls, 28 min; builds queued on the lock |
+| 2026-11-10 | M2-C: bridge slip, payload attach and release, backlash; PHY-006 converted (wip/04-c f29a552) | module-writer (opus), worktree | 216K | 71 calls, 30 min; 2 foreign fixtures expect refused backlash, fixed at merge-back |
+| 2026-11-10 | M2-G: chip fields, four catalog types, front_end category, schemas regenerated (wip/04-g ab1f65e) | schema-author (opus), worktree | 144K | 51 calls, 37 min; one foreign chip fixture to fix at merge-back |
+| 2026-11-10 | M2-A1: sensor fidelity, fault modes, debounce, tangent detent, 57 signal cases (wip/04-a1 86eecaf) | module-writer (opus), worktree | 213K | 69 calls, 32 min; one foreign controller test, binding gap for fidelity |
+| 2026-11-10 | Invariant audit: wave 1a (G, C, A1) | invariant-auditor (sonnet) | 37K | 6 calls, 0.5 min; clean, one accepted minor |
+| 2026-11-10 | M2-D: suite file, regression diff and report, interval and no_overlap criteria, overrides and part substitution (wip/04-d 525fff3) | module-writer (opus), worktree | 232K | 81 calls, 31 min; 3 foreign invariant-test failures on suite.yaml, fixed at merge-back |
+| 2026-11-10 | Invariant audit: wave 1b (D, E) | invariant-auditor (sonnet) | ~35K | clean, one accepted minor |
+| 2026-11-10 | M2 review: G and C | general-purpose (fable) | ~120K | 16 calls; G accept, C accept with fixes (1 medium, 5 low, 2 rulings) |
+| 2026-11-10 | M2 review: A1 | general-purpose (fable) | 127K | 16 calls; accept with fixes (1 high: predicted-lead detent, 1 medium, 3 low) |
+| 2026-11-10 | M2 review: D and E | general-purpose (fable) | 201K | 28 calls; both accept, 2 owner rulings, event recording owed to X1 |
+| 2026-11-10 | M2-G stage landed: merge wip/04-g, chip fixture fix, matrix regenerated, full suite 3330 passed | inline | ~15K | coordinator |
+| 2026-11-10 | M2-C fix round: six review items, rulings 9 and 10 (wip/04-c e2ead4a) | module-writer (opus), resumed | ~15K | 11 calls |
+| 2026-11-10 | M2-A1 fix round: predicted-lead detent, closed-form lag, rulings 11 to 13 (wip/04-a1 5b166b9) | module-writer (opus), resumed | ~16K | 14 calls |
+| 2026-11-10 | M2-C re-review | general-purpose (fable), resumed | ~11K | 1 call; accept |
+| 2026-11-10 | M2-A1 re-review | general-purpose (fable), resumed | ~14K | 3 calls; accept |
+| 2026-11-10 | M2-D stage landed: merge wip/04-d, suite file in the invariant tier and YAML hook, full suite 3391 passed; E backed out to land with X1 (unbound E-stop status channel faults the firmware) | inline | ~25K | coordinator |
+| 2026-11-10 | M2-W2: native runtime on Windows (CreateProcess, LoadLibrary), INV-020, cpp and python green on windows-2022 twice (wip/04-w 12a171c) | general-purpose (opus), resumed | ~53K | 37 calls total for W and W2, 58 min |
+| 2026-11-10 | Invariant audit: W and W2 | invariant-auditor (sonnet) | 31K | 4 calls; clean, two style minors |
+| 2026-11-10 | M2 review: W and W2 | general-purpose (fable) | ~45K | 9 calls; accept with minor fixes (x64 guard inline, helper dedup to B) |
+| 2026-11-10 | M2-C and M2-A1 stage landed: merges, driver fixtures to self-locking, 6 clang-tidy fixes in tests, debug-sanitize 278 passed, full suite 3406 passed | inline | ~40K | coordinator |
+| 2026-11-10 | M2-W stage landed: merge wip/04-w, x64 guard on the MSVC intrinsic, debug-sanitize 278 passed, invariant tier 159 passed; Windows CI green on the wip branch twice | inline | ~15K | coordinator |
+| 2026-11-10 | M2-F1: facade service, WebSocket server, viewer module, conformance suite, CLI through the facade (wip/04-f1 112de83) | module-writer (opus), worktree | 258K | 81 calls, 35 min; 7 import-rule test failures, ruling 15 |
+| 2026-11-10 | M2 review: F1 | general-purpose (fable) | ~110K | 19 calls; accept after one fix round (1 major: reader seam, 8 minor) |
+| 2026-11-10 | M2-A2: load cell, amplifier, IMU, brake, power-loss fault, fidelity binding, front_end stage; 308 ctest, full suite green (wip/04-a2 1e03870) | module-writer (opus), worktree | ~250K | 100 calls, 65 min; corrected the brief reference arithmetic (635 counts, not 318) |
+| 2026-11-10 | M2-B: freeze and slow-down scheduling, latency, brownout from chip data, physics fault scheduling, joint and payload series, Windows helper dedup; 294 ctest, full suite green (wip/04-b 37ba56f) | module-writer (opus), worktree | ~235K | 91 calls, 70 min; found the ctest-argument quoting bug in locked_build.sh (fixed inline) |
+| 2026-11-10 | M2-F1 fix round: reader under mechsim/record, one answer per request, strict version, end reasons, conformance cases (wip/04-f1 8e960e3) | module-writer (opus), resumed | ~35K | 26 calls |
+| 2026-11-10 | M2-F1 re-review | general-purpose (fable), resumed | ~30K | 8 calls; accept; ADR 0015 events row to align at merge-back |
+| 2026-11-10 | Invariant audit: wave 2 (A2, B, F1) | invariant-auditor (sonnet) | ~35K | clean, three minors (tier default, archive format version, swallowed parse error) |
+| 2026-11-10 | M2 review: A2 and B | general-purpose (fable) | 138K | 18 calls; A2 accept, B accept with rulings 18 to 20 |
+| 2026-11-10 | M2-F1 stage landed: merge wip/04-f1, ruling 15 in the import test and tool contract, TST-034 stub dropped, ADR 0015 events row aligned; full suite 3463 passed | inline | ~20K | coordinator |
+| 2026-11-10 | M2-B fix round: column names and units attrs, archive format 2, window checks at start (wip/04-b e499c86) | module-writer (opus), resumed | ~34K | 21 calls |
+| 2026-11-10 | M2-B re-review | general-purpose (fable), resumed | ~20K | 3 calls; accept |
+| 2026-11-10 | M2-F2: browser client, serve command with static route, vendored three.js r170, browser-free checks; VIE-001, 012 converted (wip/04-f2 bb25d8f) | module-writer (opus), worktree | ~140K | 52 calls, 30 min; one foreign import-set test to fix at merge-back; no list_runs request yet |
+| 2026-11-10 | Invariant audit: F2 | invariant-auditor (sonnet) | ~25K | clean |
+| 2026-11-10 | M2 review: F2 | general-purpose (fable) | ~65K | 14 calls; accept, 2 medium to X2 (advance kind, cursor sample), coordinator import-set fix |
+| 2026-11-10 | M2-A2 and M2-B stage landed: merges, bindings contract merged, 8 clang-tidy fixes, optional guard in the load cell, debug-sanitize 327 passed, full suite 3511 passed | inline | ~45K | coordinator |
+| 2026-11-10 | M2-F2 stage landed: merge wip/04-f2, CLI import set includes the server module; full suite 3551 passed | inline | ~10K | coordinator |
+| 2026-11-10 | M2-X1: design, schema, builder payload, wiring, channel header, G5 to G8 case files; G2 to G4 pass, G1 and G5 to G8 blocked (brake drive refused, welded payload unstable) (wip/04-x1 d774e4f) | module-writer (opus), worktree | 317K | 142 calls, 33 min; cap reached, handed off to X2 |
+| 2026-11-11 | M2-X2: drive combination (ruling 23), per-axis step scale, estop auto-close, G8 case; G1 to G4 and G8 pass, G5 to G7 diverge (wip/04-x1 9030952) | module-writer (opus), fresh in the X1 worktree | ~255K | 123 calls, 46 min; cap reached, stepper runaway and payload build left |
+| 2026-11-11 | M2-A3: stepper loss-of-synchronism rule (SIG-039), drive torque apportioning, load cell joint_reaction; G7 no longer diverges (wip/04-a3 fa102dc) | module-writer (opus), worktree from X2 WIP | ~198K | 70 calls, 20 min |
+| 2026-11-11 | M2-X3: payload as fixed child, joint_reaction senses, rail ref, G5 to G11 cases, suite and baseline to G11, 20 ACC/FW/TST stubs converted; G1 to G9 and G11 pass, G10 one criterion (wip/04-x1 db7e1de) | module-writer (opus), fresh in the X1 worktree | ~293K | 145 calls, 43 min; cap reached |
+| 2026-11-11 | Gate audit: integration wave (X1, X2, A3, X3) | invariant-auditor (opus) | ~60K | 2 major (stand-in payload body, event argument kinds), 2 minor; to X4 |
+| 2026-11-11 | M2 review: integration wave (X1, X2, A3, X3) | general-purpose (fable) | ~120K | 18 calls; accept with fixes (1 high: hold criteria by construction; 5 medium; rulings 28 to 31) |
+| 2026-11-11 | M2-C2: bridge drive mapping exact backward Euler (runaway fixed), brake soft slip drive; G3 and G7 pass, G10 needs frame-side encoders (wip/04-c2 6032236) | module-writer (opus), worktree from X3 WIP | ~200K | est.; report pending usage |
+| 2026-11-11 | M2 review: C2 (physics derivation of the drive mapping) | general-purpose (fable) | 116K | 11 calls; accept with one medium (envelope throw at Z > 400), 4 low |
+| 2026-11-11 | M2-C2 fix round: envelope throw at Z > 400, spec rows, derivation (wip/04-c2 0814bb6) | module-writer (opus), resumed | ~14K | 7 calls |
+| 2026-11-11 | M2-C2 re-review | general-purpose (fable), resumed | ~25K | 4 calls; accept, low finding withdrawn |
+| 2026-11-11 | M2-X4: event argument kinds, brake error, fault ref, export labels, G13 and G14, review fixes; G11, G13, G14 pass, G7 and G9 wait on C2 (wip/04-x1 317e419) | module-writer (opus), fresh in the X1 worktree | ~248K | 147 calls, 39 min |
+| 2026-11-11 | M2-A4: linear encoder, load cell without target; 347 ctest (wip/04-a4 597e038) | module-writer (opus), worktree | ~100K | 24 calls, 6 min |
+| 2026-11-11 | M2-X5: frame-side linear encoders, stand-in payload removed, G7, G9, G10 green, suite 13 of 13, LIB-031 types, list_runs and advance (wip/04-x1 88aa526) | module-writer (opus), fresh in the X1 worktree | ~200K | 96+ calls; report pending usage |
+| 2026-11-11 | Gate audit: integration wave part 2 (X4, A4, X5) | invariant-auditor (opus) | ~55K | first-part majors closed; 1 R-18 blocker (BLD-035 text), 2 minor; to the X5 fix round |
+| 2026-11-11 | M2 review: integration wave part 2 (X4, A4, X5) | general-purpose (fable) | 142K | 19 calls; accept, 3 low; first-part high closed |
+| 2026-11-11 | M2-X5 fix round: BLD-035 row, catalog-driven core type, linear_encoder comment, load-cell target errors, tidy, ruff, mypy (wip/04-x1 a0e2fd3) | module-writer (opus), resumed | ~45K | est. |
+| 2026-11-11 | Integration-wave stage landed: wip/04-x1 merged twice (E, X1 to X5, A3, A4, C2), debug-sanitize 347 passed, firmware 92, full suite 3707 passed with G1 to G11, G13, G14 in the acceptance tier | inline | ~60K | coordinator |
+| 2026-11-11 | Reference validation: milestone 2 gate (C++ 15 + 12 MuJoCo, Python 9; baselines) | reference-validator (sonnet) | 41K | 14 calls, 9 min; 0 misses; MuJoCo reference cases now labelled for ctest (inline) |
+| 2026-11-11 | Fable gate review: milestone 2 | general-purpose (fable) | ~110K | 13 calls; pass with owner confirmations; CI on the merged branch blocking until the owner pushes |
+| 2026-11-11 | M2-F3: client on list_runs and advance, cursor-sample narrowing (wip/04-f3 dd53bd5); review accept with one client fix, applied inline (span local to the request) | module-writer (opus) + general-purpose (fable) | ~90K + ~64K | 23 + 6 calls |
+| 2026-11-11 | Docs close pass: markers in 13 files, 15 index tables, 3 HISTORY.md files, root dispatch table (wip/04-docs 4e0fc9c) | docs-indexer (haiku) | 163K | 24 calls, 5 min; contract files grew with index tables, accepted (queue item 3) |

@@ -38,6 +38,7 @@ public:
     [[nodiscard]] std::uint64_t next() noexcept;
     [[nodiscard]] double uniform() noexcept;   // [0, 1)
     [[nodiscard]] double gaussian() noexcept;  // standard normal
+    [[nodiscard]] std::uint64_t state() const noexcept;  // the stream position: unchanged unless a draw was made
 
 private:
     std::uint64_t state_;
@@ -92,6 +93,8 @@ public:
     void inject(const FailureInjection& injection) override;
     void start(const ComponentClock& clock) override;
     void begin_tick(kernel::SimTime t) override;
+    [[nodiscard]] const SignalRng& generator() const noexcept;
+    [[nodiscard]] std::vector<std::string> take_notes() override;
 
 protected:
     // Throws SignalNameError on a bad instance name; signal names are given without the instance part.
@@ -108,9 +111,12 @@ protected:
     [[nodiscard]] double output(std::size_t index) const;
     [[nodiscard]] SignalRng& rng() noexcept;
     [[nodiscard]] const ComponentClock& clock() const noexcept;
+    [[nodiscard]] std::span<const FailureInjection> injections() const noexcept;
     virtual void on_start() {}
+    void note(std::string line);
 
 private:
+    std::vector<std::string> notes_;
     std::string instance_;
     std::vector<std::string> inputs_;
     std::vector<std::string> outputs_;

@@ -40,16 +40,25 @@ def series_set(archive: RunArchive, names: Sequence[str]) -> dict[str, Series]:
 
 
 def columns(name: str, series: Series) -> list[tuple[str, str, NDArray[Any]]]:
-    """One (column name, unit, values) per scalar column; a multi-dimensional series yields `name[i,j]`."""
+    """One (column name, unit, values) per scalar column; a multi-dimensional series yields `name[i,j]`. An
+    index-column series with per-column labels (ruling 18) names its first column index by the entity, `name[x_axis]`
+    or `name[payload,2]`, and states that column's unit when the labels carry units."""
     values = series.values
     if values.ndim == 1:
         return [(name, series.unit, values)]
     tail = values.shape[1:]
+    labelled = len(series.names) == tail[0]
     flat = values.reshape(values.shape[0], int(np.prod(tail)))
     result: list[tuple[str, str, NDArray[Any]]] = []
     for column in range(flat.shape[1]):
-        index = ",".join(str(int(part)) for part in np.unravel_index(column, tail))
-        result.append((f"{name}[{index}]", series.unit, flat[:, column]))
+        position = [int(part) for part in np.unravel_index(column, tail)]
+        parts = [str(part) for part in position]
+        unit = series.unit
+        if labelled:
+            parts[0] = series.names[position[0]]
+            if len(series.units) == len(series.names):
+                unit = series.units[position[0]]
+        result.append((f"{name}[{','.join(parts)}]", unit, flat[:, column]))
     return result
 
 
@@ -71,6 +80,16 @@ def export_csv(archive: RunArchive, path: Path, names: Sequence[str]) -> None:
             rows = len(lists[0])
         for row in range(rows):
             writer.writerow([_cell(values[row]) for values in lists])
+
+
+def _json_series(series: Series) -> dict[str, Any]:
+    """Unit, axis and values; an index-column series adds its column `names` and, when labelled, their `units`."""
+    entry: dict[str, Any] = {"unit": series.unit, "axis": series.axis, "values": series.values.tolist()}
+    if len(series.names) > 0:
+        entry["names"] = list(series.names)
+    if len(series.units) > 0:
+        entry["units"] = list(series.units)
+    return entry
 
 
 def export_json(archive: RunArchive, path: Path, names: Sequence[str]) -> None:
@@ -107,10 +126,7 @@ def export_json(archive: RunArchive, path: Path, names: Sequence[str]) -> None:
             }
             for (row, event), seconds in zip(archive.events(), archive.events_table()["seconds"].tolist(), strict=True)
         ],
-        "series": {
-            name: {"unit": series.unit, "axis": series.axis, "values": series.values.tolist()}
-            for name, series in series_set(archive, names).items()
-        },
+        "series": {name: _json_series(series) for name, series in series_set(archive, names).items()},
     }
     try:
         text = json.dumps(document, allow_nan=False, ensure_ascii=False)
@@ -120,20 +136,38 @@ def export_json(archive: RunArchive, path: Path, names: Sequence[str]) -> None:
 
 
 def export_mat(archive: RunArchive, path: Path, names: Sequence[str]) -> None:
-    """MAT version 5: 1 x n cell arrays `series_names`, `series_units`, `series_values`, archive names verbatim."""
+    """MAT version 5: 1 x n cell arrays `series_names`, `series_units`, `series_values`, archive names verbatim, and
+    `series_columns`, `series_column_units` (each a cell of strings, empty for a series without column labels)."""
     chosen = series_set(archive, names)
     count = len(chosen)
     names_cell = np.empty((1, count), dtype=object)
     units_cell = np.empty((1, count), dtype=object)
     values_cell = np.empty((1, count), dtype=object)
+    columns_cell = np.empty((1, count), dtype=object)
+    column_units_cell = np.empty((1, count), dtype=object)
     for position, (name, series) in enumerate(chosen.items()):
         names_cell[0, position] = name
         units_cell[0, position] = series.unit
         values_cell[0, position] = series.values
+        columns_cell[0, position] = _string_cell(series.names)
+        column_units_cell[0, position] = _string_cell(series.units)
     scipy.io.savemat(
         path,
-        {"series_names": names_cell, "series_units": units_cell, "series_values": values_cell},
+        {
+            "series_names": names_cell,
+            "series_units": units_cell,
+            "series_values": values_cell,
+            "series_columns": columns_cell,
+            "series_column_units": column_units_cell,
+        },
         format=MAT_FORMAT,
         do_compression=False,
         oned_as="column",
     )
+
+
+def _string_cell(items: Sequence[str]) -> NDArray[Any]:
+    cell = np.empty((1, len(items)), dtype=object)
+    for position, item in enumerate(items):
+        cell[0, position] = item
+    return cell

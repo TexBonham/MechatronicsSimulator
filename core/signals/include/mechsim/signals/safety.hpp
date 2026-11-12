@@ -1,14 +1,20 @@
 #pragma once
 
+#include <cstddef>
 #include <cstdint>
 #include <optional>
+#include <span>
 #include <string>
+#include <vector>
+
+#include "mechsim/kernel/physics_types.hpp"
 
 #include "mechsim/signals/component_base.hpp"
 
 namespace mechsim::signals {
 
-// Catalog type power_supply: output `voltage`, V (SIG-015).
+// Catalog type power_supply: output `voltage`, V (SIG-015). A power_loss injection outputs 0 V for [start, end) and
+// the voltage again after, so every rail it feeds is off for the window (SIG-019).
 class PowerSupply final : public BuiltinComponent {
 public:
     // Throws SignalConfigError on a negative or non-finite voltage.
@@ -76,6 +82,69 @@ private:
     std::int64_t last_edge_ = 0;
     std::optional<std::int64_t> tripped_at_;
     bool closed_ = true;
+};
+
+// Catalog type brake (SIG-020, LIB-027, ruling 1 placeholder). joint is the neutral index of the joint it acts on.
+struct BrakeParams {
+    std::size_t joint = 0;
+    double brake_torque = 0.0;   // N m (N on a prismatic joint), > 0
+    double engage_delay = 0.0;   // s
+    double release_delay = 0.0;  // s
+    bool power_off_engaged = true;
+    double damping = 0.0;  // N m s/rad of the drive while engaged
+    // A0, the joint's inverse inertia (MuJoCo dof_invweight0) from the wiring; absent: the default stiffness.
+    std::optional<double> inverse_inertia;
+};
+
+inline constexpr double brake_envelope_product = 100.0;  // K_b A0 h^2: a quarter of the adapter envelope's 400
+inline constexpr double brake_default_compliance = 0.01;  // rad (m) of drive travel at brake_torque, without A0
+inline constexpr double brake_slip_stiffness_ratio = 1e-5;  // K_s / K_b while slipping
+
+// Inputs `release` (level), `vcc` (V, the coil rail). Outputs `engaged` (level), `torque` (the drive torque physics
+// applied in the step just taken, read back from joint_drive_torques; 0 while released).
+// Coil energised = vcc > 0 and release high. With power_off_engaged the brake engages while the coil is not
+// energised (release low or the rail off); without it, it engages while vcc > 0 and release is low. The first sample
+// takes the demanded state at once; after that a change of demand first seen at sample k takes effect at k +
+// periods_floor(engage_delay or release_delay), cancelled if the demand reverts first.
+// While engaged it publishes one joint drive (PHY-034) on joint: stiffness K_b = brake_envelope_product / (A0 h^2)
+// with A0 given (h the layer period, so K_b A0 h^2 = 100 < 400), else brake_torque / brake_default_compliance;
+// damping as given. Holding: rest is the joint coordinate at engagement, or where it sticks. It slips when it engages
+// on a moving joint (s = -sign omega) or when the read-back torque exceeds brake_torque in magnitude (s its sign):
+// each step it publishes stiffness K_s = brake_slip_stiffness_ratio K_b, damping 0, rest theta + omega h +
+// s brake_torque / K_s (omega, alpha the backward differences of the joint coordinate), so the implicit drive applies
+// s brake_torque at the step's end state to within the apparent inertia K_s h^2 (a pure Coulomb torque; the
+// extrapolation by alpha h^2 grew 2.7x per step at K_b A0 h^2 = 100). It sticks (rest theta, K_b) once omega or the
+// predicted omega + alpha h no longer moves against s, that is when stopping within the step needs less than
+// brake_torque.
+class Brake final : public BuiltinComponent {
+public:
+    // Throws SignalConfigError on a non-positive brake torque or inverse inertia, or a negative delay or damping.
+    Brake(std::string instance, BrakeParams params);
+
+    void sample(const PhysicalState& state) override;
+    void latch_outputs() override;
+    [[nodiscard]] std::span<const kernel::JointDrive> joint_drives() const override;
+    [[nodiscard]] double stiffness() const noexcept;  // K_b, after start()
+
+private:
+    void on_start() override;
+
+    BrakeParams params_;
+    double stiffness_ = 0.0;
+    std::int64_t engage_periods_ = 0;
+    std::int64_t release_periods_ = 0;
+    bool primed_ = false;
+    bool engaged_ = false;
+    bool slipping_ = false;
+    double slip_sign_ = 0.0;
+    std::optional<std::int64_t> pending_since_;
+    double theta_ = 0.0;
+    double omega_ = 0.0;
+    double alpha_ = 0.0;
+    std::int64_t readings_ = 0;
+    double torque_ = 0.0;
+    double drive_rest_ = 0.0;
+    std::vector<kernel::JointDrive> drive_;
 };
 
 }  // namespace mechsim::signals

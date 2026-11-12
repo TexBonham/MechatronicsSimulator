@@ -1173,7 +1173,7 @@ def test_every_gantry_signal_bound_exactly_once() -> None:
     design = accepted(gantry())
     bound = sorted(binding.signal for binding in design.pin_bindings)
     assert bound == sorted(design.signal_names())
-    assert len(bound) == 24
+    assert len(bound) == 27  # 24 plus load_amp.out, estop.status, lift_brake.release (M2-X1)
 
 
 # ===== Power ===========================================================
@@ -1337,7 +1337,7 @@ def bus_registry(directory: Path) -> Registry:
 def test_gantry_wiring_connects_supply_safety_drivers_and_motors() -> None:
     design = accepted(gantry())
     pairs = [(item.source, item.destination) for item in design.wiring]
-    assert len(pairs) == 21
+    assert len(pairs) == 28
     assert ("motor_supply.v_out", "estop.contact_in") in pairs
     assert ("estop.contact_out", "watchdog.contact_in") in pairs
     for axis in ("x", "y", "lift"):
@@ -1346,7 +1346,7 @@ def test_gantry_wiring_connects_supply_safety_drivers_and_motors() -> None:
         assert ("logic_psu.v_out", f"{axis}_encoder.vcc") in pairs
         assert (f"{axis}_driver.coil_b", f"{axis}_motor.coil_b") in pairs
     assert design.power is not None
-    assert design.power.rails[0].consumers == ["x_driver", "y_driver", "lift_driver"]
+    assert design.power.rails[0].consumers == ["x_driver", "y_driver", "lift_driver", "lift_brake"]
 
 
 @pytest.mark.req("DES-041")
@@ -1420,14 +1420,14 @@ def test_signal_port_wired_twice_rejected() -> None:
     data = gantry()
     data["wiring"].append(wire("x_driver.coil_a", "y_motor.coil_b"))
     del data["wiring"][12]
-    rejected(data, "signal port 'x_driver.coil_a' is connected more than once (wiring[9], wiring[20])")
+    rejected(data, "signal port 'x_driver.coil_a' is connected more than once (wiring[9], wiring[27])")
 
 
 @pytest.mark.req("DES-041")
 def test_signal_port_driven_by_controller_and_wire_rejected() -> None:
     data = gantry()
-    data["wiring"].append(wire("estop.status", "x_driver.step"))
-    rejected(data, "signal port 'x_driver.step' is connected more than once (signal 'x_driver.step', wiring[21])")
+    data["wiring"].append(wire("watchdog.tripped", "x_driver.step"))
+    rejected(data, "signal port 'x_driver.step' is connected more than once (signal 'x_driver.step', wiring[28])")
 
 
 @pytest.mark.req("DES-041")
@@ -1442,7 +1442,7 @@ def test_power_ports_may_be_shared() -> None:
 def test_duplicate_wire_rejected() -> None:
     data = gantry()
     data["wiring"].append(wire("motor_supply.v_out", "estop.contact_in"))
-    rejected(data, "wiring[21]: duplicate wire 'motor_supply.v_out' to 'estop.contact_in'")
+    rejected(data, "wiring[28]: duplicate wire 'motor_supply.v_out' to 'estop.contact_in'")
 
 
 @pytest.mark.req("DES-041")
@@ -1455,7 +1455,7 @@ def test_bidirectional_ports_wire_to_inputs_and_each_other(tmp_path: Path, sourc
     data = gantry()
     data["components"].append({"name": "node_a", "type": "bus_node", "part": "bus_node_24v_generic"})
     data["components"].append({"name": "node_b", "type": "bus_node", "part": "bus_node_24v_generic"})
-    ends = {"output": "estop.status", "input": "node_b.heartbeat", "bidirectional": "node_a.bus"}
+    ends = {"output": "watchdog.tripped", "input": "node_b.heartbeat", "bidirectional": "node_a.bus"}
     target = ends[destination]
     if source == destination:
         target = "node_b.bus"
@@ -1468,7 +1468,7 @@ def test_bidirectional_port_cannot_drive_an_output(tmp_path: Path) -> None:
     registry = bus_registry(tmp_path)
     data = gantry()
     data["components"].append({"name": "node_a", "type": "bus_node", "part": "bus_node_24v_generic"})
-    data["wiring"].append(wire("node_a.bus", "estop.status"))
+    data["wiring"].append(wire("node_a.bus", "watchdog.tripped"))
     with pytest.raises(ValidationError, match=re.escape("cannot wire bidirectional port 'node_a.bus' to output")):
         Design.model_validate(data, context={"registry": registry})
 
@@ -1827,6 +1827,10 @@ def test_chips_from_context_replace_the_shipped_set() -> None:
             "status": "placeholder",
             "platform_description": "placeholder",
             "svd": "placeholder",
+            "core_voltage": "3.3 V",
+            "brownout_threshold": "2.0 V",
+            "adc": {"resolution_bits": 12, "reference_voltage": "3.3 V"},
+            "counter_bits": 16,
             "pins": [{"name": "PA0", "modes": ["digital_output"]}],
         }
     )
@@ -1843,7 +1847,7 @@ def test_chips_from_context_replace_the_shipped_set() -> None:
 def test_gantry_operator_messages_use_requirements_labels_verbatim() -> None:
     design = accepted(gantry())
     labels = [message.label for message in design.operator_messages]
-    assert labels == ["target (x, y)", "home", "current position", "ready / fault"]
+    assert labels == ["target (x, y)", "home", "lift", "reset", "current position", "ready / fault"]
 
 
 @pytest.mark.req("SIG-027")
@@ -2053,3 +2057,140 @@ def test_import_result_types_validate() -> None:
         cad.UrdfImportResult(bodies=[], joints=[])
     with pytest.raises(ValidationError):
         cad.UrdfJoint(name="j", type="hinge", parent="a", child="b")
+
+
+# ===== Milestone 2 senses, acts_on, event codes (DES-043, DES-045) =====
+
+
+def _m2_errors(data: dict[str, Any]) -> list[str]:
+    from mechsim.design.schema import cross_check, shipped_materials
+    from mechsim.library.registry import default_registry
+
+    try:
+        design = Design.model_validate(data, context={"base": GANTRY.parent})
+    except ValidationError as error:
+        return [str(error)]
+    return cross_check(design, default_registry(), shipped_materials())
+
+
+@pytest.mark.req("DES-043")
+def test_shipped_gantry_load_cell_senses_the_payload_and_the_brake_acts_on_the_lift_motor_shaft() -> None:
+    data = gantry()
+    assert _m2_errors(data) == []
+    assert component(data, "load_cell")["senses"] == {"joint_reaction": "payload"}
+    assert component(data, "lift_brake")["acts_on"] == {"joint": "lift_motor_spin"}
+
+
+@pytest.mark.req("DES-043")
+@pytest.mark.parametrize(
+    ("name", "senses", "message"),
+    [
+        ("load_cell", None, "must name the joint or payload or joint_reaction it senses"),
+        ("load_cell", {}, "must name one of joint, payload, joint_reaction"),
+        ("load_cell", {"payload": "payload", "joint": "lift_axis"}, "exactly one is allowed"),
+        ("load_cell", {"joint_reaction": "payload", "payload": "payload"}, "exactly one is allowed"),
+        ("load_cell", {"joint_reaction": 3}, "Input should be a valid string"),
+        ("x_encoder", {"joint_reaction": "payload"}, "takes no joint_reaction"),
+        ("load_cell", {"joint_reaction": "payload", "position": "0 m"}, "takes no position"),
+        ("load_cell", {"body": "hook"}, "takes no body"),
+        ("load_cell", {"payload": 3}, "Input should be a valid string"),
+        ("load_cell", {"joint": "nowhere"}, "unknown joint 'nowhere'"),
+        ("load_cell", {"payload": "payload", "position": "0 m"}, "takes no position"),
+        ("x_encoder", {"payload": "payload"}, "takes no payload"),
+        ("x_min_switch", {"body": "hook", "position": "0 m", "actuate_above": False}, "takes no body"),
+    ],
+)
+def test_payload_and_body_senses_rules(name: str, senses: dict[str, Any] | None, message: str) -> None:
+    data = gantry()
+    found = component(data, name)
+    found.pop("senses", None)
+    if senses is not None:
+        found["senses"] = senses
+    errors = _m2_errors(data)
+    assert any(message in error for error in errors), errors
+
+
+@pytest.mark.req("DES-043")
+@pytest.mark.parametrize(
+    "senses",
+    [{"joint": "lift_axis"}, {"payload": "payload"}, {"joint_reaction": "hook_swing"}, {"joint_reaction": "payload"}],
+)
+def test_load_cell_may_sense_a_joint_a_payload_or_a_joint_reaction(senses: dict[str, Any]) -> None:
+    # joint_reaction names a design joint or, when it is none, a case payload (its fixed joint, ruling 24); the
+    # payload is case data, so the design check accepts any name there.
+    data = gantry()
+    component(data, "load_cell")["senses"] = senses
+    assert _m2_errors(data) == []
+
+
+@pytest.mark.req("DES-043")
+@pytest.mark.parametrize(
+    ("name", "acts_on", "message"),
+    [
+        ("lift_brake", None, "must name the joint it acts on"),
+        ("lift_brake", {"joint": "nowhere"}, "unknown joint 'nowhere'"),
+        ("lift_brake", {"joint": 5}, "Input should be a valid string"),
+        ("lift_brake", {"joint": "lift_axis", "body": "hook"}, "Extra inputs are not permitted"),
+        ("x_motor", {"joint": "x_motor_spin"}, "only brake instances act on a joint"),
+    ],
+)
+def test_acts_on_rules(name: str, acts_on: dict[str, Any] | None, message: str) -> None:
+    data = gantry()
+    found = component(data, name)
+    found.pop("acts_on", None)
+    if acts_on is not None:
+        found["acts_on"] = acts_on
+    errors = _m2_errors(data)
+    assert any(message in error for error in errors), errors
+
+
+@pytest.mark.req("DES-045")
+def test_event_codes_name_the_firmware_events() -> None:
+    design = accepted(gantry())
+    assert design.firmware is not None
+    assert design.firmware.event_name(6) == "motion_start"
+    assert design.firmware.event_name(7) == "motion_end"
+    assert design.firmware.event_name(3) == "refused"
+    assert design.firmware.event_name(1) == "state_change"
+    assert design.firmware.event_name(4) == "fault_latched"
+    assert design.firmware.event_name(2) is None
+    assert design.firmware.event_argument(6) == "axis"
+    assert design.firmware.event_argument(7) == "axis"
+    assert design.firmware.event_argument(3) == "fault"
+    assert design.firmware.event_argument(4) == "fault"
+    assert design.firmware.event_argument(1) == "state"
+    assert design.firmware.event_argument(2) is None
+    assert design.firmware.fault_name(10) == "overload"
+    assert design.firmware.fault_name(14) == "nothing_to_reset"
+
+
+@pytest.mark.req("DES-045")
+@pytest.mark.parametrize(
+    ("codes", "message"),
+    [
+        ({256: {"name": "big", "argument": "number"}}, "event_codes: code '256' is not an integer 0..255"),
+        ({"x": {"name": "letter", "argument": "number"}}, "event_codes: code 'x'"),
+        ({6: {"name": "same", "argument": "axis"}, 7: {"name": "same", "argument": "axis"}}, "event_codes name"),
+        ({6: {"name": "Bad-Name", "argument": "axis"}}, "String should match pattern"),
+        ({6: {"name": 7, "argument": "axis"}}, "Input should be a valid string"),
+        ({6: "motion_start"}, "event_codes.6"),
+        ({6: {"name": "motion_start"}}, "argument"),
+        ({6: {"name": "motion_start", "argument": "channel"}}, "argument"),
+        ({6: {"name": "motion_start", "argument": "axis", "extra": 1}}, "extra"),
+    ],
+)
+def test_event_code_rules(codes: dict[Any, Any], message: str) -> None:
+    """Round 4 ruling 28: every entry names the event and its argument kind (axis, fault, state, number, none)."""
+    data = gantry()
+    data["firmware"]["event_codes"] = codes
+    rejected(data, message)
+
+
+@pytest.mark.req("DES-045")
+def test_lift_and_reset_messages_are_declared() -> None:
+    design = accepted(gantry())
+    messages = {message.name: message for message in design.operator_messages}
+    assert [field.name for field in messages["lift"].fields] == ["z"]
+    assert messages["lift"].fields[0].dimension == "[length]"
+    assert messages["reset"].fields == []
+    assert messages["reset"].destination == "controller"

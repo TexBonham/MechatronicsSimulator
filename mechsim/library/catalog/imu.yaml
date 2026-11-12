@@ -1,0 +1,129 @@
+# Six-axis IMU (LIB-019, LIB-025). The chip vocabulary has no serial peripheral mode yet (open ruling 2 in
+# docs/queue.md), so the IMU exposes one analog output per axis until one exists. Numeric part values are placeholders.
+types:
+  - name: imu
+    version: 1.0.0
+    category: sensor
+    description: Three-axis accelerometer and three-axis gyroscope with an analog output per axis.
+    parameters:
+      - name: mass
+        dimension: "[mass]"
+        minimum: "0 kg"
+      - name: accel_range
+        dimension: "[length] / [time] ** 2"
+        minimum: "0 m/s^2"
+        minimum_exclusive: true
+      - name: gyro_range
+        dimension: "1 / [time]"
+        minimum: "0 rad/s"
+        minimum_exclusive: true
+      - name: resolution
+        dimension: "[length] / [time] ** 2"
+        minimum: "0 m/s^2"
+        description: Accelerometer least significant bit.
+      - name: gyro_resolution
+        dimension: "1 / [time]"
+        minimum: "0 rad/s"
+      - name: noise
+        dimension: "[length] / [time] ** 2"
+        default: "0 m/s^2"
+        minimum: "0 m/s^2"
+      - name: gyro_noise
+        dimension: "1 / [time]"
+        default: "0 rad/s"
+        minimum: "0 rad/s"
+      - name: delay
+        dimension: "[time]"
+        default: "0 s"
+        minimum: "0 s"
+      - name: sample_rate
+        dimension: "1 / [time]"
+        minimum: "1 Hz"
+      - name: supply_voltage
+        dimension: "[mass] * [length] ** 2 / [time] ** 3 / [current]"
+        minimum: "0 V"
+        minimum_exclusive: true
+      - name: supply_current
+        dimension: "[current]"
+        minimum: "0 A"
+    tiers:
+      - name: ideal
+        parameters:
+          - mass
+          - accel_range
+          - gyro_range
+          - resolution
+          - gyro_resolution
+          - noise
+          - gyro_noise
+          - delay
+          - sample_rate
+          - supply_voltage
+          - supply_current
+    mechanical:
+      mass:
+        source: parameter
+        parameter: mass
+      mounts:
+        - name: body
+          kind: bolt_pattern
+          offset: ["0 mm", "0 mm", "0 mm"]
+    electrical:
+      pins:
+        - name: accel_x
+          direction: output
+          signal_kind: analog
+        - name: accel_y
+          direction: output
+          signal_kind: analog
+        - name: accel_z
+          direction: output
+          signal_kind: analog
+        - name: gyro_x
+          direction: output
+          signal_kind: analog
+        - name: gyro_y
+          direction: output
+          signal_kind: analog
+        - name: gyro_z
+          direction: output
+          signal_kind: analog
+        - name: vcc
+          direction: power_in
+          signal_kind: power
+          voltage_rating: supply_voltage
+          current_rating: supply_current
+        - name: ground
+          direction: ground
+          signal_kind: ground
+    ratings:
+      absolute_maximums: []
+    thermal:
+      held_constant: true
+      temperature: "298.15 K"
+    failure_modes: [stuck, noisy, dropped]
+    plugin:
+      cpp: imu
+parts:
+  - name: imu_6axis_generic
+    type: imu
+    tier: ideal
+    source: placeholder values, no datasheet assigned
+    values:
+      mass: "3 g"
+      accel_range: "39.24 m/s^2"
+      gyro_range: "500 deg/s"
+      resolution: "1.2e-3 m/s^2"
+      gyro_resolution: "0.015 deg/s"
+      sample_rate: "200 Hz"
+      supply_voltage: "3.3 V"
+      supply_current: "3 mA"
+    placeholders:
+      - mass
+      - accel_range
+      - gyro_range
+      - resolution
+      - gyro_resolution
+      - sample_rate
+      - supply_voltage
+      - supply_current

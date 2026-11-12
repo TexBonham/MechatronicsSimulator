@@ -54,6 +54,8 @@ function(mechsim_fw_add_app name)
     if(NOT CMAKE_CROSSCOMPILING)
         add_library(${name}_native SHARED ${sources})
         mechsim_fw_configure_app(${name}_native)
+        # MSVC exports nothing from a DLL by default; the entry points stay free of vendor export macros (invariant 8).
+        set_target_properties(${name}_native PROPERTIES WINDOWS_EXPORT_ALL_SYMBOLS ON)
     endif()
 endfunction()
 

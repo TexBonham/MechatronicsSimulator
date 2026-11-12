@@ -44,10 +44,11 @@ docs/                 architecture and requirements docs
 
 ## Setup
 
-The stack builds and runs on Linux x86_64 today: MuJoCo 3.9.0 is pinned to its Linux x86_64 release archive and the
-extension loads `libmujoco.so` beside itself (`core/cmake/MuJoCo.cmake`). On Windows use WSL2 with Ubuntu 24.04 and
-keep the clone inside the Linux filesystem; native Windows and macOS builds are the milestone 2 CI item (R1). The
-versions below are the ones milestone 1 was gated on.
+The stack builds and runs on Linux x86_64: MuJoCo 3.9.0 is pinned to its Linux x86_64 release archive and the
+extension loads `libmujoco.so` beside itself (`core/cmake/MuJoCo.cmake`). On Windows, WSL2 with Ubuntu 24.04 (clone
+inside the Linux filesystem) follows the Linux steps unchanged; the native Windows build is the milestone 2 CI item
+(R1, Windows only; macOS stays out, open ruling 5) and is described below the table. The versions below are the ones
+milestone 1 was gated on.
 
 | Dependency | Version used | Install (Ubuntu 24.04, WSL2 included) |
 |---|---|---|
@@ -57,8 +58,19 @@ versions below are the ones milestone 1 was gated on.
 | Ninja | 1.11.1 | `sudo apt install ninja-build` |
 | clang-tidy | 18 (Ubuntu 24.04 default) | `sudo apt install clang-tidy` |
 | Python | 3.12 or newer (3.13 in CI) | `sudo apt install python3 python3-venv` or let uv manage it |
+| Python headers (`Python.h`, pybind11 extension build) | matching the interpreter | `sudo apt install python3-dev` (uv-managed Pythons ship them) |
 | uv | 0.11 or newer | `curl -LsSf https://astral.sh/uv/install.sh \| sh` |
 | arm-none-eabi GCC (optional, cross preset only) | any 12+ | `sudo apt install gcc-arm-none-eabi` |
+
+Native Windows x86_64 (no WSL needed): Visual Studio 2022 Build Tools with the "Desktop development with C++"
+workload (MSVC, plus the CMake 3.28+ and Ninja it bundles), Git and uv. Run every command below from a "Developer
+PowerShell for VS 2022" (or after `vcvars64.bat`) so `cl`, `cmake` and `ninja` are on `PATH`; that includes `uv run
+pytest`, because the acceptance tier builds the firmware host library at run time (CTL-007). Use the presets
+`windows-debug` (Debug, no sanitizers: MSVC has no UBSan; no clang-tidy) and `windows-release` in place of
+`debug-sanitize` and `release`, and set `CMAKE_GENERATOR=Ninja` before `uv sync`. MuJoCo comes from its pinned Windows
+release archive and `mujoco.dll` is shipped beside the extension. `.gitattributes` keeps LF line endings on checkout, so
+the design file's git blob hash (REC-014) matches Linux. The h5py, numpy and scipy wheels are self-contained on Windows;
+no system library is needed.
 
 Fetched at configure time, so the first build needs network access to github.com and PyPI: pybind11 v3.0.1, Eigen
 3.4.0, Catch2 v3.7.1, MuJoCo 3.9.0 (SHA-256 pinned), and the Python packages in `uv.lock` (numpy, scipy, pydantic 2,
@@ -97,6 +109,12 @@ cmake --preset release && cmake --build --preset release
 Build trees go to `build/<preset>/`; the Python extension builds under `build/python/`; the native runtime builds
 the design's firmware for the host once per process under the system temp directory
 (`mechsim-native-build/<target>-<hz>-<tree hash>`). Run archives (`*.h5`) are never committed.
+
+Browser client: `uv run mechsim serve` starts the facade service on 127.0.0.1 and prints one line,
+`http://127.0.0.1:<port>/?token=<token>`; open it in a browser to list designs, run a case or open a run archive
+(`runs/<run id>.h5`), and replay it in 3D with scrubbing, the event timeline and probes. The page and its WebSocket
+share the port; paths are relative to `--files-root` (default the repository root). No build step: `web/` is plain ES
+modules with three.js vendored (`web/README.md`).
 
 Working with Claude Code on this repository: the project's agents, commands and hooks are in `.claude/` and come
 with the clone; the global workflow rules live in the `claude-config` repository (its `CLAUDE.md` is the user-level

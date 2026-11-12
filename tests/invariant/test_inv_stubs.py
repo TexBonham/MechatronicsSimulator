@@ -1,6 +1,11 @@
 """Strict-xfail stubs for the INV spec (invariant tier)."""
 
+from typing import Any
+
 import pytest
+from ruamel.yaml import YAML
+
+from mechsim.testing.schema import ROOT
 
 
 @pytest.mark.req("INV-001")
@@ -148,3 +153,28 @@ def test_inv_018() -> None:
 def test_inv_019() -> None:
     """CI shall run lint, type checks and every test tier headless on Ubuntu."""
     raise NotImplementedError
+
+
+def _workflow_jobs(name: str) -> dict[str, Any]:
+    document = YAML(typ="safe", pure=True).load((ROOT / ".github" / "workflows" / f"{name}.yml").read_text("utf-8"))
+    jobs: dict[str, Any] = document["jobs"]
+    return jobs
+
+
+def _run_steps(job: dict[str, Any]) -> list[str]:
+    return [str(step["run"]) for step in job["steps"] if "run" in step and "Install" not in str(step.get("name", ""))]
+
+
+@pytest.mark.req("INV-020")
+@pytest.mark.parametrize("workflow", ["cpp", "python", "firmware"])
+def test_inv_020_every_workflow_runs_on_linux_and_windows(workflow: str) -> None:
+    runners = {str(job["runs-on"]) for job in _workflow_jobs(workflow).values()}
+    assert {"ubuntu-24.04", "windows-2022"} <= runners
+
+
+@pytest.mark.req("INV-020")
+def test_inv_020_python_steps_match_across_runners() -> None:
+    jobs = _workflow_jobs("python")
+    by_runner = {str(job["runs-on"]): _run_steps(job) for job in jobs.values()}
+    assert by_runner["windows-2022"] == by_runner["ubuntu-24.04"]
+    assert "uv run pytest" in by_runner["windows-2022"]

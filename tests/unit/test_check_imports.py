@@ -112,7 +112,9 @@ def test_oracles_forbidden_outside_tests(tmp_path: Path, module: str, location: 
 # ===== mechsim.viewer =================================================================================================
 
 
-@pytest.mark.parametrize("location", ["mechsim/viewer/timeline.py", "tests/unit/test_viewer.py"])
+@pytest.mark.parametrize(
+    "location", ["mechsim/viewer/timeline.py", "mechsim/facade/service.py", "tests/unit/test_viewer.py"]
+)
 @pytest.mark.parametrize(
     "source",
     ["import mechsim.viewer\n", "from mechsim import viewer\n", "from mechsim.viewer import x\n"],
@@ -121,7 +123,7 @@ def test_viewer_import_allowed(tmp_path: Path, location: str, source: str) -> No
     assert violations_for(tmp_path, location, source) == []
 
 
-@pytest.mark.parametrize("location", ["mechsim/facade/service.py", "mechsim/__init__.py", "tools/t.py", "web/x.py"])
+@pytest.mark.parametrize("location", ["mechsim/cli.py", "mechsim/__init__.py", "tools/t.py", "web/x.py"])
 @pytest.mark.parametrize(
     "source",
     [

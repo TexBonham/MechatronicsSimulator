@@ -29,11 +29,14 @@
             "actuator",
             "driver",
             "sensor",
+            "front_end",
             "transmission",
             "power",
             "safety",
             "body",
-            "joint"
+            "joint",
+            "payload",
+            "end_effector"
           ],
           "title": "Category",
           "type": "string"
@@ -52,6 +55,17 @@
         },
         "electrical": {
           "$ref": "#/$defs/ElectricalFacet"
+        },
+        "events": {
+          "items": {
+            "enum": [
+              "attach",
+              "release"
+            ],
+            "type": "string"
+          },
+          "title": "Events",
+          "type": "array"
         },
         "failure_modes": {
           "items": {
@@ -581,6 +595,12 @@
           ],
           "default": null,
           "title": "Minimum"
+        },
+        "minimum_exclusive": {
+          "default": false,
+          "description": "True: a value must lie strictly above the minimum",
+          "title": "Minimum Exclusive",
+          "type": "boolean"
         },
         "name": {
           "pattern": "^[a-z][a-z0-9_]*$",

@@ -12,10 +12,17 @@ from mechsim.library.schema import CATALOG_DIR
 
 SHIPPED_TYPES = [
     "belt_pulley",
+    "brake",
+    "end_effector",
     "estop_relay",
+    "imu",
     "incremental_encoder",
     "lead_screw",
     "limit_switch",
+    "linear_encoder",
+    "load_cell",
+    "load_cell_amplifier",
+    "payload",
     "power_supply",
     "step_dir_driver",
     "stepper_behavioral",
@@ -34,7 +41,9 @@ def test_registry_loads_every_shipped_type_and_part() -> None:
     registry = load_registry()
     assert registry.type_names() == SHIPPED_TYPES
     assert "nema17_class_generic" in registry.part_names()
-    assert len(registry.part_names()) == len(SHIPPED_TYPES)
+    # One part per type, but stepper_behavioral ships two: the NEMA 17 and the NEMA 23 class (G16's sweep, ruling 31).
+    assert "nema23_class_generic" in registry.part_names()
+    assert len(registry.part_names()) == len(SHIPPED_TYPES) + 1
     assert registry.part("nema17_class_generic").type == "stepper_behavioral"
     assert registry.component_type("limit_switch").category == "sensor"
 
@@ -43,6 +52,26 @@ def test_registry_loads_every_shipped_type_and_part() -> None:
 def test_default_registry_is_loaded_once() -> None:
     assert default_registry() is default_registry()
     assert default_registry().type_names() == SHIPPED_TYPES
+
+
+@pytest.mark.req("DES-039")
+@pytest.mark.req("LIB-019")
+@pytest.mark.req("LIB-027")
+@pytest.mark.parametrize(
+    ("type_name", "part_name", "category"),
+    [
+        ("load_cell", "load_cell_5kg_generic", "sensor"),
+        ("load_cell_amplifier", "load_cell_amplifier_generic", "front_end"),
+        ("imu", "imu_6axis_generic", "sensor"),
+        ("brake", "brake_24v_generic", "safety"),
+    ],
+)
+def test_milestone_2_types_resolve_from_the_default_registry(type_name: str, part_name: str, category: str) -> None:
+    registry = default_registry()
+    assert registry.has_type(type_name)
+    assert registry.component_type(type_name).category == category
+    assert registry.part(part_name).type == type_name
+    assert registry.resolve_part(part_name).type == type_name
 
 
 @pytest.mark.req("DES-039")
@@ -116,3 +145,33 @@ def test_unknown_lookup_rejected(lookup: str) -> None:
     registry = load_registry()
     with pytest.raises(RegistryError, match="no "):
         getattr(registry, lookup)("ghost")
+
+
+@pytest.mark.req("LIB-016")
+def test_a_parameter_override_is_dimension_checked_against_its_type() -> None:
+    registry = default_registry()
+    assert registry.parameter_override("stepper_behavioral", "rotor_inertia", "60 g*cm**2") == "60 g*cm**2"
+    assert registry.parameter_override("estop_relay", "manual_reset", "true") is True
+    assert registry.parameter_override("estop_relay", "manual_reset", "false") is False
+    with pytest.raises(RegistryError, match=r"stepper_behavioral\.rotor_inertia \(\[mass\] \* \[length\] \*\* 2\)"):
+        registry.parameter_override("stepper_behavioral", "rotor_inertia", "60 g")
+    with pytest.raises(RegistryError, match="must start with a number"):
+        registry.parameter_override("stepper_behavioral", "rotor_inertia", "heavy")
+    with pytest.raises(RegistryError, match="is a flag: give true or false, got 'True'"):
+        registry.parameter_override("estop_relay", "manual_reset", "True")
+    with pytest.raises(RegistryError, match="component type 'stepper_behavioral' has no parameter 'colour'"):
+        registry.parameter_override("stepper_behavioral", "colour", "red")
+    with pytest.raises(RegistryError, match="no component type 'warp_drive'"):
+        registry.parameter_override("warp_drive", "mass", "1 kg")
+
+
+@pytest.mark.req("LIB-017")
+def test_a_part_substitutes_only_for_its_own_type() -> None:
+    registry = default_registry()
+    assert registry.substitute_part("stepper_behavioral", "nema17_class_generic").type == "stepper_behavioral"
+    with pytest.raises(RegistryError, match="part 'tr8x8_generic' is a 'lead_screw', not a 'stepper_behavioral'"):
+        registry.substitute_part("stepper_behavioral", "tr8x8_generic")
+    with pytest.raises(
+        RegistryError, match="no catalog part 'nema99' in the catalog \\(instance type 'stepper_behavioral'\\)"
+    ):
+        registry.substitute_part("stepper_behavioral", "nema99")

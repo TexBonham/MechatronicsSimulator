@@ -51,7 +51,7 @@ proposed <value>)".
 | REC-015 | The recorder shall export any recorded series as CSV. | Architecture doc, Modules: outputs, Recorder and Exports rows; Requirements doc, Outputs and acceptance criteria, Outputs per run | M1 | unit | n/a |
 | REC-016 | The recorder shall export any recorded series as JSON. | Architecture doc, Modules: outputs, Recorder and Exports rows; Requirements doc, Outputs and acceptance criteria, Outputs per run | M1 | unit | n/a |
 | REC-017 | The recorder shall export any recorded series as a MAT file. | Architecture doc, Modules: outputs, Recorder and Exports rows; Requirements doc, Outputs and acceptance criteria, Outputs per run | M1 | unit | n/a |
-| REC-018 | Every archive series and export shall hold SI values and state the unit of each quantity explicitly. | Architecture doc, Repository starting point, invariant 3; ADR 0012 (L5) | M1 | unit | n/a |
+| REC-018 | Every archive series and export shall hold SI values and state the unit of each quantity explicitly; an index-column series with per-column names and units (round 4 ruling 18) is exported with them: CSV header cells `series[name] [unit]`, JSON `names` and `units`, MAT `series_columns` and `series_column_units`. | Architecture doc, Repository starting point, invariant 3; ADR 0012 (L5) | M1 | unit | n/a |
 | REC-019 | The recorder shall expose a streaming interface through which a consumer receives recorded ticks during a run. | ADR 0006, Decision, Recorder; Ruling R-15 | M1 | unit | n/a |
 | REC-020 | A streaming consumer shall not change the recording or the run it observes. | ADR 0006, Decision, Recorder; Architecture doc, Repository starting point, invariant 4 | M1 | unit | n/a |
 | REC-021 | No run archive shall be tracked in git. | ADR 0012 (D4) | M1 | invariant | n/a |
@@ -60,7 +60,7 @@ proposed <value>)".
 | REC-024 | A run archive shall hold everything replay needs, so that a run replays without the engine that produced it. | ADR 0006, Consequences | M1 | unit | n/a |
 | REC-025 | The run archive shall record how the run ended: end condition reached, or the run error report with its simulated time. | Architecture doc, Data flows, run step 4; Repository starting point, invariant 7 | M1 | unit | n/a |
 | REC-026 | The recorder shall record every rope tension on every physics tick. | Architecture doc, Modules: core, Physics engine row, Interface out | M3 | unit | n/a |
-| REC-027 | The recorder shall record the actuator torques and forces the signal layer applies to physics on every tick. | Architecture doc, Modules: core, Signal layer row, Interface out; Requirements doc, Outputs and acceptance criteria, Outputs per run | M1 | unit | n/a |
+| REC-027 | The recorder shall record the actuator torques and forces the signal layer applies to physics on every tick, with the joint positions and joint drive torques and the payload attachment states physics reports, each column named and with its unit when the neutral model supplies them. | Architecture doc, Modules: core, Signal layer row, Interface out; Requirements doc, Outputs and acceptance criteria, Outputs per run | M1 | unit | n/a |
 | REC-028 | The recorder shall record every coupling variable at each row's sync point, a scalar by value and a typed payload by the SHA-256 digest of its canonical content, so that run-twice comparison covers the co-simulation traffic. | Architecture doc, Repository starting point, invariant 4; KER-022 | M1 | unit | n/a |
 
 ## Open parameters
@@ -68,7 +68,7 @@ proposed <value>)".
 | Parameter | Current value | Owed by |
 |---|---|---|
 | Recording rate of pulse-level signals finer than the physics step | not set | phase 1 contracts |
-| HDF5 archive layout (groups, datasets, attribute names) | format `mechsim-run-archive` version 1, layout in `mechsim/record/CLAUDE.md` | set (M1-F) |
+| HDF5 archive layout (groups, datasets, attribute names) | format `mechsim-run-archive` version 2 (adds joint, drive and payload series and per-column `names` and `units`); the reader also accepts version 1, missing series reading as empty; layout in `mechsim/record/CLAUDE.md` | set (M1-F, M2-B) |
 | Which git hashes are recorded (repository, firmware tree, design file) | repository HEAD commit (`unset` outside git), design file blob hash, test case file blob hash; firmware tree not set | firmware tree: M1 integration |
 | Archive comparison rule for run-twice determinism (bitwise file or recorded content) | recorded content; `archives_identical` also reports byte identity, which the synthetic run-twice test asserts | phase 1 contracts |
 | Streaming interface shape and back-pressure | C++ seam: `RecorderSink::subscribe`, callback per row, synchronous, in subscription order (brief C5); Python consumer `Recorder.subscribe`, same semantics; `InMemoryRecorderSink` stores each row before dispatch, hands it out const, removes a subscriber that throws and keeps its error (REC-020), applies subscribe and unsubscribe made inside a callback from the next row, and `drain()` returns rows since the last drain (M1-B, for owner review); facade-side shape and back-pressure not set | phase 1 ADR (facade protocol) |

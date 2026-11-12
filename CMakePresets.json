@@ -13,6 +13,17 @@
             "binaryDir": "${sourceDir}/build/${presetName}"
         },
         {
+            "name": "debug",
+            "displayName": "Debug with sanitizers, no clang-tidy (agent iteration; landing and CI use debug-sanitize)",
+            "inherits": "base",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Debug",
+                "CMAKE_CXX_FLAGS": "-O1 -fsanitize=address,undefined -fno-omit-frame-pointer -fno-sanitize-recover=all",
+                "CMAKE_EXE_LINKER_FLAGS": "-fsanitize=address,undefined",
+                "CMAKE_SHARED_LINKER_FLAGS": "-fsanitize=address,undefined"
+            }
+        },
+        {
             "name": "debug-sanitize",
             "displayName": "Debug with address and undefined-behavior sanitizers and clang-tidy",
             "inherits": "base",
@@ -31,19 +42,86 @@
             "cacheVariables": {
                 "CMAKE_BUILD_TYPE": "Release"
             }
+        },
+        {
+            "name": "windows-debug",
+            "displayName": "Windows MSVC Debug (no sanitizers: MSVC has no UBSan; no clang-tidy)",
+            "inherits": "base",
+            "condition": {
+                "type": "equals",
+                "lhs": "${hostSystemName}",
+                "rhs": "Windows"
+            },
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Debug"
+            }
+        },
+        {
+            "name": "windows-release",
+            "displayName": "Windows MSVC Release",
+            "inherits": "base",
+            "condition": {
+                "type": "equals",
+                "lhs": "${hostSystemName}",
+                "rhs": "Windows"
+            },
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Release"
+            }
         }
     ],
     "buildPresets": [
         {
+            "name": "debug",
+            "configurePreset": "debug",
+            "jobs": 2
+        },
+        {
             "name": "debug-sanitize",
-            "configurePreset": "debug-sanitize"
+            "configurePreset": "debug-sanitize",
+            "jobs": 2
         },
         {
             "name": "release",
-            "configurePreset": "release"
+            "configurePreset": "release",
+            "jobs": 2
+        },
+        {
+            "name": "windows-debug",
+            "configurePreset": "windows-debug",
+            "condition": {
+                "type": "equals",
+                "lhs": "${hostSystemName}",
+                "rhs": "Windows"
+            },
+            "jobs": 2
+        },
+        {
+            "name": "windows-release",
+            "configurePreset": "windows-release",
+            "condition": {
+                "type": "equals",
+                "lhs": "${hostSystemName}",
+                "rhs": "Windows"
+            },
+            "jobs": 2
         }
     ],
     "testPresets": [
+        {
+            "name": "debug",
+            "configurePreset": "debug",
+            "output": {
+                "outputOnFailure": true
+            },
+            "environment": {
+                "ASAN_OPTIONS": "detect_leaks=1:abort_on_error=1",
+                "UBSAN_OPTIONS": "print_stacktrace=1:halt_on_error=1"
+            },
+            "execution": {
+                "jobs": 2
+            }
+        },
         {
             "name": "debug-sanitize",
             "configurePreset": "debug-sanitize",
@@ -53,6 +131,9 @@
             "environment": {
                 "ASAN_OPTIONS": "detect_leaks=1:abort_on_error=1",
                 "UBSAN_OPTIONS": "print_stacktrace=1:halt_on_error=1"
+            },
+            "execution": {
+                "jobs": 2
             }
         },
         {
@@ -60,6 +141,39 @@
             "configurePreset": "release",
             "output": {
                 "outputOnFailure": true
+            },
+            "execution": {
+                "jobs": 2
+            }
+        },
+        {
+            "name": "windows-debug",
+            "configurePreset": "windows-debug",
+            "condition": {
+                "type": "equals",
+                "lhs": "${hostSystemName}",
+                "rhs": "Windows"
+            },
+            "output": {
+                "outputOnFailure": true
+            },
+            "execution": {
+                "jobs": 2
+            }
+        },
+        {
+            "name": "windows-release",
+            "configurePreset": "windows-release",
+            "condition": {
+                "type": "equals",
+                "lhs": "${hostSystemName}",
+                "rhs": "Windows"
+            },
+            "output": {
+                "outputOnFailure": true
+            },
+            "execution": {
+                "jobs": 2
             }
         }
     ]

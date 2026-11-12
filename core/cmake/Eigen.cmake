@@ -14,6 +14,9 @@ if(NOT TARGET Eigen3::Eigen)
         set(EIGEN_BUILD_DOC OFF)
         set(BUILD_TESTING OFF)
         set(EIGEN_BUILD_PKGCONFIG OFF)
+        # Eigen probes for Fortran (its BLAS and LAPACK tests); a stray gfortran on PATH, as on Windows runners, then
+        # fails the configure against MSVC.
+        set(CMAKE_Fortran_COMPILER "")
         FetchContent_MakeAvailable(Eigen)
     endblock()
 endif()

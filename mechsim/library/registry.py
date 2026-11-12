@@ -11,7 +11,16 @@ from pathlib import Path
 
 from pydantic import ValidationError
 
-from mechsim.library.schema import CATALOG_DIR, CatalogPart, ComponentType, PartEntry, load_catalog_file
+from mechsim.library.schema import (
+    CATALOG_DIR,
+    CatalogPart,
+    ComponentType,
+    FlagParameter,
+    PartEntry,
+    QuantityParameter,
+    load_catalog_file,
+)
+from mechsim.units import UnitError, parse_quantity
 
 
 class RegistryError(ValueError):
@@ -63,6 +72,35 @@ class Registry:
         except ValidationError as error:
             messages = "; ".join(str(item["msg"]) for item in error.errors())
             raise RegistryError(f"part {name!r}: {messages}") from error
+
+    def parameter_override(self, type_name: str, parameter: str, value: str) -> str | bool:
+        """`value` checked as one run's override of `parameter` of `type_name` (LIB-016): a quantity's unit string
+        must have the parameter's dimension; a flag takes `true` or `false`. Returns the value to store."""
+        component = self.component_type(type_name)
+        declared = {item.name: item for item in component.parameters}
+        if parameter not in declared:
+            raise RegistryError(f"component type {type_name!r} has no parameter {parameter!r}")
+        definition = declared[parameter]
+        if isinstance(definition, FlagParameter):
+            if value not in ("true", "false"):
+                raise RegistryError(f"{type_name}.{parameter} is a flag: give true or false, got {value!r}")
+            return value == "true"
+        if not isinstance(definition, QuantityParameter):
+            raise RegistryError(f"{type_name}.{parameter}: unsupported parameter kind")
+        try:
+            parse_quantity(value, definition.dimension)
+        except UnitError as error:
+            raise RegistryError(f"{type_name}.{parameter} ({definition.dimension}): {error}") from error
+        return value
+
+    def substitute_part(self, type_name: str, part: str) -> CatalogPart:
+        """The catalog part replacing an instance's part (LIB-017): it must exist and be of `type_name`."""
+        if part not in self._parts:
+            raise RegistryError(f"no catalog part {part!r} in the catalog (instance type {type_name!r})")
+        found = self._parts[part]
+        if found.type != type_name:
+            raise RegistryError(f"part {part!r} is a {found.type!r}, not a {type_name!r}")
+        return found
 
 
 def load_registry(directory: Path = CATALOG_DIR) -> Registry:

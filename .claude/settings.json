@@ -14,7 +14,11 @@
       "Bash(cmake --build:*)",
       "Bash(ctest:*)",
       "Bash(python3 tools/check_imports.py:*)",
-      "Bash(uv run python tools/check_imports.py:*)"
+      "Bash(uv run python tools/check_imports.py:*)",
+      "Bash(git push -u origin round/*)",
+      "Bash(git push origin round/*)",
+      "Bash(git push -u origin wip/*)",
+      "Bash(git push origin wip/*)"
     ]
   },
   "hooks": {

@@ -1,8 +1,10 @@
 #include <catch2/catch_test_macros.hpp>
 
+#include <algorithm>
 #include <cmath>
 #include <cstddef>
 #include <fstream>
+#include <iomanip>
 #include <iostream>
 #include <memory>
 #include <numbers>
@@ -15,9 +17,11 @@
 #include "mechsim/kernel/physics_types.hpp"
 #include "mechsim/kernel/time.hpp"
 #include "mechsim/physics/mujoco/mujoco_adapter.hpp"
+#include "mechsim/signals/safety.hpp"
 #include "mechsim/signals/signal_component.hpp"
 #include "mechsim/signals/stepper.hpp"
 
+// ===== Fixtures and helpers ================================================
 namespace {
 
 using mechsim::kernel::AdapterError;
@@ -463,6 +467,7 @@ TEST_CASE("MuJoCo adapter publishes contact forces", "[PHY-003]") {
     CHECK(std::abs(out.bodies[0].linear_velocity[2]) < 1e-6);
 }
 
+// ===== Shaft torque ========================================================
 // Reflected lead screw (PHY-018, ENG-048): rotor J = 5.4e-6 kg m^2 on an 8 mm lead driving a 10 kg carriage, so
 // c = lead / 2 pi and the rigid system is (m + J / c^2) a = F with F the shaft torque mapped to the carriage.
 namespace {
@@ -642,6 +647,7 @@ TEST_CASE("MuJoCo reflected shaft refuses body-level changes", "[PHY-008]") {
     adapter->set_payload_mass(1, 20.0);
 }
 
+// ===== Joint drive runs ====================================================
 namespace {
 
 using mechsim::kernel::JointDrive;
@@ -689,13 +695,12 @@ double max_deviation(const std::vector<double>& values, double about, std::size_
 }  // namespace
 
 TEST_CASE("MuJoCo drive holds a load with the static sag F / K, stable past the explicit limit", "[PHY-034][reference]") {
-    // m = 1 kg, F = 10 N, h = 1 ms. Static equilibrium of the soft equality (PHY-034 formula): a1 = 0, v = 0 gives
-    // (1 - d) a0 = s0 r with a0 = F / m and s0 = (1 - d) K / m, so r = F / K for every impedance d: 1e-5 m at
-    // K = 1e6 N/m (omega h = 1, d at its floor) and 1e-7 m at K = 1e8 N/m (omega h = 10, d = 0.99, where an explicit
-    // spring would diverge: K h^2 / m = 100 > 4). Damping D = zeta 2 sqrt(K m_app), zeta = 0.5, m_app = m / (1 - d)
-    // (1e3 and 1e5 N s/m) settles it to e^(-zeta omega_c t) = e^(-1000) by 2 s. Without damping the semi-implicit
-    // loop keeps its modified energy, so the swing about F / K never exceeds (F / K) / sqrt(1 - s0 h^2 / 4), s0 h^2 = 1
-    // in both cases, and does not grow.
+    // m = 1 kg, F = 10 N, h = 1 ms. The drive is backward Euler (PHY-034): (m + D h + K h^2) a = F - D v - K (x + v h)
+    // toward rest 0; at rest (a = 0, v = 0) x = F / K for every K: 1e-5 m at K = 1e6 N/m (omega h = 1) and 1e-7 m at
+    // K = 1e8 N/m (omega h = 10, where an explicit spring would diverge: K h^2 / m = 100 > 4). Damping 1e3 and
+    // 1e5 N s/m (zeta 0.5 and 5) settles it to rounding by 2 s. Without damping backward Euler never adds energy:
+    // m v^2 / 2 + K (x - F / K)^2 / 2 starts at K (F / K)^2 / 2 and shrinks by the factor 1 / (1 + K h^2 / m) per step
+    // or better, so the swing about F / K never exceeds F / K and is below 2^-500 of it after 1000 steps (rounding).
     struct Case {
         double stiffness;
         double drive_damping;
@@ -708,14 +713,12 @@ TEST_CASE("MuJoCo drive holds a load with the static sag F / K, stable past the 
         CHECK(relative(-damped.x.back(), -sag) < 0.1);
         CHECK(std::abs(damped.torque.back() + 10.0) < 1e-3);
         const DriveRun free = run_slider(c.stiffness, 0.0, 10.0, 2000);
-        const double envelope = sag / std::sqrt(1.0 - 0.25);
         const double early = max_deviation(free.x, sag, 0, 1000);
         const double late = max_deviation(free.x, sag, 1000, 2000);
-        std::cout << "undamped swing about the sag: early " << early << " m, late " << late << " m, bound " << envelope
+        std::cout << "undamped swing about the sag: early " << early << " m, late " << late << " m, bound " << sag
                   << " m\n";
-        CHECK(early <= envelope * (1.0 + 1e-6));
-        CHECK(late <= envelope * (1.0 + 1e-6));
-        CHECK(early >= sag * (1.0 - 1e-6));
+        CHECK(early <= sag * (1.0 + 1e-9));
+        CHECK(late <= sag * 1e-9);
     }
 }
 
@@ -754,8 +757,8 @@ TEST_CASE("MuJoCo drive on a reflected lead screw holds the lift's gravity load 
 
 TEST_CASE("MuJoCo drive tracks a rest moving at constant rate with the lag D w / K", "[PHY-034][reference]") {
     // m x'' + D x' + K (x - w t) = 0 has the steady solution x = w t - D w / K: the first-order lag of the
-    // spring-damper. With the soft equality evaluated at the start of each step, the discrete steady state x' = w,
-    // a1 = 0 gives s1 w + s0 (x_k - rest_k) = 0, the same lag against the rest of the next step. K = 1e6 N/m,
+    // spring-damper. With the drive at the step's end state (backward Euler, PHY-034), the discrete steady state
+    // v = w, a = 0 gives D w + K (x_k - rest_k) = 0: the same lag behind the rest of the step just taken. K = 1e6 N/m,
     // D = 1e3 N s/m (zeta 0.5), w = 0.1 m/s: lag 1e-4 m; the transient is e^(-1000) by 2 s.
     auto adapter = loaded("slider.xml");
     const double rate = 0.1;
@@ -764,7 +767,7 @@ TEST_CASE("MuJoCo drive tracks a rest moving at constant rate with the lag D w /
         adapter->set_inputs(driven(JointDrive{0, rate * h * k, 1e6, 1e3, true}));
         adapter->step();
     }
-    const double measured = (rate * h * 2000.0) - adapter->outputs().joint_positions[0];
+    const double measured = (rate * h * 1999.0) - adapter->outputs().joint_positions[0];
     std::cout << "tracking lag: closed form " << lag << " m, measured " << measured << " m\n";
     CHECK(relative(measured, lag) < 0.01);
 }
@@ -809,12 +812,523 @@ TEST_CASE("MuJoCo adapter refuses drives it cannot apply", "[PHY-034][PHY-009]")
     PhysicsInputs twice = driven(JointDrive{0, 0.0, 1.0, 0.0, true});
     twice.joint_drives.push_back(JointDrive{0, 0.1, 1.0, 0.0, false});
     CHECK_THROWS_AS(screw->set_inputs(twice), AdapterError);
-    // At d = 0.99 the loop frequency is s0 = 0.01 K / m: K = 1e9 N/m on 1 kg gives s0 h^2 = 10 >= 4.
+    // The envelope is Z = (K_d h^2 + D_d h) A0 <= 400 (past it the clamp breaks backward Euler and from Z of about 535
+    // the semi-implicit map with the shifted rest diverges). Slider, 1 kg, A0 = 1 / m, h = 1 ms: K = 4e8 N/m is
+    // Z = 400 exactly; K = 3.99e8 (Z = 399) runs and K = 4.01e8 (Z = 401) throws. Damping counts: K = 3.9e8 with
+    // D = 1e5 N s/m is Z = 390 + 100 = 490 and throws, as does K = 1e10.
+    auto below = loaded("slider.xml");
+    below->set_inputs(driven(JointDrive{0, 0.0, 3.99e8, 0.0, true}));
+    CHECK_NOTHROW(below->step());
+    auto above = loaded("slider.xml");
+    above->set_inputs(driven(JointDrive{0, 0.0, 4.01e8, 0.0, true}));
+    CHECK_THROWS_AS(above->step(), AdapterError);
+    auto damped = loaded("slider.xml");
+    damped->set_inputs(driven(JointDrive{0, 0.0, 3.9e8, 1e5, true}));
+    CHECK_THROWS_AS(damped->step(), AdapterError);
     auto slider = loaded("slider.xml");
-    slider->set_inputs(driven(JointDrive{0, 0.0, 1e9, 0.0, true}));
+    slider->set_inputs(driven(JointDrive{0, 0.0, 1e10, 0.0, true}));
     CHECK_THROWS_AS(slider->step(), AdapterError);
     std::string text = fixture("slider.xml");
     replace(text, R"(<text name="mechsim:drives" data="slide" />)", R"(<text name="mechsim:drives" data="rail" />)");
     MujocoAdapter unknown;
     CHECK_THROWS_AS(unknown.load(PreparedModel{"", text, "0.1.0"}, Rate(1000)), AdapterError);
+}
+
+// ===== Faults: slip, backlash, payload (PHY-006) ===========================
+
+namespace {
+
+// lead_screw.xml under a shaft drive: K = 5 N m/rad and critical damping D = 2 sqrt(K J_eff) = 0.0208 N m s/rad with
+// the shaft-side inertia J_eff = m c^2 + J = 2.16e-5 kg m^2. With A0 at most 1 / m (armature in it or not),
+// K_d A0 h^2 <= (K / c^2) h^2 / m = 0.31 < 1 keeps the drive at its impedance floor (exact dynamics, PHY-034) and the
+// envelope s0 h^2 + 2 s1 h <= 0.31 + 2 (D / c^2) h / m = 2.88 < 4. The loop frequency sqrt(K / J_eff) = 481 rad/s
+// makes every transient (1 + 481 t) e^(-481 t): below 1e-200 after 1 s, so states 1 s apart are steady to rounding.
+constexpr double hold_stiffness = 5.0;
+
+double hold_damping() {
+    const double shaft_inertia = (carriage_mass * lead_c * lead_c) + rotor_inertia;
+    return 2.0 * std::sqrt(hold_stiffness * shaft_inertia);
+}
+
+void hold(MujocoAdapter& adapter, double rest, int steps) {
+    for (int k = 0; k < steps; ++k) {
+        adapter.set_inputs(driven(JointDrive{0, rest, hold_stiffness, hold_damping(), true}));
+        adapter.step();
+    }
+}
+
+}  // namespace
+
+TEST_CASE("MuJoCo slip loses (1 - s) of the commanded shaft travel and reports it", "[PHY-006][TST-015][reference]") {
+    // The rest advances w h per step (w = 10 rad/s) for N = 2000 steps, rest_k = w h k; slip s = 0.3 from the start.
+    // The first rest only starts tracking, so N - 1 increments follow: slip = s w h (N - 1) exactly (a sum of equal
+    // increments). The driven joint's rest advances (1 - s) w h per step; at steady state its coordinate keeps a
+    // constant lag behind that rest, so over the last 1 s (1000 steps, T = 1 s) the carriage advances c (1 - s) w T
+    // and the shaft, reported as q_driven / c + slip, advances w T: each to rounding, held to 1e-9 relative. The
+    // shaft rate is qd_driven / c + s w = (1 - s) w + s w = w. Without load (horizontal rail, no joint damping) the
+    // steady drive force is zero: what the spring supplies (K times the lag) the damper takes back, so the published
+    // drive torque stays within K times the static lag D (1 - s) w / K.
+    constexpr double rate = 10.0;
+    constexpr double s = 0.3;
+    constexpr int n = 2000;
+    auto adapter = loaded("lead_screw.xml");
+    adapter->set_transmission_slip(0, s);
+    double shaft_mid = 0.0;
+    double carriage_mid = 0.0;
+    double worst_torque = 0.0;
+    for (int k = 0; k < n; ++k) {
+        adapter->set_inputs(driven(JointDrive{0, rate * h * k, hold_stiffness, hold_damping(), true}));
+        adapter->step();
+        if (k == n / 2 - 1) {
+            shaft_mid = adapter->outputs().joint_positions[0];
+            carriage_mid = adapter->outputs().joint_positions[1];
+        }
+        if (k >= n / 2) {
+            worst_torque = std::max(worst_torque, std::abs(adapter->outputs().joint_drive_torques[0].torque));
+        }
+    }
+    const PhysicsOutputs& out = adapter->outputs();
+    const int half = n / 2;
+    const double window = rate * h * half;
+    const double slip = s * rate * h * (n - 1);
+    std::cout << "slip: closed-form slip " << slip << " rad, measured " << out.transmissions[0].slip
+              << " rad; carriage advance over 1 s closed form " << lead_c * (1.0 - s) * window << " m, measured "
+              << out.joint_positions[1] - carriage_mid << " m\n";
+    CHECK(out.transmissions[0].slipping);
+    CHECK(relative(out.transmissions[0].slip, slip) < 1e-9);
+    CHECK(relative(out.joint_positions[1] - carriage_mid, lead_c * (1.0 - s) * window) < 1e-9);
+    CHECK(relative(out.joint_positions[0] - shaft_mid, window) < 1e-9);
+    CHECK(relative(out.bodies[0].angular_velocity[2], rate) < 1e-9);
+    CHECK(relative(out.bodies[1].linear_velocity[0], lead_c * (1.0 - s) * rate) < 1e-9);
+    CHECK(worst_torque <= hold_damping() * (1.0 - s) * rate);
+
+    // Cleared, the lost travel stays lost and the driven joint follows the full increments again.
+    adapter->set_transmission_slip(0, 0.0);
+    const double carriage_cleared = out.joint_positions[1];
+    for (int k = n; k < n + 1000; ++k) {
+        adapter->set_inputs(driven(JointDrive{0, rate * h * k, hold_stiffness, hold_damping(), true}));
+        adapter->step();
+    }
+    const PhysicsOutputs& after = adapter->outputs();
+    CHECK_FALSE(after.transmissions[0].slipping);
+    CHECK(after.transmissions[0].slip == out.transmissions[0].slip);
+    CHECK(relative(after.bodies[1].linear_velocity[0], lead_c * rate) < 1e-9);
+    CHECK(after.joint_positions[1] - carriage_cleared > lead_c * (1.0 - s) * rate * h * 1000.0);
+}
+
+TEST_CASE("MuJoCo slip scales an explicit shaft torque by (1 - s)", "[PHY-006][TST-015]") {
+    // One step from rest is driving: F = (1 - s) eta tau / c on the reflected mass, v = h F / (m + J / c^2) exactly.
+    constexpr double tau = 0.1;
+    constexpr double s = 0.5;
+    auto adapter = loaded("lead_screw.xml");
+    adapter->set_transmission_slip(0, s);
+    adapter->set_inputs(shaft_torque(tau));
+    adapter->step();
+    const double v = h * (1.0 - s) * tau / lead_c / reflected_mass;
+    CHECK(relative(adapter->outputs().bodies[1].linear_velocity[0], v) < 1e-12);
+    CHECK(adapter->outputs().transmissions[0].slip == 0.0);
+}
+
+TEST_CASE("MuJoCo slip refuses unknown transmissions and fractions outside [0, 1]", "[PHY-006][TST-015][PHY-009]") {
+    auto adapter = loaded("lead_screw.xml");
+    CHECK_NOTHROW(adapter->set_transmission_slip(0, 0.0));
+    CHECK_NOTHROW(adapter->set_transmission_slip(0, 1.0));
+    CHECK_THROWS_AS(adapter->set_transmission_slip(1, 0.1), AdapterError);
+    CHECK_THROWS_AS(adapter->set_transmission_slip(0, -0.1), AdapterError);
+    CHECK_THROWS_AS(adapter->set_transmission_slip(0, 1.1), AdapterError);
+    CHECK_THROWS_AS(adapter->set_transmission_slip(0, std::nan("")), AdapterError);
+    CHECK_THROWS_AS(loaded("pendulum.xml")->set_transmission_slip(0, 0.1), AdapterError);
+    MujocoAdapter unloaded;
+    CHECK_THROWS_AS(unloaded.set_transmission_slip(0, 0.1), AdapterError);
+    mechsim::kernel::NullPhysicsAdapter null;
+    CHECK_THROWS_AS(null.set_transmission_slip(0, 0.1), AdapterError);
+}
+
+TEST_CASE("MuJoCo backlash: a reversal inside the band moves nothing, past it moves c x", "[PHY-006][reference]") {
+    // lead_screw_backlash.xml: 0.4 mm at the carriage, b = 0.4e-3 / c = 0.1 pi rad on the shaft. The play starts
+    // centred on the first rest (0). Rest to 1 rad: the input leaves the band, the effective rest stops at 1 - b / 2,
+    // and with no load the carriage settles exactly on it, x = c (1 - b / 2). Reversing by b / 2 < b keeps the input
+    // inside the band: nothing moves. Reversing by b + x in all (x = 0.2 rad) drags the effective rest to the other
+    // edge, 1 - (b + x) + b / 2, a move of -x: the carriage moves -c x. The shaft reports the commanded rest at rest.
+    const double band = 0.0004 / lead_c;
+    constexpr double x = 0.2;
+    auto adapter = loaded("lead_screw_backlash.xml");
+    hold(*adapter, 0.0, 1);
+    hold(*adapter, 1.0, 1000);
+    const double forward = adapter->outputs().joint_positions[1];
+    std::cout << "backlash: closed-form carriage " << lead_c * (1.0 - band / 2.0) << " m, measured " << forward
+              << " m\n";
+    CHECK(relative(forward, lead_c * (1.0 - band / 2.0)) < 1e-9);
+    CHECK(relative(adapter->outputs().joint_positions[0], 1.0) < 1e-9);
+
+    hold(*adapter, 1.0 - (band / 2.0), 1000);
+    CHECK(std::abs(adapter->outputs().joint_positions[1] - forward) <= 1e-9 * lead_c * band);
+    CHECK(relative(adapter->outputs().joint_positions[0], 1.0 - (band / 2.0)) < 1e-9);
+
+    hold(*adapter, 1.0 - band - x, 1000);
+    const double moved = adapter->outputs().joint_positions[1] - forward;
+    std::cout << "backlash: closed-form move " << -lead_c * x << " m, measured " << moved << " m\n";
+    CHECK(relative(moved, -lead_c * x) < 1e-9);
+    CHECK(relative(adapter->outputs().joint_positions[0], 1.0 - band - x) < 1e-9);
+}
+
+TEST_CASE("MuJoCo zero backlash and zero slip leave the drive rest exact", "[PHY-006][PHY-034]") {
+    // Same commands on lead_screw.xml with slip set to 0 explicitly and left unset: bitwise identical states.
+    auto plain = loaded("lead_screw.xml");
+    auto cleared = loaded("lead_screw.xml");
+    cleared->set_transmission_slip(0, 0.0);
+    for (int k = 0; k < 200; ++k) {
+        for (MujocoAdapter* adapter : {plain.get(), cleared.get()}) {
+            adapter->set_inputs(driven(JointDrive{0, 0.01 * k, hold_stiffness, hold_damping(), true}));
+            adapter->step();
+        }
+    }
+    CHECK(plain->outputs().joint_positions == cleared->outputs().joint_positions);
+    CHECK(plain->outputs().transmissions[0].slip == 0.0);
+}
+
+// ===== Payload hold and coast ==============================================
+namespace {
+
+constexpr double payload_mass = 2.0;
+constexpr std::size_t payload_body = 1;
+constexpr std::size_t hook_body = 0;
+
+double payload_height(const MujocoAdapter& adapter) {
+    return adapter.outputs().bodies[payload_body].position[2];
+}
+
+void coast(MujocoAdapter& adapter, int steps) {
+    for (int k = 0; k < steps; ++k) {
+        adapter.step();
+    }
+}
+
+}  // namespace
+
+TEST_CASE("MuJoCo payload weld carries m g and steps with a mass change", "[PHY-006][ENG-035][TST-020][reference]") {
+    // payload.xml: 2 kg on a free joint welded to a fixed hook, gravity 9.81. The weld (solref 2 h, 1; MuJoCo's
+    // default equality solimp 0.9) at rest: v = 0, so a_ref = -k r - b v = 0 at the first step and the solved row
+    // force is f = (a_ref - a0) / (A + R) with a0 = -g, A = 1 / m (com at the body origin, the hook has no DOF) and
+    // R = (1 - d) / d A at d = 0.9: f = d m g after one step. At equilibrium (a = 0, v = 0, the weld's critically
+    // damped transient e^(-t / 2h) gone after 200 steps) Newton gives f = m g exactly.
+    auto adapter = loaded("payload.xml");
+    REQUIRE(adapter->outputs().payloads.size() == 1);
+    adapter->step();
+    const mechsim::kernel::PayloadState& first = adapter->outputs().payloads[0];
+    CHECK(first.body == payload_body);
+    CHECK(first.carrier == hook_body);
+    CHECK(first.attached);
+    std::cout << "payload weld after one step: closed form d m g " << 0.9 * payload_mass * gravity << " N, measured "
+              << first.force[2] << " N\n";
+    CHECK(relative(first.force[2], 0.9 * payload_mass * gravity) < 1e-6);
+    coast(*adapter, 199);
+    const mechsim::kernel::PayloadState& held = adapter->outputs().payloads[0];
+    std::cout << "payload weld at rest: closed form m g " << payload_mass * gravity << " N, measured " << held.force[2]
+              << " N\n";
+    CHECK(relative(held.force[2], payload_mass * gravity) < 1e-6);
+    CHECK(std::abs(held.force[0]) < 1e-9);
+    CHECK(std::abs(held.force[1]) < 1e-9);
+
+    adapter->set_payload_mass(payload_body, 3.0);
+    coast(*adapter, 200);
+    CHECK(relative(adapter->outputs().payloads[0].force[2], 3.0 * gravity) < 1e-6);
+}
+
+TEST_CASE("MuJoCo released payload falls freely and re-attaches at its carrier", "[PHY-006][ENG-035][TST-020][reference]") {
+    // Released at rest, the free body under gravity alone follows semi-implicit Euler exactly: after n steps it has
+    // fallen g h^2 n (n + 1) / 2 (held to 1e-6, rounding), which at t = n h = 0.2 s is g t^2 / 2 = 0.19620 m times
+    // (1 + 1 / n), within the brief's 1 percent. Re-attached where it hangs (no step in between), the weld finds the
+    // state it left: the payload stays within 1e-6 m. Re-attached after a short fall, the weld pulls it back to the
+    // same equilibrium (the translated relative pose with its static sag).
+    auto adapter = loaded("payload.xml");
+    coast(*adapter, 200);
+    const double hanging = payload_height(*adapter);
+
+    adapter->set_payload_attachment(payload_body, mechsim::kernel::kWorldBody);
+    adapter->set_payload_attachment(payload_body, hook_body);
+    coast(*adapter, 500);
+    CHECK(std::abs(payload_height(*adapter) - hanging) < 1e-6);
+
+    adapter->release_load(payload_body);
+    constexpr int n = 200;
+    coast(*adapter, n);
+    const double fallen = hanging - payload_height(*adapter);
+    const double t = n * h;
+    std::cout << "released payload: closed form g t^2 / 2 " << gravity * t * t / 2.0 << " m, scheme "
+              << gravity * h * h * n * (n + 1) / 2.0 << " m, measured " << fallen << " m\n";
+    CHECK(relative(fallen, gravity * h * h * n * (n + 1) / 2.0) < 1e-6);
+    CHECK(relative(fallen, gravity * t * t / 2.0) < 0.01);
+    const mechsim::kernel::PayloadState& released = adapter->outputs().payloads[0];
+    CHECK_FALSE(released.attached);
+    CHECK(released.carrier == mechsim::kernel::kWorldBody);
+    CHECK(released.force == mechsim::kernel::Vec3{0.0, 0.0, 0.0});
+
+    auto again = loaded("payload.xml");
+    coast(*again, 200);
+    again->release_load(payload_body);
+    coast(*again, 20);
+    again->set_payload_attachment(payload_body, hook_body);
+    coast(*again, 1000);
+    CHECK(std::abs(payload_height(*again) - hanging) < 1e-6);
+    CHECK(again->outputs().payloads[0].attached);
+}
+
+TEST_CASE("MuJoCo payload operations refuse what the translation did not weld", "[PHY-006][ENG-035][TST-020][PHY-009]") {
+    auto adapter = loaded("payload.xml");
+    CHECK_THROWS_AS(adapter->release_load(hook_body), AdapterError);
+    CHECK_THROWS_AS(adapter->release_load(2), AdapterError);
+    CHECK_THROWS_AS(adapter->set_payload_attachment(hook_body, mechsim::kernel::kWorldBody), AdapterError);
+    CHECK_THROWS_AS(adapter->set_payload_attachment(payload_body, 2), AdapterError);
+    CHECK_THROWS_AS(adapter->set_payload_attachment(payload_body, payload_body), AdapterError);
+    std::string text = fixture("payload.xml");
+    replace(text, R"(data="load:hook")", R"(data="load:crane")");
+    MujocoAdapter unknown;
+    CHECK_THROWS_AS(unknown.load(PreparedModel{"", text, "0.1.0"}, Rate(1000)), AdapterError);
+}
+
+TEST_CASE("MuJoCo slip scales the explicit torque path only; the drive force reaches the joint whole",
+          "[PHY-006][TST-015][PHY-033]") {
+    // Lead screw at rest, eta = 1, s = 0.5, explicit tau = 0.1 N m plus a drive toward rest 0.01 rad (no damping).
+    // Applied on the driven DOF: (1 - s) tau / c + F_d, with F_d the drive's equality force (published as F_d c).
+    // The carriage alone takes m a = (1 - s) tau / c + F_d - (J / c^2) a, and the published force is that applied force
+    // less the rotor's share: gain (tau_load - s tau) / c with tau_load = tau + F_d c - J a / c. One step from rest
+    // (implicitfast, no damping): a = v / h, so the published force must equal m v / h to rounding.
+    constexpr double tau = 0.1;
+    constexpr double s = 0.5;
+    auto adapter = loaded("lead_screw.xml");
+    adapter->set_transmission_slip(0, s);
+    PhysicsInputs inputs = shaft_torque(tau);
+    inputs.joint_drives = {JointDrive{0, 0.01, hold_stiffness, 0.0, true}};
+    adapter->set_inputs(inputs);
+    adapter->step();
+    const PhysicsOutputs& out = adapter->outputs();
+    const double drive_force = out.joint_drive_torques[0].torque / lead_c;
+    const double v = out.bodies[1].linear_velocity[0];
+    REQUIRE(drive_force > 0.0);
+    CHECK(relative(v, h * (((1.0 - s) * tau / lead_c) + drive_force) / reflected_mass) < 1e-9);
+    CHECK(relative(out.transmissions[0].force, carriage_mass * v / h) < 1e-9);
+}
+
+TEST_CASE("MuJoCo drive re-enabled at a distant rest restarts the slip and play references there",
+          "[PHY-006][TST-015][PHY-034]") {
+    // lead_screw_backlash.xml, band b = 0.1 pi rad, s = 0.5. Ten rests 0.01 k (k = 0..9) give 9 increments:
+    // slip = 0.5 * 0.09 = 0.045 rad. Three steps with the drive disabled while the rest moves to 2 rad, then enabled
+    // there: no increment is counted (slip stays 0.045) and the band re-centres on the input 2 - slip, so with no load
+    // the carriage settles exactly at c (2 - 0.045), and the shaft reports q_driven / c + slip = 2 rad.
+    constexpr double s = 0.5;
+    auto adapter = loaded("lead_screw_backlash.xml");
+    adapter->set_transmission_slip(0, s);
+    for (int k = 0; k < 10; ++k) {
+        hold(*adapter, 0.01 * k, 1);
+    }
+    const double slip = adapter->outputs().transmissions[0].slip;
+    CHECK(relative(slip, s * 0.09) < 1e-12);
+    for (int k = 1; k <= 3; ++k) {
+        adapter->set_inputs(driven(JointDrive{0, 0.5 * k, hold_stiffness, hold_damping(), false}));
+        adapter->step();
+    }
+    hold(*adapter, 2.0, 1000);
+    const PhysicsOutputs& out = adapter->outputs();
+    CHECK(out.transmissions[0].slip == slip);
+    CHECK(relative(out.joint_positions[1], lead_c * (2.0 - slip)) < 1e-9);
+    CHECK(relative(out.joint_positions[0], 2.0) < 1e-9);
+}
+
+// ===== Implicit drive under slip and braking (brief M2-C2) ==========================================================
+
+namespace {
+
+// lead_screw.xml (horizontal) or lift_screw.xml (vertical) with carriage mass, coefficient c and rotor J changed:
+// armature J / c^2 on the driven joint, the transmission's first number c.
+std::unique_ptr<MujocoAdapter> reflected(const std::string& name, double carriage, double c, double rotor) {
+    std::string text = fixture(name);
+    std::ostringstream mass_text;
+    mass_text << std::setprecision(17) << "mass=\"" << carriage << "\"";
+    std::ostringstream armature_text;
+    armature_text << std::setprecision(17) << "armature=\"" << rotor / (c * c) << "\"";
+    std::ostringstream ratio_text;
+    ratio_text << std::setprecision(17) << "data=\"" << c << " ";
+    replace(text, "mass=\"10.0\"", mass_text.str());
+    replace(text, "armature=\"3.330991485367658\"", armature_text.str());
+    replace(text, "data=\"0.0012732395447351628 ", ratio_text.str());
+    auto adapter = std::make_unique<MujocoAdapter>();
+    adapter->load(PreparedModel{"", text, "0.1.0"}, Rate(1000));
+    return adapter;
+}
+
+}  // namespace
+
+TEST_CASE("MuJoCo drive is backward Euler: the rest of a step is reached at its end state", "[PHY-034][reference]") {
+    // The 1 kg slider (A0 = 1 / m), K = 1e3 N/m, D = 0: with K A0 h^2 = 1e-3 the old start-state spring and backward
+    // Euler differ by K w h on a moving joint. Pushed to w0 = F h / m = 1 m/s by F = 1000 N for one step, then with
+    // the rest on the joint each step (rest_k = x_k), backward Euler gives (m + K h^2) a = -K w h, so
+    // w' = w m / (m + K h^2): w decays by the factor 1 / (1 + K h^2 / m) per step, and the drive torque read back is
+    // K (rest - x') = -K w' h. Held to 1e-9 (the scheme is exact; rounding).
+    auto adapter = loaded("slider.xml");
+    const double stiffness = 1e3;
+    adapter->set_inputs(driven(JointDrive{0, 0.0, 0.0, 0.0, false}, 1000.0));
+    adapter->step();
+    double x = adapter->outputs().joint_positions[0];
+    double w = adapter->outputs().bodies[0].linear_velocity[0];
+    REQUIRE(relative(w, 1.0) < 1e-9);
+    for (int k = 0; k < 10; ++k) {
+        adapter->set_inputs(driven(JointDrive{0, x, stiffness, 0.0, true}));
+        adapter->step();
+        const PhysicsOutputs& out = adapter->outputs();
+        const double expected = w / (1.0 + (stiffness * h * h));
+        CHECK(relative(out.bodies[0].linear_velocity[0], expected) < 1e-9);
+        CHECK(relative(out.joint_drive_torques[0].torque, -stiffness * expected * h) < 1e-9);
+        x = out.joint_positions[0];
+        w = out.bodies[0].linear_velocity[0];
+    }
+}
+
+TEST_CASE("A stepper through a slipping belt drives the carriage at (1 - s) v and the shaft at v, bounded",
+          "[SIG-033][PHY-006][PHY-034][reference]") {
+    // G10's x axis: belt c = r = 0.04 / 2 pi m/rad (the gantry's 40 mm/turn pulley), 3 kg carriage, NEMA 17 class
+    // stepper (1.8 deg, 0.40 N m, J = 5.4e-6 kg m^2, D = 2e-3 N m s/rad), 16 microsteps per tick through a 16x
+    // driver: v = 1 full step per tick, 31.4 rad/s (300 rpm, 0.36 N m available). K_hold = 0.40 pi / (2 step)
+    // = 20 N m/rad, K_d A0 h^2 = (20 / c^2) h^2 / (3 + J / c^2) = 0.157. Slip s = 0.3 for 500 ticks from tick 500.
+    // Steady slip: the motor holds the reported shaft at v (the stepper locks its angle to the commanded steps), the
+    // drive rest advances v per tick and the driven joint gets (1 - s) of it, (1 - s) v c. The drive torque stays
+    // below K_hold step = tau_hold pi / 2 throughout (the tangent's torque is at most tau_hold at any lead below the
+    // pull-out of 2 steps, and the implicit step only lowers the spring's energy). Transients decay by at least
+    // 1 / sqrt(1 + K_hold h^2 / J_eff) = 0.93 per tick, so 450 ticks into the window they are below 1e-14: speeds to
+    // 1e-6 relative.
+    // Expected failure on the old start-state mapping (eq_data = rest c, the spring at q, v before the step): the
+    // drive then applies K (rest - theta) with theta the angle the stepper sampled, not the step's end angle. The slip
+    // onset (the driven joint suddenly sees (1 - s) of each increment) pushes |omega h - n' step| past one step and
+    // the loss-of-synchronism rule publishes rest = theta + omega h - sign(omega) step with K = tau_avail(omega) /
+    // step. At the start state that is K (omega h - step) = tau_avail(omega) (omega h / step - 1) along the motion,
+    // positive whenever the shaft turns more than one step per tick: the brake drives the shaft faster, which raises
+    // omega h further, until tau_avail(omega) = 0 at the curve's end, 1800 rpm = 188.5 rad/s, where K = 0 and the
+    // shaft coasts (6 steps per tick, carriage (1 - s) 188.5 c = 0.84 m/s; X3 saw 0.78 m/s on G10). Measured on the
+    // old mapping: carriage 0.834 m/s, shaft 186.5 rad/s, worst torque 0.82 N m, so each speed and the torque bound
+    // below fail.
+    const double step = std::numbers::pi / 100.0;
+    const double c = 0.04 / (2.0 * std::numbers::pi);
+    const double rpm = 2.0 * std::numbers::pi / 60.0;
+    constexpr double s = 0.3;
+    mechsim::signals::BehavioralStepperParams params;
+    params.step_angle = step;
+    params.rotor_inertia = rotor_inertia;
+    params.holding_torque = 0.40;
+    params.damping = 2e-3;
+    params.torque_speed = {{0.0, 0.40}, {300.0 * rpm, 0.36}, {600.0 * rpm, 0.30}, {1200.0 * rpm, 0.18},
+                           {1800.0 * rpm, 0.10}};
+    mechsim::signals::BehavioralStepper motor("x_motor", params);
+    motor.start(mechsim::signals::ComponentClock{Rate(1000), mechsim::kernel::Duration(1), 1});
+    auto adapter = reflected("lead_screw.xml", 3.0, c, rotor_inertia);
+    const std::vector<double> run{16.0 / 16.0, 1.0, 1.0, 24.0};
+    const double bound = 0.40 * std::numbers::pi / 2.0;
+    double worst = 0.0;
+    double missed_in_window = 0.0;
+    double shaft_before = 0.0;
+    double shaft_rate = 0.0;
+    double carriage_rate = 0.0;
+    for (int k = 0; k < 1000; ++k) {
+        if (k == 500) {
+            adapter->set_transmission_slip(0, s);
+        }
+        motor.begin_tick(mechsim::kernel::SimTime(k));
+        motor.sample(adapter->outputs());
+        motor.set_inputs(run);
+        motor.latch_outputs();
+        if (k >= 500) {
+            missed_in_window += motor.output_values()[2];
+        }
+        PhysicsInputs inputs;
+        inputs.joint_drives.assign(motor.joint_drives().begin(), motor.joint_drives().end());
+        shaft_before = adapter->outputs().joint_positions[0];
+        adapter->set_inputs(inputs);
+        adapter->step();
+        const PhysicsOutputs& out = adapter->outputs();
+        if (k > 0) {
+            worst = std::max(worst, std::abs(out.joint_drive_torques[0].torque));
+        }
+        shaft_rate = (out.joint_positions[0] - shaft_before) / h;
+        carriage_rate = out.bodies[1].linear_velocity[0];
+    }
+    const double v = step / h;
+    std::cout << "stepper through slipping belt: carriage closed form " << (1.0 - s) * v * c << " m/s, measured "
+              << carriage_rate << " m/s; shaft closed form " << v << " rad/s, measured " << shaft_rate
+              << " rad/s; worst drive torque " << worst << " N m, bound " << bound << " N m\n";
+    CHECK(adapter->outputs().transmissions[0].slipping);
+    CHECK(missed_in_window == 0.0);
+    CHECK(relative(carriage_rate, (1.0 - s) * v * c) < 1e-6);
+    CHECK(relative(shaft_rate, v) < 1e-6);
+    CHECK(worst < bound);
+}
+
+TEST_CASE("A brake catches a falling lift through the MuJoCo drive at the Coulomb deceleration, no overshoot",
+          "[SIG-020][PHY-034][reference]") {
+    // lift_screw.xml with a 2 kg lift on the gantry's 40 mm/turn screw, c = 0.04 / 2 pi, J = 5.4e-6 kg m^2; on the
+    // shaft J_eff = m c^2 + J, so the brake's A0 = 1 / J_eff. Released, it falls at g m / (m + J / c^2) until past 0.2 m/s; the 0.5 N m brake
+    // (K_b A0 h^2 = 100) then engages on the moving shaft and slips: the implicit drive at K_s = 1e-5 K_b gives
+    // (m + J / c^2) a = T_b / c - m g to the apparent inertia K_s A0 h^2 = 1e-3, so the deceleration is
+    // (T_b / c - m g) / (m + J / c^2) within the brief's 1 percent at every slipping step. It sticks before the
+    // Coulomb torque reverses the lift; from there the implicit hold's energy about its sag position never grows and
+    // the residual speed is below one step's Coulomb change a h, so the lift stays within
+    // r = sqrt(J_eff (a h)^2 / K_b + (m g c / K_b)^2) (shaft rad) of the hold's equilibrium: no overshoot.
+    const double c = 0.04 / (2.0 * std::numbers::pi);
+    constexpr double lift = 2.0;
+    const double inertia = (lift * c * c) + rotor_inertia;
+    auto adapter = reflected("lift_screw.xml", lift, c, rotor_inertia);
+    mechsim::signals::BrakeParams params;
+    params.joint = 0;
+    params.brake_torque = 0.5;
+    params.inverse_inertia = 1.0 / inertia;
+    mechsim::signals::Brake brake("lift_brake", params);
+    brake.start(mechsim::signals::ComponentClock{Rate(1000), mechsim::kernel::Duration(1), 1});
+    const double coulomb = ((params.brake_torque / c) - (lift * gravity)) / (lift + (rotor_inertia / (c * c)));
+    std::vector<double> decelerations;
+    std::vector<double> held;
+    double rest_stuck = 0.0;
+    bool engaged = false;
+    bool stuck = false;
+    double velocity = 0.0;
+    for (int k = 0; k < 200; ++k) {
+        if (!engaged && velocity < -0.2) {
+            engaged = true;
+        }
+        brake.begin_tick(mechsim::kernel::SimTime(k));
+        brake.sample(adapter->outputs());
+        const std::vector<double> coil{static_cast<double>(!engaged), 24.0};
+        brake.set_inputs(coil);
+        brake.latch_outputs();
+        PhysicsInputs inputs;
+        inputs.joint_drives.assign(brake.joint_drives().begin(), brake.joint_drives().end());
+        adapter->set_inputs(inputs);
+        adapter->step();
+        const double next = adapter->outputs().bodies[1].linear_velocity[2];
+        if (engaged && !brake.joint_drives().empty()) {
+            if (brake.joint_drives()[0].stiffness < brake.stiffness()) {
+                REQUIRE_FALSE(stuck);
+                decelerations.push_back((next - velocity) / h);
+            } else {
+                if (!stuck) {
+                    rest_stuck = brake.joint_drives()[0].rest;
+                }
+                stuck = true;
+                held.push_back(adapter->outputs().joint_positions[0]);
+            }
+        }
+        velocity = next;
+    }
+    REQUIRE(decelerations.size() > 3);
+    REQUIRE(stuck);
+    std::cout << "brake catch through MuJoCo: closed-form deceleration " << coulomb << " m/s^2, measured "
+              << decelerations[1] << " m/s^2\n";
+    for (const double rate : decelerations) {
+        CHECK(std::abs(rate - coulomb) <= 0.01 * coulomb);
+    }
+    const double k_b = brake.stiffness();
+    const double sag = lift * gravity * c / k_b;
+    const double centre = rest_stuck - sag;
+    const double radius = std::sqrt((inertia * (coulomb / c) * (coulomb / c) * h * h / k_b) + (sag * sag));
+    for (const double angle : held) {
+        CHECK(std::abs(angle - centre) <= radius * (1.0 + 1e-6));
+    }
+    CHECK(std::abs(velocity) < 1e-6);
 }

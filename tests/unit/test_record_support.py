@@ -12,11 +12,14 @@ import numpy as np
 
 from mechsim.record import RunEnd, RunIdentity, TickRecord
 from mechsim.record.tick import (
+    WORLD_BODY,
     BodyState,
     ConstraintForce,
     ContactForce,
+    JointDriveTorque,
     JointForce,
     MemberEndLoads,
+    PayloadState,
     PhysicsOutputs,
     RecordedEvent,
     RopeTension,
@@ -38,6 +41,9 @@ EVENTS = (
 )
 JOINT_DOFS = (1, 3)
 CONSTRAINT_ROWS = (2,)
+# Joint 0 is driven every tick, joint 1 on even ticks; the payload is carried by body 1 until RELEASE_TICK.
+JOINT_COORDINATES = 2
+RELEASE_TICK = 10
 
 
 def _vec(values: np.ndarray) -> tuple[float, float, float]:
@@ -76,7 +82,25 @@ def synthetic_rows(seed: int, ticks: int, *, events: bool = True, contacts: bool
         members = (MemberEndLoads(Wrench(_vec(d[51:54]), _vec(d[54:57])), Wrench(_vec(d[57:60]), _vec(d[60:63]))),)
         ropes = (RopeTension(abs(float(d[63])), tick % 5 == 0),)
         transmissions = (TransmissionState(float(d[0]) * 1e-3, tick % 3 == 0),)
-        physics = PhysicsOutputs(tick + 1, bodies, joints, constraints, contact_list, members, ropes, transmissions)
+        drives = (JointDriveTorque(0, float(d[1])),)
+        if tick % 2 == 0:
+            drives = (*drives, JointDriveTorque(1, float(d[2])))
+        payload = PayloadState(0, 1, True, _vec(d[3:6]))
+        if tick >= RELEASE_TICK:
+            payload = PayloadState(0, WORLD_BODY, False, (0.0, 0.0, 0.0))
+        physics = PhysicsOutputs(
+            tick + 1,
+            bodies,
+            joints,
+            constraints,
+            contact_list,
+            members,
+            ropes,
+            transmissions,
+            (float(d[7]), float(d[8]) * 1e-2),
+            drives,
+            (payload,),
+        )
         event_list: tuple[RecordedEvent, ...] = ()
         if events and tick % 7 == 3:
             source, kind, detail = EVENTS[(tick // 7) % len(EVENTS)]

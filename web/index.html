@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>MechSim replay</title>
+    <link rel="stylesheet" href="./style.css" />
+  </head>
+  <body>
+    <header>
+      <strong>MechSim</strong>
+      <span id="status">connecting</span>
+    </header>
+    <main>
+      <aside>
+        <section>
+          <h2>Designs <button id="refresh">Refresh</button></h2>
+          <ul id="designs"></ul>
+        </section>
+        <section>
+          <h2>Run a case</h2>
+          <label>Design file <input id="run-design" placeholder="designs/&lt;name&gt;/design.yaml" /></label>
+          <label>Test case file <input id="run-case" placeholder="test_cases/&lt;name&gt;/&lt;case&gt;.yaml" /></label>
+          <label>Seed <input id="run-seed" type="number" min="0" value="0" /></label>
+          <label>Controller mode <input id="run-mode" value="native" /></label>
+          <button id="run">Run</button>
+        </section>
+        <section>
+          <h2>Runs</h2>
+          <label>Run archive <input id="archive" placeholder="runs/&lt;run id&gt;.h5" /></label>
+          <button id="open">Open replay</button>
+          <ul id="runs"></ul>
+        </section>
+        <section>
+          <h2>Probe</h2>
+          <label
+            >Kind
+            <select id="probe-kind">
+              <option value="body">body</option>
+              <option value="joint">joint</option>
+              <option value="pin">pin</option>
+              <option value="signal">signal</option>
+            </select>
+          </label>
+          <label>Name <input id="probe-name" list="probe-names" /></label>
+          <datalist id="probe-names"></datalist>
+          <button id="probe-open">Probe</button>
+          <div id="probe-caption"></div>
+          <table id="probe-table"></table>
+          <label>Series <input id="value-ref" placeholder="joint:&lt;name&gt;.position" /></label>
+          <button id="value-read">Value at cursor</button>
+          <div id="value"></div>
+        </section>
+      </aside>
+      <section id="viewer">
+        <div id="run-title"></div>
+        <div id="undrawn"></div>
+        <div id="scene"></div>
+        <div id="controls">
+          <button id="back" title="step one sample back">&#9664;</button>
+          <button id="play">Play</button>
+          <button id="forward" title="step one sample forward">&#9654;</button>
+          <label
+            >Rate
+            <select id="rate">
+              <option value="0.1">0.1x</option>
+              <option value="0.5">0.5x</option>
+              <option value="1" selected>1x</option>
+              <option value="2">2x</option>
+            </select>
+          </label>
+          <input id="scrub" type="range" min="0" max="0" step="any" value="0" />
+          <span id="cursor"></span>
+        </div>
+        <div id="timeline-bar"></div>
+        <ul id="timeline-list"></ul>
+      </section>
+    </main>
+    <script type="module" src="./app.js"></script>
+  </body>
+</html>

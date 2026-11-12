@@ -179,6 +179,29 @@ py::dict physics_dict(const kernel::PhysicsOutputs& physics) {
         transmissions.append(entry);
     }
     out["transmissions"] = transmissions;
+    out["joint_positions"] = py::cast(physics.joint_positions);
+    py::list drive_torques;
+    for (const kernel::JointDriveTorque& drive : physics.joint_drive_torques) {
+        py::dict entry;
+        entry["joint"] = drive.joint;
+        entry["torque"] = drive.torque;
+        drive_torques.append(entry);
+    }
+    out["joint_drive_torques"] = drive_torques;
+    py::list payloads;
+    for (const kernel::PayloadState& payload : physics.payloads) {
+        py::dict entry;
+        entry["body"] = payload.body;
+        std::int64_t carrier = -1;
+        if (payload.carrier != kernel::kWorldBody) {
+            carrier = static_cast<std::int64_t>(payload.carrier);
+        }
+        entry["carrier"] = carrier;
+        entry["attached"] = payload.attached;
+        entry["force"] = to_list(payload.force);
+        payloads.append(entry);
+    }
+    out["payloads"] = payloads;
     return out;
 }
 

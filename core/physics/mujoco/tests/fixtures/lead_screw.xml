@@ -16,6 +16,6 @@
     <text name="mechsim:joints" data="screw:revolute rail:prismatic" />
     <text name="mechsim:drives" data="screw" />
     <text name="mechsim:transmissions" data="drive:rotor:world:rail" />
-    <numeric name="mechsim:transmission:drive" data="0.0012732395447351628 1.0 5.4e-06 0 0 0 1.0 0 0 0 0 0 1.0" />
+    <numeric name="mechsim:transmission:drive" data="0.0012732395447351628 1.0 5.4e-06 0 0 0 1.0 0 0 0 0 0 1.0 0" />
   </custom>
 </mujoco>

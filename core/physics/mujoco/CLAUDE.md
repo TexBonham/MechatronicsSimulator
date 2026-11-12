@@ -24,9 +24,10 @@ only here (CI grep, `tests/invariant/test_phy_stubs.py`); the public header name
 | contacts | `mj_contactForce` in world, on body_a (geom1); world and member bodies are `kernel::kWorldBody` |
 | members | start: `cfrc_int` of the first segment moved to the root point; end: roller connect force on the tip, else zero |
 | ropes | empty (milestone 3) |
-| joint_positions | per neutral joint: revolute/prismatic q - qpos0; reflected shaft (q_driven - qpos0) / c; others 0 (PHY-034) |
+| joint_positions | per neutral joint: revolute/prismatic q - qpos0; reflected shaft (q_driven - qpos0) / c + (r_cmd - r_eff) (slip and play, below); others 0 (PHY-034) |
 | joint_drive_torques | one per input drive, in order: the drive equality's `efc_force` (times c on a shaft), 0 when disabled |
-| transmissions | per shaft, neutral order: `shaft_load_torque` (PHY-033, the joint's value, explicit torque plus drive torque), `force` = gain tau_load / c (gain eta driving, 1 / eta back-driven), `stretch` 0 (rigid), `power_flow` Static (tau qd = 0), Forward, Backward; `slip` 0 |
+| transmissions | per shaft, neutral order: `shaft_load_torque` (PHY-033, the joint's value, explicit torque plus drive torque), `force` = gain tau_load / c (gain eta driving, 1 / eta back-driven), `stretch` 0 (rigid), `power_flow` Static (tau qd = 0), Forward, Backward; `slip` = shaft travel lost to slip (rad), `slipping` = s > 0 |
+| payloads | per `mechsim:payloads` entry: body, carrier (`kWorldBody` released), attached = weld active, force = weld `efc_force` rows 0-2 (world, on the payload) |
 
 ## Transmissions (reflection, PHY-018, PHY-033)
 
@@ -37,34 +38,62 @@ Outputs: the shaft body's pose and velocity turn q_driven / c, qd_driven / c abo
 joint's `generalized_force` is the load torque tau_load = tau - J (qd_driven' - qd_driven) / (h c). Body wrenches,
 springs and payload changes on a shaft body throw `AdapterError`.
 
+## Faults (PHY-006, milestone 2)
+
+| Call | Does |
+|---|---|
+| `set_transmission_slip(t, s)` | s in [0, 1] (0 clears), else `AdapterError`; drive rest gets (1 - s) of each commanded increment, `slip_accum += s Delta r_cmd` (kept when cleared); explicit shaft torque scaled by (1 - s), drive force unscaled, `force` = gain (tau_load - s tau_explicit) / c (approximation, ruling 9) |
+| backlash | numeric [13] = b / abs(c), shaft rad; play with memory on the drive rest (after slip), band centred on the first rest; torque-driven shafts pass torque without play (approximation) |
+| `release_load(p)`, `set_payload_attachment(p, kWorldBody)` | weld `<p>.attach` off; `p` must be a `mechsim:payloads` body |
+| `set_payload_attachment(p, carrier)` | weld on at the translated relative pose; any other carrier throws (no re-parenting) |
+
+Shaft output under slip or play: angle + (r_cmd - r_eff), rate + (Delta r_cmd - Delta r_eff) / h (`ShaftMap::receive`).
+Steady slip (approximation, recorded): the spring sees K (rest - theta') with theta' the reported end-state shaft
+angle, so the stepper's theta + omega h prediction (omega the reported rate v) is exact and leaves no spring offset;
+the drive's damper acts on the driven rate, (1 - s) v, so the drive carries a constant offset D s v against the
+stepper's damper term (bounded by D v; the stepper's tangent absorbs it in its lead).
+A step with no enabled drive on the shaft ends tracking; the next enabled rest restarts there, no increment counted,
+band re-centred on rest - slip_accum, `slip_accum` kept (ruling 10).
+
 ## Joint drives (PHY-034)
 
 Every shaft joint and every `signals.drive_joints` entry has an inactive one-joint equality `<joint>.drive` (listed
 in `mechsim:drives`) on the DOF it moves. `apply_drives` each step: all off, then per enabled drive K_d = K / c^2,
-D_d = D / c^2, `eq_data[0]` = rest c, d = clamp(1 - 1 / (K_d A0 h^2), 1e-4, 0.99) (A0 = `dof_invweight0`),
-solref = (-(1 - d) K_d A0, -(1 - d) D_d A0), solimp (d, d, 0.001, 0.5, 2); s0 h^2 + 2 s1 h >= 4 throws. Exact static
-sag and steady lag; above K_d A0 h^2 = 1 an apparent inertia m / (1 - d). Derivation above `apply_drives`.
+D_d = D / c^2, `eq_data[0]` = rest c - qvel h, d = clamp(Z / (1 + Z), 1e-4, 400 / 401) with Z = (K_d h^2 + D_d h) A0
+(A0 = `dof_invweight0`), solref = (-(1 - d) K_d A0, -(1 - d) D_d A0), solimp (d, d, 0.001, 0.5, 2);
+envelope Z <= 400, beyond it `AdapterError` (PHY-034; past the clamp backward Euler is lost and from Z ~ 535 the
+shifted-rest map diverges). The result is backward Euler, the spring and damper at the step's end state,
+(m + D_d h + K_d h^2) a = F - D_d v - K_d (q + v h - rest_d); the read-back `efc_force` is K (rest - q') - D v'. Static sag and steady lag (behind the same step's rest)
+exact.
+Derivation above `apply_drives`.
 
 ## Index spaces (neutral file order)
 
 Velocity DOFs: joint order, linear then angular (free: MuJoCo order, translation world, rotation local). Springs:
-each revolute, prismatic and planar DOF, then lumped-member nodes root to tip. Payloads are bodies; mass change
-rescales inertia and reruns `mj_setConst` on scratch data. `release_load` (no ropes) and `set_payload_attachment`
-(MuJoCo cannot re-parent) throw `AdapterError` in milestone 1.
+each revolute, prismatic and planar DOF, then lumped-member nodes root to tip. Transmissions: neutral order. Payloads
+and loads are bodies; mass change rescales inertia and reruns `mj_setConst` on scratch data; only `mechsim:payloads`
+bodies release or re-attach (no ropes).
 
-## Section index, `src/mujoco_adapter.cpp`
+## Section index
 
-| Section | Line |
-|---|---|
-| Supported elements | 35 |
-| Helpers | 61 |
-| Engine | 267 |
-| Element maps | 307 |
-| Shafts | 446 |
-| Outputs | 492 |
-| Inputs | 690 |
-| Adapter | 804 |
-| Mid-run changes | 949 |
+| Section | File | Line |
+|---|---|---|
+| Supported elements | src/mujoco_adapter.cpp | 35 |
+| End supported elements | src/mujoco_adapter.cpp | 59 |
+| Helpers | src/mujoco_adapter.cpp | 61 |
+| Engine | src/mujoco_adapter.cpp | 313 |
+| Element maps | src/mujoco_adapter.cpp | 357 |
+| Shafts | src/mujoco_adapter.cpp | 535 |
+| Outputs | src/mujoco_adapter.cpp | 586 |
+| Inputs | src/mujoco_adapter.cpp | 810 |
+| Adapter | src/mujoco_adapter.cpp | 944 |
+| Mid-run changes | src/mujoco_adapter.cpp | 1089 |
+| Fixtures and helpers | tests/test_mujoco_adapter.cpp | 24 |
+| Shaft torque | tests/test_mujoco_adapter.cpp | 470 |
+| Joint drive runs | tests/test_mujoco_adapter.cpp | 650 |
+| Faults: slip, backlash, payload (PHY-006) | tests/test_mujoco_adapter.cpp | 837 |
+| Payload hold and coast | tests/test_mujoco_adapter.cpp | 990 |
+| Implicit drive under slip and braking (brief M2-C2) | tests/test_mujoco_adapter.cpp | 1138 |
 
 ## Build notes
 

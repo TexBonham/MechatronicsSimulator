@@ -3,6 +3,7 @@ stepper's rotor inertia checked from the Python side (SIG-037, BLD-034), the arc
 
 from __future__ import annotations
 
+import math
 from dataclasses import replace
 from fractions import Fraction
 from pathlib import Path
@@ -14,6 +15,7 @@ from mechsim import _core as core
 from mechsim.builder.result import BuildResult
 from mechsim.design.schema import Design
 from mechsim.physics.mujoco.translate import UnmappableElementError
+from mechsim.physics.neutral import BeltPulley, LeadScrew
 from mechsim.record.archive import RunArchive
 from mechsim.scoring.score import SuiteScore, report_text
 from mechsim.testing import core_driver, core_wiring
@@ -54,11 +56,28 @@ def _run_failed(result: RunResult, *fragments: str) -> None:
     assert f"error: {score.error}" in text
 
 
+def _self_locking_lift(transmissions: tuple[Any, ...]) -> tuple[Any, ...]:
+    """The lift belt swapped for a self-locking lead screw of the same travel per turn: the gantry has had no lead
+    screw since 2026-11-11, and a self-locking screw is the element the MuJoCo bridge cannot map."""
+    swapped = []
+    for item in transmissions:
+        if isinstance(item, BeltPulley) and item.name == "lift_belt":
+            data = item.model_dump()
+            data.pop("pulley_radius")
+            data.update(
+                {"type": "lead_screw", "lead": f"{2.0 * math.pi * item.pulley_radius!r} m", "self_locking": True}
+            )
+            swapped.append(LeadScrew.model_validate(data))
+        else:
+            swapped.append(item)
+    return tuple(swapped)
+
+
 def _lashed(design: Design) -> BuildResult:
     built = core_builder(design)
     assert built.physics is not None
-    lashed = tuple(item.model_copy(update={"backlash": 1e-4}) for item in built.physics.transmissions)
-    return built.model_copy(update={"physics": built.physics.model_copy(update={"transmissions": lashed})})
+    locked = _self_locking_lift(built.physics.transmissions)
+    return built.model_copy(update={"physics": built.physics.model_copy(update={"transmissions": locked})})
 
 
 def _off_inertia(design: Design) -> BuildResult:
@@ -96,10 +115,10 @@ def _prepared_driver(case: Path, builder: Any = core_builder) -> CoreDriver:
 @pytest.mark.req("PHY-019")
 def test_an_unmappable_design_is_a_driver_error_and_a_run_error_score() -> None:
     driver = _prepared_driver(G3, _lashed)
-    with pytest.raises(DriverError, match="backlash") as raised:
+    with pytest.raises(DriverError, match="self-locking") as raised:
         driver.run(EndSpec(max_tick=TICKS, at_tick=TICKS))
     assert isinstance(raised.value.__cause__, UnmappableElementError)
-    _run_failed(run_case(G3, _services(_lashed)), "backlash")
+    _run_failed(run_case(G3, _services(_lashed)), "self-locking")
 
 
 @pytest.mark.req("TST-023")
@@ -142,6 +161,28 @@ def test_a_shaft_inertia_off_the_rotor_inertia_is_refused_by_the_signal_layer() 
     _run_failed(run_case(G3, _services(_off_inertia)), "x_motor", "shaft body 'x_motor_shaft'", "SIG-037")
 
 
+def _brake_on_the_lift_axis(design: Design) -> BuildResult:
+    """The lift brake moved from the motor shaft joint to the belt-driven lift_axis, where the bridge carries no
+    second drive (PHY-034)."""
+    built = core_builder(design)
+    instances = []
+    for instance in built.wiring.instances:
+        if instance.name == "lift_brake":
+            instance = instance.model_copy(update={"acts_on": "lift_axis"})
+        instances.append(instance)
+    wiring = built.wiring.model_copy(update={"instances": tuple(instances)})
+    return built.model_copy(update={"wiring": wiring})
+
+
+@pytest.mark.req("TST-023", "BLD-035")
+def test_a_brake_the_bridge_cannot_apply_ends_the_build_naming_brake_and_joint() -> None:
+    """Round 4 ruling 29 (invariant 7): an error, never a note and an unheld joint."""
+    driver = _prepared_driver(G3, _brake_on_the_lift_axis)
+    with pytest.raises(DriverError, match="brake 'lift_brake': cannot be applied on joint 'lift_axis'"):
+        driver.run(EndSpec(max_tick=TICKS, at_tick=TICKS))
+    _run_failed(run_case(G3, _services(_brake_on_the_lift_axis)), "lift_brake", "'lift_axis'", "lift_belt")
+
+
 # ===== Rotor inertia from the Python side (SIG-037, BLD-034) ===========
 
 
@@ -149,7 +190,8 @@ def test_a_shaft_inertia_off_the_rotor_inertia_is_refused_by_the_signal_layer() 
 @pytest.mark.req("BLD-034")
 def test_every_stepper_gets_its_shaft_body_and_axial_inertia() -> None:
     """The builder sets the shaft body's axial inertia to the rotor inertia (BLD-034), so the value passed is the
-    catalog's 5.4e-6 kg m^2 to the round-off of a^T I a over a z axis (one product and a few zero sums)."""
+    catalog's 2.8e-5 kg m^2 (the NEMA 23 placeholder, 280 g cm^2) to the round-off of a^T I a over a z axis (one
+    product and a few zero sums)."""
     built = core_builder(prepare(G3).design)
     assert built.physics is not None
     places, _ = core_wiring.joint_places(built.physics)
@@ -160,7 +202,7 @@ def test_every_stepper_gets_its_shaft_body_and_axial_inertia() -> None:
         assert params["shaft_body"] == f"{instance.name}_shaft"
         print(f"{instance.name}: rotor {params['rotor_inertia']!r}, shaft {params['shaft_axial_inertia']!r}")
         assert params["shaft_axial_inertia"] == pytest.approx(params["rotor_inertia"], rel=1e-12)
-        assert params["rotor_inertia"] == pytest.approx(5.4e-6, rel=1e-12)
+        assert params["rotor_inertia"] == pytest.approx(2.8e-5, rel=1e-12)
 
 
 # ===== Approximations and control rate (SCO-013, TST-033) ==============

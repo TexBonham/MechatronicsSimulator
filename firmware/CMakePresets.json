@@ -36,11 +36,13 @@
     "buildPresets": [
         {
             "name": "host",
-            "configurePreset": "host"
+            "configurePreset": "host",
+            "jobs": 2
         },
         {
             "name": "arm-none-eabi",
-            "configurePreset": "arm-none-eabi"
+            "configurePreset": "arm-none-eabi",
+            "jobs": 2
         }
     ],
     "testPresets": [
@@ -49,6 +51,9 @@
             "configurePreset": "host",
             "output": {
                 "outputOnFailure": true
+            },
+            "execution": {
+                "jobs": 2
             }
         }
     ]

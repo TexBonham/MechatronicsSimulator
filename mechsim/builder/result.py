@@ -33,10 +33,15 @@ class MountBinding(_Out):
 
 
 class Sensing(_Out):
-    """A sensor instance's placement (DES-043, BLD-035): the sensed joint and, for a limit switch, the switch position
-    along it (SI) and its actuation side; for an encoder, whether it counts against the joint's positive sense."""
+    """A sensor instance's placement (DES-043, BLD-035): the sensed joint, case payload, reaction joint (a design joint
+    or a case payload's fixed joint, ruling 24) or body, and for a limit switch the switch position along the joint
+    (SI) and its actuation side; for an encoder, whether it counts against the joint's positive sense. Exactly one of
+    joint, payload, joint_reaction and body is set."""
 
-    joint: str
+    joint: str | None
+    payload: str | None = None
+    joint_reaction: str | None = None
+    body: str | None = None
     position: float | None
     actuate_above: bool | None
     reversed: bool
@@ -55,7 +60,10 @@ class InstanceWiring(_Out):
     mounts: tuple[MountBinding, ...]
     rails: tuple[str, ...]
     senses: Sensing | None = None
+    acts_on: str | None = None
     torque_speed: tuple[tuple[float, float], ...] = ()
+    core_type: str | None = None
+    length_parameters: tuple[str, ...] = ()
 
 
 class PinAssignment(_Out):

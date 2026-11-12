@@ -81,6 +81,10 @@ std::uint64_t SignalRng::next() noexcept {
     return mix(state_);
 }
 
+std::uint64_t SignalRng::state() const noexcept {
+    return state_;
+}
+
 double SignalRng::uniform() noexcept {
     return static_cast<double>(next() >> 11U) * 0x1.0p-53;
 }
@@ -243,12 +247,30 @@ double BuiltinComponent::output(std::size_t index) const {
     return output_values_.at(index);
 }
 
+const SignalRng& BuiltinComponent::generator() const noexcept {
+    return rng_;
+}
+
 SignalRng& BuiltinComponent::rng() noexcept {
     return rng_;
 }
 
 const ComponentClock& BuiltinComponent::clock() const noexcept {
     return clock_;
+}
+
+std::span<const FailureInjection> BuiltinComponent::injections() const noexcept {
+    return faults_;
+}
+
+void BuiltinComponent::note(std::string line) {
+    notes_.push_back(std::move(line));
+}
+
+std::vector<std::string> BuiltinComponent::take_notes() {
+    std::vector<std::string> taken;
+    taken.swap(notes_);
+    return taken;
 }
 
 }  // namespace mechsim::signals

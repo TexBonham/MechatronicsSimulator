@@ -613,9 +613,15 @@ class SignalDeclaration(_Strict):
 
 class Senses(_Strict):
     """What a sensor instance reads (DES-043): the joint coordinate, and per type the switch position along the joint
-    and its actuation side (limit_switch) or the count direction (incremental_encoder)."""
+    and its actuation side (limit_switch) or the count direction (incremental_encoder); a load cell may read the case
+    payload by name instead of a joint, or the reaction of a joint (`joint_reaction`: a design joint, or a case payload
+    by name, read at its fixed joint to the carrier; ruling 24), an IMU reads a body. Exactly one of joint, payload,
+    joint_reaction and body."""
 
-    joint: OpenName
+    joint: OpenName | None = None
+    payload: Name | None = None
+    joint_reaction: Name | None = None
+    body: OpenName | None = None
     position: Length | None = None
     actuate_above: bool | None = None
     reversed: bool | None = None
@@ -624,8 +630,21 @@ class Senses(_Strict):
 SENSES_FIELDS: dict[str, tuple[str, ...]] = {
     "limit_switch": ("position", "actuate_above"),
     "incremental_encoder": ("reversed",),
+    "linear_encoder": ("reversed",),
 }
 SENSES_REQUIRED: dict[str, tuple[str, ...]] = {"limit_switch": ("position", "actuate_above")}
+SENSES_TARGETS: dict[str, tuple[str, ...]] = {
+    "load_cell": ("joint", "payload", "joint_reaction"),
+    "imu": ("body",),
+}
+SENSES_DEFAULT_TARGETS: tuple[str, ...] = ("joint",)
+ACTS_ON_TYPES: tuple[str, ...] = ("brake",)
+
+
+class ActsOn(_Strict):
+    """The joint a brake-type instance holds (DES-043); a brake on a transmission-driven joint sits on its shaft."""
+
+    joint: OpenName
 
 
 class ComponentInstance(_Strict):
@@ -636,6 +655,7 @@ class ComponentInstance(_Strict):
     mechanical: list[MechanicalBinding] = Field(default_factory=list)
     signals: list[SignalDeclaration] = Field(default_factory=list)
     senses: Senses | None = None
+    acts_on: ActsOn | None = None
 
 
 class Wire(_Strict):
@@ -738,6 +758,20 @@ def _code_keys(value: Any) -> Any:
 
 CodeNames = Annotated[dict[str, Name], BeforeValidator(_code_keys)]
 
+EventArgument = Literal["axis", "fault", "state", "number", "none"]
+
+
+class EventCode(_Strict):
+    """A named event-log code and how its argument reads (DES-045, round 4 ruling 28): `axis` the instance of the
+    pulse_output binding of that channel, `fault` or `state` the design's code name (a state argument may pack a
+    from-to pair as (from << 8) | to, read `from>to`), `number` verbatim, `none` no detail."""
+
+    name: Name
+    argument: EventArgument
+
+
+EventCodes = Annotated[dict[str, EventCode], BeforeValidator(_code_keys)]
+
 
 class Firmware(_Strict):
     """`state_codes` and `fault_codes` name the firmware's reported `state_code` and `fault_code` values (DES-045);
@@ -748,12 +782,23 @@ class Firmware(_Strict):
     tick_rate: Frequency
     state_codes: CodeNames = Field(default_factory=dict, description="state_code value (0..255) to state name")
     fault_codes: CodeNames = Field(default_factory=dict, description="fault_code value (0..255) to fault name")
+    event_codes: EventCodes = Field(
+        default_factory=dict,
+        description=(
+            "event_log code (0..255) to the event's name and its argument kind (axis, fault, state, number, none)"
+        ),
+    )
 
     @model_validator(mode="after")
     def _positive(self) -> Firmware:
         _require_positive(self.tick_rate, "tick_rate")
         errors: list[str] = []
-        for what, table in (("state_codes", self.state_codes), ("fault_codes", self.fault_codes)):
+        tables = (
+            ("state_codes", self.state_codes),
+            ("fault_codes", self.fault_codes),
+            ("event_codes", {key: item.name for key, item in self.event_codes.items()}),
+        )
+        for what, table in tables:
             for key in table:
                 if not key.isdigit() or int(key) > 255 or str(int(key)) != key:
                     errors.append(f"{what}: code {key!r} is not an integer 0..255")
@@ -767,6 +812,18 @@ class Firmware(_Strict):
 
     def fault_name(self, code: int) -> str | None:
         return self.fault_codes.get(str(code))
+
+    def event_name(self, code: int) -> str | None:
+        entry = self.event_codes.get(str(code))
+        if entry is None:
+            return None
+        return entry.name
+
+    def event_argument(self, code: int) -> EventArgument | None:
+        entry = self.event_codes.get(str(code))
+        if entry is None:
+            return None
+        return entry.argument
 
 
 class MessageField(_Strict):
@@ -1077,7 +1134,8 @@ def _check_component(
             errors.append(f"{where}.body: unknown body {binding.body!r}")
         if isinstance(binding.joint, str) and binding.joint not in joints:
             errors.append(f"{where}.joint: unknown joint {binding.joint!r}")
-    _check_senses(path, component, kind.category, joints, errors)
+    _check_senses(path, component, kind.category, joints, bodies, errors)
+    _check_acts_on(path, component, joints, errors)
     pins = {pin.name: pin for pin in kind.electrical.pins}
     used_pins: set[str] = set()
     for signal_index, signal in enumerate(component.signals):
@@ -1099,17 +1157,37 @@ def _check_component(
             )
 
 
-def _check_senses(path: str, component: ComponentInstance, category: str, joints: set[str], errors: list[str]) -> None:
+def _check_senses(
+    path: str,
+    component: ComponentInstance,
+    category: str,
+    joints: set[str],
+    bodies: set[str],
+    errors: list[str],
+) -> None:
     senses = component.senses
     if category != "sensor":
         if senses is not None:
             errors.append(f"{path}.senses: only sensor instances carry senses; {component.type!r} is a {category}")
         return
+    targets = SENSES_TARGETS.get(component.type, SENSES_DEFAULT_TARGETS)
     if senses is None:
-        errors.append(f"{path}.senses: sensor instance {component.name!r} must name the joint it senses")
+        errors.append(
+            f"{path}.senses: sensor instance {component.name!r} must name the {' or '.join(targets)} it senses"
+        )
         return
+    given = [name for name in ("joint", "payload", "joint_reaction", "body") if getattr(senses, name) is not None]
+    for name in given:
+        if name not in targets:
+            errors.append(f"{path}.senses.{name}: type {component.type!r} takes no {name}")
+    if len(given) == 0:
+        errors.append(f"{path}.senses: type {component.type!r} must name one of {', '.join(targets)}")
+    if len(given) > 1:
+        errors.append(f"{path}.senses: names {', '.join(given)}; exactly one is allowed")
     if isinstance(senses.joint, str) and senses.joint not in joints:
         errors.append(f"{path}.senses.joint: unknown joint {senses.joint!r}")
+    if isinstance(senses.body, str) and senses.body not in bodies:
+        errors.append(f"{path}.senses.body: unknown body {senses.body!r}")
     allowed = SENSES_FIELDS.get(component.type, ())
     for field in ("position", "actuate_above", "reversed"):
         value = getattr(senses, field)
@@ -1118,6 +1196,19 @@ def _check_senses(path: str, component: ComponentInstance, category: str, joints
     for field in SENSES_REQUIRED.get(component.type, ()):
         if getattr(senses, field) is None:
             errors.append(f"{path}.senses.{field}: required for type {component.type!r}")
+
+
+def _check_acts_on(path: str, component: ComponentInstance, joints: set[str], errors: list[str]) -> None:
+    acts_on = component.acts_on
+    if component.type not in ACTS_ON_TYPES:
+        if acts_on is not None:
+            errors.append(f"{path}.acts_on: only {', '.join(ACTS_ON_TYPES)} instances act on a joint")
+        return
+    if acts_on is None:
+        errors.append(f"{path}.acts_on: {component.type} instance {component.name!r} must name the joint it acts on")
+        return
+    if isinstance(acts_on.joint, str) and acts_on.joint not in joints:
+        errors.append(f"{path}.acts_on.joint: unknown joint {acts_on.joint!r}")
 
 
 def _check_signals(design: Design, errors: list[str]) -> None:

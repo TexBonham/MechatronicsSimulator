@@ -3,35 +3,38 @@
 # else is a ${name} open parameter owed by the gantry team. Every open parameter carries a default (DES-044), a
 # PLACEHOLDER UNTIL THE GANTRY TEAM RULES: the run uses it when neither the case nor --set gives a value. Kinematic
 # chain: frame on the world; rail_x fixed on the frame; rail_y travels along x on rail_x; the trolley travels along y
-# on rail_y; the lift carriage travels along z on the trolley (lead screw); the hook hangs from the lift carriage. Each axis motor drives a shaft body on a revolute joint. MCU pin names come from the
+# on rail_y; the lift carriage travels along z on the trolley (belt, every axis belt-driven: gantry team 2026-11-11);
+# the hook hangs from the lift carriage. Each axis motor drives a shaft body on a revolute joint. MCU pin names come from the
 # placeholder chip chips/stm32_placeholder until the STM32 part is selected. The controller heartbeat is a digital
 # output pin bound to the watchdog's heartbeat port; the watchdog and the E-stop relay both gate motor power.
 name: gantry
 version: 0.1.0
 source_hash: unset
 status: draft
-description: Overhead X-Y gantry with a lead-screw hook lift; the first reference design.
+description: Overhead X-Y gantry with a belt-driven hook lift; the first reference design.
 open_parameters:
   - name: workspace_x
     dimension: "[length]"
     owed_by: gantry team
-    note: X travel of the rectangular workspace; requirements doc says not set.
-    default: "1 m"
+    note: X travel of the rectangular workspace; gantry team 2026-11-11.
+    default: "0.5 m"
   - name: workspace_y
     dimension: "[length]"
     owed_by: gantry team
-    note: Y travel of the rectangular workspace; requirements doc says not set.
-    default: "0.8 m"
+    note: Y travel of the rectangular workspace; gantry team 2026-11-11.
+    default: "0.5 m"
   - name: lift_travel
     dimension: "[length]"
     owed_by: gantry team
-    note: Vertical travel of the hook lift.
+    note: Vertical travel of the hook lift; gantry team 2026-11-11.
     default: "0.5 m"
   - name: rated_load
     dimension: "[mass]"
     owed_by: gantry team
-    note: Requirements doc says a few pounds; the walkthrough used 3 kg; exact value not set.
-    default: "3 kg"
+    note: >-
+      Rated load 10 lb, gantry team 2026-11-11; the overload limit is rated + 15 percent = 5.216 kg
+      (GANTRY_OVERLOAD_LIMIT_MILLIKG).
+    default: "4.536 kg"
   - name: cad_model
     dimension: choice
     owed_by: gantry team
@@ -40,8 +43,13 @@ open_parameters:
   - name: body_materials
     dimension: choice
     owed_by: gantry team
-    note: Material and process of the frame, trolley, lift carriage, hook and motor shafts.
-    default: "aluminium_6063_t5_extrusion"
+    note: >-
+      Material and process of the printed bodies (frame, rails, trolley, lift carriage, hook): PETG, 3D printed
+      lengthwise (print direction along the rail), gantry team 2026-11-11. The petg_printed record's mechanical
+      properties stay PLACEHOLDER datasheet values (wide spread) until the team gives them. Scope: printed bodies only;
+      the motor shafts (x_motor_shaft, y_motor_shaft, lift_motor_shaft) are bought steel parts, PLACEHOLDER
+      bearing_steel_52100 machined, and the belt pulleys are catalog parts (belt_pulley.yaml), until the CAD.
+    default: "petg_printed"
   - name: rail_section_area
     dimension: "[length] ** 2"
     owed_by: gantry team
@@ -64,13 +72,20 @@ open_parameters:
   - name: encoder_placement
     dimension: choice
     owed_by: gantry team
-    note: Motor shaft or axis side (row 14); both supported.
+    note: >-
+      Motor shaft or axis side (row 14): axis side, frame, gantry team 2026-11-11 (ruling 32 confirmed): each axis
+      carries a linear_encoder_generic sensing its axis joint, so belt slip and stall both show as a step-count versus
+      encoder mismatch. Counts per metre (60 000) stay PLACEHOLDER.
     default: "frame"
   - name: load_cell_type
     dimension: choice
     owed_by: gantry team
-    note: Weight sensor slot; the shipped catalog has no load cell type yet, so no instance is declared.
-    default: "none"
+    note: >-
+      Weight sensor part; PLACEHOLDER load_cell_5kg_generic on the hook reading the case payload, through load_amp
+      (gain 241.8 so the firmware's 600 counts per kg holds with the 12-bit 3.3 V placeholder ADC). No weight sensor
+      declared by the gantry team (2026-11-11); G5 and G6 need one or another overload detection.
+
+    default: "load_cell_5kg_generic"
   - name: deflection_target_mode
     dimension: choice
     owed_by: gantry team
@@ -79,8 +94,8 @@ open_parameters:
   - name: minimum_safety_factor
     dimension: dimensionless
     owed_by: gantry team
-    note: Minimum structural safety factor (ADR 0009); whether it lives in the design or the test case is also open.
-    default: "2"
+    note: Minimum structural safety factor (ADR 0009); 1.5, living in the design, gantry team 2026-11-11.
+    default: "1.5"
   - name: swing_limit_angle
     dimension: dimensionless
     owed_by: gantry team
@@ -94,7 +109,9 @@ open_parameters:
   - name: new_target_policy
     dimension: choice
     owed_by: gantry team
-    note: New target during a move, cancel and replace or queue.
+    note: >-
+      New target during a move: operator choice, reject or queue (gantry team 2026-11-11); a firmware parameter
+      (GANTRY_NEW_TARGET_POLICY), default reject.
     default: "reject"
   - name: lift_while_moving_policy
     dimension: choice
@@ -104,39 +121,42 @@ open_parameters:
   - name: power_loss_hold
     dimension: choice
     owed_by: gantry team
-    note: How the gantry holds its load when power is cut, brake or self-locking lead screw.
-    default: "self_locking_screw"
+    note: >-
+      How the gantry holds its load when power is cut: brake (gantry team 2026-11-11, round 4 ruling 1 confirmed):
+      lift_brake, a spring-applied brake_24v_generic on the motor rail, holds the lift whenever the coil is
+      unpowered. The brake part's ratings stay placeholders.
+    default: "brake"
   - name: stm32_part
     dimension: choice
     owed_by: gantry team
     note: >-
-      STM32 chip, not selected; firmware.chip names chips/stm32_placeholder meanwhile, and the selected part replaces
-      it with its own chip definition.
-    default: "stm32_placeholder"
+      STM32 chip: NUCLEO-G474RE (STM32G474RE), gantry team 2026-11-11. firmware.chip still names
+      chips/stm32_placeholder, which stands in for the STM32G474RE until the milestone 4 peripheral smoke test.
+    default: "stm32g474re"
   - name: logic_supply
     dimension: choice
     owed_by: gantry team
-    note: Supply of the controller's logic rail.
+    note: Supply of the controller's logic rail; placeholder accepted by the gantry team 2026-11-11.
     default: "logic_psu"
   - name: ambient_temperature
     dimension: "[temperature]"
     owed_by: gantry team
-    note: Ambient temperature of the operating environment.
+    note: Ambient temperature of the operating environment; placeholder accepted by the gantry team 2026-11-11.
     default: "298.15 K"
   - name: contact_stiffness
     dimension: "[mass] / [time] ** 2"
     owed_by: gantry team
-    note: Default normal contact stiffness (DES-042, ADR 0002).
+    note: Default normal contact stiffness (DES-042, ADR 0002); placeholder accepted by the gantry team 2026-11-11.
     default: "100000 N/m"
   - name: contact_damping
     dimension: "[mass] / [time]"
     owed_by: gantry team
-    note: Default normal contact damping.
+    note: Default normal contact damping; placeholder accepted by the gantry team 2026-11-11.
     default: "1000 N*s/m"
   - name: contact_friction
     dimension: dimensionless
     owed_by: gantry team
-    note: Default Coulomb friction coefficient.
+    note: Default Coulomb friction coefficient; placeholder accepted by the gantry team 2026-11-11.
     default: "0.5"
   - name: axis_friction
     dimension: "[mass] * [length] / [time] ** 2"
@@ -187,7 +207,9 @@ environment:
   gravity: [0 m/s**2, 0 m/s**2, -9.81 m/s**2]
   ambient_temperature: ${ambient_temperature}
   contact:
-    # PLACEHOLDER contact parameters; contact_stiffness, contact_damping and contact_friction stay open.
+    # Contact parameters: placeholders accepted by the gantry team 2026-11-11 (contact_stiffness, contact_damping,
+    # contact_friction).
+
     default:
       stiffness: 100000 N/m
       damping: 1000 N*s/m
@@ -197,71 +219,91 @@ environment:
       normal: [0.0, 0.0, 1.0]
       offset: 0 m
 # PLACEHOLDER GEOMETRY until the gantry team's CAD arrives (DES open parameter cad_model).
-# Every body below is a box or cylinder of aluminium 6063-T5 with mass properties computed from it, and every joint
-# placement, motor axis, joint friction, damping and backlash, contact parameter and rail section is a stand-in
-# chosen only so the rigid milestone 1 gantry builds; none of it is gantry data. Placeholder sizes: workspace x 1.0 m
-# (rail_x 1.2 m long), workspace y 0.8 m (rail_y 1.0 m long), lift travel 0.5 m, rail_x 1.0 m above the floor.
+# Every body below is a box or cylinder of printed PETG (body_materials, gantry team 2026-11-11; build direction along
+# each rail, along z elsewhere), except the motor shafts, machined steel (placeholder; body_materials covers printed
+# bodies only), with mass properties computed from it, and every joint placement, motor axis, joint friction, damping
+# and backlash and rail section is a stand-in chosen only so the rigid gantry builds. Gantry team
+# sizes (2026-11-11): workspace x 0.5 m, workspace y 0.5 m, lift travel 0.5 m, rails 0.5 m each, so each rail spans
+# exactly its carriage's travel (rail_x from x 0.1 m to 0.6 m between the end posts, rail_y from y 0.1 m to 0.6 m).
+# rail_x stays 1.0 m above the floor (placeholder).
 # Reference configuration (all joint coordinates zero), world positions of the body frames: frame (0, 0, 0),
-# rail_x (0, 0, 1), rail_y (0.1, 0, 1.04), trolley (0.1, 0.1, 1.09), lift_carriage (0.1, 0.1, 0.79), hook
-# (0.1, 0.1, 0.69), x_motor_shaft (-0.05, -0.1, 1), y_motor_shaft (0.1, -0.05, 1.04), lift_motor_shaft
-# (0.1, 0.1, 1.14); no two bodies not joined to each other overlap there (BLD-022).
+# rail_x (0, 0, 1), rail_y (0.1, 0, 1.04), trolley (0.1, 0.1, 1.09), lift_carriage (0.1, 0.1, 0.44), hook
+# (0.1, 0.1, 0.34), x_motor_shaft (-0.05, -0.1, 1), y_motor_shaft (0.1, -0.05, 1.04), lift_motor_shaft
+# (0.1, 0.1, 1.14); no two bodies not joined to each other overlap there (BLD-022). The lift carriage hangs 0.65 m
+# below the trolley so the full 0.5 m lift travel keeps its top (0.96 m) below rail_x (1.02 m); at 0.3 m it struck
+# rail_x at 0.21 m of travel (M2-X3). x_axis and y_axis carry 5 N of placeholder Coulomb friction (M2-X3): without it
+# an axis cut off mid-move by the E-stop coasted at 0.2 m/s to its far limit (G7); 5 N stops it within v^2 m / (2 F)
+# = 2 cm for 5 kg moving and costs the motor 5 N x 6.37 mm = 0.03 N m (at the 0.1 m/s cruise of 2026-11-11, 0.5 cm).
 bodies:
   - name: frame
-    material: aluminium_6063_t5_extrusion
+    material: petg_printed
     process:
-      kind: extrusion
-    # Two 0.1 m square end posts, 1 m tall, carrying rail_x.
+      kind: printed
+      build_direction: [0.0, 0.0, 1.0]
+      walls: 2
+      infill: 20 percent
+    # Two 0.1 m square end posts, 1 m tall, carrying rail_x at its ends (x 0.1 m and 0.6 m).
     geometry:
       kind: primitives
       shapes:
         - shape: box
-          position: [-0.05 m, 0 m, 0.5 m]
+          position: [0.05 m, 0 m, 0.5 m]
           size: [0.1 m, 0.1 m, 1 m]
         - shape: box
-          position: [1.25 m, 0 m, 0.5 m]
+          position: [0.65 m, 0 m, 0.5 m]
           size: [0.1 m, 0.1 m, 1 m]
   - name: rail_x
-    material: aluminium_6063_t5_extrusion
+    material: petg_printed
     process:
-      kind: extrusion
+      kind: printed
+      build_direction: [1.0, 0.0, 0.0]
+      walls: 2
+      infill: 20 percent
     geometry:
       kind: primitives
       shapes:
         - shape: box
-          position: [0.6 m, 0 m, 0 m]
-          size: [1.2 m, 0.04 m, 0.04 m]
+          position: [0.35 m, 0 m, 0 m]
+          size: [0.5 m, 0.04 m, 0.04 m]
     flexible:
       section:
-        # Placeholder 40 x 40 mm extrusion section; rail_section_area and rail_section_second_moment stay open.
+        # Placeholder 40 x 40 mm section; rail_section_area and rail_section_second_moment stay open. Length 0.5 m
+        # per rail, gantry team 2026-11-11.
         area: 1.5e-4 m**2
         second_moment: 2e-8 m**4
-        length: 1.2 m
+        length: 0.5 m
       calibration: ${rail_calibration}
       # Row 17 planning default for the rail end conditions (root, end); owed by the gantry team with the sections.
       # Clamped-clamped has no lumped beam yet: the gantry builds with rigid_members until milestone 3.
       supports: [clamped, clamped]
   - name: rail_y
-    material: aluminium_6063_t5_extrusion
+    material: petg_printed
     process:
-      kind: extrusion
+      kind: printed
+      build_direction: [0.0, 1.0, 0.0]
+      walls: 2
+      infill: 20 percent
     geometry:
       kind: primitives
       shapes:
         - shape: box
-          position: [0 m, 0.5 m, 0 m]
-          size: [0.06 m, 1 m, 0.04 m]
+          position: [0 m, 0.35 m, 0 m]
+          size: [0.06 m, 0.5 m, 0.04 m]
     flexible:
       section:
         area: 1.5e-4 m**2
         second_moment: 2e-8 m**4
-        length: 1 m
+        length: 0.5 m
       calibration: ${rail_calibration}
       # Row 17 planning default for the rail end conditions (root, end); owed by the gantry team with the sections.
       supports: [pinned, roller]
   - name: trolley
-    material: aluminium_6063_t5_extrusion
+    material: petg_printed
     process:
-      kind: extrusion
+      kind: printed
+      build_direction: [0.0, 0.0, 1.0]
+      walls: 2
+      infill: 20 percent
     geometry:
       kind: primitives
       shapes:
@@ -269,9 +311,12 @@ bodies:
           position: [0 m, 0 m, 0 m]
           size: [0.1 m, 0.1 m, 0.04 m]
   - name: lift_carriage
-    material: aluminium_6063_t5_extrusion
+    material: petg_printed
     process:
-      kind: extrusion
+      kind: printed
+      build_direction: [0.0, 0.0, 1.0]
+      walls: 2
+      infill: 20 percent
     geometry:
       kind: primitives
       shapes:
@@ -279,9 +324,12 @@ bodies:
           position: [0 m, 0 m, 0 m]
           size: [0.08 m, 0.08 m, 0.04 m]
   - name: hook
-    material: aluminium_6063_t5_extrusion
+    material: petg_printed
     process:
-      kind: extrusion
+      kind: printed
+      build_direction: [0.0, 0.0, 1.0]
+      walls: 2
+      infill: 20 percent
     geometry:
       kind: primitives
       shapes:
@@ -289,9 +337,9 @@ bodies:
           position: [0 m, 0 m, 0 m]
           size: [0.04 m, 0.04 m, 0.04 m]
   - name: x_motor_shaft
-    material: aluminium_6063_t5_extrusion
+    material: bearing_steel_52100
     process:
-      kind: extrusion
+      kind: machined
     geometry:
       kind: primitives
       shapes:
@@ -300,9 +348,9 @@ bodies:
           radius: 2.5 mm
           length: 20 mm
   - name: y_motor_shaft
-    material: aluminium_6063_t5_extrusion
+    material: bearing_steel_52100
     process:
-      kind: extrusion
+      kind: machined
     geometry:
       kind: primitives
       shapes:
@@ -311,9 +359,9 @@ bodies:
           radius: 2.5 mm
           length: 20 mm
   - name: lift_motor_shaft
-    material: aluminium_6063_t5_extrusion
+    material: bearing_steel_52100
     process:
-      kind: extrusion
+      kind: machined
     geometry:
       kind: primitives
       shapes:
@@ -344,8 +392,8 @@ joints:
     linear:
       - limits:
           lower: 0 m
-          upper: 1 m
-        friction: 0 N
+          upper: 0.5 m
+        friction: 5 N
         damping: 0 N*s/m
         backlash: 0 m
   - name: y_axis
@@ -358,8 +406,8 @@ joints:
     linear:
       - limits:
           lower: 0 m
-          upper: 0.8 m
-        friction: 0 N
+          upper: 0.5 m
+        friction: 5 N
         damping: 0 N*s/m
         backlash: 0 m
   - name: lift_axis
@@ -367,7 +415,7 @@ joints:
     parent: trolley
     child: lift_carriage
     placement:
-      position: [0 m, 0 m, -0.3 m]
+      position: [0 m, 0 m, -0.65 m]
     axis: [0.0, 0.0, 1.0]
     linear:
       - limits:
@@ -428,7 +476,7 @@ joints:
 components:
   - name: x_motor
     type: stepper_behavioral
-    part: nema17_class_generic
+    part: nema23_class_generic
     mechanical:
       - mount: face
         body: frame
@@ -457,7 +505,7 @@ components:
         body: rail_y
   - name: y_motor
     type: stepper_behavioral
-    part: nema17_class_generic
+    part: nema23_class_generic
     mechanical:
       - mount: face
         body: rail_y
@@ -486,7 +534,7 @@ components:
         body: trolley
   - name: lift_motor
     type: stepper_behavioral
-    part: nema17_class_generic
+    part: nema23_class_generic
     mechanical:
       - mount: face
         body: trolley
@@ -505,17 +553,16 @@ components:
       - name: lift_driver.enable
         pin: enable
         direction: consumes
-  - name: lift_screw
-    type: lead_screw
-    part: tr8x8_generic
-    # Milestone 1: the MuJoCo bridge refuses backlash until milestone 2 (PHY-006), so the design zeroes it here; the
-    # catalog part keeps its 0.1 mm.
-    overrides:
-      backlash: 0 mm
+  # The lift is belt-driven like X and Y (gantry team 2026-11-11: no lead screw on any axis), the same placeholder part
+  # family (40 mm/turn; efficiency, stiffness and max tension flagged in the catalog); GANTRY_STEPS_PER_M_LIFT is
+  # 3200 microsteps / 0.04 m = 80 000. Ruling 26's 8 mm lead is moot for the gantry.
+  - name: lift_belt
+    type: belt_pulley
+    part: gt2_20t_6mm_generic
     mechanical:
-      - mount: drive_end
+      - mount: pulley_bore
         joint: lift_motor_spin
-      - mount: nut
+      - mount: belt_clamp
         body: lift_carriage
   - name: x_min_switch
     type: limit_switch
@@ -541,10 +588,10 @@ components:
       - name: x_max_switch.out
         pin: out
         direction: emits
-    # PLACEHOLDER position: the axis travel of this draft (joint upper limit), until the gantry team's CAD.
+    # Position: the 0.5 m workspace (joint upper limit), gantry team 2026-11-11; the switch's own placement awaits CAD.
     senses:
       joint: x_axis
-      position: 1 m
+      position: 0.5 m
       actuate_above: true
   - name: y_min_switch
     type: limit_switch
@@ -570,10 +617,10 @@ components:
       - name: y_max_switch.out
         pin: out
         direction: emits
-    # PLACEHOLDER position: the axis travel of this draft (joint upper limit), until the gantry team's CAD.
+    # Position: the 0.5 m workspace (joint upper limit), gantry team 2026-11-11; the switch's own placement awaits CAD.
     senses:
       joint: y_axis
-      position: 0.8 m
+      position: 0.5 m
       actuate_above: true
   - name: lift_min_switch
     type: limit_switch
@@ -604,9 +651,10 @@ components:
       joint: lift_axis
       position: 0.5 m
       actuate_above: true
+  # Frame-side linear encoders on the axis joints (ruling 32); 60000 counts per metre matches GANTRY_COUNTS_PER_M_*.
   - name: x_encoder
-    type: incremental_encoder
-    part: encoder_600ppr_generic
+    type: linear_encoder
+    part: linear_encoder_generic
     mechanical:
       - mount: flange
         body: ${encoder_placement}
@@ -618,10 +666,10 @@ components:
         pin: channel_b
         direction: emits
     senses:
-      joint: x_motor_spin
+      joint: x_axis
   - name: y_encoder
-    type: incremental_encoder
-    part: encoder_600ppr_generic
+    type: linear_encoder
+    part: linear_encoder_generic
     mechanical:
       - mount: flange
         body: ${encoder_placement}
@@ -633,10 +681,10 @@ components:
         pin: channel_b
         direction: emits
     senses:
-      joint: y_motor_spin
+      joint: y_axis
   - name: lift_encoder
-    type: incremental_encoder
-    part: encoder_600ppr_generic
+    type: linear_encoder
+    part: linear_encoder_generic
     mechanical:
       - mount: flange
         body: ${encoder_placement}
@@ -648,6 +696,56 @@ components:
         pin: channel_b
         direction: emits
     senses:
+      joint: lift_axis
+  # The hook as the end effector carrying the case payload (LIB-031); its mass is the hook body's, capacity placeholder.
+  - name: hook_effector
+    type: end_effector
+    part: hook_generic
+    mechanical:
+      - mount: attach
+        body: hook
+  # PLACEHOLDER load cell chain (open parameter load_cell_type): no weight sensor declared by the gantry team
+  # (2026-11-11); G5 and G6 need one or another overload detection. The cell reads the reaction at the case payload's
+  # fixed joint to the hook (DES-043 senses.joint_reaction, ruling 24); the amplifier gain 241.8 makes 1 kg read 600
+  # ADC counts on the placeholder chip (2e-3 V/kg x 241.8 x 4096 / 3.3 V), so the 5.5 kg overweight payload (3300
+  # counts) stays inside the 12-bit range, which at 1000 counts/kg ended at 4.1 kg, under the 5.216 kg limit.
+  - name: load_cell
+    type: load_cell
+    part: load_cell_5kg_generic
+    mechanical:
+      - mount: body
+        body: hook
+    senses:
+      joint_reaction: payload
+  - name: load_amp
+    type: load_cell_amplifier
+    part: load_cell_amplifier_generic
+    # PLACEHOLDER bandwidth 2 Hz (ruling 35): the lift-start force transient must not read as an overload; the gantry
+    # team owes the real front end or overload filtering.
+    overrides:
+      gain: "241.8"
+      bandwidth: "2 Hz"
+
+    mechanical:
+      - mount: board
+        body: trolley
+    signals:
+      - name: load_amp.out
+        pin: out
+        direction: emits
+  # PLACEHOLDER lift brake (open parameter power_loss_hold): a spring-applied brake on the lift motor shaft (a motor
+  # brake, ruling 23); its coil is on the motor rail, so a power loss or E-stop engages it.
+  - name: lift_brake
+    type: brake
+    part: brake_24v_generic
+    mechanical:
+      - mount: body
+        body: trolley
+    signals:
+      - name: lift_brake.release
+        pin: release
+        direction: consumes
+    acts_on:
       joint: lift_motor_spin
   - name: motor_supply
     type: power_supply
@@ -659,9 +757,17 @@ components:
     overrides:
       output_voltage: 3.3 V
       max_current: 1 A
+  # PLACEHOLDER relay reset (round 4 ruling 25): no manual reset, the motor rail returns when the E-stop loop closes;
+  # the firmware's `reset` message gates motion after an E-stop (FW-024). The real relay's arrangement is owed.
   - name: estop
     type: estop_relay
     part: estop_relay_24v_generic
+    overrides:
+      manual_reset: false
+    signals:
+      - name: estop.status
+        pin: status
+        direction: emits
   - name: watchdog
     type: watchdog
     part: watchdog_24v_generic
@@ -722,6 +828,20 @@ wiring:
     destination: lift_encoder.vcc
   - source: logic_psu.gnd
     destination: lift_encoder.gnd
+  - source: load_cell.signal
+    destination: load_amp.signal_in
+  - source: logic_psu.v_out
+    destination: load_cell.excitation
+  - source: logic_psu.gnd
+    destination: load_cell.ground
+  - source: logic_psu.v_out
+    destination: load_amp.vcc
+  - source: logic_psu.gnd
+    destination: load_amp.ground
+  - source: watchdog.contact_out
+    destination: lift_brake.vcc
+  - source: motor_supply.gnd
+    destination: lift_brake.ground
 pin_bindings:
   - signal: x_driver.step
     pin: PA0
@@ -795,15 +915,24 @@ pin_bindings:
   - signal: operator_link.uart_rx
     pin: PA10
     mode: uart_rx
+  - signal: load_amp.out
+    pin: PA11
+    mode: adc_input
+  - signal: estop.status
+    pin: PB7
+    mode: digital_input
+  - signal: lift_brake.release
+    pin: PB8
+    mode: digital_output
 power:
   rails:
     - name: motor_power
       supply: motor_supply
       gated_by: [estop, watchdog]
-      consumers: [x_driver, y_driver, lift_driver]
+      consumers: [x_driver, y_driver, lift_driver, lift_brake]
     - name: logic
       supply: ${logic_supply}
-      consumers: [x_encoder, y_encoder, lift_encoder]
+      consumers: [x_encoder, y_encoder, lift_encoder, load_cell, load_amp]
   controller_rail: logic
 firmware:
   # Application target mechsim_fw_gantry in the firmware tree (DES-040). Codes: firmware/app/gantry/gantry_config.h.
@@ -827,6 +956,20 @@ firmware:
     7: homing_failed
     8: event_overflow
     9: tx_overflow
+    10: overload
+    11: estop
+    12: encoder_mismatch
+    13: limit_trip
+    14: nothing_to_reset
+  # event_log codes recorded as events (gantry_config.h GANTRY_EVENT_*), each with its argument kind (round 4 ruling 28):
+  # an axis reads as that step channel's driver instance (motion_start, motion_end: FW-028), a fault or state code as
+  # its name (state_change packs (from << 8) | to, read from>to).
+  event_codes:
+    1: {name: state_change, argument: state}
+    3: {name: refused, argument: fault}
+    4: {name: fault_latched, argument: fault}
+    6: {name: motion_start, argument: axis}
+    7: {name: motion_end, argument: axis}
 operator_messages:
   - name: target
     label: target (x, y)
@@ -839,6 +982,19 @@ operator_messages:
         dimension: "[length]"
   - name: home
     label: home
+    source: operator
+    destination: controller
+  # Lift the hook to z, metres above the lift home (min) switch; lowering is a lower z (round 4 ruling 8).
+  - name: lift
+    label: lift
+    source: operator
+    destination: controller
+    fields:
+      - name: z
+        dimension: "[length]"
+  # Clear a latched E-stop fault once the motor rail is live; the controller returns to not_homed (round 4 ruling 7).
+  - name: reset
+    label: reset
     source: operator
     destination: controller
   - name: current_position

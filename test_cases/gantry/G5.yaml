@@ -1,0 +1,128 @@
+# G5 (Requirements doc, Test cases, gantry suite): a load over the limit attached before a move; lift commands are
+# ignored (ACC-009, FW-018) and lower commands work (ACC-010). The hook is homed with a 1 kg payload, lifted to 30 cm,
+# and the payload is loaded in steps to 5.5 kg (over the 5.216 kg limit, rated 10 lb = 4.536 kg + 15 percent, gantry
+# team 2026-11-11) while the lift stands still, so the load is over the limit before the next move. Why in steps: the
+# payload is a fixed child of the hook (ruling 24) and each change is a step load on the stepper's hold. The lift is
+# belt-driven (gantry team 2026-11-11), c = 40 mm / 2 pi = 6.37 mm, and the lift motor is the placeholder NEMA 23
+# (nema23_class_generic, ruling 31; M2-X7), whose 1.26 N m holding torque carries 1.26 / (9.81 m/s^2 x 6.37 mm) =
+# 20.2 kg; m_stack = 0.44 kg of printed PETG carriage and hook plus the 30 g cell. An undamped step from m0 to m1 peaks
+# at (m_stack + m0 + 2 (m1 - m0)) g c, under the holding torque for m1 <= (20.2 - 0.44 + m0) / 2, so even a single
+# 1 -> 5.5 kg step meets it (10.4 kg allowed); the steps are kept so the load passes through the limit while standing. Lift timing at the 2026-11-11 limits (0.05 m/s^2, 0.1 m/s): a move of d >= 0.1 m takes
+# d / v + v / a = d / 0.1 + 2 s, plus the 50 ms brake release wait: `lift 0.3` at 8 s ends by 13.05 s, the loading (minimum time; the 50 mm slow zones add about 0.25 s, which the windows carry as slack)
+# runs from 14 s to 17 s, `lift 0.4` at 18 s is refused with a status and a `refused` event (fault overload) and the
+# lift holds to 20 s; `lift 0.1` at 20 s lowers it by 20 cm, done by 20 + 4.05 = 24.05 s, ending within 1 cm of 10 cm
+# (the 1 cm position accuracy, G2 and G3) at 26 s. Homing from the start positions takes 0.1 m / 0.02 m/s + 0.02 /
+# 0.05 s ramp = 5.2 s per axis, all axes at once, inside the 10 cm homing travel (gantry team 2026-11-11).
+id: G5
+title: Overweight load attached before a move
+design:
+  name: gantry
+  version: 0.1.0
+controller_mode: native
+seed: 5
+open_parameters:
+  - name: homing_time
+    dimension: "[time]"
+    owed_by: gantry team
+    note: Time allowed for homing before the first lift; 0.1 m at the 0.02 m/s homing speed plus its 0.4 s ramp is 5.2 s.
+    default: "8 s"
+  - name: overweight_mass
+    dimension: "[mass]"
+    owed_by: gantry team
+    note: >-
+      Payload mass over the 5.216 kg overload limit (gantry team 2026-11-11). Lowering 5.5 kg on the belt lift needs
+      (0.44 + 5.5) kg x (9.81 + 0.05) m/s^2 x 6.37 mm = 0.373 N m against 1.205 N m of the placeholder NEMA 23 curve at
+      the 0.1 m/s lift speed (150 rpm), a margin of 3.2 (ruling 31, M2-X7).
+    default: "5.5 kg"
+  - name: hold_band
+    dimension: "[length]"
+    owed_by: gantry team
+    note: How far the lift may move while a lift command is refused; the 1 cm position accuracy.
+    default: "1 cm"
+initial_state:
+  joints:
+    - joint: x_axis
+      position: 0.1 m
+      velocity: 0 m/s
+    - joint: y_axis
+      position: 0.1 m
+      velocity: 0 m/s
+    - joint: lift_axis
+      position: 0.1 m
+      velocity: 0 m/s
+  controller:
+    state: not_homed
+  payload:
+    attached: true
+    body: hook
+    mass: 1 kg
+commands:
+  - at: 0 s
+    message: home
+  - at: ${homing_time}
+    message: lift
+    payload:
+      z: 30 cm
+  - at: 18 s
+    message: lift
+    payload:
+      z: 40 cm
+  - at: 20 s
+    message: lift
+    payload:
+      z: 10 cm
+faults:
+  - kind: payload_change
+    start: 14 s
+    target: hook
+    mass: 2 kg
+  - kind: payload_change
+    start: 14.5 s
+    target: hook
+    mass: 3 kg
+  - kind: payload_change
+    start: 15 s
+    target: hook
+    mass: 4 kg
+  - kind: payload_change
+    start: 15.5 s
+    target: hook
+    mass: 4.5 kg
+  - kind: payload_change
+    start: 16 s
+    target: hook
+    mass: 5 kg
+  - kind: payload_change
+    start: 16.5 s
+    target: hook
+    mass: 5.25 kg
+  - kind: payload_change
+    start: 17 s
+    target: hook
+    mass: ${overweight_mass}
+end:
+  at: 26 s
+  max_duration: 26 s
+criteria:
+  - name: lift_up_refused
+    check: event
+    event: event:refused
+    expect: present
+    window:
+      start: 18 s
+      end: 20 s
+  - name: lift_up_ignored
+    check: hold_band
+    joints: [lift_axis]
+    band: ${hold_band}
+    window:
+      start: 18 s
+      end: 20 s
+  - name: lowered
+    check: value
+    quantity: joint:lift_axis.position
+    statistic: final
+    comparison: within
+    target: 10 cm
+    limit: 1 cm
+baseline: baseline.yaml

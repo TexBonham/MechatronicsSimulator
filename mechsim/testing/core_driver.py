@@ -12,35 +12,41 @@ from __future__ import annotations
 
 import hashlib
 import json
-import math
 from collections.abc import Callable, Mapping, Sequence
-from dataclasses import dataclass
 from fractions import Fraction
 from pathlib import Path
 from typing import Any
 
 import numpy as np
-from numpy.typing import NDArray
 
 from mechsim import _core as core
 from mechsim.builder import BuildError, build
+from mechsim.builder.payload import with_payload
 from mechsim.builder.result import BuildResult as CoreBuild
 from mechsim.design.schema import Design, blob_hash, shipped_materials
 from mechsim.library.registry import default_registry
 from mechsim.physics.mujoco.prepare import StartStateError, prepare_model
 from mechsim.physics.mujoco.translate import UnmappableElementError
 from mechsim.physics.neutral import PhysicsModel
-from mechsim.record.archive import RunArchive, RunEnd, RunFault, RunIdentity, repository_commit, tool_version
+from mechsim.record.archive import RunEnd, RunFault, RunIdentity, repository_commit, tool_version
 from mechsim.record.archive import write_archive as write_record_archive
-from mechsim.record.layout import CONTROLLER_STATE, NAMED_GROUPS, Recording
+from mechsim.record.layout import DRIVE_DRIVEN, DRIVE_TORQUE, JOINT_POSITIONS, Columns
+from mechsim.record.reader import DriverError as DriverError
+from mechsim.record.reader import JointKinematics as JointKinematics
+from mechsim.record.reader import Kinematics as Kinematics
+from mechsim.record.reader import RecordArchiveReader as RecordArchiveReader
+from mechsim.record.reader import RecordingView as RecordingView
 from mechsim.record.stream import Recorder
 from mechsim.record.tick import (
+    WORLD_BODY,
     BodyState,
     ConstraintForce,
     ContactForce,
     CouplingSample,
+    JointDriveTorque,
     JointForce,
     MemberEndLoads,
+    PayloadState,
     PhysicsOutputs,
     RopeTension,
     SeriesSample,
@@ -51,344 +57,35 @@ from mechsim.record.tick import (
 from mechsim.record.tick import RecordedEvent as RowEvent
 from mechsim.testing.core_wiring import (
     OPERATOR_LINK_TYPE,
-    SENSOR_FAULTS,
+    WIRED_FAULTS,
     RunnerParty,
     RunnerState,
     WiringError,
     controller_party,
+    event_axes,
     operator_message,
     power_on_state,
     signal_layer,
     work_directory,
 )
 from mechsim.testing.driver import (
-    MESSAGE_KIND,
     BuildResult,
     EndReason,
     EndSpec,
-    RecordedEvent,
     RunConfig,
     RunMetadata,
     RunReport,
     ScheduledCommand,
     ScheduledFault,
-    Series,
 )
-from mechsim.testing.runner import RunnerError, Services
+from mechsim.testing.runner import Services
 from mechsim.testing.schema import DESIGNS_ROOT, ROOT, Case, InitialState, Quantity
 
 OPERATOR_EVENT_KINDS = ("operator_status", "operator_command")
-SIGNAL_LAYER_CATEGORIES = ("sensor", "actuator", "driver", "power", "safety", "communication")
+SIGNAL_LAYER_CATEGORIES = ("sensor", "front_end", "actuator", "driver", "power", "safety", "communication")
 CASES_ROOT = ROOT / "test_cases"
 Vec = tuple[float, float, float]
 Quat = tuple[float, float, float, float]
-
-
-class DriverError(RunnerError):
-    """The driver cannot run this build or case as asked (stopped before t = 0, scored as not run)."""
-
-
-# ===== Kinematics =======================================================
-
-
-def _q_mul(a: Sequence[float], b: Sequence[float]) -> Quat:
-    aw, ax, ay, az = a
-    bw, bx, by, bz = b
-    return (
-        aw * bw - ax * bx - ay * by - az * bz,
-        aw * bx + ax * bw + ay * bz - az * by,
-        aw * by - ax * bz + ay * bw + az * bx,
-        aw * bz + ax * by - ay * bx + az * bw,
-    )
-
-
-def _q_conj(q: Sequence[float]) -> Quat:
-    return (q[0], -q[1], -q[2], -q[3])
-
-
-def _q_rot(q: Sequence[float], v: Sequence[float]) -> Vec:
-    r = _q_mul(_q_mul(q, (0.0, v[0], v[1], v[2])), _q_conj(q))
-    return (r[1], r[2], r[3])
-
-
-def _unit(v: Sequence[float]) -> Vec:
-    n = math.sqrt(sum(c * c for c in v))
-    return (v[0] / n, v[1] / n, v[2] / n)
-
-
-@dataclass(frozen=True)
-class JointKinematics:
-    name: str
-    kind: str
-    parent: int | None
-    child: int
-    position: Vec
-    orientation: Quat
-    axis: Vec
-
-
-@dataclass(frozen=True)
-class Kinematics:
-    """Body names (neutral order = the adapter's body order), reference-configuration world poses, joints."""
-
-    bodies: tuple[str, ...]
-    reference: tuple[tuple[Vec, Quat], ...]
-    joints: tuple[JointKinematics, ...]
-
-    @staticmethod
-    def of(model: PhysicsModel) -> Kinematics:
-        index = {body.name: position for position, body in enumerate(model.bodies)}
-        poses: dict[str, tuple[Vec, Quat]] = {}
-        joints: list[JointKinematics] = []
-        for body in model.bodies:
-            joint = body.joint
-            if joint is None:
-                raise DriverError(f"body '{body.name}': no joint to its parent")
-            parent_pose: tuple[Vec, Quat] = ((0.0, 0.0, 0.0), (1.0, 0.0, 0.0, 0.0))
-            parent: int | None = None
-            if body.parent != "world":
-                parent_pose = poses[body.parent]
-                parent = index[body.parent]
-            offset = _q_rot(parent_pose[1], joint.position)
-            position = (
-                parent_pose[0][0] + offset[0],
-                parent_pose[0][1] + offset[1],
-                parent_pose[0][2] + offset[2],
-            )
-            poses[body.name] = (position, _q_mul(parent_pose[1], joint.orientation))
-            axis: Vec = (0.0, 0.0, 1.0)
-            if joint.axis is not None:
-                axis = _unit(joint.axis)
-            joints.append(
-                JointKinematics(
-                    joint.name,
-                    joint.type,
-                    parent,
-                    index[body.name],
-                    tuple(joint.position),  # type: ignore[arg-type]
-                    tuple(joint.orientation),  # type: ignore[arg-type]
-                    axis,
-                )
-            )
-        return Kinematics(tuple(index), tuple(poses[name] for name in index), tuple(joints))
-
-    def to_json(self) -> str:
-        return json.dumps(
-            {
-                "bodies": list(self.bodies),
-                "reference": [[list(p), list(q)] for p, q in self.reference],
-                "joints": [
-                    [j.name, j.kind, j.parent, j.child, list(j.position), list(j.orientation), list(j.axis)]
-                    for j in self.joints
-                ],
-            },
-            sort_keys=True,
-            separators=(",", ":"),
-        )
-
-    @staticmethod
-    def from_json(text: str) -> Kinematics:
-        data = json.loads(text)
-        return Kinematics(
-            tuple(data["bodies"]),
-            tuple((tuple(p), tuple(q)) for p, q in data["reference"]),
-            tuple(
-                JointKinematics(n, k, parent, child, tuple(pos), tuple(ori), tuple(axis))
-                for n, k, parent, child, pos, ori, axis in data["joints"]
-            ),
-        )
-
-
-def _rotate_rows(q: NDArray[np.float64], v: NDArray[np.float64]) -> NDArray[np.float64]:
-    """Rotate row vectors v (N x 3) by row quaternions q (N x 4, w first)."""
-    w = q[:, :1]
-    u = q[:, 1:]
-    t = 2.0 * np.cross(u, v)
-    result: NDArray[np.float64] = v + w * t + np.cross(u, t)
-    return result
-
-
-def _conj_rows(q: NDArray[np.float64]) -> NDArray[np.float64]:
-    result = q.copy()
-    result[:, 1:] = -result[:, 1:]
-    return result
-
-
-def _mul_rows(a: NDArray[np.float64], b: NDArray[np.float64]) -> NDArray[np.float64]:
-    aw, ax, ay, az = a[:, 0], a[:, 1], a[:, 2], a[:, 3]
-    bw, bx, by, bz = b[:, 0], b[:, 1], b[:, 2], b[:, 3]
-    return np.stack(
-        [
-            aw * bw - ax * bx - ay * by - az * bz,
-            aw * bx + ax * bw + ay * bz - az * by,
-            aw * by - ax * bz + ay * bw + az * bx,
-            aw * bz + ax * by - ay * bx + az * bw,
-        ],
-        axis=1,
-    )
-
-
-# ===== Record view ======================================================
-
-
-class RecordingView:
-    """`RecordView` over a recorder `Recording` and the model's kinematics (SCO-001, TST-038)."""
-
-    def __init__(
-        self,
-        recording: Recording,
-        kinematics: Kinematics,
-        approximations: Sequence[str] = (),
-        labels: Mapping[str, str] | None = None,
-        actuators: Mapping[str, str] | None = None,
-        states: Mapping[str, str] | None = None,
-    ) -> None:
-        self.states = dict(states or {})
-        self._labels = dict(labels or {})
-        self.labels = self._labels
-        self.actuators = dict(actuators or {})
-        self._recording = recording
-        self._kinematics = kinematics
-        self.approximations = tuple(approximations)
-        self._times = tuple(float(value) for value in recording.series["time/seconds"].values)
-
-    @property
-    def recording(self) -> Recording:
-        return self._recording
-
-    @property
-    def kinematics(self) -> Kinematics:
-        return self._kinematics
-
-    def times(self) -> Sequence[float]:
-        return self._times
-
-    def controller_states(self) -> Sequence[str]:
-        states = self._recording.controller_states
-        codes = tuple(states[int(index)] for index in self._recording.series[CONTROLLER_STATE].values)
-        return tuple(self.states.get(code, code) for code in codes)
-
-    def events(self) -> Sequence[RecordedEvent]:
-        rate = self._recording.base_rate
-        return tuple(
-            self._event(float(Fraction(event.time) / rate), event.source, event.kind, event.detail)
-            for _, event in self._recording.events
-        )
-
-    def _event(self, time: float, source: str, kind: str, detail: str) -> RecordedEvent:
-        """An operator command or status, recorded under its label verbatim (REC-009), reads as an operator message
-        named by the design's label table; the longest matching label wins."""
-        if kind in OPERATOR_EVENT_KINDS:
-            for label in sorted(self._labels, key=len, reverse=True):
-                if detail == label or detail.startswith(label + " "):
-                    return RecordedEvent(time, source, MESSAGE_KIND, self._labels[label])
-        return RecordedEvent(time, source, kind, detail)
-
-    def _body(self, name: str, field: str) -> NDArray[np.float64]:
-        if name not in self._kinematics.bodies:
-            raise KeyError(f"no body {name!r} in the recording")
-        values: NDArray[np.float64] = np.asarray(self._recording.series[f"physics/bodies/{field}"].values, float)
-        return values[:, self._kinematics.bodies.index(name), :]
-
-    def _pose(self, body: str, component: str) -> NDArray[np.float64]:
-        reference_position, reference_orientation = self._kinematics.reference[self._kinematics.bodies.index(body)]
-        if component in ("x", "y", "z"):
-            axis = "xyz".index(component)
-            result: NDArray[np.float64] = self._body(body, "position")[:, axis] - reference_position[axis]
-            return result
-        orientation = self._body(body, "orientation")
-        rows = len(orientation)
-        reference = np.tile(np.asarray(_q_conj(reference_orientation)), (rows, 1))
-        q = _mul_rows(orientation, reference)
-        w, x, y, z = q[:, 0], q[:, 1], q[:, 2], q[:, 3]
-        if component == "roll":
-            roll: NDArray[np.float64] = np.arctan2(2.0 * (w * x + y * z), 1.0 - 2.0 * (x * x + y * y))
-            return roll
-        if component == "pitch":
-            pitch: NDArray[np.float64] = np.arcsin(np.clip(2.0 * (w * y - z * x), -1.0, 1.0))
-            return pitch
-        yaw: NDArray[np.float64] = np.arctan2(2.0 * (w * z + x * y), 1.0 - 2.0 * (y * y + z * z))
-        return yaw
-
-    def _parent(self, joint: JointKinematics, field: str, rows: int) -> NDArray[np.float64]:
-        if joint.parent is not None:
-            return self._body(self._kinematics.bodies[joint.parent], field)
-        if field == "orientation":
-            return np.tile(np.array([1.0, 0.0, 0.0, 0.0]), (rows, 1))
-        return np.zeros((rows, 3))
-
-    def _joint_unit(self, name: str, quantity: str) -> str:
-        """m or rad for a position, per second for a velocity, by the joint's kind (prismatic or revolute)."""
-        unit = "rad"
-        for joint in self._kinematics.joints:
-            if joint.name == name and joint.kind == "prismatic":
-                unit = "m"
-        if quantity == "velocity":
-            return f"{unit}/s"
-        return unit
-
-    def _joint(self, name: str, quantity: str) -> NDArray[np.float64]:
-        found = [joint for joint in self._kinematics.joints if joint.name == name]
-        if len(found) == 0:
-            raise KeyError(f"no joint {name!r} in the recording")
-        joint = found[0]
-        if joint.kind not in ("revolute", "prismatic"):
-            raise KeyError(f"joint {name!r} ({joint.kind}) has no single coordinate")
-        child = self._kinematics.bodies[joint.child]
-        position = self._body(child, "position")
-        orientation = self._body(child, "orientation")
-        rows = len(position)
-        parent_position = self._parent(joint, "position", rows)
-        parent_orientation = self._parent(joint, "orientation", rows)
-        axis_rows = np.tile(np.asarray(_q_rot(joint.orientation, joint.axis)), (rows, 1))
-        world_axis = _rotate_rows(parent_orientation, axis_rows)
-        if quantity == "velocity":
-            if joint.kind == "revolute":
-                relative = self._body(child, "angular_velocity") - self._parent(joint, "angular_velocity", rows)
-            else:
-                lever = position - parent_position
-                relative = (
-                    self._body(child, "linear_velocity")
-                    - self._parent(joint, "linear_velocity", rows)
-                    - np.cross(self._parent(joint, "angular_velocity", rows), lever)
-                )
-            speed: NDArray[np.float64] = np.einsum("ij,ij->i", relative, world_axis)
-            return speed
-        local = _rotate_rows(_conj_rows(parent_orientation), position - parent_position)
-        if joint.kind == "prismatic":
-            placement = np.asarray(joint.position)
-            slide: NDArray[np.float64] = np.einsum("ij,ij->i", local - placement, axis_rows)
-            return slide
-        relative_q = _mul_rows(_conj_rows(parent_orientation), orientation)
-        delta = _mul_rows(np.tile(np.asarray(_q_conj(joint.orientation)), (rows, 1)), relative_q)
-        local_axis = np.asarray(joint.axis)
-        angle = 2.0 * np.arctan2(delta[:, 1:] @ local_axis, delta[:, 0])
-        unwrapped: NDArray[np.float64] = np.unwrap(angle)
-        return unwrapped
-
-    def series(self, reference: str) -> Series:
-        kind, _, rest = reference.partition(":")
-        name, _, field = rest.rpartition(".")
-        times = self._times
-        if kind == "pose":
-            if name not in self._kinematics.bodies or field not in ("x", "y", "z", "roll", "pitch", "yaw"):
-                raise KeyError(reference)
-            unit = "rad"
-            if field in ("x", "y", "z"):
-                unit = "m"
-            return Series(times, tuple(float(v) for v in self._pose(name, field)), unit)
-        if kind == "actuator" and field == "position" and name in self.actuators:
-            values = self._joint(self.actuators[name], field)
-            return Series(times, tuple(float(v) for v in values), "rad")
-        if kind == "joint" and field in ("position", "velocity"):
-            values = self._joint(name, field)
-            return Series(times, tuple(float(v) for v in values), self._joint_unit(name, field))
-        if kind == "signal":
-            for group in NAMED_GROUPS:
-                if rest in self._recording.named[group]:
-                    stored = self._recording.series[f"{group}/{rest}"]
-                    return Series(times, tuple(float(v) for v in stored.values), stored.unit)
-        raise KeyError(reference)
 
 
 # ===== Rows =============================================================
@@ -433,8 +130,17 @@ def coupling_sample(name: str, value: Any) -> CouplingSample:
     return CouplingSample(name, "payload", float("nan"), payload_digest(value))
 
 
-def tick_record(row: Any) -> TickRecord:
-    """The record module's frozen mirror of one bound `TickRecord` (REC-020: a copy, never kernel memory)."""
+def _body_index(value: Any) -> int:
+    """A contact body index; the core's world index (size_t max, kWorldBody) is the record's `WORLD_BODY`, -1."""
+    index = int(value)
+    if index >= 2**63:
+        return WORLD_BODY
+    return index
+
+
+def tick_record(row: Any, events: Mapping[int, Sequence[RowEvent]] | None = None) -> TickRecord:
+    """The record module's frozen mirror of one bound `TickRecord` (REC-020: a copy, never kernel memory); `events`
+    maps a tick to decoded firmware events, which follow the row's own events."""
     data = row.to_dict()
     physics = data["physics"]
     bodies = tuple(
@@ -465,7 +171,7 @@ def tick_record(row: Any) -> TickRecord:
         for c in physics["constraints"]
     )
     contacts = tuple(
-        ContactForce(int(c["body_a"]), int(c["body_b"]), _vec(c["point"]), _vec(c["force"]))
+        ContactForce(_body_index(c["body_a"]), _body_index(c["body_b"]), _vec(c["point"]), _vec(c["force"]))
         for c in physics["contacts"]
     )
     members = tuple(
@@ -491,17 +197,36 @@ def tick_record(row: Any) -> TickRecord:
     def samples(entries: list[dict[str, Any]]) -> tuple[SeriesSample, ...]:
         return tuple(SeriesSample(e["name"], e["unit"], float(e["value"])) for e in entries)
 
+    positions = tuple(float(value) for value in physics.get("joint_positions", []))
+    drives = tuple(
+        JointDriveTorque(int(d["joint"]), float(d["torque"])) for d in physics.get("joint_drive_torques", [])
+    )
+    payloads = tuple(
+        PayloadState(int(p["body"]), int(p["carrier"]), bool(p["attached"]), _vec(p["force"]))
+        for p in physics.get("payloads", [])
+    )
     coupling = data["coupling"]
+    row_events = tuple(RowEvent(int(e["time"]), e["source"], e["kind"], e["detail"]) for e in data["events"])
     return TickRecord(
         time=int(data["time"]),
         physics=PhysicsOutputs(
-            int(physics["steps"]), bodies, joints, constraints, contacts, members, ropes, transmissions
+            int(physics["steps"]),
+            bodies,
+            joints,
+            constraints,
+            contacts,
+            members,
+            ropes,
+            transmissions,
+            positions,
+            drives,
+            payloads,
         ),
         pin_signals=samples(data["pin_signals"]),
         rails=samples(data["rails"]),
         actuator_efforts=samples(data["actuator_efforts"]),
         controller_state=str(data["controller_state"]),
-        events=tuple(RowEvent(int(e["time"]), e["source"], e["kind"], e["detail"]) for e in data["events"]),
+        events=row_events + tuple((events or {}).get(int(data["time"]), ())),
         coupling=tuple(coupling_sample(name, coupling[name]) for name in sorted(coupling)),
     )
 
@@ -544,6 +269,9 @@ class CoreDriver:
         self._faults: list[ScheduledFault] = []
         self._runner: RunnerState | None = None
         self.labels: dict[str, str] = {}
+        self._payload: tuple[str, str, float, bool] | None = None
+        self._physics_faults: list[ScheduledFault] = []
+        self._freezes: list[ScheduledFault] = []
 
     def load(self, build: BuildResult, case: Case) -> None:
         if not isinstance(build, CoreBuild):
@@ -588,9 +316,37 @@ class CoreDriver:
             )
         self._config = config
 
+    def _sensed_payload(self) -> tuple[str, str] | None:
+        """(payload name, the sensing instance's mounted body) of the first load cell reading a payload."""
+        if self._build is None:
+            return None
+        joints: set[str] = set()
+        if self._model is not None:
+            joints = {body.joint.name for body in self._model.bodies if body.joint is not None}
+        for instance in self._build.wiring.instances:
+            senses = instance.senses
+            if senses is None:
+                continue
+            name = senses.payload
+            if senses.joint_reaction is not None and senses.joint_reaction not in joints:
+                name = senses.joint_reaction
+            if name is not None:
+                for mount in instance.mounts:
+                    if mount.body is not None:
+                        return name, mount.body
+                raise DriverError(f"load cell '{instance.name}': senses a payload but is mounted on no body")
+        return None
+
     def set_initial_state(self, state: InitialState) -> None:
+        """The case payload becomes a neutral body (BLD-036) on `initial_state.payload.body`; a case that attaches
+        none gets no body, and a load cell reading a payload then has no target and reads zero (A4)."""
+        sensed = self._sensed_payload()
+        self._payload = None
         if state.payload is not None and state.payload.attached:
-            raise DriverError("initial_state.payload: payload attachment has no bridge input in milestone 1")
+            name = "payload"
+            if sensed is not None:
+                name = sensed[0]
+            self._payload = (name, str(state.payload.body), _si(state.payload.mass, "payload"), True)
         starts: dict[str, float] = {}
         for joint in state.joints:
             if _si(joint.velocity, joint.joint) != 0.0:
@@ -605,11 +361,18 @@ class CoreDriver:
         self._commands.append(command)
 
     def schedule_fault(self, fault: ScheduledFault) -> None:
-        if fault.kind not in SENSOR_FAULTS and fault.kind != "estop_press":
-            raise DriverError(
-                f"fault '{fault.kind}': delivery to the {fault.owner} party is milestone 2 (KER-023 delivers sensor, "
-                "motor-stall and E-stop faults in milestone 1)"
-            )
+        """Signal faults go to the layer (power loss to the rail's supply), slip and payload changes to the physics
+        party, a freeze to the controller party (TST-015 to TST-020)."""
+        if fault.kind in ("slip", "payload_change"):
+            self._physics_faults.append(fault)
+            return
+        if fault.kind == "controller_freeze":
+            if self._build is None or self._build.design.firmware is None:
+                raise DriverError("fault 'controller_freeze': this build has no controller")
+            self._freezes.append(fault)
+            return
+        if fault.kind not in WIRED_FAULTS:
+            raise DriverError(f"fault '{fault.kind}': no delivery to the {fault.owner} party")
         if not self._signals():
             raise DriverError(f"fault '{fault.kind}': this build has no signal layer")
         self._faults.append(fault)
@@ -634,7 +397,17 @@ class CoreDriver:
     def _run(self, end: EndSpec, config: RunConfig, model: PhysicsModel) -> RunReport:
         """Binding errors (AdapterError, KernelConfigError, SignalConfigError and the rest, all ValueError or
         RuntimeError) escape to `run`, which types them as DriverError with the cause kept (invariant 7)."""
-        artifacts = prepare_model(model, self._starts, float(1 / config.physics_rate))
+        payloads: dict[str, str] = {}
+        if self._payload is not None:
+            name, carrier, mass, _ = self._payload
+            fixed = self._payload_fixed()
+            try:
+                model = with_payload(model, name, carrier, mass, fixed)
+            except BuildError as failure:
+                raise DriverError(str(failure)) from failure
+            if not fixed:
+                payloads[name] = carrier
+        artifacts = prepare_model(model, self._starts, float(1 / config.physics_rate), payloads)
         self.approximations = artifacts.report
         adapter = core.make_physics_adapter("mujoco")
         prepared = core.PreparedModel(artifacts.neutral_json, artifacts.mjcf, artifacts.version)
@@ -652,10 +425,12 @@ class CoreDriver:
         signals = self._signals()
         if signals:
             party.inputs = ["signals.physics_inputs"]
-        kernel.register_party(core.PhysicsParty(adapter, party))
+        physics = core.PhysicsParty(adapter, party)
+        self._schedule_physics(physics, model)
+        kernel.register_party(physics)
         self.labels = {}
         if signals:
-            self._register_signals(kernel, config)
+            self._register_signals(kernel, config, model, sorted(payloads))
         stop = end.max_tick
         if end.at_tick is not None:
             stop = min(stop, end.at_tick)
@@ -663,9 +438,21 @@ class CoreDriver:
         for subscriber in self._subscribers:
             sink.subscribe(subscriber)
         report = kernel.run(core.EndCondition(_seconds(stop, config.base_rate)), sink)
-        recorder = Recorder(config.base_rate)
+        recorder = Recorder(config.base_rate, model_columns(model, sorted(payloads)))
+        decoded: list[RowEvent] = []
+        if self._runner is not None:
+            decoded = [RowEvent(tick, "controller", kind, detail) for tick, kind, detail in self._runner.events]
+            decoded.sort(key=lambda event: event.time)
+        taken = 0
         for row in sink.drain():
-            recorder.write_row(tick_record(row))
+            # Rows are stamped at the end of their step (KER-009), so an event of the first controller step (tick 0)
+            # has no row of its own: it goes with the first row at or after its tick.
+            row_tick = int(row.time.count())
+            due: list[RowEvent] = []
+            while taken < len(decoded) and decoded[taken].time <= row_tick:
+                due.append(decoded[taken])
+                taken += 1
+            recorder.write_row(tick_record(row, {row_tick: due}))
         self.subscriber_errors = tuple(str(error) for error in sink.subscriber_errors())
         self._view = RecordingView(
             recorder.recording(),
@@ -716,10 +503,54 @@ class CoreDriver:
                         actuators[instance.name] = mount.joint
         return actuators
 
-    def _register_signals(self, kernel: Any, config: RunConfig) -> None:
+    def _case_payload(self) -> str | None:
+        if self._payload is None:
+            return None
+        return self._payload[0]
+
+    def _payload_fixed(self) -> bool:
+        """Ruling 24: a payload attached at t = 0 that no fault releases is a fixed child of its carrier; a released
+        or never-attached one is welded (BLD-036)."""
+        if self._payload is None or not self._payload[3]:
+            return False
+        for fault in self._physics_faults:
+            if fault.kind == "payload_change" and float(dict(fault.parameters)["mass"]) == 0.0:
+                return False
+        return True
+
+    def _schedule_physics(self, physics: Any, model: PhysicsModel) -> None:
+        """Slip on the transmission named by its instance, payload changes on the payload carried by the target body
+        (by the payload's body index; 0 kg releases it to the world, carrier -1), each at its tick (TST-015,
+        TST-020)."""
+        transmissions = [item.name for item in model.transmissions]
+        body = 0
+        if self._payload is not None:
+            body = [item.name for item in model.bodies].index(self._payload[0])
+        for fault in self._physics_faults:
+            parameters = dict(fault.parameters)
+            if fault.kind == "slip":
+                if fault.target not in transmissions or fault.end_tick is None:
+                    raise DriverError(f"fault 'slip': no transmission '{fault.target}' in the model")
+                physics.schedule_slip(
+                    transmissions.index(str(fault.target)),
+                    core.SimTime(fault.start_tick),
+                    core.SimTime(fault.end_tick),
+                    float(parameters["fraction"]),
+                )
+                continue
+            if self._payload is None or not self._payload[3] or self._payload[1] != fault.target:
+                raise DriverError(f"fault 'payload_change': no payload attached to '{fault.target}' at the start")
+            mass = float(parameters["mass"])
+            if mass == 0.0:
+                physics.schedule_payload_change(body, core.SimTime(fault.start_tick), carrier=-1)
+            else:
+                physics.schedule_payload_change(body, core.SimTime(fault.start_tick), mass=mass)
+        if self._payload is not None and not self._payload[3]:
+            physics.schedule_payload_change(body, core.SimTime(0), carrier=-1)
+
+    def _register_signals(self, kernel: Any, config: RunConfig, model: PhysicsModel, payloads: Sequence[str]) -> None:
         build = self._build
-        model = self._model
-        if build is None or model is None:
+        if build is None:
             raise DriverError("run before load")
         seeds = dict(config.module_seeds)
         try:
@@ -731,8 +562,19 @@ class CoreDriver:
                 self._faults,
                 config.base_rate,
                 config.control_rate,
+                payloads,
+                self._case_payload(),
             )
             state = RunnerState(externals=externals)
+            firmware = build.design.firmware
+            if firmware is not None and config.control_rate is not None:
+                state.event_names = {int(code): entry.name for code, entry in firmware.event_codes.items()}
+                state.event_arguments = {int(code): entry.argument for code, entry in firmware.event_codes.items()}
+                state.fault_names = {int(code): name for code, name in firmware.fault_codes.items()}
+                state.state_names = {int(code): name for code, name in firmware.state_codes.items()}
+                state.track_faults = len(firmware.fault_codes) > 0
+                state.axes = event_axes(build)
+                state.control_period = int(config.base_rate / config.control_rate)
             for command in sorted(self._commands, key=lambda item: item.tick):
                 state.commands.append((command.tick, operator_message(build, command)))
             for fault in self._faults:
@@ -747,7 +589,12 @@ class CoreDriver:
             if build.design.firmware is not None:
                 if config.control_rate is None:
                     raise DriverError("a firmware design needs a control rate")
-                kernel.register_party(controller_party(build, config.control_rate, work_directory()))
+                controller = controller_party(build, config.control_rate, work_directory())
+                for fault in self._freezes:
+                    if fault.end_tick is None:
+                        raise WiringError("fault 'controller_freeze': needs a window")
+                    controller.schedule_freeze(core.SimTime(fault.start_tick), core.SimTime(fault.end_tick))
+                kernel.register_party(controller)
         except WiringError as error:
             raise DriverError(str(error)) from error
         except (ValueError, RuntimeError, TypeError) as error:
@@ -757,6 +604,37 @@ class CoreDriver:
         if self._view is None:
             raise DriverError("no recording before run")
         return self._view
+
+
+def model_columns(model: PhysicsModel, payloads: Sequence[str] = ()) -> dict[str, Columns]:
+    """Column labels of the index-column series from the neutral model (REC-018, ruling 18): joints in body order
+    (prismatic m and N, revolute and the rest rad and N m), transmissions and payload bodies by name."""
+    joints: list[str] = []
+    positions: list[str] = []
+    torques: list[str] = []
+    for body in model.bodies:
+        if body.joint is None:
+            continue
+        joints.append(body.joint.name)
+        if body.joint.type == "prismatic":
+            positions.append("m")
+            torques.append("N")
+        else:
+            positions.append("rad")
+            torques.append("N*m")
+    columns = {
+        JOINT_POSITIONS: Columns(tuple(joints), tuple(positions)),
+        DRIVE_TORQUE: Columns(tuple(joints), tuple(torques)),
+        DRIVE_DRIVEN: Columns(tuple(joints)),
+    }
+    transmissions = tuple(item.name for item in model.transmissions)
+    if len(transmissions) > 0:
+        for field in ("slip", "slipping", "shaft_load_torque", "force", "stretch", "power_flow"):
+            columns[f"physics/transmissions/{field}"] = Columns(transmissions)
+    if len(payloads) > 0:
+        for field in ("body", "carrier", "attached", "force"):
+            columns[f"physics/payloads/{field}"] = Columns(tuple(payloads))
+    return columns
 
 
 # ===== Archives =========================================================
@@ -825,61 +703,6 @@ class RecordArchiver:
         }
         write_record_archive(path, identity, end, recording.recording, extra)
         return hashlib.sha256(path.read_bytes()).hexdigest()
-
-
-class RecordArchiveReader:
-    """`ArchiveReader`: metadata and a record view from the archive alone, no engine (TST-033)."""
-
-    def open(self, path: Path) -> tuple[RunMetadata, RecordingView]:
-        with RunArchive(path) as archive:
-            identity = archive.identity
-            extra = archive.extra
-            recording = archive.recording()
-            end = archive.end
-        if "kinematics" not in extra:
-            raise DriverError(f"{path}: not written by the record archiver (no kinematics)")
-        reason: Any = extra["end_reason"]
-        error: str | None = extra["error"]
-        if error == "":
-            error = None
-        sweep_data = json.loads(extra["sweep"])
-        sweep: tuple[str, str] | None = None
-        if sweep_data is not None:
-            sweep = (sweep_data[0], sweep_data[1])
-        mode: str | None = identity.controller_mode
-        control_rate: Fraction | None = identity.control_rate
-        if mode == "none":
-            mode = None
-            control_rate = None
-        approximations = tuple(json.loads(extra.get("approximations", "[]")))
-        metadata = RunMetadata(
-            run_id=extra["run_id"],
-            case_id=identity.test_case_id,
-            design_name=identity.design_name,
-            design_version=identity.design_version,
-            design_hash=identity.design_source_hash,
-            case_hash=identity.test_case_hash,
-            seed=identity.seed,
-            controller_mode=mode,
-            sweep=sweep,
-            report=RunReport(
-                reason,
-                end.end_time,
-                recording.base_rate,
-                error,
-                tuple(json.loads(extra.get("sink_errors", "[]"))),
-                tuple(json.loads(extra.get("hook_errors", "[]"))),
-                approximations,
-            ),
-            bindings=tuple((item[0], item[1]) for item in json.loads(extra["bindings"])),
-            control_rate=control_rate,
-        )
-        labels = json.loads(extra.get("labels", "{}"))
-        actuators = json.loads(extra.get("actuators", "{}"))
-        states = json.loads(extra.get("states", "{}"))
-        return metadata, RecordingView(
-            recording, Kinematics.from_json(extra["kinematics"]), approximations, labels, actuators, states
-        )
 
 
 # ===== Services =========================================================
