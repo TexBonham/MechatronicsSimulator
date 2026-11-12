@@ -35,3 +35,4 @@ type live in the root `CLAUDE.md` dispatch table once measured.
 | 2026-11-11 | M3-I1 integrity plugins and checks, FAC-013 (wip/05-i1 2b4957a) | module-writer (opus) | 260K | 95 calls; fix round follows (merge R, rope table, wiring) |
 | 2026-11-11 | M3-I1 fix round: merge R, two-axis stress, rope table, core_services wiring, integrity file kind (wip/05-i1 d26c5f8) | module-writer (opus), resumed | ~39K | 31 calls; full suite 4234 passed, 144 xfail |
 | 2026-11-11 | M3-I1 invariant audit (wip/05-i1 d26c5f8): clean, two minors | invariant-auditor (sonnet) | ~25K | 4 calls |
+| 2026-11-11 | M3 review: I1 (wip/05-i1 d26c5f8): accept with fixes, 2 medium, 5 low; rulings 28 to 30 | Fable review (general-purpose) | ~110K | 28 calls |
