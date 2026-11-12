@@ -8,10 +8,12 @@ Round 5 (milestone 3) in flight on `round/05-milestone-3`, cut from main at cf5c
 PR #6). Plan of record `docs/briefs/round-05/plan.md` (signed off 2026-11-11, with the owner's amendment: milestone
 3 retires MuJoCo in favour of the own C++ engine). Landed on the round branch: A (ADR 0016), M+D (f85803d), R
 (163ad24), I1 (dafaa6c), E3 (bef4841: engine contact, members, ropes, mid-run changes, bindings, clamped far end;
-ctest debug-sanitize 426, Python 4252 passed and 130 xfail). N (native adapter, `wip/05-n` 530e55b) passes G3, P1
-and the reference tier on the own engine; its review asked for a fix round before the stage commit (rulings 37 to
-41). In flight: N2 (run-configuration adapter field, clamped members, kernel rope and event outputs) and E4 (engine
-joint limits, friction, per-step drive), then N3 (adapter adopts E4), I2, X1, X2, gate. Briefs of record
+ctest debug-sanitize 426, Python 4252 passed and 130 xfail), N with its fix rounds N2 and N2b (30e8fd9: the native
+adapter over the own engine, opt-in through the run-configuration field `physics.adapter`, default `mujoco`; G3
+and P1 pass on it with flexible rails, beam references within 2 percent; ctest debug-sanitize 454, Python 4320
+passed and 117 xfail). Accepted, landing after a short follow-up: E4 (engine joint limits, friction, additive
+per-step drive; `wip/05-e4`). In flight: I2 (tier 1 integrity party, `wip/05-i2`). Next: N3 (the adapter adopts
+E4; after E4 lands), X1, X2, gate. Briefs of record
 in `docs/briefs/round-05/`; worktrees `../MechatronicsSimulator-05-<letter>`. Round 4's rulings and gate report
 are below for reference; round 4's cost rows are in `docs/cost-log-archive.md`.
 
