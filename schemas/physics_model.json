@@ -744,6 +744,49 @@
       "title": "DesignRef",
       "type": "object"
     },
+    "Fastening": {
+      "additionalProperties": false,
+      "description": "A mount (a fixed design joint, `joint` names it) or a fastener set holding `body_b` on `body_a`, addressable\nby its index in `PhysicsModel.fastenings` so a modeled failure can disable it (BLD-031). Fastening names are\ntheir own namespace: a mount takes its joint's name.",
+      "properties": {
+        "body_a": {
+          "pattern": "^[a-z][a-z0-9_]*$",
+          "title": "Body A",
+          "type": "string"
+        },
+        "body_b": {
+          "pattern": "^[a-z][a-z0-9_]*$",
+          "title": "Body B",
+          "type": "string"
+        },
+        "joint": {
+          "pattern": "^[a-z][a-z0-9_]*$",
+          "title": "Joint",
+          "type": "string"
+        },
+        "kind": {
+          "enum": [
+            "mount",
+            "fastener"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "name": {
+          "pattern": "^[a-z][a-z0-9_]*$",
+          "title": "Name",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "kind",
+        "body_a",
+        "body_b",
+        "joint"
+      ],
+      "title": "Fastening",
+      "type": "object"
+    },
     "GearPair": {
       "additionalProperties": false,
       "description": "Revolute shaft to revolute driven joint; `ratio` is shaft angle over driven angle, its sign the direction.",
@@ -1558,6 +1601,123 @@
       "title": "PointConstraint",
       "type": "object"
     },
+    "Rope": {
+      "additionalProperties": false,
+      "description": "Lumped rope chain (ADR 0016, BLD-032): `segments` point-mass segments between a point of `from_body` and a\npoint of `to_body` (anchors in each body frame; \"world\" allowed), tension-only springs EA / l with strain-rate\ndamping `damping` / l per segment of rest length l = rest_length / segments, mass per length, breaking tension.",
+      "properties": {
+        "axial_stiffness": {
+          "description": "Quantity with an explicit unit of dimension force; SI unit N",
+          "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s|$)",
+          "title": "Axial Stiffness",
+          "type": "string"
+        },
+        "breaking_tension": {
+          "description": "Quantity with an explicit unit of dimension force; SI unit N",
+          "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s|$)",
+          "title": "Breaking Tension",
+          "type": "string"
+        },
+        "damping": {
+          "description": "Quantity with an explicit unit of dimension [mass]*[length]/[time]; SI unit N*s",
+          "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s|$)",
+          "title": "Damping",
+          "type": "string"
+        },
+        "from_body": {
+          "pattern": "^[a-z][a-z0-9_]*$",
+          "title": "From Body",
+          "type": "string"
+        },
+        "from_point": {
+          "maxItems": 3,
+          "minItems": 3,
+          "prefixItems": [
+            {
+              "description": "Quantity with an explicit unit of dimension [length]; SI unit m",
+              "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s|$)",
+              "type": "string"
+            },
+            {
+              "description": "Quantity with an explicit unit of dimension [length]; SI unit m",
+              "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s|$)",
+              "type": "string"
+            },
+            {
+              "description": "Quantity with an explicit unit of dimension [length]; SI unit m",
+              "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s|$)",
+              "type": "string"
+            }
+          ],
+          "title": "From Point",
+          "type": "array"
+        },
+        "mass_per_length": {
+          "description": "Quantity with an explicit unit of dimension [mass]/[length]; SI unit kg/m",
+          "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s|$)",
+          "title": "Mass Per Length",
+          "type": "string"
+        },
+        "name": {
+          "pattern": "^[a-z][a-z0-9_]*$",
+          "title": "Name",
+          "type": "string"
+        },
+        "rest_length": {
+          "description": "Quantity with an explicit unit of dimension [length]; SI unit m",
+          "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s|$)",
+          "title": "Rest Length",
+          "type": "string"
+        },
+        "segments": {
+          "minimum": 1,
+          "title": "Segments",
+          "type": "integer"
+        },
+        "to_body": {
+          "pattern": "^[a-z][a-z0-9_]*$",
+          "title": "To Body",
+          "type": "string"
+        },
+        "to_point": {
+          "maxItems": 3,
+          "minItems": 3,
+          "prefixItems": [
+            {
+              "description": "Quantity with an explicit unit of dimension [length]; SI unit m",
+              "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s|$)",
+              "type": "string"
+            },
+            {
+              "description": "Quantity with an explicit unit of dimension [length]; SI unit m",
+              "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s|$)",
+              "type": "string"
+            },
+            {
+              "description": "Quantity with an explicit unit of dimension [length]; SI unit m",
+              "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s|$)",
+              "type": "string"
+            }
+          ],
+          "title": "To Point",
+          "type": "array"
+        }
+      },
+      "required": [
+        "name",
+        "from_body",
+        "from_point",
+        "to_body",
+        "to_point",
+        "segments",
+        "axial_stiffness",
+        "damping",
+        "mass_per_length",
+        "rest_length",
+        "breaking_tension"
+      ],
+      "title": "Rope",
+      "type": "object"
+    },
     "RunConfig": {
       "additionalProperties": false,
       "description": "Engine-neutral run configuration the kernel needs; defaults per ADR 0013 and the engine contract.\n\nThe engine currently takes one constraint velocity tolerance; the native adapter maps both fields onto it.",
@@ -1805,6 +1965,15 @@
           "title": "Material",
           "type": "string"
         },
+        "mounts": {
+          "default": [],
+          "items": {
+            "pattern": "^[a-z][a-z0-9_]*$",
+            "type": "string"
+          },
+          "title": "Mounts",
+          "type": "array"
+        },
         "name": {
           "pattern": "^[a-z][a-z0-9_]*$",
           "title": "Name",
@@ -1909,6 +2078,14 @@
     "design": {
       "$ref": "#/$defs/DesignRef"
     },
+    "fastenings": {
+      "default": [],
+      "items": {
+        "$ref": "#/$defs/Fastening"
+      },
+      "title": "Fastenings",
+      "type": "array"
+    },
     "gravity": {
       "maxItems": 3,
       "minItems": 3,
@@ -1938,6 +2115,14 @@
         "$ref": "#/$defs/LumpedMember"
       },
       "title": "Lumped Members",
+      "type": "array"
+    },
+    "ropes": {
+      "default": [],
+      "items": {
+        "$ref": "#/$defs/Rope"
+      },
+      "title": "Ropes",
       "type": "array"
     },
     "run": {

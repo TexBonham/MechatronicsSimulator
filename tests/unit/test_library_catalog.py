@@ -546,3 +546,133 @@ def test_exclusive_minimum_defaults_false_so_the_bound_is_inclusive() -> None:
     del data["types"][0]["parameters"][1]["minimum_exclusive"]
     data["parts"][0]["values"]["capacity"] = "0 N"
     assert CatalogFile.model_validate(data).resolved_parts()[0].values["capacity"] == 0.0
+
+
+# ===== Milestone 3 structural types (LIB-020, LIB-030) ======================
+
+STRUCTURAL_TYPES: dict[str, tuple[str, str, list[str]]] = {
+    "flexible_beam": ("flexible_beam.yaml", "body", ["steel_bar_10mm_1m", "extrusion_2020_500mm_generic"]),
+    "hook": ("hook.yaml", "end_effector", ["hook_5kg_generic"]),
+    "rope": ("rope.yaml", "rope", ["rope_3mm_steel_generic"]),
+}
+STRUCTURAL_PARAMETERS: dict[str, dict[str, str]] = {
+    "flexible_beam": {
+        "area": "[length] ** 2",
+        "second_moment": "[length] ** 4",
+        "length": "[length]",
+        "elastic_modulus": "[mass] / [length] / [time] ** 2",
+        "density": "[mass] / [length] ** 3",
+    },
+    "hook": {"mass": "[mass]", "capacity": "[mass]"},
+    "rope": {
+        "axial_stiffness": FORCE,
+        "damping": "[mass] * [length] / [time]",
+        "mass_per_length": "[mass] / [length]",
+        "breaking_tension": FORCE,
+        "rest_length": "[length]",
+    },
+}
+
+
+def _structural_raw(type_name: str) -> dict[str, Any]:
+    data: dict[str, Any] = YAML(typ="safe", pure=True).load(
+        (CATALOG_DIR / STRUCTURAL_TYPES[type_name][0]).read_text(encoding="utf-8")
+    )
+    return data
+
+
+@pytest.mark.req("LIB-020")
+@pytest.mark.parametrize("type_name", list(STRUCTURAL_TYPES))
+def test_structural_type_ships_validates_and_is_registered(type_name: str) -> None:
+    file_name, category, parts = STRUCTURAL_TYPES[type_name]
+    catalog = load_catalog_file(CATALOG_DIR / file_name)
+    assert [component.name for component in catalog.types] == [type_name]
+    assert catalog.types[0].category == category
+    assert [part.name for part in catalog.resolved_parts()] == parts
+    schema = json.loads(SCHEMA_PATH.read_text(encoding="utf-8"))
+    jsonschema.Draft202012Validator(schema).validate(_structural_raw(type_name))
+    registry = default_registry()
+    assert registry.has_type(type_name)
+    for part in parts:
+        assert registry.part(part).type == type_name
+
+
+@pytest.mark.req("LIB-020")
+@pytest.mark.req("LIB-030")
+@pytest.mark.parametrize("type_name", list(STRUCTURAL_TYPES))
+def test_structural_type_parameters_are_positive_quantities(type_name: str) -> None:
+    component = load_catalog_file(CATALOG_DIR / STRUCTURAL_TYPES[type_name][0]).types[0]
+    quantities = {item.name: item for item in component.parameters if isinstance(item, QuantityParameter)}
+    assert sorted(quantities) == sorted(STRUCTURAL_PARAMETERS[type_name])
+    for name, dimension in STRUCTURAL_PARAMETERS[type_name].items():
+        assert dimensions_equal(quantities[name].dimension, dimension), name
+        assert quantities[name].minimum == 0.0, name
+        assert quantities[name].default is None, name
+
+
+@pytest.mark.req("LIB-030")
+def test_flexible_beam_carries_section_and_material_on_top_of_the_rigid_body() -> None:
+    component = load_catalog_file(CATALOG_DIR / "flexible_beam.yaml").types[0]
+    assert component.mechanical.mass.source == "geometry"
+    assert [mount.name for mount in component.mechanical.mounts] == ["root", "end"]
+    part = default_registry().part("steel_bar_10mm_1m")
+    assert part.values == pytest.approx(
+        {"area": 1e-4, "second_moment": 0.01**4 / 12.0, "length": 1.0, "elastic_modulus": 2.0e11, "density": 7850.0},
+        rel=1e-15,
+    )
+
+
+@pytest.mark.req("LIB-020")
+def test_hook_is_an_attach_point_with_capacity_and_a_rope_mount() -> None:
+    component = load_catalog_file(CATALOG_DIR / "hook.yaml").types[0]
+    assert [mount.name for mount in component.mechanical.mounts] == ["attach", "rope"]
+    assert component.events == ["attach", "release"]
+    assert [item.parameter for item in component.ratings.absolute_maximums] == ["capacity"]
+    assert default_registry().part("hook_5kg_generic").values["capacity"] == 5.0
+
+
+@pytest.mark.req("LIB-020")
+def test_rope_is_the_adr_0016_element_with_snap_in_its_own_tier() -> None:
+    component = load_catalog_file(CATALOG_DIR / "rope.yaml").types[0]
+    assert component.tier_parameters("ideal") == ["axial_stiffness", "damping", "mass_per_length", "rest_length"]
+    assert component.tier_parameters("breaking")[-1] == "breaking_tension"
+    assert [item.parameter for item in component.ratings.absolute_maximums] == ["breaking_tension"]
+    values = default_registry().part("rope_3mm_steel_generic").values
+    assert values == pytest.approx(
+        {
+            "axial_stiffness": 5.0e5,
+            "damping": 50.0,
+            "mass_per_length": 0.035,
+            "breaking_tension": 5.0e3,
+            "rest_length": 0.3,
+        },
+        rel=1e-15,
+    )
+
+
+@pytest.mark.req("LIB-020")
+@pytest.mark.parametrize(
+    "missing", ["axial_stiffness", "damping", "mass_per_length", "breaking_tension", "rest_length"]
+)
+def test_rope_category_requires_each_rope_parameter(missing: str) -> None:
+    data = _structural_raw("rope")
+    component = data["types"][0]
+    component["parameters"] = [item for item in component["parameters"] if item["name"] != missing]
+    for tier in component["tiers"]:
+        tier["parameters"] = [name for name in tier["parameters"] if name != missing]
+    component["tiers"] = [tier for tier in component["tiers"] if len(tier["parameters"]) > 0]
+    component["ratings"]["absolute_maximums"] = []
+    data["parts"] = []
+    with pytest.raises(ValidationError, match=f"must carry parameter '{missing}'"):
+        CatalogFile.model_validate(data)
+
+
+@pytest.mark.req("LIB-030")
+@pytest.mark.parametrize(
+    ("parameter", "value"), [("area", "0 m**2"), ("second_moment", "-1e-9 m**4"), ("density", "0 kg/m**3")]
+)
+def test_flexible_beam_part_rejects_non_positive_section_values(parameter: str, value: str) -> None:
+    data = _structural_raw("flexible_beam")
+    data["parts"][0]["values"][parameter] = value
+    with pytest.raises(ValidationError):
+        CatalogFile.model_validate(data)

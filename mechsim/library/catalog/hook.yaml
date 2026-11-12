@@ -1,0 +1,52 @@
+# Hook (LIB-020): a rigid attach point with a rated capacity. Its load hangs from `attach`; a rope ends at `rope`
+# (ADR 0016). It is an end effector, so it carries the attach and release events (LIB-031). Part values are
+# placeholders.
+types:
+  - name: hook
+    version: 1.0.0
+    category: end_effector
+    description: Rigid crane hook, an attach point for a payload with a rated capacity.
+    parameters:
+      - name: mass
+        dimension: "[mass]"
+        minimum: "0 kg"
+      - name: capacity
+        dimension: "[mass]"
+        minimum: "0 kg"
+        minimum_exclusive: true
+    tiers:
+      - name: ideal
+        parameters: [mass, capacity]
+    mechanical:
+      mass:
+        source: parameter
+        parameter: mass
+      mounts:
+        - name: attach
+          kind: face
+          offset: ["0 mm", "0 mm", "0 mm"]
+        - name: rope
+          kind: clamp
+          offset: ["0 mm", "0 mm", "0 mm"]
+    electrical:
+      pins: []
+    ratings:
+      absolute_maximums:
+        - name: capacity
+          parameter: capacity
+    thermal:
+      held_constant: true
+      temperature: "298.15 K"
+    events: [attach, release]
+    plugin:
+      python: mechsim.builder.payload:with_payload
+parts:
+  - name: hook_5kg_generic
+    type: hook
+    tier: ideal
+    description: Small forged crane hook.
+    source: placeholder values, no datasheet assigned
+    values:
+      mass: "0.05 kg"
+      capacity: "5 kg"
+    placeholders: [mass, capacity]

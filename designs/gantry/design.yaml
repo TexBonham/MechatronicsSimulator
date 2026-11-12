@@ -1025,3 +1025,15 @@ structural:
   accuracy_target: 1 cm
   deflection_target: ${deflection_target_mode}
   minimum_safety_factor: ${minimum_safety_factor}
+# The payload rope (ADR 0016, ruling 2): one PLACEHOLDER 0.3 m steel rope from the hook to the case payload. Its load
+# end is the case payload, placed at run time, so the builder lists it and emits no rope element; the cases keep the
+# spherical-joint hook (hook_swing) until X1 moves the payload onto the rope (BLD-032).
+ropes:
+  - name: payload_rope
+    part: rope_3mm_steel_generic
+    from:
+      body: hook
+      point: [0 m, 0 m, -0.02 m]
+    to:
+      payload: payload
+    segments: 4

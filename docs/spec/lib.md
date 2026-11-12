@@ -67,7 +67,8 @@ proposed <value>)".
 |---|---|---|
 | Operator link component type | `uart_link` (catalog `uart_link.yaml`, pins uart_tx and uart_rx, parameter baud) ships in milestone 1 under SIG-029; LIB-018's milestone 1 type list should name it; no LIB row yet | owner |
 | Stepper pull-out torque tolerance against the published curve (LIB-022); proposed 10% of the curve value per speed point | not set | owner |
-| Flexible beam deflection and first-mode tolerance (LIB-032) | not set | owner |
+| Flexible beam deflection and first-mode tolerance (LIB-032) | proposed 2 percent at N = 8 (T4, owner to confirm), derived as for BLD-015 to BLD-017 (`docs/spec/bld.md`): the chain's largest error at N = 8 is the midspan deflection's -1/N^2 = -1.56 % | owner |
+| Milestone 3 structural types (LIB-020, LIB-030) | `flexible_beam` (category body: area, second_moment, length, elastic_modulus, density; mass from geometry; parts `steel_bar_10mm_1m` exact, `extrusion_2020_500mm_generic` placeholder), `hook` (end_effector: mass, capacity; mounts attach and rope; `hook_5kg_generic` placeholder), `rope` (new category rope requiring axial_stiffness, damping, mass_per_length, breaking_tension, rest_length; breaking_tension in its own tier; `rope_3mm_steel_generic` placeholder) | gantry team (part values) |
 | Fidelity tier names per component type | set per type in `mechsim/library/catalog/*.yaml` (phase 1 C2); new types name their own | library briefs, per type |
 | Milestone 2 catalog part values (LIB-019, LIB-025, LIB-027) | `load_cell_5kg_generic`, `load_cell_amplifier_generic`, `imu_6axis_generic`, `brake_24v_generic` carry placeholder values listed in each part's `placeholders` | gantry team |
 | IMU interface | analog output per axis until the chip vocabulary has a serial peripheral mode (open ruling 2, `docs/queue.md`) | owner |

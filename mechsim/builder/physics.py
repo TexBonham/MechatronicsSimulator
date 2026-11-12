@@ -14,13 +14,15 @@ from typing import Any
 
 from pydantic import ValidationError
 
-from mechsim.builder import mass
+from mechsim.builder import mass, structure
 from mechsim.builder.result import LumpedRecord
+from mechsim.builder.structure import CalibrationScales
 from mechsim.design.cad import MassPropertiesSI, StepImporter, cross_check_mass
 from mechsim.design.schema import (
     WORLD,
     AngularDof,
     Body,
+    Calibration,
     ComponentInstance,
     Design,
     FlexibleMember,
@@ -32,10 +34,11 @@ from mechsim.design.schema import (
     StepGeometry,
     iter_open_values,
     open_name,
+    section_part_values,
 )
 from mechsim.library.registry import Registry, RegistryError
 from mechsim.materials.schema import Material
-from mechsim.physics.neutral import LumpedMember, PhysicsModel, StructuralMember
+from mechsim.physics.neutral import PINNED_ROLLER_SEGMENTS, LumpedMember, PhysicsModel, StructuralMember
 from mechsim.schema_base import format_errors
 
 FLOOR_MATERIAL = "floor"
@@ -373,9 +376,12 @@ def _check_overlap(
 # ===== Lumped members ===================================================
 
 
-def lumped_record(body: str, member: LumpedMember, flexible: FlexibleMember) -> LumpedRecord:
+def lumped_record(
+    body: str, member: LumpedMember, flexible: FlexibleMember, scales: CalibrationScales | None
+) -> LumpedRecord:
     """Segment layout per `core/engine` lumped beam: N segments of l = L / N, springs E I / l at segment midpoints;
-    rigid spans node to node, a clamped root leaving [0, l/2] on the parent, a pinned root adding [0, l/2]."""
+    rigid spans node to node, a clamped root leaving [0, l/2] on the parent, a pinned root adding [0, l/2]. The
+    member's section is the calibrated one; `scales` are the calibration factors (BLD-019), None when uncalibrated."""
     section = member.section
     count = member.segments
     segment = section.length / count
@@ -385,60 +391,127 @@ def lumped_record(body: str, member: LumpedMember, flexible: FlexibleMember) -> 
     calibration = flexible.calibration
     if isinstance(calibration, OpenValue):
         raise TypeError("open calibration reached the lumped build")
-    return LumpedRecord(
-        member=member.name,
-        body=body,
-        segments=count,
-        segment_length=segment,
-        node_stiffness=section.elastic_modulus * section.second_moment_of_area / segment,
-        spans=tuple(spans),
-        masses=tuple(section.density * section.area * span for span in spans),
-        calibration_source=calibration.source,
-        calibration_load=_f(calibration.load),
-        calibration_deflection=_f(calibration.deflection),
-        calibration_frequency=_f(calibration.first_natural_frequency),
-    )
+    record: dict[str, Any] = {
+        "member": member.name,
+        "body": body,
+        "segments": count,
+        "segment_length": segment,
+        "node_stiffness": section.elastic_modulus * section.second_moment_of_area / segment,
+        "spans": tuple(spans),
+        "masses": tuple(section.density * section.area * span for span in spans),
+        "calibrated": scales is not None,
+    }
+    if calibration is not None and scales is not None:
+        record["calibration_source"] = calibration.source
+        record["calibration_load"] = _f(calibration.load)
+        record["calibration_deflection"] = _f(calibration.deflection)
+        record["calibration_frequency"] = _f(calibration.first_natural_frequency)
+        record["stiffness_scale"] = scales.stiffness_scale
+        record["mass_scale"] = scales.mass_scale
+    return LumpedRecord(**record)
 
 
-def _section(flexible: FlexibleMember, material: Material) -> dict[str, str]:
+def member_constants(body: Body, material: Material, registry: Registry) -> dict[str, float]:
+    """E, I, rho, A, L of a flexible body: the design section with the body's material, else its catalog part's
+    section and material constants (LIB-030)."""
+    flexible = body.flexible
+    if flexible is None:
+        raise TypeError("rigid body passed as flexible")
+    if flexible.section is None:
+        values = section_part_values(body, registry)
+        if values is None:
+            raise TypeError(f"flexible body '{body.name}' has neither a section nor a section part")
+        return {
+            "elastic_modulus": values["elastic_modulus"],
+            "second_moment_of_area": values["second_moment"],
+            "density": values["density"],
+            "area": values["area"],
+            "length": values["length"],
+        }
+    area, moment = flexible.section.area_and_moment()
     return {
-        "elastic_modulus": _q(material.youngs_modulus.typ, "Pa"),
-        "second_moment_of_area": _q(_f(flexible.section.second_moment), "m**4"),
-        "density": _q(material.density.typ, "kg/m**3"),
-        "area": _q(_f(flexible.section.area), "m**2"),
-        "length": _q(_f(flexible.section.length), "m"),
+        "elastic_modulus": material.youngs_modulus.typ,
+        "second_moment_of_area": moment,
+        "density": material.density.typ,
+        "area": area,
+        "length": _f(flexible.section.length),
     }
 
 
-def _flexible(body: Body, material: Material) -> tuple[dict[str, Any], dict[str, Any]]:
-    """The lumped member and the structural member list entry of a flexible body."""
+SECTION_UNITS = {
+    "elastic_modulus": "Pa",
+    "second_moment_of_area": "m**4",
+    "density": "kg/m**3",
+    "area": "m**2",
+    "length": "m",
+}
+
+
+def _section(constants: Mapping[str, float]) -> dict[str, str]:
+    return {name: _q(constants[name], unit) for name, unit in SECTION_UNITS.items()}
+
+
+def _flexible(
+    body: Body, material: Material, design: Design, registry: Registry, collector: Collector
+) -> tuple[dict[str, Any], dict[str, Any], CalibrationScales | None]:
+    """The lumped member (calibrated, BLD-019), the structural member list entry (true section, BLD-008, BLD-009)
+    and the calibration scales of a flexible body."""
     flexible = body.flexible
     if flexible is None:
         raise TypeError("rigid body passed as flexible")
     root, end = flexible.supports
+    constants = member_constants(body, material, registry)
+    lumped_constants = dict(constants)
+    scales: CalibrationScales | None = None
+    calibration = flexible.calibration
+    segments = flexible.segments
+    if "segments" not in flexible.model_fields_set and root == "pinned" and end == "roller":
+        segments = PINNED_ROLLER_SEGMENTS
+    if isinstance(calibration, Calibration) and root in LUMPED_ROOTS and end in LUMPED_ENDS:
+        chain = structure.chain_layout(root, end, segments, constants["length"])
+        try:
+            scales = structure.calibrate(
+                chain,
+                constants["elastic_modulus"] * constants["second_moment_of_area"],
+                constants["density"] * constants["area"],
+                _f(calibration.load),
+                _f(calibration.deflection),
+                _f(calibration.first_natural_frequency),
+            )
+        except structure.ChainError as error:
+            collector.failures.append(f"flexible body '{body.name}': calibration failed: {error} (BLD-019)")
+        else:
+            lumped_constants["elastic_modulus"] *= scales.stiffness_scale
+            lumped_constants["density"] *= scales.mass_scale
+    elif calibration is None:
+        collector.notes.append(
+            f"flexible body '{body.name}': no calibration data; the lumped beam uses its section and material as is "
+            "(BLD-019)"
+        )
     member: dict[str, Any] = {
         "name": body.name + LUMPED_SUFFIX,
         "parent": body.name,
         "position": _v(mass.ORIGIN, "m"),
-        "section": _section(flexible, material),
+        "section": _section(lumped_constants),
         "root": root,
         "end": end,
         "structural_member": body.name,
     }
     if "segments" in flexible.model_fields_set:
         member["segments"] = flexible.segments
-    length = _f(flexible.section.length)
+    length = constants["length"]
     supports = [{"at": _q(0.0, "m"), "condition": root}]
     if end != "free":
         supports.append({"at": _q(length, "m"), "condition": end})
     structural = {
         "name": body.name,
-        "section": _section(flexible, material),
+        "section": _section(constants),
         "material": material.name,
         "supports": supports,
         "fasteners": [fastener.model_dump(mode="json") for fastener in body.fasteners],
+        "mounts": structure.member_mounts(body, design),
     }
-    return member, structural
+    return member, structural, scales
 
 
 # ===== Transmissions and signals ========================================
@@ -599,6 +672,8 @@ def element_kinds(model: PhysicsModel) -> list[tuple[str, str]]:
         elements.append(("lumped_member", member.name))
     for transmission in model.transmissions:
         elements.append((f"transmission.{transmission.type}", transmission.name))
+    for rope in model.ropes:
+        elements.append(("rope", rope.name))
     return elements
 
 
@@ -633,7 +708,7 @@ def build_physics(
     shapes: dict[str, list[dict[str, Any]]] = {}
     lumped: list[dict[str, Any]] = []
     structural: list[dict[str, Any]] = []
-    flexible_bodies: dict[str, Body] = {}
+    flexible_bodies: dict[str, tuple[Body, CalibrationScales | None]] = {}
     for body, joint in ordered:
         material = materials[_name(body.material)]
         geometry = body.geometry
@@ -666,11 +741,11 @@ def build_physics(
         if body.catalog_part is not None:
             bodies[-1]["catalog_part"] = body.catalog_part.part
         if body.flexible is not None:
-            member, entry = _flexible(body, material)
+            member, entry, scales = _flexible(body, material, design, registry, collector)
             structural.append(entry)
             if not rigid_members:
                 lumped.append(member)
-                flexible_bodies[member["name"]] = body
+                flexible_bodies[member["name"]] = (body, scales)
     contact = design.environment.contact
     exclusions: set[tuple[str, str]] = set()
     data: dict[str, Any] = {
@@ -685,6 +760,8 @@ def build_physics(
             "pose_bodies": [body.name for body, _joint_entry in ordered],
         },
         "structural_members": structural,
+        "ropes": _ropes(design, registry, collector),
+        "fastenings": structure.fastenings(design),
     }
     if contact is not None:
         exclusions = {(min(pair), max(pair)) for pair in contact.exclusions}
@@ -739,10 +816,26 @@ def build_physics(
             return empty
     records: list[LumpedRecord] = []
     for lumped_member in model.lumped_members:
-        flexible = flexible_bodies[lumped_member.name]
+        flexible, scales = flexible_bodies[lumped_member.name]
         if flexible.flexible is not None:
-            records.append(lumped_record(flexible.name, lumped_member, flexible.flexible))
+            records.append(lumped_record(flexible.name, lumped_member, flexible.flexible, scales))
     return PhysicsOutput(model, model.structural_members, tuple(records))
+
+
+def _ropes(design: Design, registry: Registry, collector: Collector) -> list[dict[str, Any]]:
+    """Ropes with both ends on bodies, as neutral lumped chains (BLD-032); a rope ending at a case payload is
+    noted and left to the case (the payload is placed at run time)."""
+    out: list[dict[str, Any]] = []
+    for rope in design.ropes:
+        element = structure.rope_element(rope, registry.part(rope.part).values)
+        if element is None:
+            collector.notes.append(
+                f"rope '{rope.name}': its to end is case payload '{rope.to_end.payload}'; not emitted until the case "
+                "places the payload (BLD-032)"
+            )
+            continue
+        out.append(element)
+    return out
 
 
 def _name(value: str | OpenValue) -> str:

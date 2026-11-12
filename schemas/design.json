@@ -324,7 +324,7 @@
     },
     "Calibration": {
       "additionalProperties": false,
-      "description": "The known deflection under `load` and first natural frequency the lumped member is calibrated to.",
+      "description": "The known deflection under `load` and first natural frequency the lumped member is calibrated to (DES-034).\n\n`load` is a point load at the free end (clamped-free) or at midspan (any other support pair); `deflection` is\nthe deflection at the load point.",
       "properties": {
         "deflection": {
           "anyOf": [
@@ -487,6 +487,35 @@
         "part"
       ],
       "title": "CatalogPartReference",
+      "type": "object"
+    },
+    "CircleShape": {
+      "additionalProperties": false,
+      "properties": {
+        "diameter": {
+          "anyOf": [
+            {
+              "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s+\\S.*)?$",
+              "type": "string"
+            },
+            {
+              "pattern": "^\\$\\{[a-z][a-z0-9_]*\\}$",
+              "type": "string"
+            }
+          ],
+          "title": "Diameter"
+        },
+        "kind": {
+          "const": "circle",
+          "title": "Kind",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "diameter"
+      ],
+      "title": "CircleShape",
       "type": "object"
     },
     "ComponentInstance": {
@@ -1004,6 +1033,7 @@
     },
     "FlexibleMember": {
       "additionalProperties": false,
+      "description": "A flexible member (DES-033). `section` may be omitted when the body's catalog part carries one (LIB-030);\n`calibration` may be omitted, and the member then uses its section and material as is (BLD-019).",
       "properties": {
         "calibration": {
           "anyOf": [
@@ -1013,15 +1043,28 @@
             {
               "pattern": "^\\$\\{[a-z][a-z0-9_]*\\}$",
               "type": "string"
+            },
+            {
+              "type": "null"
             }
           ],
+          "default": null,
           "title": "Calibration"
         },
         "section": {
-          "$ref": "#/$defs/Section"
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Section"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
         },
         "segments": {
           "default": 4,
+          "description": "lumped segment count (BLD-018)",
           "minimum": 1,
           "title": "Segments",
           "type": "integer"
@@ -1044,8 +1087,6 @@
         }
       },
       "required": [
-        "section",
-        "calibration",
         "supports"
       ],
       "title": "FlexibleMember",
@@ -1496,6 +1537,26 @@
       "title": "MaterialPair",
       "type": "object"
     },
+    "MaterialsConfig": {
+      "additionalProperties": false,
+      "description": "`overrides`: path, relative to the design file, of a materials override file (brief M3-M).",
+      "properties": {
+        "overrides": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Overrides"
+        }
+      },
+      "title": "MaterialsConfig",
+      "type": "object"
+    },
     "MechanicalBinding": {
       "additionalProperties": false,
       "description": "A mount of the instance's type bound to a body (housing, face) or a joint (shaft).",
@@ -1917,11 +1978,11 @@
       "title": "Rail",
       "type": "object"
     },
-    "Section": {
+    "RectangleShape": {
       "additionalProperties": false,
-      "description": "Cross-section and span; E and rho come from the body's material.",
+      "description": "Solid rectangle: `height` along the bending direction (member y), `width` across it.",
       "properties": {
-        "area": {
+        "height": {
           "anyOf": [
             {
               "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s+\\S.*)?$",
@@ -1932,6 +1993,218 @@
               "type": "string"
             }
           ],
+          "title": "Height"
+        },
+        "kind": {
+          "const": "rectangle",
+          "title": "Kind",
+          "type": "string"
+        },
+        "width": {
+          "anyOf": [
+            {
+              "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s+\\S.*)?$",
+              "type": "string"
+            },
+            {
+              "pattern": "^\\$\\{[a-z][a-z0-9_]*\\}$",
+              "type": "string"
+            }
+          ],
+          "title": "Width"
+        }
+      },
+      "required": [
+        "kind",
+        "width",
+        "height"
+      ],
+      "title": "RectangleShape",
+      "type": "object"
+    },
+    "RectangularTubeShape": {
+      "additionalProperties": false,
+      "description": "Hollow rectangle of uniform `wall`; `height` along the bending direction.",
+      "properties": {
+        "height": {
+          "anyOf": [
+            {
+              "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s+\\S.*)?$",
+              "type": "string"
+            },
+            {
+              "pattern": "^\\$\\{[a-z][a-z0-9_]*\\}$",
+              "type": "string"
+            }
+          ],
+          "title": "Height"
+        },
+        "kind": {
+          "const": "rectangular_tube",
+          "title": "Kind",
+          "type": "string"
+        },
+        "wall": {
+          "anyOf": [
+            {
+              "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s+\\S.*)?$",
+              "type": "string"
+            },
+            {
+              "pattern": "^\\$\\{[a-z][a-z0-9_]*\\}$",
+              "type": "string"
+            }
+          ],
+          "title": "Wall"
+        },
+        "width": {
+          "anyOf": [
+            {
+              "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s+\\S.*)?$",
+              "type": "string"
+            },
+            {
+              "pattern": "^\\$\\{[a-z][a-z0-9_]*\\}$",
+              "type": "string"
+            }
+          ],
+          "title": "Width"
+        }
+      },
+      "required": [
+        "kind",
+        "width",
+        "height",
+        "wall"
+      ],
+      "title": "RectangularTubeShape",
+      "type": "object"
+    },
+    "Rope": {
+      "additionalProperties": false,
+      "description": "A rope from a catalog part of a rope type (LIB-020), emitted as a lumped chain (BLD-032, ADR 0016).",
+      "properties": {
+        "from": {
+          "$ref": "#/$defs/RopeEnd"
+        },
+        "name": {
+          "pattern": "^[a-z][a-z0-9_]*$",
+          "title": "Name",
+          "type": "string"
+        },
+        "part": {
+          "pattern": "^[a-z][a-z0-9_]*$",
+          "title": "Part",
+          "type": "string"
+        },
+        "rest_length": {
+          "anyOf": [
+            {
+              "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s+\\S.*)?$",
+              "type": "string"
+            },
+            {
+              "pattern": "^\\$\\{[a-z][a-z0-9_]*\\}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Rest Length"
+        },
+        "segments": {
+          "default": 4,
+          "description": "lumped chain segment count",
+          "minimum": 1,
+          "title": "Segments",
+          "type": "integer"
+        },
+        "to": {
+          "$ref": "#/$defs/RopeEnd"
+        }
+      },
+      "required": [
+        "name",
+        "part",
+        "from",
+        "to"
+      ],
+      "title": "Rope",
+      "type": "object"
+    },
+    "RopeEnd": {
+      "additionalProperties": false,
+      "description": "One end of a rope: a point in a design body's frame, or the case payload named here (attached at run time,\nso that end is not emitted by the builder until the case places the payload).",
+      "properties": {
+        "body": {
+          "anyOf": [
+            {
+              "pattern": "^[a-z][a-z0-9_]*$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Body"
+        },
+        "payload": {
+          "anyOf": [
+            {
+              "pattern": "^[a-z][a-z0-9_]*$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Payload"
+        },
+        "point": {
+          "items": {
+            "anyOf": [
+              {
+                "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s+\\S.*)?$",
+                "type": "string"
+              },
+              {
+                "pattern": "^\\$\\{[a-z][a-z0-9_]*\\}$",
+                "type": "string"
+              }
+            ]
+          },
+          "maxItems": 3,
+          "minItems": 3,
+          "title": "Point",
+          "type": "array"
+        }
+      },
+      "title": "RopeEnd",
+      "type": "object"
+    },
+    "Section": {
+      "additionalProperties": false,
+      "description": "Cross-section and span: a `shape` with its dimensions, or `area` and `second_moment` (DES-033); E and rho\ncome from the body's material.",
+      "properties": {
+        "area": {
+          "anyOf": [
+            {
+              "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s+\\S.*)?$",
+              "type": "string"
+            },
+            {
+              "pattern": "^\\$\\{[a-z][a-z0-9_]*\\}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
           "title": "Area"
         },
         "length": {
@@ -1956,14 +2229,50 @@
             {
               "pattern": "^\\$\\{[a-z][a-z0-9_]*\\}$",
               "type": "string"
+            },
+            {
+              "type": "null"
             }
           ],
+          "default": null,
           "title": "Second Moment"
+        },
+        "shape": {
+          "anyOf": [
+            {
+              "discriminator": {
+                "mapping": {
+                  "circle": "#/$defs/CircleShape",
+                  "rectangle": "#/$defs/RectangleShape",
+                  "rectangular_tube": "#/$defs/RectangularTubeShape",
+                  "tube": "#/$defs/TubeShape"
+                },
+                "propertyName": "kind"
+              },
+              "oneOf": [
+                {
+                  "$ref": "#/$defs/RectangleShape"
+                },
+                {
+                  "$ref": "#/$defs/CircleShape"
+                },
+                {
+                  "$ref": "#/$defs/TubeShape"
+                },
+                {
+                  "$ref": "#/$defs/RectangularTubeShape"
+                }
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Shape"
         }
       },
       "required": [
-        "area",
-        "second_moment",
         "length"
       ],
       "title": "Section",
@@ -2263,6 +2572,49 @@
       "title": "Structural",
       "type": "object"
     },
+    "TubeShape": {
+      "additionalProperties": false,
+      "properties": {
+        "inner_diameter": {
+          "anyOf": [
+            {
+              "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s+\\S.*)?$",
+              "type": "string"
+            },
+            {
+              "pattern": "^\\$\\{[a-z][a-z0-9_]*\\}$",
+              "type": "string"
+            }
+          ],
+          "title": "Inner Diameter"
+        },
+        "kind": {
+          "const": "tube",
+          "title": "Kind",
+          "type": "string"
+        },
+        "outer_diameter": {
+          "anyOf": [
+            {
+              "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s+\\S.*)?$",
+              "type": "string"
+            },
+            {
+              "pattern": "^\\$\\{[a-z][a-z0-9_]*\\}$",
+              "type": "string"
+            }
+          ],
+          "title": "Outer Diameter"
+        }
+      },
+      "required": [
+        "kind",
+        "outer_diameter",
+        "inner_diameter"
+      ],
+      "title": "TubeShape",
+      "type": "object"
+    },
     "Wire": {
       "additionalProperties": false,
       "description": "A connection from one instance port to another (DES-041); ports are the pins of each type's electrical facet.\n\nWires carry connectivity only in v1: no resistance, inductance, length or failure. Physical wire properties are a\nlater component type (a seam).",
@@ -2340,6 +2692,17 @@
       "title": "Joints",
       "type": "array"
     },
+    "materials": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/MaterialsConfig"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
     "name": {
       "pattern": "^[a-z][a-z0-9_]*$",
       "title": "Name",
@@ -2376,6 +2739,13 @@
         }
       ],
       "default": null
+    },
+    "ropes": {
+      "items": {
+        "$ref": "#/$defs/Rope"
+      },
+      "title": "Ropes",
+      "type": "array"
     },
     "source_hash": {
       "pattern": "^([0-9a-f]{40}|unset)$",

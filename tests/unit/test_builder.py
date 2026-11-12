@@ -272,7 +272,10 @@ def test_contact_without_floor_gives_no_world_shape() -> None:
 @pytest.mark.req("BLD-014")
 @pytest.mark.req("BLD-018")
 def test_flexible_bodies_become_lumped_members() -> None:
-    model = _physics(filled_gantry())
+    result = _build(filled_gantry())
+    model = result.physics
+    assert model is not None
+    scales = {record.member: record for record in result.lumped}
     members = {member.name: member for member in model.lumped_members}
     rail_x = members["rail_x_beam"]
     assert (rail_x.root, rail_x.end, rail_x.segments) == ("clamped", "free", 4)
@@ -281,8 +284,18 @@ def test_flexible_bodies_become_lumped_members() -> None:
     assert rail_x.parent == "rail_x"
     assert rail_x.structural_member == "rail_x"
     material = shipped_materials()[MATERIAL]
-    assert rail_x.section.elastic_modulus == material.youngs_modulus.typ
-    assert rail_x.section.density == material.density.typ
+    record = scales["rail_x_beam"]
+    assert record.calibrated
+    assert record.stiffness_scale is not None
+    assert record.mass_scale is not None
+    # BLD-019: the lumped section carries the calibrated E and rho; the member list keeps the material's (BLD-009).
+    assert rail_x.section.elastic_modulus == pytest.approx(
+        material.youngs_modulus.typ * record.stiffness_scale, rel=1e-15
+    )
+    assert rail_x.section.density == pytest.approx(material.density.typ * record.mass_scale, rel=1e-15)
+    member = next(item for item in model.structural_members if item.name == "rail_x")
+    assert member.section.elastic_modulus == material.youngs_modulus.typ
+    assert member.section.density == material.density.typ
     assert rail_x.section.area == 1e-4
     assert rail_x.section.second_moment_of_area == 1e-8
     assert rail_x.section.length == 1.0
@@ -307,6 +320,9 @@ def test_lumped_record_follows_the_engine_segment_rule() -> None:
     e, rho = material.youngs_modulus.typ, material.density.typ
     records = {record.member: record for record in result.lumped}
     rail_x = records["rail_x_beam"]
+    assert rail_x.stiffness_scale is not None
+    assert rail_x.mass_scale is not None
+    e, rho = e * rail_x.stiffness_scale, rho * rail_x.mass_scale
     assert rail_x.segment_length == 0.25
     assert rail_x.node_stiffness == pytest.approx(e * 1e-8 / 0.25, rel=1e-15)
     assert rail_x.spans == (0.25, 0.25, 0.25, 0.125)
@@ -314,6 +330,10 @@ def test_lumped_record_follows_the_engine_segment_rule() -> None:
         assert mass == pytest.approx(rho * 1e-4 * span, rel=1e-15)
     assert math.fsum(rail_x.masses) == pytest.approx(rho * 1e-4 * (1.0 - 0.125), rel=1e-14)
     rail_y = records["rail_y_beam"]
+    assert rail_y.stiffness_scale is not None
+    assert rail_y.mass_scale is not None
+    e = material.youngs_modulus.typ * rail_y.stiffness_scale
+    rho = material.density.typ * rail_y.mass_scale
     assert rail_y.segments == 8
     assert rail_y.node_stiffness == pytest.approx(e * 1e-8 / 0.1, rel=1e-14)
     assert len(rail_y.spans) == 9
@@ -459,7 +479,10 @@ def test_step_body_cross_checks_and_takes_the_hulls() -> None:
     assert hook.mass == 2.0
     assert len(hook.shapes) == 1
     assert isinstance(hook.shapes[0], ConvexHull)
-    assert result.notes == ()
+    assert result.notes == (
+        "rope 'payload_rope': its to end is case payload 'payload'; not emitted until the case places the payload "
+        "(BLD-032)",
+    )
 
 
 def test_step_body_mass_mismatch_fails() -> None:

@@ -1,0 +1,68 @@
+# Rope (LIB-020): the ADR 0016 element, a lumped chain of point masses joined by tension-only springs. Axial
+# stiffness EA (N), strain-rate damping (N s; a segment of length l gets EA / l and damping / l), mass per length,
+# breaking tension (tier 2 snap) and rest length. A design names a part in `ropes` (BLD-032). Part values are
+# placeholders.
+types:
+  - name: rope
+    version: 1.0.0
+    category: rope
+    description: Tension-only rope or cable, lumped as a chain of point masses.
+    parameters:
+      - name: axial_stiffness
+        dimension: "[mass] * [length] / [time] ** 2"
+        minimum: "0 N"
+        minimum_exclusive: true
+      - name: damping
+        dimension: "[mass] * [length] / [time]"
+        minimum: "0 N*s"
+      - name: mass_per_length
+        dimension: "[mass] / [length]"
+        minimum: "0 kg/m"
+        minimum_exclusive: true
+      - name: breaking_tension
+        dimension: "[mass] * [length] / [time] ** 2"
+        minimum: "0 N"
+        minimum_exclusive: true
+      - name: rest_length
+        dimension: "[length]"
+        minimum: "0 m"
+        minimum_exclusive: true
+    tiers:
+      - name: ideal
+        parameters: [axial_stiffness, damping, mass_per_length, rest_length]
+      - name: breaking
+        parameters: [breaking_tension]
+    mechanical:
+      mass:
+        source: geometry
+      mounts:
+        - name: from
+          kind: clamp
+          offset: ["0 mm", "0 mm", "0 mm"]
+        - name: to
+          kind: clamp
+          offset: ["0 mm", "0 mm", "0 mm"]
+    electrical:
+      pins: []
+    ratings:
+      absolute_maximums:
+        - name: breaking_tension
+          parameter: breaking_tension
+    thermal:
+      held_constant: true
+      temperature: "298.15 K"
+    plugin:
+      python: mechsim.builder.structure:rope_element
+parts:
+  - name: rope_3mm_steel_generic
+    type: rope
+    tier: breaking
+    description: 3 mm galvanized steel wire rope, 0.3 m.
+    source: placeholder values, no datasheet assigned
+    values:
+      axial_stiffness: "500 kN"
+      damping: "50 N*s"
+      mass_per_length: "0.035 kg/m"
+      breaking_tension: "5 kN"
+      rest_length: "0.3 m"
+    placeholders: [axial_stiffness, damping, mass_per_length, breaking_tension, rest_length]
