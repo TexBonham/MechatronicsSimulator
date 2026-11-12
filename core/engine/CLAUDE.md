@@ -16,6 +16,8 @@ Namespace `mechsim::engine`; q (nq), v (nv). Eigen only, dense (ENG-001).
 | `multibody_model.hpp` | `JointType`, `Joint`, `Body`, `LoopConstraint` (Point 3, Hinge 5 rows), `MultibodyModel`, `MultibodyConfig` |
 | `multibody_provider.hpp` | `MultibodyProvider`, output structs |
 | `transmission.hpp` | `Transmission` (belt, screw, gear), `TransmissionOutput`, `PowerFlow`, `couple` (derivation) |
+| `collision.hpp` | `ShapeKind`, `shape_kind(name)` (unknown throws, ENG-017), `Shape`, `Pose`, `ContactPoint{point, normal a->b, depth}`, `Aabb`, `bounds`, `broad_phase`, `collide(a, pa, b, pb)`, `support` |
+| `contact.hpp` | `ContactParameters{K_n, C_n, mu}`, `MaterialPair`, `Geometry` (neutral sizes, body -1 world), `ContactModel{geometries, default, pairs, exclusions, slip_velocity 1e-4}`, `contact_force`, `Attachment`, `PayloadOutput` (derivations in the header) |
 | `lumped_beam.hpp` | `BeamSpec`, `add_lumped_beam(model, spec, parent, position, orientation)`, `beam_point(beam, x)` (ENG-022) |
 
 ## DynamicsProvider hooks
@@ -43,7 +45,7 @@ Constraints: block Gauss-Seidel (per-constraint pseudo-inverse of J A^-1 J^T) un
 cap `iteration_cap` (50) else `SolverNonConvergenceError`; then `projection_iterations` (3) Gauss-Newton
 min-norm steps; drift > `drift_threshold_m/_rad` (1e-6) throws `DriftError(t, cause, index)`.
 `step(integrator, state)`: steps, records `outputs()` (body pose and twists; joint `S^T f` and wrench; constraint
-impulse, force, errors; empty `contacts`), clears inputs.
+impulse, force, errors; `contacts`; `payloads`), clears inputs.
 Inputs: `set_generalized_forces(tau)`, `apply_body_wrench(body, torque, force)` world-aligned at the com.
 Also `constraint_errors(q)`, `body_states(q, v)`, `neutral_positions()`, `*_offset(b)`.
 Hooks write mutable `impulse_`/`error_`; single-threaded (ENG-023).
@@ -61,9 +63,32 @@ Transmissions: Revolute shaft to Prismatic or (gear) Revolute output; K, D += k,
 | Construction | 262 |
 | Kinematics | 338 |
 | Dynamics | 405 |
-| Transmissions | 509 |
-| Constraints | 607 |
-| Inputs and outputs | 750 |
+| Transmissions | 631 |
+| Constraints | 729 |
+| Inputs and outputs | 872 |
+
+## Section index, `src/collision.cpp`
+
+| Section | Line |
+|---|---|
+| Shapes | 16 |
+| Broad phase | 183 |
+| Closed forms | 246 |
+| GJK | 417 |
+| EPA | 582 |
+| Narrow phase | 734 |
+
+## Collision and contact (ADR 0002, ENG-016 to ENG-021)
+
+Broad phase: all-pairs AABB in geometry order (plane unbounded). Narrow phase in-house, no library (ENG-018):
+closed forms for sphere-sphere, sphere-capsule, capsule-capsule, sphere-box and every shape against a plane (one
+contact per penetrating feature: box corners, hull vertices, capsule caps, 4 rim points per cylinder cap); GJK + EPA
+(tolerance 1e-12 m, cap 128 expansions) for the rest, one contact. Point = midpoint of the witness points.
+Provider: `set_contact_model(ContactModel)` validates (planes only on the world); `evaluate` adds per contact
+G^T F, G^T K_s G, G^T D_s G (G = J_b(p) - J_a(p)); same-body and excluded pairs skipped; `contacts(q, v)`;
+`outputs().contacts` at the step's start state, force on body a; joint outputs include contact and weld loads.
+Payload (ENG-035): `set_body_mass(b, m)` (inertia scaled), `set_attachment(body, carrier, attached, q, f = 1 kHz)`
+weld as implicit 6-DOF spring-damper at the payload com captured from q; `attachments()`, `outputs().payloads`.
 
 ## Lumped beam
 
@@ -72,7 +97,8 @@ Planar bending about root z; two-axis bending plus torsion: next tier. Derivatio
 
 ## Tests
 
-Unit: `mechsim_engine_tests`. Reference: `mechsim_engine_reference`, `ctest -L reference`.
+Unit: `mechsim_engine_tests`. Reference: `mechsim_engine_reference`, `ctest -L reference`. Contact helpers:
+`tests/contact_helpers.hpp`.
 
 ## Conventions
 

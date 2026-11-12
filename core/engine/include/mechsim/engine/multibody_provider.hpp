@@ -4,6 +4,7 @@
 #include <Eigen/Geometry>
 #include <vector>
 
+#include "mechsim/engine/contact.hpp"
 #include "mechsim/engine/dynamics_provider.hpp"
 #include "mechsim/engine/integrator.hpp"
 #include "mechsim/engine/multibody_model.hpp"
@@ -34,12 +35,14 @@ struct ConstraintOutput {
     double rotational_error = 0.0;     // after projection, rad
 };
 
-// Slot for the contact package (ENG-013 onward); always empty in this package.
+// One contact point at the step's start state (ENG-020, ENG-027); body -1 is the world.
 struct ContactOutput {
     Eigen::Index body_a = -1;
     Eigen::Index body_b = -1;
     Eigen::Vector3d point = Eigen::Vector3d::Zero();  // world, m
     Eigen::Vector3d force = Eigen::Vector3d::Zero();  // on body_a, world, N
+    Eigen::Vector3d normal = Eigen::Vector3d::UnitZ();  // unit, world, from a to b
+    double depth = 0.0;                                // penetration, m
 };
 
 struct MultibodyOutputs {
@@ -48,6 +51,7 @@ struct MultibodyOutputs {
     std::vector<ConstraintOutput> constraints;
     std::vector<ContactOutput> contacts;
     std::vector<TransmissionOutput> transmissions;  // at the end state, slip offset advanced by the step
+    std::vector<PayloadOutput> payloads;            // one per attachment, at the step's start state (ENG-035)
     double time = 0.0;  // end of the step, s
 };
 
@@ -93,6 +97,18 @@ public:
     [[nodiscard]] std::vector<TransmissionOutput> transmission_states(const Eigen::VectorXd& q,
                                                                       const Eigen::VectorXd& v) const;
 
+    // Contact (ENG-016 to ENG-021): validated against this model; replaces any earlier contact model.
+    void set_contact_model(ContactModel contacts);
+    [[nodiscard]] const ContactModel& contact_model() const noexcept;
+    // Contacts and their forces at (q, v) with the current contact model.
+    [[nodiscard]] std::vector<ContactOutput> contacts(const Eigen::VectorXd& q, const Eigen::VectorXd& v) const;
+    // Payload change (ENG-035), effective from the next step. Mass rescales the body's inertia by mass / old mass.
+    void set_body_mass(Eigen::Index body, double mass);
+    // Welds body to carrier (-1 the world) at their relative pose in q, or releases it (attached false).
+    void set_attachment(Eigen::Index body, Eigen::Index carrier, bool attached, const Eigen::VectorXd& q,
+                        double frequency = Attachment::default_frequency);
+    [[nodiscard]] const std::vector<Attachment>& attachments() const noexcept;
+
     StepHealth step(Integrator& integrator, State& state);
     [[nodiscard]] const MultibodyOutputs& outputs() const noexcept;
 
@@ -115,6 +131,11 @@ private:
     [[nodiscard]] TransmissionCoupling coupling(Eigen::Index transmission, const Eigen::VectorXd& q,
                                                 const Eigen::VectorXd& v) const;
     void add_transmission_terms(const Eigen::VectorXd& q, const Eigen::VectorXd& v, DynamicsTerms& terms) const;
+    [[nodiscard]] Eigen::MatrixXd point_jacobian(const Kinematics& kin, Eigen::Index body,
+                                                 const Eigen::Vector3d& point) const;
+    std::vector<ContactOutput> add_contact_terms(const Kinematics& kin, const Eigen::VectorXd& v,
+                                                 DynamicsTerms& terms) const;
+    void add_attachment_terms(const Kinematics& kin, const Eigen::VectorXd& v, DynamicsTerms& terms) const;
 
     MultibodyModel model_;
     MultibodyConfig config_;
@@ -136,6 +157,13 @@ private:
     // Written by the const step hooks for step(); single-threaded by ENG-023.
     mutable std::vector<Eigen::VectorXd> impulse_;
     mutable std::vector<ConstraintError> error_;
+    ContactModel contact_model_;
+    std::vector<Shape> contact_shapes_;
+    std::vector<Attachment> attachments_;
+    mutable std::vector<ContactOutput> contact_cache_;   // from the last evaluate
+    mutable std::vector<PayloadOutput> payload_cache_;   // from the last evaluate
+    mutable std::vector<spatial::Vector6d> attachment_wrench_;  // on the payload, world-aligned [torque; force]
+    mutable std::vector<Eigen::Vector3d> attachment_point_;     // payload com, world
 };
 
 }  // namespace mechsim::engine

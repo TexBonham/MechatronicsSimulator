@@ -278,6 +278,7 @@ void bind_engine(py::module_& m) {
     bind_model(m);
     bind_outputs(m);
     bind_stepping(m);
+    bind_contact(m);
     bind_beam(m);
 }
 

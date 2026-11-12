@@ -504,6 +504,128 @@ void MultibodyProvider::evaluate(double /*t*/, const Eigen::VectorXd& q, const E
     terms.stiffness = stiffness_.asDiagonal();
     terms.damping = damping_.asDiagonal();
     add_transmission_terms(q, v, terms);
+    contact_cache_ = add_contact_terms(kin, v, terms);
+    add_attachment_terms(kin, v, terms);
+}
+
+// Linear velocity of the world point rigidly attached to body, per generalized velocity; zero for the world (-1).
+Eigen::MatrixXd MultibodyProvider::point_jacobian(const Kinematics& kin, Eigen::Index body,
+                                                  const Eigen::Vector3d& point) const {
+    if (body < 0) {
+        return Eigen::MatrixXd::Zero(3, nv_);
+    }
+    const Matrix6Xd j = world_jacobian(kin, body);
+    return j.bottomRows<3>() - spatial::skew(point) * j.topRows<3>();
+}
+
+// Soft contact per detected point (ENG-020); the derivation is in contact.hpp.
+std::vector<ContactOutput> MultibodyProvider::add_contact_terms(const Kinematics& kin, const Eigen::VectorXd& v,
+                                                                DynamicsTerms& terms) const {
+    std::vector<ContactOutput> out;
+    const std::vector<Geometry>& geometries = contact_model_.geometries;
+    if (geometries.empty()) {
+        return out;
+    }
+    std::vector<Pose> poses;
+    std::vector<Aabb> boxes;
+    for (std::size_t g = 0; g < geometries.size(); ++g) {
+        const Geometry& geometry = geometries[g];
+        Pose pose;
+        pose.rotation = geometry.orientation.toRotationMatrix();
+        pose.position = geometry.position;
+        if (geometry.body >= 0) {
+            const Transform& x = at(kin.world, geometry.body);
+            pose.rotation = x.rotation.transpose() * pose.rotation;
+            pose.position = world_point(x, geometry.position);
+        }
+        poses.push_back(pose);
+        boxes.push_back(bounds(contact_shapes_[g], pose));
+    }
+    for (const auto& [i, j] : broad_phase(boxes)) {
+        const Geometry& ga = geometries[i];
+        const Geometry& gb = geometries[j];
+        if (ga.body == gb.body || excluded(contact_model_, ga.body, gb.body)) {
+            continue;
+        }
+        const ContactParameters& parameters = contact_parameters(contact_model_, ga.material, gb.material);
+        for (const ContactPoint& c : collide(contact_shapes_[i], poses[i], contact_shapes_[j], poses[j])) {
+            const Eigen::MatrixXd g = point_jacobian(kin, gb.body, c.point) - point_jacobian(kin, ga.body, c.point);
+            const ContactForce f = contact_force(parameters, contact_model_.slip_velocity, c, g * v);
+            ContactOutput record;
+            record.body_a = ga.body;
+            record.body_b = gb.body;
+            record.point = c.point;
+            record.normal = c.normal;
+            record.depth = c.depth;
+            record.force = -f.force_on_b;
+            out.push_back(record);
+            if (f.active) {
+                terms.force += g.transpose() * f.force_on_b;
+                terms.stiffness += g.transpose() * f.stiffness * g;
+                terms.damping += g.transpose() * f.damping * g;
+            }
+        }
+    }
+    return out;
+}
+
+// Payload weld (ENG-035): implicit 6-DOF spring-damper at the payload's com; the derivation is in contact.hpp.
+void MultibodyProvider::add_attachment_terms(const Kinematics& kin, const Eigen::VectorXd& v,
+                                             DynamicsTerms& terms) const {
+    payload_cache_.clear();
+    attachment_wrench_.clear();
+    attachment_point_.clear();
+    for (const Attachment& a : attachments_) {
+        const Body& payload = at(model_.bodies, a.body);
+        const Transform& xp = at(kin.world, a.body);
+        const Eigen::Matrix3d rp = xp.rotation.transpose();
+        const Eigen::Vector3d com = world_point(xp, payload.com);
+        PayloadOutput record;
+        record.body = a.body;
+        if (!a.attached) {
+            payload_cache_.push_back(record);
+            attachment_wrench_.emplace_back(Vector6d::Zero());
+            attachment_point_.push_back(com);
+            continue;
+        }
+        Eigen::Matrix3d rc = Eigen::Matrix3d::Identity();
+        Eigen::Vector3d pc = Eigen::Vector3d::Zero();
+        if (a.carrier >= 0) {
+            const Transform& xc = at(kin.world, a.carrier);
+            rc = xc.rotation.transpose();
+            pc = xc.translation;
+        }
+        const Eigen::Vector3d offset = com - (pc + rc * a.position);
+        const Eigen::AngleAxisd turn(rp * (rc * a.rotation).transpose());
+        const Eigen::Vector3d angle = turn.angle() * turn.axis();
+        Matrix6Xd g(6, nv_);
+        g.topRows<3>() = world_jacobian(kin, a.body).topRows<3>();
+        if (a.carrier >= 0) {
+            g.topRows<3>() -= world_jacobian(kin, a.carrier).topRows<3>();
+        }
+        g.bottomRows<3>() = point_jacobian(kin, a.body, com) - point_jacobian(kin, a.carrier, com);
+        const Vector6d rate = g * v;
+        const double w = angular_frequency(a);
+        const Eigen::Matrix3d inertia = rp * payload.inertia * rp.transpose();
+        Matrix6d k = Matrix6d::Zero();
+        Matrix6d d = Matrix6d::Zero();
+        k.topLeftCorner<3, 3>() = w * w * inertia;
+        k.bottomRightCorner<3, 3>() = w * w * payload.mass * Eigen::Matrix3d::Identity();
+        d.topLeftCorner<3, 3>() = 2.0 * w * inertia;
+        d.bottomRightCorner<3, 3>() = 2.0 * w * payload.mass * Eigen::Matrix3d::Identity();
+        Vector6d error;
+        error << angle, offset;
+        const Vector6d wrench = -k * error - d * rate;
+        terms.force += g.transpose() * wrench;
+        terms.stiffness += g.transpose() * k * g;
+        terms.damping += g.transpose() * d * g;
+        record.carrier = a.carrier;
+        record.attached = true;
+        record.force = wrench.tail<3>();
+        payload_cache_.push_back(record);
+        attachment_wrench_.push_back(wrench);
+        attachment_point_.push_back(com);
+    }
 }
 
 // ===== Transmissions =====================================================
@@ -880,6 +1002,23 @@ void MultibodyProvider::record_outputs(const State& before, const State& after, 
         at(external, lc.body_b) += to_body(at(kin.world, lc.body_b), r.point_b, -torque, -force);
         outputs_.constraints.push_back(out);
     }
+    for (const ContactOutput& c : contact_cache_) {
+        if (c.body_a >= 0) {
+            at(external, c.body_a) += to_body(at(kin.world, c.body_a), c.point, Eigen::Vector3d::Zero(), c.force);
+        }
+        if (c.body_b >= 0) {
+            at(external, c.body_b) += to_body(at(kin.world, c.body_b), c.point, Eigen::Vector3d::Zero(), -c.force);
+        }
+    }
+    for (std::size_t i = 0; i < payload_cache_.size(); ++i) {
+        const PayloadOutput& p = payload_cache_[i];
+        const Vector6d& w = attachment_wrench_[i];
+        at(external, p.body) += to_body(at(kin.world, p.body), attachment_point_[i], w.head<3>(), w.tail<3>());
+        if (p.carrier >= 0) {
+            at(external, p.carrier) +=
+                to_body(at(kin.world, p.carrier), attachment_point_[i], -w.head<3>(), -w.tail<3>());
+        }
+    }
     Vector6d base = Vector6d::Zero();
     base.tail<3>() = -model_.gravity;
     const Eigen::VectorXd qdd = (after.v - before.v) / h;
@@ -895,10 +1034,85 @@ void MultibodyProvider::record_outputs(const State& before, const State& after, 
         outputs_.joints.push_back(joint);
     }
     outputs_.bodies = body_states(after.q, after.v);
-    outputs_.contacts.clear();
+    outputs_.contacts = contact_cache_;
+    outputs_.payloads = payload_cache_;
     outputs_.time = after.t;
 }
 
 const MultibodyOutputs& MultibodyProvider::outputs() const noexcept { return outputs_; }
+
+void MultibodyProvider::set_contact_model(ContactModel contacts) {
+    validate_contact_model(contacts, count(model_.bodies.size()));
+    std::vector<Shape> shapes;
+    for (Eigen::Index i = 0; i < count(contacts.geometries.size()); ++i) {
+        shapes.push_back(to_shape(at(contacts.geometries, i), i));
+    }
+    contact_model_ = std::move(contacts);
+    contact_shapes_ = std::move(shapes);
+}
+
+const ContactModel& MultibodyProvider::contact_model() const noexcept { return contact_model_; }
+
+std::vector<ContactOutput> MultibodyProvider::contacts(const Eigen::VectorXd& q, const Eigen::VectorXd& v) const {
+    if (q.size() != nq_ || v.size() != nv_) {
+        throw InvalidModelError(0.0, "contacts need q and v of the model's sizes");
+    }
+    DynamicsTerms scratch;
+    scratch.force = Eigen::VectorXd::Zero(nv_);
+    scratch.stiffness = Eigen::MatrixXd::Zero(nv_, nv_);
+    scratch.damping = Eigen::MatrixXd::Zero(nv_, nv_);
+    return add_contact_terms(kinematics(q, v), v, scratch);
+}
+
+void MultibodyProvider::set_body_mass(Eigen::Index body, double mass) {
+    if (body < 0 || body >= count(model_.bodies.size())) {
+        throw InvalidModelError(0.0, "mass set on a missing body");
+    }
+    if (!std::isfinite(mass) || !(mass > 0.0)) {
+        throw InvalidModelError(0.0, body_label(body) + "mass must be finite and > 0");
+    }
+    Body& b = at(model_.bodies, body);
+    b.inertia *= mass / b.mass;
+    b.mass = mass;
+    at(inertia_, body) = spatial::inertia(b.mass, b.com, b.inertia);
+}
+
+void MultibodyProvider::set_attachment(Eigen::Index body, Eigen::Index carrier, bool attached,
+                                       const Eigen::VectorXd& q, double frequency) {
+    const Eigen::Index n = count(model_.bodies.size());
+    if (body < 0 || body >= n || carrier < -1 || carrier >= n || carrier == body) {
+        throw InvalidModelError(0.0, "attachment needs a payload body and a different carrier body or the world");
+    }
+    if (q.size() != nq_ || !q.allFinite()) {
+        throw InvalidModelError(0.0, "attachment needs finite q of the model's size");
+    }
+    if (!std::isfinite(frequency) || !(frequency > 0.0)) {
+        throw InvalidModelError(0.0, "attachment frequency must be finite and > 0");
+    }
+    Attachment a;
+    a.body = body;
+    a.carrier = carrier;
+    a.attached = attached;
+    a.frequency = frequency;
+    const Kinematics kin = kinematics(q, Eigen::VectorXd::Zero(nv_));
+    const Transform& xp = at(kin.world, body);
+    Eigen::Matrix3d rc = Eigen::Matrix3d::Identity();
+    Eigen::Vector3d pc = Eigen::Vector3d::Zero();
+    if (carrier >= 0) {
+        rc = at(kin.world, carrier).rotation.transpose();
+        pc = at(kin.world, carrier).translation;
+    }
+    a.position = rc.transpose() * (world_point(xp, at(model_.bodies, body).com) - pc);
+    a.rotation = rc.transpose() * xp.rotation.transpose();
+    for (Attachment& existing : attachments_) {
+        if (existing.body == body) {
+            existing = a;
+            return;
+        }
+    }
+    attachments_.push_back(a);
+}
+
+const std::vector<Attachment>& MultibodyProvider::attachments() const noexcept { return attachments_; }
 
 }  // namespace mechsim::engine
