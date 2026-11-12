@@ -48,3 +48,5 @@ type live in the root `CLAUDE.md` dispatch table once measured.
 | 2026-11-12 | M3-N invariant audit: one minor (adapter not in archive metadata) | invariant-auditor (sonnet) | 23K | 4 calls |
 | 2026-11-12 | M3-N2 native adapter fix round: adapter field verified, items 2 to 6 coded and unverified at the cap (wip/05-n 30c9536) | module-writer (opus) | 364K | 198 calls; cap overrun, queued behind the E4 build |
 | 2026-11-12 | M3-E4 engine joint limits, friction, per-step drive (wip/05-e4 c072dee) | module-writer (opus) | 218K | 74 calls; ctest debug-sanitize 469 |
+| 2026-11-12 | M3 review: E4 (wip/05-e4 c072dee): changes requested, 2 major, 5 minor; rulings 42 to 44 | Fable review (general-purpose) | ~85K | 15 calls |
+| 2026-11-12 | M3-E4 invariant audit: clean | invariant-auditor (sonnet) | 28K | 7 calls |
