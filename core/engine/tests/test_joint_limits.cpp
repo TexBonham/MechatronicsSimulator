@@ -9,9 +9,11 @@
 
 #include "mechsim/engine/engine_error.hpp"
 #include "mechsim/engine/integrator.hpp"
+#include "mechsim/engine/lumped_beam.hpp"
 #include "mechsim/engine/multibody_provider.hpp"
 #include "multibody_fixtures.hpp"
 
+using mechsim::engine::BeamSpec;
 using mechsim::engine::Body;
 using mechsim::engine::InvalidModelError;
 using mechsim::engine::JointType;
@@ -23,6 +25,7 @@ using mechsim::engine::SolverNonConvergenceError;
 using mechsim::engine::State;
 using mechsim::engine::StepConfig;
 using mechsim::engine::Transmission;
+using mechsim::engine::add_lumped_beam;
 using mechsim::engine::test::rod;
 
 // Joint travel limits (ENG-013, ENG-021 hard stop), joint friction (ENG-014, ruling 38) and the per-step joint drive
@@ -70,41 +73,32 @@ bool relative(double measured, double target, double tolerance) {
 
 // ===== Travel limits =====================================================
 
-TEST_CASE("joint limit rest: a mass on its lower limit carries m g, sits on the bound, v exactly zero",
-          "[ENG-013]") {
-    // Once the coordinate is on the bound with v = 0, the unconstrained increment is dv = -g h; the one-sided row
-    // returns v_k to 0 with impulse m g h, so the reaction is m g (rounding only). Stabilization bound: the step that
-    // passes the bound overshoots by h |v_end| - gap < h |v_end| before projection; the projection returns the
-    // coordinate to the bound exactly (unit row), so at rest q equals the bound bitwise.
+TEST_CASE("joint limit rest: a mass on its lower limit carries m g and sits on the bound", "[ENG-013]") {
+    // Anticipatory row (ruling 43): s v >= -gap / h. The falling step that would pass the bound lands on it
+    // (q + h (-gap / h), round-off only), the next starts with gap 0 and the row returns the step's -g h to zero
+    // with impulse m g h, so the reaction is m g. No position projection is involved.
     const double m = 2.0;
     Body body = slider(Eigen::Vector3d::UnitZ(), m);
     body.joint.lower = one(0.0);
     MultibodyProvider provider(single(body));
     SemiImplicitEuler integrator{StepConfig{}};
     State state = start(provider, 0.05, 0.0);
-    double largest_overshoot = 0.0;
-    double overshoot_speed = 0.0;
     for (int i = 0; i < 1000; ++i) {
         provider.step(integrator, state);
-        const double pass = provider.outputs().joints[0].limit_overshoot[0];
-        if (pass > largest_overshoot) {
-            largest_overshoot = pass;
-            overshoot_speed = std::abs(state.v[0]);
-        }
+        REQUIRE(state.q[0] >= -1e-15);
+        REQUIRE(provider.outputs().joints[0].limit_overshoot[0] <= 1e-15);
     }
-    REQUIRE(state.q[0] == 0.0);
-    REQUIRE(state.v[0] == 0.0);
+    REQUIRE(std::abs(state.q[0]) <= 1e-15);
+    REQUIRE(std::abs(state.v[0]) <= 1e-12);
     REQUIRE(relative(provider.outputs().joints[0].limit_force[0], m * g, 1e-9));
-    REQUIRE(largest_overshoot > 0.0);
-    REQUIRE(largest_overshoot <= h * overshoot_speed);
 }
 
-TEST_CASE("joint limit impact stops within one step, overshoot at most h v, kinetic energy never rises",
+TEST_CASE("joint limit impact lands on the bound, stops the next step, kinetic energy never rises",
           "[ENG-013][ENG-021]") {
-    // Horizontal slider, no force along the axis, arriving at V = 0.3 m/s. The step that passes the bound has no
-    // active row (gap > 0 at its start), so it ends at q_n - h V: overshoot h V - q_n in (0, h V], removed by the
-    // projection. The next step starts on the bound: the row is active and takes impulse m V (force m V / h),
-    // leaving v = 0 (zero restitution). Free motion keeps v bitwise (dv = 0), so kinetic energy never rises.
+    // Horizontal slider, no force along the axis, arriving at V = 0.3 m/s. Free steps keep v bitwise. The engaging
+    // step is the first whose unconstrained end q_n - h V would pass the bound: the row takes impulse
+    // m (V - q_n / h) and the step ends at v = -q_n / h, exactly on the bound (round-off). The next step starts with
+    // gap 0: impulse m q_n / h, v = 0 (zero restitution). Kinetic energy falls at each of the two and never rises.
     const double m = 1.5;
     const double speed = 0.3;
     Body body = slider(Eigen::Vector3d::UnitX(), m);
@@ -112,32 +106,124 @@ TEST_CASE("joint limit impact stops within one step, overshoot at most h v, kine
     MultibodyProvider provider(single(body));
     SemiImplicitEuler integrator{StepConfig{}};
     State state = start(provider, 0.05, -speed);
-    bool passed = false;
-    bool engaged = false;
+    int engaged = -1;
+    double landing_gap = 0.0;
     for (int i = 0; i < 400; ++i) {
         const double q_before = state.q[0];
         const double energy_before = 0.5 * m * state.v[0] * state.v[0];
         provider.step(integrator, state);
         const double energy_after = 0.5 * m * state.v[0] * state.v[0];
         REQUIRE(energy_after <= energy_before);
-        const double pass = provider.outputs().joints[0].limit_overshoot[0];
-        if (pass > 0.0) {
-            REQUIRE_FALSE(passed);
-            passed = true;
-            REQUIRE(pass <= h * speed);
-            REQUIRE(std::abs(pass - (h * speed - q_before)) <= 1e-15);
-            REQUIRE(state.q[0] == 0.0);
-            continue;
-        }
-        if (passed && !engaged) {
-            engaged = true;
+        REQUIRE(provider.outputs().joints[0].limit_overshoot[0] <= 1e-15);
+        if (engaged < 0 && provider.outputs().joints[0].limit_force[0] > 0.0) {
+            engaged = i;
+            landing_gap = q_before;
+            REQUIRE(q_before < h * speed);
+            REQUIRE(std::abs(state.q[0]) <= 1e-15);
+            REQUIRE(relative(state.v[0], -q_before / h, 1e-12));
+            REQUIRE(relative(provider.outputs().joints[0].limit_force[0], m * (speed - q_before / h) / h, 1e-9));
+        } else if (engaged >= 0 && i == engaged + 1) {
             REQUIRE(std::abs(state.v[0]) <= 1e-12);
-            REQUIRE(relative(provider.outputs().joints[0].limit_force[0], m * speed / h, 1e-12));
+            REQUIRE(relative(provider.outputs().joints[0].limit_force[0], m * landing_gap / (h * h), 1e-6));
+        }
+    }
+    REQUIRE(engaged >= 0);
+    REQUIRE(std::abs(state.q[0]) <= 1e-15);
+    REQUIRE(std::abs(state.v[0]) <= 1e-12);
+}
+
+TEST_CASE("joint limit crossing with a spring on the joint never raises kinetic plus potential energy",
+          "[ENG-013][ENG-051]") {
+    // Backward Euler on K with the limit impulse: E_{n+1} - E_n = -(m (dv)^2 + K (dq)^2) / 2 + lambda s dq, and
+    // lambda >= 0 acts only while s dq <= 0 (the row lands on the bound), so E never rises; round-off 1e-12 E_0.
+    const double m = 1.0;
+    const double k = 400.0;
+    Body body = slider(Eigen::Vector3d::UnitX(), m);
+    body.joint.stiffness = one(k);
+    body.joint.rest = one(0.5);
+    body.joint.upper = one(0.1);
+    MultibodyProvider provider(single(body));
+    SemiImplicitEuler integrator{StepConfig{}};
+    State state = start(provider, -0.2, 0.0);
+    auto energy = [&](const State& s) {
+        return 0.5 * m * s.v[0] * s.v[0] + 0.5 * k * (s.q[0] - 0.5) * (s.q[0] - 0.5);
+    };
+    const double e0 = energy(state);
+    bool engaged = false;
+    for (int i = 0; i < 500; ++i) {
+        const double before = energy(state);
+        provider.step(integrator, state);
+        REQUIRE(energy(state) <= before + 1e-12 * e0);
+        if (provider.outputs().joints[0].limit_force[0] < 0.0) {
+            engaged = true;
         }
     }
     REQUIRE(engaged);
-    REQUIRE(state.q[0] == 0.0);
-    REQUIRE(state.v[0] == 0.0);
+    REQUIRE(std::abs(state.q[0] - 0.1) <= 1e-15);
+}
+
+TEST_CASE("joint limit on a moving belt-coupled carriage never raises the coupled energy", "[ENG-013][ENG-043]") {
+    // Shaft J, belt radius n, stiffness k, no damping, carriage m moving rigidly with the shaft (omega = v / n) into
+    // an upper stop. Energy J w^2 / 2 + m v^2 / 2 + k (n theta - x)^2 / 2 is quadratic and the coupling enters K
+    // whole (eta 1, no slip, a = b), so the step is backward Euler plus a landing impulse: non-increasing to
+    // round-off on every step, the crossing step included (the overshoot-and-clamp scheme added up to
+    // (omega h)^2 of the coupled inertia's kinetic energy there).
+    const double n = 0.02;
+    const double j = 1e-4;
+    const double k = 1e5;
+    const double m = 1.0;
+    const double speed = 0.5;
+    Body shaft;
+    shaft.joint.type = JointType::Revolute;
+    shaft.inertia = Eigen::Vector3d(j, j, j).asDiagonal();
+    Body carriage = slider(Eigen::Vector3d::UnitX(), m);
+    carriage.joint.upper = one(0.0101);
+    MultibodyModel model;
+    model.bodies = {shaft, carriage};
+    Transmission belt;
+    belt.input_body = 0;
+    belt.output_body = 1;
+    belt.ratio = n;
+    belt.stiffness = k;
+    model.transmissions = {belt};
+    MultibodyProvider provider(model);
+    SemiImplicitEuler integrator{StepConfig{}};
+    State state = start(provider, 0.0, speed / n);
+    state.v[1] = speed;
+    auto energy = [&](const State& s) {
+        const double stretch = n * s.q[0] - s.q[1];
+        return 0.5 * j * s.v[0] * s.v[0] + 0.5 * m * s.v[1] * s.v[1] + 0.5 * k * stretch * stretch;
+    };
+    const double e0 = energy(state);
+    bool engaged = false;
+    for (int i = 0; i < 100; ++i) {
+        const double before = energy(state);
+        provider.step(integrator, state);
+        const double after = energy(state);
+        if (!engaged && provider.outputs().joints[1].limit_force[0] < 0.0) {
+            engaged = true;
+            std::printf("  crossing step energy before %.15g after %.15g\n", before, after);
+        }
+        REQUIRE(after <= before + 1e-12 * e0);
+        REQUIRE(state.q[1] <= 0.0101 + 1e-15);
+    }
+    REQUIRE(engaged);
+}
+
+TEST_CASE("joint limit start coordinate outside its limits is an invalid model error naming the joint",
+          "[ENG-013][ENG-049]") {
+    Body body = slider(Eigen::Vector3d::UnitZ(), 1.0);
+    body.joint.lower = one(0.0);
+    MultibodyProvider provider(single(body));
+    SemiImplicitEuler integrator{StepConfig{}};
+    State state = start(provider, -1e-3, 0.0);
+    try {
+        provider.step(integrator, state);
+        FAIL("accepted");
+    } catch (const InvalidModelError& error) {
+        REQUIRE(std::string(error.what()).find("body 0") != std::string::npos);
+    }
+    REQUIRE(state.q[0] == -1e-3);
 }
 
 TEST_CASE("joint limit release: a force away from the limit accelerates at (F - m g) / m from the first step",
@@ -179,15 +265,15 @@ TEST_CASE("joint limit with both bounds holds a constant push at either bound", 
         provider.set_generalized_forces(force(push));
         provider.step(integrator, state);
     }
-    REQUIRE(state.q[0] == 0.1);
-    REQUIRE(state.v[0] == 0.0);
+    REQUIRE(std::abs(state.q[0] - 0.1) <= 1e-15);
+    REQUIRE(std::abs(state.v[0]) <= 1e-12);
     REQUIRE(relative(provider.outputs().joints[0].limit_force[0], -push, 1e-9));
     for (int i = 0; i < 1000; ++i) {
         provider.set_generalized_forces(force(-push));
         provider.step(integrator, state);
     }
-    REQUIRE(state.q[0] == -0.1);
-    REQUIRE(state.v[0] == 0.0);
+    REQUIRE(std::abs(state.q[0] + 0.1) <= 1e-15);
+    REQUIRE(std::abs(state.v[0]) <= 1e-12);
     REQUIRE(relative(provider.outputs().joints[0].limit_force[0], push, 1e-9));
 }
 
@@ -304,8 +390,8 @@ TEST_CASE("joint limit on a revolute pendulum: it stops at the stop and carries 
     for (int i = 0; i < 2000; ++i) {
         provider.step(integrator, state);
     }
-    REQUIRE(state.q[0] == stop);
-    REQUIRE(state.v[0] == 0.0);
+    REQUIRE(std::abs(state.q[0] - stop) <= 1e-15);
+    REQUIRE(std::abs(state.v[0]) <= 1e-12);
     REQUIRE(relative(provider.outputs().joints[0].limit_force[0], m * g * l * std::sin(std::numbers::pi / 6.0),
                      1e-9));
 }
@@ -324,8 +410,8 @@ TEST_CASE("joint limit with a joint spring on the same joint carries the spring 
     for (int i = 0; i < 2000; ++i) {
         provider.step(integrator, state);
     }
-    REQUIRE(state.q[0] == 0.1);
-    REQUIRE(state.v[0] == 0.0);
+    REQUIRE(std::abs(state.q[0] - 0.1) <= 1e-15);
+    REQUIRE(std::abs(state.v[0]) <= 1e-12);
     REQUIRE(relative(provider.outputs().joints[0].limit_force[0], -k * 0.2, 1e-9));
 }
 
@@ -361,8 +447,8 @@ TEST_CASE("joint limit on a belt's output joint: the reflected row carries the s
         provider.set_shaft_torque(0, tau);
         provider.step(integrator, state);
     }
-    REQUIRE(state.q[1] == 0.02);
-    REQUIRE(state.v[1] == 0.0);
+    REQUIRE(std::abs(state.q[1] - 0.02) <= 1e-15);
+    REQUIRE(std::abs(state.v[1]) <= 1e-12);
     REQUIRE(relative(provider.outputs().joints[1].limit_force[0], -tau / n, 1e-9));
 }
 
@@ -533,7 +619,7 @@ TEST_CASE("joint friction zero equals the frictionless run bitwise", "[ENG-014]"
     REQUIRE(with.v == without.v);
 }
 
-TEST_CASE("joint friction values are validated, naming the joint", "[ENG-014][ENG-050]") {
+TEST_CASE("joint friction values are validated, naming the joint", "[ENG-014][ENG-049]") {
     auto rejects = [](const Body& body, const std::string& cause) {
         try {
             const MultibodyProvider provider(single(body));
@@ -564,23 +650,97 @@ TEST_CASE("joint friction values are validated, naming the joint", "[ENG-014][EN
 
 // ===== Joint drive =======================================================
 
-TEST_CASE("joint drive static sag is tau / K under a constant load and replaces the model spring", "[ENG-051]") {
-    // Drive K = 400, D = 40 on m = 1: critically damped at omega 20, so 3 s leave e^-60 (1 + 60) of the start
-    // error. Static balance -K (q - rest) + tau = 0. The model spring (K 50, rest 0) is replaced, not added.
-    const double k = 400.0;
+TEST_CASE("joint drive adds to the model spring: static position balances both springs and the load", "[ENG-051]") {
+    // Model spring K_m 50 toward r_m 0, drive K_d 400 toward r_d 0.1, load tau 2: at rest
+    // K_m (q - r_m) + K_d (q - r_d) = tau, q = (tau + K_m r_m + K_d r_d) / (K_m + K_d). Damping D_m 2 + D_d 40 on
+    // m 1: zeta = 42 / (2 sqrt(450)) = 0.99, so 3 s leave below e^-60 of the start error.
+    const double km = 50.0;
+    const double kd = 400.0;
     const double tau = 2.0;
     Body body = slider(Eigen::Vector3d::UnitX(), 1.0);
-    body.joint.stiffness = one(50.0);
+    body.joint.stiffness = one(km);
+    body.joint.damping = one(2.0);
     MultibodyProvider provider(single(body));
-    provider.set_joint_drive(0, 0, 0.1, k, 40.0);
+    provider.set_joint_drive(0, 0, 0.1, kd, 40.0);
     SemiImplicitEuler integrator{StepConfig{}};
     State state = start(provider, 0.0, 0.0);
     for (int i = 0; i < 3000; ++i) {
         provider.set_generalized_forces(force(tau));
         provider.step(integrator, state);
     }
-    REQUIRE(relative(state.q[0] - 0.1, tau / k, 1e-9));
+    REQUIRE(relative(state.q[0], (tau + kd * 0.1) / (km + kd), 1e-9));
     REQUIRE(provider.outputs().events.empty());
+}
+
+TEST_CASE("joint drive damping adds to the model damping: decay rate with D_m + D_d", "[ENG-051]") {
+    // No springs: (m + h (D_m + D_d)) v_{n+1} = m v_n, so each step multiplies v by m / (m + h (D_m + D_d)).
+    const double m = 2.0;
+    const double dm = 3.0;
+    const double dd = 5.0;
+    Body body = slider(Eigen::Vector3d::UnitX(), m);
+    body.joint.damping = one(dm);
+    MultibodyProvider provider(single(body));
+    provider.set_joint_drive(0, 0, 0.0, 0.0, dd);
+    SemiImplicitEuler integrator{StepConfig{}};
+    State state = start(provider, 0.0, 1.0);
+    for (int i = 0; i < 10; ++i) {
+        const double before = state.v[0];
+        provider.step(integrator, state);
+        REQUIRE(relative(state.v[0], before * m / (m + h * (dm + dd)), 1e-14));
+    }
+}
+
+TEST_CASE("joint drive clear restores the undriven response bitwise", "[ENG-051]") {
+    // Driven for 100 steps, then cleared: from that state the run must equal a never-driven provider's bitwise.
+    Body body = slider(Eigen::Vector3d::UnitX(), 1.0);
+    body.joint.stiffness = one(50.0);
+    body.joint.damping = one(2.0);
+    body.joint.rest = one(0.05);
+    MultibodyProvider driven(single(body));
+    MultibodyProvider plain(single(body));
+    SemiImplicitEuler integrator{StepConfig{}};
+    State a = start(driven, 0.0, 0.0);
+    driven.set_joint_drive(0, 0, 0.3, 400.0, 10.0);
+    for (int i = 0; i < 100; ++i) {
+        driven.step(integrator, a);
+    }
+    driven.clear_joint_drive(0, 0);
+    State b = a;
+    for (int i = 0; i < 300; ++i) {
+        driven.set_generalized_forces(force(1.0));
+        driven.step(integrator, a);
+        plain.set_generalized_forces(force(1.0));
+        plain.step(integrator, b);
+    }
+    REQUIRE(a.q == b.q);
+    REQUIRE(a.v == b.v);
+    REQUIRE(driven.outputs().joints[0].scheme_decay.size() == 0);
+}
+
+TEST_CASE("joint drive set, cleared and set again acts as the last drive only", "[ENG-051]") {
+    // Static with the model spring K_m 50 at 0: drive 1 (K 400, rest 0.1), clear, drive 2 (K 200, rest -0.2):
+    // q = K_2 r_2 / (K_m + K_2) = -0.16, not the sum of both drives.
+    Body body = slider(Eigen::Vector3d::UnitX(), 1.0);
+    body.joint.stiffness = one(50.0);
+    body.joint.damping = one(40.0);
+    MultibodyProvider provider(single(body));
+    SemiImplicitEuler integrator{StepConfig{}};
+    State state = start(provider, 0.0, 0.0);
+    provider.set_joint_drive(0, 0, 0.1, 400.0, 0.0);
+    for (int i = 0; i < 500; ++i) {
+        provider.step(integrator, state);
+    }
+    provider.clear_joint_drive(0, 0);
+    provider.set_joint_drive(0, 0, -0.2, 200.0, 0.0);
+    for (int i = 0; i < 5000; ++i) {
+        provider.step(integrator, state);
+    }
+    REQUIRE(relative(state.q[0], 200.0 * -0.2 / 250.0, 1e-9));
+    provider.set_joint_drive(0, 0, 0.4, 200.0, 0.0);
+    for (int i = 0; i < 5000; ++i) {
+        provider.step(integrator, state);
+    }
+    REQUIRE(relative(state.q[0], 200.0 * 0.4 / 250.0, 1e-9));
 }
 
 TEST_CASE("joint drive steady lag is D v / K behind a rest moving at constant speed", "[ENG-051]") {
@@ -603,22 +763,78 @@ TEST_CASE("joint drive steady lag is D v / K behind a rest moving at constant sp
     REQUIRE(relative(state.v[0], speed, 1e-9));
 }
 
-TEST_CASE("joint drive publishes the backward-Euler scheme decay pi omega h", "[ENG-051]") {
-    // Ruling 21: omega^2 = K (H^-1)_kk; a rotor of inertia I alone on its joint has (H^-1)_kk = 1 / I.
+TEST_CASE("joint drive publishes the backward-Euler scheme decay pi omega h, driven DOFs only", "[ENG-051]") {
+    // Ruling 44: omega^2 = (K_model + K_drive) (H^-1)_kk; a rotor of inertia I alone has (H^-1)_kk = 1 / I.
     const double inertia = 0.02;
+    const double km = 10.0;
     const double k = 50.0;
     Body rotor;
     rotor.joint.type = JointType::Revolute;
+    rotor.joint.stiffness = one(km);
     rotor.inertia = Eigen::Vector3d(inertia, inertia, inertia).asDiagonal();
     MultibodyProvider provider(single(rotor));
     SemiImplicitEuler integrator{StepConfig{}};
     State state = start(provider, 0.0, 0.0);
     provider.step(integrator, state);
-    REQUIRE(provider.outputs().joints[0].scheme_decay[0] == 0.0);
+    REQUIRE(provider.outputs().joints[0].scheme_decay.size() == 0);
     provider.set_joint_drive(0, 0, 0.0, k, 0.0);
     provider.step(integrator, state);
-    REQUIRE(relative(provider.outputs().joints[0].scheme_decay[0], std::numbers::pi * std::sqrt(k / inertia) * h,
-                     1e-12));
+    REQUIRE(relative(provider.outputs().joints[0].scheme_decay[0],
+                     std::numbers::pi * std::sqrt((km + k) / inertia) * h, 1e-12));
+}
+
+TEST_CASE("joint drive scheme decay on a belt's shaft uses the coupled pair's lower root", "[ENG-051][ENG-043]") {
+    // Shaft J with drive K_d, belt (ratio n, stiffness k) to carriage m. Pair stiffness [[K_d + k n^2, -k n],
+    // [-k n, k]], mass diag(J, m): J m w^2 - (J k + m (K_d + k n^2)) w + K_d k = 0, lower root w. As k grows
+    // w -> K_d / (J + n^2 m): K_d / J alone overstates omega by sqrt(1 + n^2 m / J) = sqrt(5) = 2.24 here.
+    const double n = 0.02;
+    const double j = 1e-4;
+    const double k = 1e5;
+    const double m = 1.0;
+    const double kd = 1.0;
+    Body shaft;
+    shaft.joint.type = JointType::Revolute;
+    shaft.inertia = Eigen::Vector3d(j, j, j).asDiagonal();
+    MultibodyModel model;
+    model.bodies = {shaft, slider(Eigen::Vector3d::UnitX(), m)};
+    Transmission belt;
+    belt.input_body = 0;
+    belt.output_body = 1;
+    belt.ratio = n;
+    belt.stiffness = k;
+    model.transmissions = {belt};
+    MultibodyProvider provider(model);
+    provider.set_joint_drive(0, 0, 0.0, kd, 0.0);
+    SemiImplicitEuler integrator{StepConfig{}};
+    State state = start(provider, 0.0, 0.0);
+    provider.step(integrator, state);
+    const double b = j * k + m * (kd + k * n * n);
+    const double w = (b - std::sqrt(b * b - 4.0 * j * m * kd * k)) / (2.0 * j * m);
+    const double target = std::numbers::pi * std::sqrt(w) * h;
+    const double decay = provider.outputs().joints[0].scheme_decay[0];
+    std::printf("  single-DOF omega over pair omega %.6g\n", std::sqrt(kd / j) / std::sqrt(w));
+    REQUIRE(relative(decay, target, 1e-12));
+    REQUIRE(provider.outputs().joints[1].scheme_decay.size() == 0);
+}
+
+TEST_CASE("joint drive scheme decay is absent on an undriven beam model", "[ENG-051][ENG-022]") {
+    BeamSpec spec;
+    spec.youngs_modulus = 2.0e11;
+    spec.area_moment = 1e-8 / 12.0;
+    spec.density = 7850.0;
+    spec.area = 1e-4;
+    spec.length = 1.5;
+    MultibodyModel model;
+    add_lumped_beam(model, spec, -1, Eigen::Vector3d::Zero(), Eigen::Quaterniond::Identity());
+    MultibodyProvider provider(model);
+    SemiImplicitEuler integrator{StepConfig{}};
+    State state;
+    state.q = provider.neutral_positions();
+    state.v = Eigen::VectorXd::Zero(provider.velocity_size());
+    provider.step(integrator, state);
+    for (const auto& joint : provider.outputs().joints) {
+        REQUIRE(joint.scheme_decay.size() == 0);
+    }
 }
 
 TEST_CASE("joint drive on a belt's shaft acts on the reflected coordinate", "[ENG-051][ENG-043]") {
@@ -634,9 +850,8 @@ TEST_CASE("joint drive on a belt's shaft acts on the reflected coordinate", "[EN
     Body shaft;
     shaft.joint.type = JointType::Revolute;
     shaft.inertia = Eigen::Vector3d(j, j, j).asDiagonal();
-    const Body carriage = slider(Eigen::Vector3d::UnitX(), 1.0);
     MultibodyModel model;
-    model.bodies = {shaft, carriage};
+    model.bodies = {shaft, slider(Eigen::Vector3d::UnitX(), 1.0)};
     Transmission belt;
     belt.input_body = 0;
     belt.output_body = 1;
@@ -659,17 +874,63 @@ TEST_CASE("joint drive on a belt's shaft acts on the reflected coordinate", "[EN
     REQUIRE(relative(state.q[1], n * n * load / kd + load / k, 1e-9));
 }
 
-TEST_CASE("joint drive stiffness zero removes the spring", "[ENG-051]") {
-    // Model spring K 100 rest 0 at q = 0.5; drive (rest 0, K 0, D 0): the first step from rest is free, dv = h F / m.
-    Body body = slider(Eigen::Vector3d::UnitX(), 2.0);
-    body.joint.stiffness = one(100.0);
-    MultibodyProvider provider(single(body));
-    provider.set_joint_drive(0, 0, 0.0, 0.0, 0.0);
+TEST_CASE("joint drive on a belt's driven output joint sags F / K_d and the shaft follows through the ratio",
+          "[ENG-051][ENG-043]") {
+    // Drive K_d toward r_d on the carriage, free shaft, load F_L on the carriage. The free shaft passes no force at
+    // rest (F = 0, stretch 0), so x = r_d + F_L / K_d and theta = x / n. Slow mode: K_d on m + J / n^2 = 1.25 kg,
+    // drive damping 2 sqrt(K_d 1.25) critical; belt damping as in the shaft case; 5 s leave below e^-100.
+    const double n = 0.02;
+    const double j = 1e-4;
+    const double k = 1e5;
+    const double kd = 400.0;
+    const double rest = 0.05;
+    const double load = 3.0;
+    Body shaft;
+    shaft.joint.type = JointType::Revolute;
+    shaft.inertia = Eigen::Vector3d(j, j, j).asDiagonal();
+    MultibodyModel model;
+    model.bodies = {shaft, slider(Eigen::Vector3d::UnitX(), 1.0)};
+    Transmission belt;
+    belt.input_body = 0;
+    belt.output_body = 1;
+    belt.ratio = n;
+    belt.stiffness = k;
+    belt.damping = 2.0 * std::sqrt(k / (1.0 + n * n / j));
+    model.transmissions = {belt};
+    MultibodyProvider provider(model);
+    provider.set_joint_drive(1, 0, rest, kd, 2.0 * std::sqrt(kd * 1.25));
     SemiImplicitEuler integrator{StepConfig{}};
-    State state = start(provider, 0.5, 0.0);
-    provider.set_generalized_forces(force(3.0));
-    provider.step(integrator, state);
-    REQUIRE(state.v[0] == h * 3.0 / 2.0);
+    State state = start(provider, 0.0, 0.0);
+    Eigen::VectorXd tau = Eigen::VectorXd::Zero(2);
+    tau[1] = load;
+    for (int i = 0; i < 5000; ++i) {
+        provider.set_generalized_forces(tau);
+        provider.step(integrator, state);
+    }
+    REQUIRE(relative(state.q[1], rest + load / kd, 1e-9));
+    REQUIRE(relative(state.q[0], (rest + load / kd) / n, 1e-9));
+}
+
+TEST_CASE("joint drive with zero stiffness and damping leaves the run bitwise unchanged", "[ENG-051]") {
+    auto run = [](bool drive) {
+        Body body = slider(Eigen::Vector3d::UnitX(), 2.0);
+        body.joint.stiffness = one(100.0);
+        MultibodyProvider provider(single(body));
+        if (drive) {
+            provider.set_joint_drive(0, 0, 0.3, 0.0, 0.0);
+        }
+        SemiImplicitEuler integrator{StepConfig{}};
+        State state = start(provider, 0.5, 0.0);
+        for (int i = 0; i < 100; ++i) {
+            provider.set_generalized_forces(force(3.0));
+            provider.step(integrator, state);
+        }
+        return state;
+    };
+    const State with = run(true);
+    const State without = run(false);
+    REQUIRE(with.q == without.q);
+    REQUIRE(with.v == without.v);
 }
 
 TEST_CASE("joint drive arguments are validated with typed errors", "[ENG-051]") {

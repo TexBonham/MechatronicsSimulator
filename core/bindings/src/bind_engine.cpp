@@ -289,6 +289,7 @@ void bind_stepping(py::module_& m) {
         .def("neutral_positions", &MultibodyProvider::neutral_positions)
         .def("set_joint_drive", &MultibodyProvider::set_joint_drive, py::arg("joint"), py::arg("dof"),
              py::arg("rest"), py::arg("stiffness"), py::arg("damping"))
+        .def("clear_joint_drive", &MultibodyProvider::clear_joint_drive, py::arg("joint"), py::arg("dof"))
         .def("set_shaft_torque", &MultibodyProvider::set_shaft_torque, py::arg("transmission"), py::arg("torque"))
         .def("set_slip", &MultibodyProvider::set_slip, py::arg("transmission"), py::arg("slip"))
         .def("slip", &MultibodyProvider::slip, py::arg("transmission"))

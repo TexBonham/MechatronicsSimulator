@@ -367,8 +367,8 @@ def _provider(*bodies: Any) -> Any:
 @pytest.mark.req("ENG-013")
 @pytest.mark.req("ENG-021")
 def test_joint_limit_binding_stops_and_rejects_bad_limits() -> None:
-    # Horizontal slider at 0.3 m/s toward a lower stop at 0, 0.05 m away: the passing step overshoots by
-    # h V - gap <= h V (removed by the projection), the next one stops it with impulse m V, then v stays zero.
+    # Horizontal slider at 0.3 m/s toward a lower stop at 0, 0.05 m away: the anticipatory row (ruling 43) lands the
+    # engaging step on the bound (round-off), the next one stops it, then v stays zero.
     body = _prismatic((1.0, 0.0, 0.0), 1.5)
     body.joint.lower = [0.0]
     body.joint.upper = [math.inf]
@@ -380,9 +380,12 @@ def test_joint_limit_binding_stops_and_rejects_bad_limits() -> None:
     for _ in range(400):
         provider.step(integrator, state)
         overshoot = max(overshoot, provider.outputs.joints[0].limit_overshoot[0])
-    assert 0.0 < overshoot <= H * 0.3
-    assert state.q[0] == 0.0
-    assert state.v[0] == 0.0
+    assert overshoot <= 1e-15
+    assert abs(state.q[0]) <= 1e-15
+    assert abs(state.v[0]) <= 1e-12
+    outside = _provider(body)
+    with pytest.raises(core.InvalidModelError, match="body 0"):
+        outside.step(integrator, eng.State([-1e-3], [0.0]))
     for lower, upper in (([0.2], [0.1]), ([math.nan], []), ([math.inf], []), ([], [-math.inf]), ([0.0, 1.0], [])):
         bad = _prismatic((1.0, 0.0, 0.0), 1.0)
         bad.joint.lower = lower
@@ -423,7 +426,8 @@ def test_joint_friction_binding_slides_to_rest_and_rejects_bad_values() -> None:
 @pytest.mark.req("ENG-051")
 def test_joint_drive_binding_sags_tau_over_k_and_rejects_bad_arguments() -> None:
     # Drive K = 400 N/m, D = 40 N s/m (critical at omega 20) under 2 N: sag tau / K = 5 mm (1e-9 after 3 s,
-    # e^-60 (1 + 60) of the start error); no event (an input, not a model change); scheme decay pi omega h.
+    # e^-60 (1 + 60) of the start error); no event (an input, not a model change); scheme decay pi omega h for the
+    # driven DOF only; clear_joint_drive removes it (ruling 42, 44).
     provider = _provider(_prismatic((1.0, 0.0, 0.0), 1.0))
     provider.set_joint_drive(0, 0, 0.1, 400.0, 40.0)
     state = eng.State([0.0], [0.0])
@@ -434,6 +438,11 @@ def test_joint_drive_binding_sags_tau_over_k_and_rejects_bad_arguments() -> None
     assert state.q[0] - 0.1 == pytest.approx(2.0 / 400.0, rel=1e-9)
     assert provider.outputs.events == []
     assert provider.outputs.joints[0].scheme_decay[0] == pytest.approx(math.pi * 20.0 * H, rel=1e-12)
+    provider.clear_joint_drive(0, 0)
+    provider.step(integrator, state)
+    assert len(provider.outputs.joints[0].scheme_decay) == 0
+    with pytest.raises(core.InvalidModelError):
+        provider.clear_joint_drive(0, 1)
     for joint, dof, rest, stiffness, damping in (
         (1, 0, 0.0, 1.0, 1.0),
         (-1, 0, 0.0, 1.0, 1.0),
