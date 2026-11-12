@@ -13,7 +13,7 @@ from mechsim.builder.mass import apply, rotation
 from mechsim.builder.physics import element_kinds
 from mechsim.design.cad import ConvexHull as HullResult
 from mechsim.design.cad import MassPropertiesSI, StepImporter, StepImportResult
-from mechsim.design.schema import Design, shipped_materials
+from mechsim.design.schema import Design, load_design, shipped_materials
 from mechsim.library.registry import default_registry
 from mechsim.physics.neutral import (
     BeltPulley,
@@ -28,7 +28,7 @@ from mechsim.physics.neutral import (
     Sphere,
     from_yaml,
 )
-from tests.unit.test_builder_support import EXAMPLE, MATERIAL, filled_gantry, gantry, gantry_data, pendulum
+from tests.unit.test_builder_support import EXAMPLE, GANTRY, MATERIAL, filled_gantry, gantry, gantry_data, pendulum
 
 
 def _build(design: Design, **options: Any) -> BuildResult:
@@ -524,9 +524,15 @@ def test_shipped_gantry_builds_rigid_on_its_placeholder_geometry() -> None:
 
 
 @pytest.mark.req("BLD-018")
-def test_shipped_gantry_flexible_build_maps_clamped_clamped_rail_x() -> None:
-    """Ruling 16: the neutral lumped beam has a clamped far end; rail_x gets sixteen segments (ruling 31)."""
-    result = _build(gantry())
+def test_shipped_gantry_flexible_build_maps_clamped_clamped_rail_x(tmp_path: Path) -> None:
+    """Ruling 16: the neutral lumped beam has a clamped far end; rail_x gets sixteen segments (ruling 31). The
+    shipped calibration is the open `${rail_calibration}`; it is bound here to the design's own default."""
+    text = GANTRY.read_text(encoding="utf-8").replace(
+        "${rail_calibration}", "{source: hand, load: 100 N, deflection: 1 mm, first_natural_frequency: 50 Hz}"
+    )
+    bound = tmp_path / "design.yaml"
+    bound.write_text(text, encoding="utf-8")
+    result = _build(load_design(bound))
     assert result.physics is not None
     members = {member.structural_member: member for member in result.physics.lumped_members}
     assert (members["rail_x"].end, members["rail_x"].segments) == ("clamped", 16)

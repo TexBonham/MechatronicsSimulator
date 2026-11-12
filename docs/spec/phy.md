@@ -68,8 +68,8 @@ proposed <value>)".
 | Differential tolerance between adapters (PHY-021, PHY-024) | not set | owner |
 | Constraint drift threshold that ends a run (PHY-009) | not set | owner |
 | Pendulum period tolerance (PHY-028) | 0.1 % of period (coordinator ruling, as ENG-036; owner confirms at the gate) | owner |
-| Resting-contact penetration and drift tolerance (PHY-029) | not set | owner |
-| Friction deceleration tolerance (PHY-030) | not set | owner |
+| Resting-contact penetration and drift tolerance (PHY-029) | penetration and summed force 1e-3 relative, drift 1e-9 m, vertical speed 1e-6 m/s, derived in the PHY-029 row (owner confirms at the gate) | owner |
+| Friction deceleration tolerance (PHY-030) | deceleration 1e-9 relative while sliding, derived in the PHY-030 row (owner confirms at the gate) | owner |
 | Milestone at which the native adapter is required (PHY-020) | milestone 3 (round 5 ruling 1: milestone 3 retires MuJoCo) | owner |
 | Native joint limit form (PHY-027) | implicit one-sided spring-damper, K = m w^2, D = 2 m w, w = 1 / (2 h), m the DOF's diagonal of H; active when q or q + h v is past the limit; static penetration 4 g h^2 (the bridge's solref 2 h floor) | owner |
 | Native joint friction form (PHY-027, PHY-030) | constant -F sign(v) while sliding (deceleration F / m exact); below h F / m the implicit damper F / max(v_s, abs(v)), v_s = 1e-4 m/s or rad/s (the engine's friction slip threshold): no overshoot, force at most F | owner |
