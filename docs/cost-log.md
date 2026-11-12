@@ -14,3 +14,4 @@ type live in the root `CLAUDE.md` dispatch table once measured.
 | 2026-11-11 | M2-X8: G6 with the 2 Hz amplifier and the derived 21.1 cm bound; suite 13 of 13 (wip/04-x6 cc2aae5) | module-writer (opus), resumed | ~18K | 16 calls |
 | 2026-11-11 | M2 review: gantry answers (X6 to X8) | general-purpose (fable) | ~75K | 9 calls; pass, 3 medium (header timing wording, inputs row), 6 low |
 | 2026-11-11 | Invariant audit: gantry answers | invariant-auditor (sonnet) | 39K | 5 calls; clean, 2 minor (generic part carried a gantry value; derivation in a part note) |
+| 2026-11-11 | Round 5 plan: milestone 3 scope from 93 M3 rows and the carry list, briefs, waves, assumptions; branch cut from main | inline | ~60K | coordinator; 6 calls of spec and contract reads |

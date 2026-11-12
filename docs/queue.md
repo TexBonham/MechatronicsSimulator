@@ -4,14 +4,31 @@ State for the coordinating session. A new session reads this, then `docs/rulings
 
 ## Current checkpoint
 
-Round 4 (milestone 2) complete on `round/04-milestone-2` at debbd1d (pushed; CI green on all three workflows, both
-runners). Gate commit 4a606ea, then Windows-only facade fixes, then the gantry team's answers (PR #5) landed as a data
-stage with the suite 13 of 13 and the baseline re-recorded. Waiting on the owner: the round PR to main (text shown in
-the session; merge with a merge commit), and the gantry team's open rows in `docs/gantry-team-inputs.md` (overload
-sensor, motor datasheet, belt ratings, heartbeat and watchdog timing, encoder mismatch threshold). Round 5
-(milestone 3) is planned after the merge; its carry list is in the gate report below.
+Round 5 (milestone 3) in flight on `round/05-milestone-3`, cut from main at cf5c74f on 2026-11-11 (round 4 merged by
+PR #6). Plan of record `docs/briefs/round-05/plan.md` (signed off 2026-11-11, with the owner's amendment: milestone
+3 retires MuJoCo in favour of the own C++ engine). Wave 0: A (rope ADR 0016). Wave 1: E1, E2, M, D. Briefs of record
+in `docs/briefs/round-05/`; worktrees `../MechatronicsSimulator-05-<letter>`. Round 4's rulings and gate report
+are below for reference; round 4's cost rows are in `docs/cost-log-archive.md`.
 
-## Round 4 rulings (owner 2026-11-11: every ruling confirmed at its planned default; ruling 2 stays a placeholder with I2C and SPI peripheral modes added to the milestone 4 scope)
+## Round 5 rulings (owner answers when available; the planned default applies until then)
+
+| # | Question | Planned default | Status |
+|---|---|---|---|
+| 1 | Milestone 3 retires MuJoCo: every case on the native adapter, PHY-025 baselines, PHY-026 MuJoCo out of runtime and CI; fallback per ADR 0004 only if the contact solver or the differential check fails by the gate | retire | owner 2026-11-11 (amendment) |
+| 2 | Rope model: lumped chain of point masses, unilateral tension springs with damping, slack below rest length, driven-end length change; the gantry payload hangs on one rope from the hook; a rope pendulum joins the rigid one (ACC-037) | ADR 0016 | open (owner reviews the ADR) |
+| 3 | Tier 2 split (ADR 0010): M3 yield offset and rope snap; M4 buckling collapse and fastener break | as stated | open |
+| 4 | Halt on a tier 1 crossing: test-case field, default false | as stated | open |
+| 5 | Tier 1 integrity party in C++ (`core/integrity/`); tier 2 checks as Python plugins over the recording | as stated | open |
+| 6 | Gantry structural placeholders: PETG printed 0.5 m rails with a placeholder rectangular section, static 1 cm target with dynamic reported, safety factor 1.5, swing limit 0.1 rad, settle 5 s, four segments per rail | as listed | open, gantry team |
+| 7 | Materials: conservative printed defaults with wide spreads; tabulated temperature dependence, out-of-range lookups are errors; overrides in a design-referenced file; printed strength axes in-layer across the build direction, interlayer along it, cosine-squared blend | as stated | open (strength axes model owed by the owner) |
+| 8 | G16 sweeps the two shipped stepper parts; LIB-017 end to end with it | as stated | open |
+| 9 | Milestone 2 cases stay on the bridge until X2 switches the suite in one commit | as stated | open |
+| 10 | Belt compliance in the own engine; the bridge keeps rigid belts | as stated | open |
+| 11 | Models and reviewers as round 4 | as stated | open |
+| 12 | Windows: a native-adapter test MSVC blocks is Linux-only, recorded | as stated | open |
+| 13 | Differential tolerance (PHY-021): 1e-6 relative for drive-free references; one step angle times the ratio per tick of commanded speed for driven cases | proposed | open, owner at the gate |
+
+## Round 4 rulings, reference (owner 2026-11-11: every ruling confirmed at its planned default; ruling 2 stays a placeholder with I2C and SPI peripheral modes added to the milestone 4 scope)
 
 | # | Question | Planned default | Status |
 |---|---|---|---|
