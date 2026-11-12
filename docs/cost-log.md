@@ -31,3 +31,5 @@ type live in the root `CLAUDE.md` dispatch table once measured.
 | 2026-11-11 | Invariant audit: R | invariant-auditor (sonnet) | ~30K | clean |
 | 2026-11-11 | M3 review: R | general-purpose (fable) | ~65K | 18 calls; accept with 1 major (end-load frame, two-axis sections), 5 minor; rulings 24 to 26 |
 | 2026-11-11 | M3-R fix round: member frame, two-axis sections, tier filter, rope names, rope integrity table; round branch merged in (wip/05-r 6c8001b) | module-writer (opus), resumed | ~45K | 28 calls |
+| 2026-11-11 | M3-R re-review after the fix round: accept, two carry notes (N brief, queue) | Fable review (general-purpose), resumed | 151K | 6 calls |
+| 2026-11-11 | M3-I1 integrity plugins and checks, FAC-013 (wip/05-i1 2b4957a) | module-writer (opus) | 260K | 95 calls; fix round follows (merge R, rope table, wiring) |

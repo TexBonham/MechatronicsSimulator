@@ -37,7 +37,9 @@ core_driver.py` and `core_wiring.py` only for the adapter selection (run configu
    physics rate with the engine's step config; health mapped (drift, convergence, iterations) and every engine error
    ends the run as `AdapterError` (PHY-009, invariant 7); determinism (PHY-010, run twice bitwise).
 2. Outputs (PHY-003, 004, 007, 033, 034): bodies, joints (generalized forces and reactions), constraints, contacts,
-   members (start and end wrenches from E2's member loads), ropes (load-end and max tension from E2's per-segment
+   members (start and end wrenches from E2's member loads; state the frame E2 reports them in, and gate the
+   root-to-member rotation in `core_driver.py` (R review note, line ~463) on the bridge so it is never applied
+   twice: the recorder's REC-004 series are in the member frame of ruling 24), ropes (load-end and max tension from E2's per-segment
    output; the mapping stated), transmissions (PHY-033 load torque, force, stretch, power flow, slip, scheme_decay),
    joint positions, joint drive torques, payload states; joint drives applied as the engine's implicit joint springs
    with rest, stiffness and damping per tick (PHY-034 on the own engine: exact sag and steady lag, the envelope
