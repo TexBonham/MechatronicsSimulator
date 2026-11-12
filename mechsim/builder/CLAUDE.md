@@ -45,8 +45,10 @@ Neutral quantities are written `repr(value) unit` in SI, validated once. Element
 `shape.<shape>`, `contacts`, `constraint.<type>`, `lumped_member`, `transmission.<type>`, `rope`.
 
 - Calibration (BLD-019): E scaled by chain deflection / recorded deflection, then rho by (chain omega / recorded
-  omega)^2, both exact on the chain; lumped member only. No calibration: built as is, with a note. Pinned-free with
-  calibration: build failure.
+  omega)^2, both exact on the chain; lumped member only; a scale outside [0.5, 2] adds an approximation note. No
+  calibration: built as is, with a note. Calibrated with segments < 8 (ruling 20) or pinned-free: build failure.
+  Clamped-clamped with calibration: a note, layout owed (ruling 16). Rigid builds calibrate nothing.
+- Materials: callers pass `design.schema.design_materials(design)` (the design's overrides applied, MAT-020).
 - Fastenings (BLD-031): `PhysicsModel.fastenings`, one per fixed joint (`mount`, the joint's name) and per body
   fastener entry (`fastener`, `<body>_<kind>[_<index>]`); `PhysicsModel.fastening_index(name)`. Not an element kind.
 - Ropes (BLD-032): a design rope with both ends on bodies becomes a neutral `Rope`; a `to` end at a case payload is

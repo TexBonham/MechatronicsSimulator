@@ -27,6 +27,7 @@ from pydantic import (
     Field,
     GetCoreSchemaHandler,
     GetJsonSchemaHandler,
+    PrivateAttr,
     ValidationError,
     ValidationInfo,
     WithJsonSchema,
@@ -40,7 +41,8 @@ from ruamel.yaml import YAML
 from mechsim.design.chip import Chip, PeripheralMode, shipped_chips
 from mechsim.library.registry import Registry, RegistryError, default_registry
 from mechsim.library.schema import ROPE_PARAMETERS, SECTION_PARAMETERS, QuantityParameter, dimensions_equal
-from mechsim.materials.schema import DATA_DIR, Material, load_material_file
+from mechsim.materials.database import MaterialSet
+from mechsim.materials.schema import DATA_DIR, Material, MaterialError, load_material_file
 from mechsim.schema_base import StrictModel, format_errors
 from mechsim.units import parse_quantity
 
@@ -572,7 +574,7 @@ class FlexibleMember(_Strict):
     section: Section | None = None
     calibration: Annotated[Calibration | OpenValue | None, BeforeValidator(_choice)] = None
     supports: list[SupportCondition] = Field(min_length=2, max_length=2, description="root, end")
-    segments: int = Field(default=4, ge=1, description="lumped segment count (BLD-018)")
+    segments: int = Field(default=8, ge=1, description="lumped segment count (BLD-018, ruling 17)")
 
 
 class Fastener(_Strict):
@@ -1024,7 +1026,7 @@ class Rope(_Strict):
     part: Name
     from_end: RopeEnd = Field(alias="from")
     to_end: RopeEnd = Field(alias="to")
-    segments: int = Field(default=4, ge=1, description="lumped chain segment count")
+    segments: int = Field(default=8, ge=1, description="lumped chain segment count (ADR 0016)")
     rest_length: Length | None = None
 
     @model_validator(mode="after")
@@ -1067,6 +1069,7 @@ class Design(_Strict):
     structural: Structural | None = None
     ropes: list[Rope] = Field(default_factory=list)
     materials: MaterialsConfig | None = None
+    _source_dir: Path | None = PrivateAttr(default=None)
 
     @model_validator(mode="after")
     def _cross_check(self, info: ValidationInfo) -> Design:
@@ -1077,9 +1080,19 @@ class Design(_Strict):
         chips: dict[str, Chip] | None = None
         if isinstance(context, dict) and isinstance(context.get("chips"), dict):
             chips = context["chips"]
-        errors = cross_check(self, registry, shipped_materials(), chips)
+        base: Path | None = None
         if isinstance(context, dict) and isinstance(context.get("base"), Path):
-            errors.extend(check_files(self, context["base"]))
+            base = context["base"]
+            self._source_dir = base
+        errors: list[str] = []
+        try:
+            materials = design_materials(self)
+        except (DesignError, MaterialError) as error:
+            errors.extend(f"materials.overrides: {line}" for line in str(error).splitlines())
+            materials = shipped_materials()
+        errors.extend(cross_check(self, registry, materials, chips))
+        if base is not None:
+            errors.extend(check_files(self, base))
         if len(errors) > 0:
             raise ValueError("\n".join(errors))
         return self
@@ -1089,6 +1102,24 @@ class Design(_Strict):
 
 
 # ===== Cross-reference checks ==========================================
+
+
+def design_materials(design: Design) -> dict[str, Material]:
+    """The material records a design builds with: the shipped records with its `materials.overrides` file applied
+    (MAT-016, MAT-020), the path resolved against the design file's folder; shipped records when it names none.
+    Raises DesignError when the design names overrides but was not loaded from a file, MaterialError on a bad file."""
+    overrides = None
+    if design.materials is not None:
+        overrides = design.materials.overrides
+    if overrides is None:
+        return shipped_materials()
+    folder = design._source_dir
+    if folder is None:
+        raise DesignError(f"overrides file {overrides!r} has no design folder to resolve against")
+    path = folder / overrides
+    if not path.is_file():
+        raise DesignError(f"missing materials override file {overrides!r}")
+    return MaterialSet.from_files(path).records()
 
 
 @functools.cache
@@ -1630,11 +1661,6 @@ def check_files(design: Design, base: Path) -> list[str]:
     for index, body in enumerate(design.bodies):
         if isinstance(body.geometry, StepGeometry) and not (base / body.geometry.file).is_file():
             errors.append(f"bodies[{index}].geometry.file: missing CAD file {body.geometry.file!r}")
-    overrides = None
-    if design.materials is not None:
-        overrides = design.materials.overrides
-    if overrides is not None and not (base / overrides).is_file():
-        errors.append(f"materials.overrides: missing materials override file {overrides!r}")
     return errors
 
 

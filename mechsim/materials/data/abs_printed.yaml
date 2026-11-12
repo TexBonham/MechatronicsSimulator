@@ -27,6 +27,8 @@ yield_strength:
     - {temperature: "253 K", factor: 1.1}
     - {temperature: "296 K", factor: 1.0}
     - {temperature: "363 K", factor: 0.5}
+# min 22 MPa (was 25): printed records keep a wide spread, max >= 2 x min (wide_spread_default, ruling 7;
+# test_shipped_printed_materials_carry_what_the_lookups_need), and 48 MPa / 2 = 24 MPa.
 ultimate_strength:
   min: "22 MPa"
   typ: "38 MPa"

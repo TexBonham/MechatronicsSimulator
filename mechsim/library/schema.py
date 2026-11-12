@@ -84,7 +84,7 @@ REQUIRED_BY_CATEGORY: dict[str, tuple[str, ...]] = {
     "sensor": ("resolution", "noise", "delay", "sample_rate"),
     "payload": ("mass",),
     "end_effector": ("capacity",),
-    "rope": ("axial_stiffness", "damping", "mass_per_length", "breaking_tension", "rest_length"),
+    "rope": ("axial_stiffness", "damping", "mass_per_length", "rest_length"),
 }
 # A catalog part carrying all of these is a member section a flexible body may take (LIB-030).
 SECTION_PARAMETERS: tuple[str, ...] = ("area", "second_moment", "length", "elastic_modulus", "density")

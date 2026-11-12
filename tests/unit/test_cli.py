@@ -81,6 +81,7 @@ def test_validate_tells_the_kinds_apart() -> None:
     assert kinds["mechsim/library/catalog/limit_switch.yaml"] == "catalog"
     assert kinds["mechsim/materials/data/abs_printed.yaml"] == "material"
     assert kinds["schemas/examples/physics_model.pendulum.yaml"] == "physics_model"
+    assert kinds["schemas/examples/material_overrides.example.yaml"] == "material_overrides"
     assert None not in kinds.values()
 
 

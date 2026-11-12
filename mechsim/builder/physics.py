@@ -38,7 +38,7 @@ from mechsim.design.schema import (
 )
 from mechsim.library.registry import Registry, RegistryError
 from mechsim.materials.schema import Material
-from mechsim.physics.neutral import PINNED_ROLLER_SEGMENTS, LumpedMember, PhysicsModel, StructuralMember
+from mechsim.physics.neutral import LumpedMember, PhysicsModel, StructuralMember
 from mechsim.schema_base import format_errors
 
 FLOOR_MATERIAL = "floor"
@@ -452,7 +452,7 @@ def _section(constants: Mapping[str, float]) -> dict[str, str]:
 
 
 def _flexible(
-    body: Body, material: Material, design: Design, registry: Registry, collector: Collector
+    body: Body, material: Material, design: Design, registry: Registry, collector: Collector, rigid: bool
 ) -> tuple[dict[str, Any], dict[str, Any], CalibrationScales | None]:
     """The lumped member (calibrated, BLD-019), the structural member list entry (true section, BLD-008, BLD-009)
     and the calibration scales of a flexible body."""
@@ -465,9 +465,20 @@ def _flexible(
     scales: CalibrationScales | None = None
     calibration = flexible.calibration
     segments = flexible.segments
-    if "segments" not in flexible.model_fields_set and root == "pinned" and end == "roller":
-        segments = PINNED_ROLLER_SEGMENTS
-    if isinstance(calibration, Calibration) and root in LUMPED_ROOTS and end in LUMPED_ENDS:
+    lumped_form = root in LUMPED_ROOTS and end in LUMPED_ENDS
+    if rigid:
+        scales = None
+    elif isinstance(calibration, Calibration) and not lumped_form:
+        collector.notes.append(
+            f"flexible body '{body.name}': supports ({root}, {end}) have no chain layout yet (owed, ruling 16); its "
+            "calibration data is not applied (BLD-019)"
+        )
+    elif isinstance(calibration, Calibration) and segments < structure.CALIBRATION_MIN_SEGMENTS:
+        collector.failures.append(
+            f"flexible body '{body.name}': calibrated member has {segments} segments; calibration needs at least "
+            f"{structure.CALIBRATION_MIN_SEGMENTS} (the 2 percent tolerance holds for N >= 8, ruling 20; BLD-019)"
+        )
+    elif isinstance(calibration, Calibration):
         chain = structure.chain_layout(root, end, segments, constants["length"])
         try:
             scales = structure.calibrate(
@@ -483,6 +494,7 @@ def _flexible(
         else:
             lumped_constants["elastic_modulus"] *= scales.stiffness_scale
             lumped_constants["density"] *= scales.mass_scale
+            collector.notes.extend(structure.approximation_notes(body.name, scales))
     elif calibration is None:
         collector.notes.append(
             f"flexible body '{body.name}': no calibration data; the lumped beam uses its section and material as is "
@@ -741,7 +753,7 @@ def build_physics(
         if body.catalog_part is not None:
             bodies[-1]["catalog_part"] = body.catalog_part.part
         if body.flexible is not None:
-            member, entry, scales = _flexible(body, material, design, registry, collector)
+            member, entry, scales = _flexible(body, material, design, registry, collector, rigid_members)
             structural.append(entry)
             if not rigid_members:
                 lumped.append(member)

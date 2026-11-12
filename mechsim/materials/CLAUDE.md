@@ -44,7 +44,7 @@ points, temperatures strictly increasing, factor > 0. Poisson's ratio is a bare-
 | `.yield_strength(T)`, `.ultimate_strength(T)`, `.shear_strength(T)` | isotropic record spreads |
 | `.sn_curve()`, `.allowable_amplitude(cycles)`, `.source(field)`, `.material` | S-N points (cycles, Pa), allowable, provenance |
 
-## Overrides file (`material_overrides.yaml`, worked example `EXAMPLE_TEXT` in `tests/unit/test_material_overrides.py`)
+## Overrides file (`material_overrides.yaml`, worked example `schemas/examples/material_overrides.example.yaml`)
 
 `material_overrides: {<material>: {<spread property>: {source, value | min, typ, max, temperature_dependence?},
 sn_curve: {source, points}, strength_factors: {source, in_layer, interlayer}}}`; optional `description`. A design

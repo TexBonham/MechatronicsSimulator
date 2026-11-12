@@ -24,7 +24,9 @@ from mechsim.design.schema import (
     StepGeometry,
     blob_hash,
     design_identity,
+    design_materials,
     load_design,
+    shipped_materials,
     validate_design_file,
     yaml_loader,
 )
@@ -676,7 +678,7 @@ def test_flexible_member_with_hand_calibration_accepted() -> None:
     }
     flexible = accepted(data).bodies[0].flexible
     assert flexible is not None
-    assert flexible.segments == 4
+    assert flexible.segments == 8
     assert flexible.section.area == pytest.approx(1e-4)
     assert flexible.section.second_moment == pytest.approx(1e-8)
 
@@ -2337,16 +2339,18 @@ def rope_data(**rope: Any) -> dict[str, Any]:
     return data
 
 
+@pytest.mark.req("DES-046")
 @pytest.mark.req("BLD-032")
 @pytest.mark.req("LIB-020")
 def test_rope_declaration_accepted_with_defaults() -> None:
     rope = accepted(rope_data()).ropes[0]
-    assert (rope.name, rope.part, rope.segments, rope.rest_length) == ("line", "rope_3mm_steel_generic", 4, None)
+    assert (rope.name, rope.part, rope.segments, rope.rest_length) == ("line", "rope_3mm_steel_generic", 8, None)
     assert rope.from_end.body == "link"
     assert rope.from_end.point == [0.0, 0.0, 0.0]
     assert rope.to_end.body == "world"
 
 
+@pytest.mark.req("DES-046")
 @pytest.mark.req("BLD-032")
 def test_rope_to_a_case_payload_accepted() -> None:
     rope = accepted(rope_data(to={"payload": "payload", "point": ["0 m", "0 m", "0.05 m"]})).ropes[0]
@@ -2355,6 +2359,7 @@ def test_rope_to_a_case_payload_accepted() -> None:
     assert rope.to_end.point == pytest.approx([0.0, 0.0, 0.05])
 
 
+@pytest.mark.req("DES-046")
 @pytest.mark.req("BLD-032")
 @pytest.mark.req("LIB-020")
 @pytest.mark.parametrize(
@@ -2377,6 +2382,7 @@ def test_rope_declaration_rules(rope: dict[str, Any], message: str) -> None:
     rejected(rope_data(**rope), message)
 
 
+@pytest.mark.req("DES-046")
 @pytest.mark.req("BLD-032")
 def test_duplicate_rope_names_rejected() -> None:
     data = rope_data()
@@ -2384,13 +2390,25 @@ def test_duplicate_rope_names_rejected() -> None:
     rejected(data, "duplicate rope name 'line'")
 
 
+@pytest.mark.req("DES-046")
 @pytest.mark.req("BLD-032")
 def test_gantry_declares_its_payload_rope_to_the_case_payload() -> None:
     rope = accepted(gantry()).ropes[0]
     assert (rope.name, rope.from_end.body, rope.to_end.payload) == ("payload_rope", "hook", "payload")
 
 
-def test_materials_overrides_path_is_checked_against_the_design_folder(tmp_path: Path) -> None:
+OVERRIDE_YIELD = """\
+material_overrides:
+  aluminium_6063_t5_extrusion:
+    yield_strength:
+      source: coupon test
+      value: "123 MPa"
+"""
+
+
+@pytest.mark.req("MAT-016")
+@pytest.mark.req("MAT-020")
+def test_materials_overrides_path_is_checked_and_loaded_against_the_design_folder(tmp_path: Path) -> None:
     data = pendulum()
     data["materials"] = {"overrides": "materials.yaml"}
     path = tmp_path / "design.yaml"
@@ -2398,8 +2416,26 @@ def test_materials_overrides_path_is_checked_against_the_design_folder(tmp_path:
     errors = validate_design_file(path)
     assert errors == [f"{path}: materials.overrides: missing materials override file 'materials.yaml'"]
     (tmp_path / "materials.yaml").write_text("materials: []\n", encoding="utf-8")
+    errors = validate_design_file(path)
+    assert all(f"{path}: materials.overrides: " in error for error in errors)
+    assert any("material_overrides: Field required" in error for error in errors)
+    (tmp_path / "materials.yaml").write_text(OVERRIDE_YIELD.replace("aluminium_6063_t5_extrusion", "unobtanium"))
+    errors = validate_design_file(path)
+    assert len(errors) == 1
+    assert "unobtanium" in errors[0]
+    (tmp_path / "materials.yaml").write_text(OVERRIDE_YIELD, encoding="utf-8")
     assert validate_design_file(path) == []
-    assert load_design(path).materials is not None
+    design = load_design(path)
+    assert design_materials(design)["aluminium_6063_t5_extrusion"].yield_strength.typ == 123e6
+    assert shipped_materials()["aluminium_6063_t5_extrusion"].yield_strength.typ != 123e6
+
+
+def test_design_materials_without_a_file_folder_is_an_error() -> None:
+    data = pendulum()
+    data["materials"] = {"overrides": "materials.yaml"}
+    with pytest.raises(ValidationError, match="has no design folder to resolve against"):
+        Design.model_validate(data)
+    assert design_materials(accepted(pendulum())) == shipped_materials()
 
 
 def test_materials_without_overrides_accepted() -> None:

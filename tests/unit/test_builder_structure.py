@@ -4,6 +4,7 @@ mounts, catalog sections, lumped chain statics and first mode, calibration, fast
 from __future__ import annotations
 
 import math
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -36,6 +37,10 @@ def _failures(design: Design) -> list[str]:
 
 
 def _bar(supports: list[str], **flexible: Any) -> Design:
+    return Design.model_validate(_bar_data(supports, **flexible))
+
+
+def _bar_data(supports: list[str], **flexible: Any) -> dict[str, Any]:
     body: dict[str, Any] = {
         "name": "bar",
         "material": MATERIAL,
@@ -47,25 +52,23 @@ def _bar(supports: list[str], **flexible: Any) -> Design:
         "catalog_part": {"type": "flexible_beam", "part": "steel_bar_10mm_1m"},
         "flexible": {"supports": supports, **flexible},
     }
-    return Design.model_validate(
-        {
-            "name": "bar_design",
-            "version": "1.0.0",
-            "source_hash": "unset",
-            "status": "release",
-            "environment": {"gravity": ["0 m/s**2", "0 m/s**2", "-9.81 m/s**2"], "ambient_temperature": "293.15 K"},
-            "bodies": [body],
-            "joints": [
-                {
-                    "name": "bar_mount",
-                    "type": "fixed",
-                    "parent": "world",
-                    "child": "bar",
-                    "placement": {"position": ["0 m", "0 m", "0 m"]},
-                }
-            ],
-        }
-    )
+    return {
+        "name": "bar_design",
+        "version": "1.0.0",
+        "source_hash": "unset",
+        "status": "release",
+        "environment": {"gravity": ["0 m/s**2", "0 m/s**2", "-9.81 m/s**2"], "ambient_temperature": "293.15 K"},
+        "bodies": [body],
+        "joints": [
+            {
+                "name": "bar_mount",
+                "type": "fixed",
+                "parent": "world",
+                "child": "bar",
+                "placement": {"position": ["0 m", "0 m", "0 m"]},
+            }
+        ],
+    }
 
 
 # ===== Chain statics and first mode =====================================
@@ -157,7 +160,8 @@ def test_recorded_chain_values_give_unit_scales() -> None:
     assert scales.mass_scale == pytest.approx(1.0, rel=1e-10)
 
 
-CALIBRATION = {"source": "hand", "load": "10 N", "deflection": "2 mm", "first_natural_frequency": "20 Hz"}
+# Near the 1 m steel bar's own values (tip deflection 19.9 mm under 10 N, first mode 8.15 Hz): scales near 1.
+CALIBRATION = {"source": "hand", "load": "10 N", "deflection": "19 mm", "first_natural_frequency": "8 Hz"}
 
 
 @pytest.mark.req("BLD-019")
@@ -166,12 +170,12 @@ def test_build_reports_scales_and_applies_them_to_the_lumped_section_only() -> N
     record = result.lumped[0]
     assert record.calibrated
     assert (record.calibration_source, record.calibration_load) == ("hand", 10.0)
-    assert record.calibration_deflection == 0.002
-    assert record.calibration_frequency == 20.0
+    assert record.calibration_deflection == 0.019
+    assert record.calibration_frequency == 8.0
     assert record.stiffness_scale is not None
     assert record.mass_scale is not None
-    chain = structure.chain_layout("clamped", "free", 4, 1.0)
-    expected = structure.calibrate(chain, EI, RHO_A, 10.0, 0.002, 20.0)
+    chain = structure.chain_layout("clamped", "free", 8, 1.0)
+    expected = structure.calibrate(chain, EI, RHO_A, 10.0, 0.019, 8.0)
     assert record.stiffness_scale == pytest.approx(expected.stiffness_scale, rel=1e-12)
     assert record.mass_scale == pytest.approx(expected.mass_scale, rel=1e-12)
     assert result.physics is not None
@@ -180,7 +184,7 @@ def test_build_reports_scales_and_applies_them_to_the_lumped_section_only() -> N
     assert lumped.density == pytest.approx(7850.0 * record.mass_scale, rel=1e-15)
     member = result.members[0].section
     assert (member.elastic_modulus, member.density) == (2.0e11, 7850.0)
-    assert record.node_stiffness == pytest.approx(2.0e11 * record.stiffness_scale * EI / 2.0e11 / 0.25, rel=1e-12)
+    assert record.node_stiffness == pytest.approx(2.0e11 * record.stiffness_scale * EI / 2.0e11 / 0.125, rel=1e-12)
     assert result.notes == ()
 
 
@@ -224,7 +228,7 @@ def test_pinned_roller_default_segments_are_used_for_calibration() -> None:
     assert result.physics is not None
     assert result.physics.lumped_members[0].segments == 8
     chain = structure.chain_layout("pinned", "roller", 8, 1.0)
-    expected = structure.calibrate(chain, EI, RHO_A, 10.0, 0.002, 20.0)
+    expected = structure.calibrate(chain, EI, RHO_A, 10.0, 0.019, 8.0)
     assert result.lumped[0].stiffness_scale == pytest.approx(expected.stiffness_scale, rel=1e-12)
 
 
@@ -347,7 +351,7 @@ def test_rope_rest_length_override_and_world_anchor() -> None:
     model = _physics(_rope_design({"body": "world"}, rest_length="0.75 m"))
     assert model.ropes[0].to_body == "world"
     assert model.ropes[0].rest_length == 0.75
-    assert model.ropes[0].segments == 4
+    assert model.ropes[0].segments == 8
 
 
 @pytest.mark.req("BLD-032")
@@ -456,3 +460,125 @@ def test_neutral_member_mount_must_be_a_joint() -> None:
     data["structural_members"][0]["mounts"] = ["ghost"]
     with pytest.raises(ValueError, match="structural member 'rail_x': unknown mount joint 'ghost'"):
         PhysicsModel.model_validate(data)
+
+
+@pytest.mark.req("BLD-019")
+@pytest.mark.parametrize("segments", [1, 4, 7])
+def test_calibrated_member_below_eight_segments_fails_the_build(segments: int) -> None:
+    # Ruling 20: the 2 percent tolerance holds for N >= 8 (midspan chain error -1/N^2: -1.56 % at 8, -6.25 % at 4).
+    failures = _failures(_bar(["clamped", "free"], calibration=CALIBRATION, segments=segments))
+    assert failures == [
+        f"flexible body 'bar': calibrated member has {segments} segments; calibration needs at least 8 (the 2 percent "
+        "tolerance holds for N >= 8, ruling 20; BLD-019)"
+    ]
+
+
+@pytest.mark.req("BLD-019")
+def test_uncalibrated_member_below_eight_segments_builds() -> None:
+    assert _physics(_bar(["clamped", "free"], segments=4)).lumped_members[0].segments == 4
+
+
+@pytest.mark.req("BLD-019")
+@pytest.mark.parametrize(
+    ("deflection", "frequency", "flagged"),
+    [
+        # Tip deflection 19.92 mm and 8.18 Hz for the chain at N = 8: halving the deflection doubles E (scale 2.0
+        # on the bound, no note); a tenth gives 9.96; the frequency then sets the mass scale.
+        ("9.9609375 mm", "11.57 Hz", []),
+        ("1.9921875 mm", "25.88 Hz", ["stiffness_scale"]),
+        ("19 mm", "1 Hz", ["mass_scale"]),
+        ("1 mm", "1 Hz", ["stiffness_scale", "mass_scale"]),
+    ],
+)
+def test_scale_outside_half_to_double_is_noted(deflection: str, frequency: str, flagged: list[str]) -> None:
+    calibration = {**CALIBRATION, "deflection": deflection, "first_natural_frequency": frequency}
+    result = _build(_bar(["clamped", "free"], calibration=calibration))
+    record = result.lumped[0]
+    assert record.stiffness_scale is not None
+    assert record.mass_scale is not None
+    named = [note.split(" ")[4] for note in result.notes]
+    assert named == flagged
+    for note in result.notes:
+        assert note.startswith("flexible body 'bar': calibration ")
+        assert note.endswith("lies outside [0.5, 2.0]; the lumped beam is an approximation (BLD-019)")
+
+
+def test_approximation_notes_bounds_are_inclusive() -> None:
+    assert structure.approximation_notes("m", structure.CalibrationScales(0.5, 2.0)) == []
+    notes = structure.approximation_notes("m", structure.CalibrationScales(0.49, 2.01))
+    assert notes == [
+        "flexible body 'm': calibration stiffness_scale 0.49 lies outside [0.5, 2.0]; the lumped beam is an "
+        "approximation (BLD-019)",
+        "flexible body 'm': calibration mass_scale 2.01 lies outside [0.5, 2.0]; the lumped beam is an approximation "
+        "(BLD-019)",
+    ]
+
+
+@pytest.mark.req("BLD-019")
+def test_clamped_clamped_calibration_is_noted_as_owed_in_a_rigid_free_check() -> None:
+    design = _bar(["clamped", "clamped"], calibration=CALIBRATION)
+    result = _build(design, rigid_members=True)
+    assert result.notes == ()
+    data = gantry_data()
+    data["bodies"][1]["flexible"]["supports"] = ["clamped", "clamped"]
+    failures = _failures(filled_gantry(data))
+    assert any("supports (clamped, clamped) have no lumped beam" in failure for failure in failures)
+
+
+@pytest.mark.req("BLD-019")
+def test_clamped_clamped_calibration_note_names_the_owed_layout() -> None:
+    from mechsim.builder.physics import Collector, _flexible
+
+    design = _bar(["clamped", "clamped"], calibration=CALIBRATION)
+    collector = Collector()
+    _member, _entry, scales = _flexible(
+        design.bodies[0], shipped_materials()[MATERIAL], design, default_registry(), collector, False
+    )
+    assert scales is None
+    assert collector.notes == [
+        "flexible body 'bar': supports (clamped, clamped) have no chain layout yet (owed, ruling 16); its calibration "
+        "data is not applied (BLD-019)"
+    ]
+
+
+@pytest.mark.req("BLD-032")
+@pytest.mark.req("LIB-020")
+def test_rope_without_breaking_tension_never_snaps() -> None:
+    rope = _rope_design({"body": "frame"}).ropes[0]
+    values = dict(default_registry().part("rope_3mm_steel_generic").values)
+    del values["breaking_tension"]
+    element = structure.rope_element(rope, values)
+    assert element is not None
+    assert "breaking_tension" not in element
+    data = _model_data(ropes=[{**ROPE}])
+    del data["ropes"][0]["breaking_tension"]
+    assert PhysicsModel.model_validate(data).ropes[0].breaking_tension is None
+
+
+@pytest.mark.req("MAT-020")
+@pytest.mark.req("BLD-009")
+def test_design_material_overrides_reach_the_member_list(tmp_path: Path) -> None:
+    from ruamel.yaml import YAML
+
+    from mechsim.design.schema import design_materials, load_design
+    from mechsim.testing.core_driver import core_builder
+
+    data = _bar_data(["clamped", "free"], section={"area": "1 cm**2", "second_moment": "1 cm**4", "length": "1 m"})
+    data["materials"] = {"overrides": "overrides.yaml"}
+    del data["bodies"][0]["catalog_part"]
+    (tmp_path / "overrides.yaml").write_text(
+        "material_overrides:\n"
+        f"  {MATERIAL}:\n"
+        "    yield_strength: {source: coupon test, value: 111 MPa}\n"
+        "    density: {source: weighed, value: 2500 kg/m**3}\n",
+        encoding="utf-8",
+    )
+    path = tmp_path / "design.yaml"
+    YAML().dump(data, path)
+    loaded = load_design(path)
+    result = core_builder(loaded)
+    member = result.members[0]
+    assert member.material == MATERIAL
+    assert member.section.density == 2500.0
+    assert design_materials(loaded)[member.material].yield_strength.typ == 111e6
+    assert shipped_materials()[MATERIAL].density.typ != 2500.0

@@ -651,9 +651,7 @@ def test_rope_is_the_adr_0016_element_with_snap_in_its_own_tier() -> None:
 
 
 @pytest.mark.req("LIB-020")
-@pytest.mark.parametrize(
-    "missing", ["axial_stiffness", "damping", "mass_per_length", "breaking_tension", "rest_length"]
-)
+@pytest.mark.parametrize("missing", ["axial_stiffness", "damping", "mass_per_length", "rest_length"])
 def test_rope_category_requires_each_rope_parameter(missing: str) -> None:
     data = _structural_raw("rope")
     component = data["types"][0]

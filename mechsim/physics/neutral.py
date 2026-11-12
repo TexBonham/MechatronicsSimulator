@@ -482,7 +482,7 @@ class ContactModel(_Model):
 
 # ===== Lumped members ===================================================
 
-DEFAULT_SEGMENTS = 4
+DEFAULT_SEGMENTS = 8
 PINNED_ROLLER_SEGMENTS = 8
 DEFAULT_ROLLER_MASS_FRACTION = 1e-3
 
@@ -500,7 +500,7 @@ class Section(_Model):
 class LumpedMember(_Model):
     """Multi-segment lumped beam (R-13) rooted on `parent` at the given placement, along the root frame's x axis.
 
-    `segments` defaults to 4, or 8 for a pinned root with a roller end (ENG-040).
+    `segments` defaults to 8 (ruling 17; the 2 percent references hold for N >= 8, ENG-040).
     """
 
     name: Name
@@ -574,7 +574,8 @@ DRIVEN_JOINT_TYPES: dict[str, str] = {"belt_pulley": "prismatic", "lead_screw": 
 class Rope(_Model):
     """Lumped rope chain (ADR 0016, BLD-032): `segments` point-mass segments between a point of `from_body` and a
     point of `to_body` (anchors in each body frame; "world" allowed), tension-only springs EA / l with strain-rate
-    damping `damping` / l per segment of rest length l = rest_length / segments, mass per length, breaking tension."""
+    damping `damping` / l per segment of rest length l = rest_length / segments, mass per length, and an optional
+    breaking tension (absent: the rope never snaps, ruling 19)."""
 
     name: Name
     from_body: Name
@@ -586,7 +587,7 @@ class Rope(_Model):
     damping: NonNegativeStrainRateDamping
     mass_per_length: PositiveMassPerLength
     rest_length: PositiveLength
-    breaking_tension: PositiveForce
+    breaking_tension: PositiveForce | None = None
 
 
 class Fastening(_Model):

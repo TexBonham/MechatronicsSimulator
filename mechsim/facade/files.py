@@ -10,6 +10,7 @@ from pydantic import ValidationError
 from mechsim.design.chip import validate_chip_file
 from mechsim.design.schema import validate_design_file, yaml_loader
 from mechsim.library.schema import CatalogError, load_catalog_file
+from mechsim.materials.database import MaterialSet
 from mechsim.materials.schema import MaterialError, load_material_file
 from mechsim.physics.neutral import from_yaml
 from mechsim.schema_base import format_errors
@@ -21,8 +22,8 @@ WRITABLE_KINDS = ("design", "case")
 
 
 def kind_of_text(path: Path, text: str) -> str | None:
-    """design, case, suite, catalog, chip, baseline, material or physics model; None when it is none of them. Chips,
-    materials and physics models by location and name, the others by their top-level keys."""
+    """design, case, suite, catalog, chip, baseline, material, material overrides or physics model; None when it is
+    none of them. Chips, materials and physics models by location and name, the others by their top-level keys."""
     if path.name == "chip.yaml":
         return "chip"
     if path.name.startswith("physics_model.") and path.suffix == ".yaml":
@@ -41,6 +42,8 @@ def kind_of_text(path: Path, text: str) -> str | None:
         return "suite"
     if {"types", "parts"} <= keys:
         return "catalog"
+    if "material_overrides" in keys:
+        return "material_overrides"
     if {"bodies", "joints"} <= keys:
         return "design"
     return None
@@ -68,6 +71,12 @@ def validate_file(path: Path, designs_root: Path) -> tuple[str | None, list[str]
     if kind == "material":
         try:
             load_material_file(path)
+        except MaterialError as error:
+            return kind, [str(error)]
+        return kind, []
+    if kind == "material_overrides":
+        try:
+            MaterialSet.from_files(path)
         except MaterialError as error:
             return kind, [str(error)]
         return kind, []

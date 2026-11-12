@@ -103,10 +103,28 @@ def chain_first_frequency(chain: Chain, flexural_rigidity: float, mass_per_lengt
     return math.sqrt(max(float(values[0]), 0.0))
 
 
+CALIBRATION_MIN_SEGMENTS = 8
+CALIBRATION_SCALE_RANGE = (0.5, 2.0)
+
+
 @dataclass(frozen=True)
 class CalibrationScales:
     stiffness_scale: float
     mass_scale: float
+
+
+def approximation_notes(member: str, scales: CalibrationScales) -> list[str]:
+    """A note per scale factor outside [0.5, 2]: the recorded values are far from the section's, so the lumped beam is
+    an approximation of that member (ruling 20)."""
+    low, high = CALIBRATION_SCALE_RANGE
+    notes: list[str] = []
+    for name, value in (("stiffness_scale", scales.stiffness_scale), ("mass_scale", scales.mass_scale)):
+        if value < low or value > high:
+            notes.append(
+                f"flexible body '{member}': calibration {name} {value!r} lies outside [{low}, {high}]; the lumped beam "
+                "is an approximation (BLD-019)"
+            )
+    return notes
 
 
 def calibrate(
@@ -187,8 +205,8 @@ def rope_element(rope: Rope, values: Mapping[str, float | bool]) -> dict[str, An
         rest = values["rest_length"]
     if isinstance(rest, OpenValue):
         raise TypeError(f"rope '{rope.name}': open rest_length reached the build")
-    numbers = {name: values[name] for name in ("axial_stiffness", "damping", "mass_per_length", "breaking_tension")}
-    return {
+    numbers = {name: values[name] for name in ("axial_stiffness", "damping", "mass_per_length")}
+    element: dict[str, Any] = {
         "name": rope.name,
         "from_body": rope.from_end.body,
         "from_point": _points(rope.from_end.point),
@@ -199,8 +217,11 @@ def rope_element(rope: Rope, values: Mapping[str, float | bool]) -> dict[str, An
         "damping": f"{float(numbers['damping'])!r} N*s",
         "mass_per_length": f"{float(numbers['mass_per_length'])!r} kg/m",
         "rest_length": f"{float(rest)!r} m",
-        "breaking_tension": f"{float(numbers['breaking_tension'])!r} N",
     }
+    breaking = values.get("breaking_tension")
+    if isinstance(breaking, float):
+        element["breaking_tension"] = f"{breaking!r} N"
+    return element
 
 
 def _points(values: Sequence[Any]) -> list[str]:

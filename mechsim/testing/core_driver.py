@@ -23,8 +23,9 @@ from mechsim import _core as core
 from mechsim.builder import BuildError, build
 from mechsim.builder.payload import with_payload
 from mechsim.builder.result import BuildResult as CoreBuild
-from mechsim.design.schema import Design, blob_hash, shipped_materials
+from mechsim.design.schema import Design, DesignError, blob_hash, design_materials
 from mechsim.library.registry import default_registry
+from mechsim.materials.schema import MaterialError
 from mechsim.physics.mujoco.prepare import StartStateError, prepare_model
 from mechsim.physics.mujoco.translate import UnmappableElementError
 from mechsim.physics.neutral import PhysicsModel
@@ -709,10 +710,11 @@ class RecordArchiver:
 
 
 def core_builder(design: Design) -> CoreBuild:
-    """The shipped catalog, materials and chips; rigid members (milestone 1 runs rigid, BLD-033)."""
+    """The shipped catalog and chips, the shipped materials with the design's overrides (MAT-020); rigid members
+    (milestone 1 runs rigid, BLD-033)."""
     try:
-        return build(design, default_registry(), shipped_materials(), rigid_members=True)
-    except BuildError as error:
+        return build(design, default_registry(), design_materials(design), rigid_members=True)
+    except (BuildError, DesignError, MaterialError) as error:
         raise DriverError(str(error)) from error
 
 

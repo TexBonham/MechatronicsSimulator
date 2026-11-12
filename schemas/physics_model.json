@@ -1274,7 +1274,7 @@
     },
     "LumpedMember": {
       "additionalProperties": false,
-      "description": "Multi-segment lumped beam (R-13) rooted on `parent` at the given placement, along the root frame's x axis.\n\n`segments` defaults to 4, or 8 for a pinned root with a roller end (ENG-040).",
+      "description": "Multi-segment lumped beam (R-13) rooted on `parent` at the given placement, along the root frame's x axis.\n\n`segments` defaults to 8 (ruling 17; the 2 percent references hold for N >= 8, ENG-040).",
       "properties": {
         "end": {
           "enum": [
@@ -1367,7 +1367,7 @@
           "$ref": "#/$defs/Section"
         },
         "segments": {
-          "default": 4,
+          "default": 8,
           "minimum": 1,
           "title": "Segments",
           "type": "integer"
@@ -1603,7 +1603,7 @@
     },
     "Rope": {
       "additionalProperties": false,
-      "description": "Lumped rope chain (ADR 0016, BLD-032): `segments` point-mass segments between a point of `from_body` and a\npoint of `to_body` (anchors in each body frame; \"world\" allowed), tension-only springs EA / l with strain-rate\ndamping `damping` / l per segment of rest length l = rest_length / segments, mass per length, breaking tension.",
+      "description": "Lumped rope chain (ADR 0016, BLD-032): `segments` point-mass segments between a point of `from_body` and a\npoint of `to_body` (anchors in each body frame; \"world\" allowed), tension-only springs EA / l with strain-rate\ndamping `damping` / l per segment of rest length l = rest_length / segments, mass per length, and an optional\nbreaking tension (absent: the rope never snaps, ruling 19).",
       "properties": {
         "axial_stiffness": {
           "description": "Quantity with an explicit unit of dimension force; SI unit N",
@@ -1612,10 +1612,18 @@
           "type": "string"
         },
         "breaking_tension": {
-          "description": "Quantity with an explicit unit of dimension force; SI unit N",
-          "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s|$)",
-          "title": "Breaking Tension",
-          "type": "string"
+          "anyOf": [
+            {
+              "description": "Quantity with an explicit unit of dimension force; SI unit N",
+              "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s|$)",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Breaking Tension"
         },
         "damping": {
           "description": "Quantity with an explicit unit of dimension [mass]*[length]/[time]; SI unit N*s",
@@ -1712,8 +1720,7 @@
         "axial_stiffness",
         "damping",
         "mass_per_length",
-        "rest_length",
-        "breaking_tension"
+        "rest_length"
       ],
       "title": "Rope",
       "type": "object"

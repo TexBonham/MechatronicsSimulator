@@ -1,7 +1,7 @@
 # Rope (LIB-020): the ADR 0016 element, a lumped chain of point masses joined by tension-only springs. Axial
 # stiffness EA (N), strain-rate damping (N s; a segment of length l gets EA / l and damping / l), mass per length,
-# breaking tension (tier 2 snap) and rest length. A design names a part in `ropes` (BLD-032). Part values are
-# placeholders.
+# an optional breaking tension (tier 2 snap, its own tier; absent, the rope never snaps, ruling 19) and rest length.
+# A design names a part in `ropes` (BLD-032). Part values are placeholders.
 types:
   - name: rope
     version: 1.0.0

@@ -1063,8 +1063,8 @@
           "default": null
         },
         "segments": {
-          "default": 4,
-          "description": "lumped segment count (BLD-018)",
+          "default": 8,
+          "description": "lumped segment count (BLD-018, ruling 17)",
           "minimum": 1,
           "title": "Segments",
           "type": "integer"
@@ -2115,8 +2115,8 @@
           "title": "Rest Length"
         },
         "segments": {
-          "default": 4,
-          "description": "lumped chain segment count",
+          "default": 8,
+          "description": "lumped chain segment count (ADR 0016)",
           "minimum": 1,
           "title": "Segments",
           "type": "integer"
