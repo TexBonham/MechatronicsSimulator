@@ -246,7 +246,7 @@ TEST_CASE("joint limit open side: -inf lower with a finite upper is one row", "[
 TEST_CASE("joint limit parameters are validated before stepping, naming the joint", "[ENG-013][ENG-049]") {
     auto rejects = [](const Body& body, const std::string& cause) {
         try {
-            MultibodyProvider provider(single(body));
+            const MultibodyProvider provider(single(body));
             FAIL("accepted");
         } catch (const InvalidModelError& error) {
             const std::string what = error.what();
@@ -536,7 +536,7 @@ TEST_CASE("joint friction zero equals the frictionless run bitwise", "[ENG-014]"
 TEST_CASE("joint friction values are validated, naming the joint", "[ENG-014][ENG-050]") {
     auto rejects = [](const Body& body, const std::string& cause) {
         try {
-            MultibodyProvider provider(single(body));
+            const MultibodyProvider provider(single(body));
             FAIL("accepted");
         } catch (const InvalidModelError& error) {
             const std::string what = error.what();
@@ -589,7 +589,7 @@ TEST_CASE("joint drive steady lag is D v / K behind a rest moving at constant sp
     const double k = 400.0;
     const double d = 40.0;
     const double speed = 0.2;
-    Body body = slider(Eigen::Vector3d::UnitX(), 1.0);
+    const Body body = slider(Eigen::Vector3d::UnitX(), 1.0);
     MultibodyProvider provider(single(body));
     SemiImplicitEuler integrator{StepConfig{}};
     State state = start(provider, 0.0, 0.0);
@@ -634,7 +634,7 @@ TEST_CASE("joint drive on a belt's shaft acts on the reflected coordinate", "[EN
     Body shaft;
     shaft.joint.type = JointType::Revolute;
     shaft.inertia = Eigen::Vector3d(j, j, j).asDiagonal();
-    Body carriage = slider(Eigen::Vector3d::UnitX(), 1.0);
+    const Body carriage = slider(Eigen::Vector3d::UnitX(), 1.0);
     MultibodyModel model;
     model.bodies = {shaft, carriage};
     Transmission belt;
