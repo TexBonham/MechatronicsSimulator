@@ -21,7 +21,7 @@ runner, recorder, scoring and viewer.
 | `list_designs(root)` | `DesignList`: name, path, version, errors per `<root>/*/design.yaml` |
 | `validate(path)` | `ValidationResult` per YAML file of a folder or the file; missing path `not_found` |
 | `run_case(case, design, sets, out_dir, dry, seed, mode, listener, subscriptions)` | `RunResultSummary`: run id, case id, status, archive, end reason/time, `report_text`, `error: RunErrorReport(party, t, cause, requirement_id=INV-007)`, `dry`; never raises for a run error (FAC-014); seed/mode must equal the case's |
-| `run_id_of(case, design)` | `<case id>-seed<seed>` |
+| `run_id_of(case, design, sets)` | `<case id>-seed<seed>`, `-<adapter>` appended off the default adapter (case's own or `physics.adapter` in `sets`; unknown value `validation_failed` naming the field) (TST-040) |
 | `run_suite(suite, design, sets, out_dir, report_path, baseline_path)` | `SuiteResultSummary` (suite_id, text, diff entries and text, written paths, errors, runs); writes `<out>/<name>_report.txt` |
 | `report(suite_id)`, `diff(suite_id)` | text + Markdown; diff entries in report order (FAC-012) |
 | `replay_open(archive)` | `ReplayHandle` keyed by run id; archive reader only (FAC-008) |

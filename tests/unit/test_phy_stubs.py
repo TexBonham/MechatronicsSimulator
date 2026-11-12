@@ -12,6 +12,7 @@ from mechsim import _core as core
 from mechsim.physics.mujoco.prepare import prepare_model as prepare_bridge
 from mechsim.physics.native.prepare import prepare_model as prepare_native
 from mechsim.physics.neutral import PhysicsModel, from_yaml
+from tests.invariant.test_phy_stubs import _load, driven
 
 ORIGIN = ("0 m", "0 m", "0 m")
 PENDULUM = (Path(__file__).resolve().parents[2] / "schemas/examples/physics_model.pendulum.yaml").read_text()
@@ -84,7 +85,8 @@ def test_phy_003() -> None:
     rig = native_rig()
     rig.step()
     out = rig.outputs()
-    assert len(out.bodies) == 3
+    # The three neutral bodies, then the member's node bodies, root to tip: `fin` has the default 8 segments.
+    assert len(out.bodies) == 3 + 8
     assert len(out.joints) == 3
     # Gravity -9.81 along y, the slider's axis: one semi-implicit step from rest gives v = -g h exactly; the hanging
     # link starts at equilibrium and its joint carries no torque.
@@ -100,8 +102,12 @@ def test_phy_004() -> None:
     for _ in range(2000):
         rig.step()
     rope = rig.outputs().ropes[0]
+    # Engine lumping (ENG-047): 4 segments of 0.0025 kg, three full-mass inner nodes, a half segment mass on each end
+    # body. At rest the load-end segment carries the load and its half mass, (1 + 0.00125) g (ruling 40); the top
+    # segment carries that plus the three inner nodes, (1 + 0.00875) g, the maximum.
     assert not rope.slack
-    assert rope.tension == pytest.approx((1.0 + 0.01 * 0.875) * 9.81, rel=1e-3)
+    assert rope.tension == pytest.approx((1.0 + 0.01 * 0.125) * 9.81, rel=1e-3)
+    assert rope.max_tension == pytest.approx((1.0 + 0.01 * 0.875) * 9.81, rel=1e-3)
     assert len(rig.outputs().ropes) == 1
 
 
@@ -365,3 +371,19 @@ def test_phy_032(adapter: str) -> None:
     ]
     assert len(sources) > 3
     assert [path.name for path in sources if "tests" not in path.parts and clocks.search(path.read_text())] == []
+
+
+@pytest.mark.req("PHY-034")
+@pytest.mark.xfail(strict=True, reason="brief N3")
+def test_phy_034_native_joint_drive_on_a_belt_shaft_moves_the_driven_joint() -> None:
+    """A drive toward 0.5 rad on the rotor of `driven()` (pulley radius 0.02 m, no load along the slide) must carry
+    the carriage to 0.5 x 0.02 = 0.01 m. Reflected inertia J = 0.001 + 1 x 0.02^2 = 0.0014 kg m^2, K = 1 N m/rad,
+    D = 0.05 N m s/rad: omega = 26.7 rad/s, zeta = D / (2 sqrt(K J)) = 0.67, decay time 0.056 s; after 1 s the
+    transient is below e^-17 of 0.01 m, and the static belt stretch is zero (no load), so 1e-6 m holds."""
+    physics = _load(driven(), "native")
+    for _ in range(1000):
+        inputs = core.PhysicsInputs()
+        inputs.joint_drives = [core.JointDrive(0, 0.5, 1.0, 0.05, True)]
+        physics.set_inputs(inputs)
+        physics.step()
+    assert physics.outputs().bodies[1].position[0] == pytest.approx(0.5 * 0.02, abs=1e-6)

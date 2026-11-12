@@ -273,6 +273,10 @@ def _member_segment(
 
 def _member(parents: dict[str, ET.Element], equality: ET.Element, member: LumpedMember, eq_ref: str) -> None:
     """Midpoint-spring chain of the own engine (ENG-022): spring E I / l at x_j = (j + 1/2) l about root z."""
+    if member.end == "clamped":
+        raise UnmappableElementError(
+            f"lumped member '{member.name}'", "a clamped far end; the own engine carries it (BLD-017, PHY-019)"
+        )
     section = member.section
     length = section.length / member.segments
     stiffness = section.elastic_modulus * section.second_moment_of_area / length

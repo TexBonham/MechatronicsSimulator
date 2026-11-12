@@ -596,6 +596,15 @@ def test_one_sided_limit_is_unmappable_naming_the_joint() -> None:
     assert raised.value.element == "joint 'slide'"
 
 
+@pytest.mark.req("PHY-019", "BLD-017")
+def test_clamped_far_end_is_unmappable_naming_the_member() -> None:
+    data = _full()
+    data["lumped_members"][0]["end"] = "clamped"
+    with pytest.raises(mj.UnmappableElementError, match=r"lumped member 'beam'.*clamped far end") as raised:
+        mj.translate(_model(data))
+    assert raised.value.element == "lumped member 'beam'"
+
+
 def test_upper_only_limit_is_unmappable() -> None:
     data = _full()
     data["bodies"][2]["joint"]["linear"] = [{"upper": "1 m"}]
