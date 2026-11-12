@@ -484,6 +484,7 @@ class ContactModel(_Model):
 
 DEFAULT_SEGMENTS = 8
 PINNED_ROLLER_SEGMENTS = 8
+CLAMPED_CLAMPED_SEGMENTS = 16
 DEFAULT_ROLLER_MASS_FRACTION = 1e-3
 
 
@@ -508,7 +509,9 @@ class Section(_Model):
 class LumpedMember(_Model):
     """Multi-segment lumped beam (R-13) rooted on `parent` at the given placement, along the root frame's x axis.
 
-    `segments` defaults to 8 (ruling 17; the 2 percent references hold for N >= 8, ENG-040).
+    `segments` defaults to 8, and to 16 for a clamped-clamped member (rulings 17 and 31: the chain's clamped-clamped
+    deflection error is -4 / N^2). A clamped far end (ruling 16) locks the end rotation and the transverse
+    translation; it needs a clamped root.
     """
 
     name: Name
@@ -517,7 +520,7 @@ class LumpedMember(_Model):
     orientation: Quaternion = _IDENTITY
     section: Section
     root: Literal["clamped", "pinned"]
-    end: Literal["free", "roller"]
+    end: Literal["free", "roller", "clamped"]
     segments: Annotated[Count, Field(ge=1)] = DEFAULT_SEGMENTS
     roller_mass_fraction: PositiveNumber = DEFAULT_ROLLER_MASS_FRACTION
     node_damping: NonNegativeRotationalDamping = 0.0
@@ -529,7 +532,16 @@ class LumpedMember(_Model):
         pinned_roller = isinstance(data, dict) and data.get("root") == "pinned" and data.get("end") == "roller"
         if pinned_roller and "segments" not in data:
             return {**data, "segments": PINNED_ROLLER_SEGMENTS}
+        clamped_clamped = isinstance(data, dict) and data.get("root") == "clamped" and data.get("end") == "clamped"
+        if clamped_clamped and "segments" not in data:
+            return {**data, "segments": CLAMPED_CLAMPED_SEGMENTS}
         return data
+
+    @model_validator(mode="after")
+    def _clamped_end_needs_clamped_root(self) -> LumpedMember:
+        if self.end == "clamped" and self.root != "clamped":
+            raise ValueError(f"end 'clamped' needs root 'clamped', got root {self.root!r} (ruling 16)")
+        return self
 
 
 # ===== Transmissions ====================================================

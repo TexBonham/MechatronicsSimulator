@@ -155,6 +155,18 @@ def _joint(body: Body) -> dict[str, Any]:
             raise UnmappableElementError(
                 f"joint '{joint.name}'", f"friction on a {joint.type} joint: the own engine has no ball-joint friction"
             )
+        elif any(dof.stiffness != 0.0 for dof in dofs):
+            raise UnmappableElementError(
+                f"joint '{joint.name}'",
+                f"stiffness on a {joint.type} joint: the own engine's joint springs act on revolute, prismatic and "
+                "planar coordinates only (PHY-019)",
+            )
+        elif any(dof.lower is not None or dof.upper is not None for dof in dofs):
+            raise UnmappableElementError(
+                f"joint '{joint.name}'",
+                f"limits on a {joint.type} joint: the own engine's joint limits act on revolute, prismatic and planar "
+                "coordinates only (PHY-019)",
+            )
         if not any(value != 0.0 for value in damping):
             damping = []
     return {
@@ -295,11 +307,27 @@ def _ends(member: LumpedMember) -> str:
         return "cantilever"
     if member.root == "pinned" and member.end == "roller":
         return "simply_supported"
+    if member.root == "clamped" and member.end == "clamped":
+        return "clamped"
     raise UnmappableElementError(
         f"lumped member '{member.name}'",
         f"supports ({member.root}, {member.end}): the own engine's lumped beam is cantilever, pinned-roller or "
         "clamped-clamped",
     )
+
+
+def member_node_names(model: PhysicsModel) -> tuple[str, ...]:
+    """Names of the member node poses the native adapter publishes after the neutral bodies in
+    `PhysicsOutputs.bodies`: each lumped member in neutral order, its chain bodies root to tip, `<member>.node<k>`
+    (k from 0; a pinned root's spring-free pin segment is node 0, so a pinned member has segments + 1 nodes). Each
+    pose is the segment body's frame: origin at its joint on the member axis, x along the member."""
+    names: list[str] = []
+    for member in model.lumped_members:
+        count = int(member.segments)
+        if member.root == "pinned":
+            count += 1
+        names.extend(f"{member.name}.node{k}" for k in range(count))
+    return tuple(names)
 
 
 def _member(member: LumpedMember, parent: int, h: float, report: list[str]) -> dict[str, Any]:
@@ -310,6 +338,8 @@ def _member(member: LumpedMember, parent: int, h: float, report: list[str]) -> d
     beta = 1.875104
     if ends == "simply_supported":
         beta = math.pi
+    if ends == "clamped":
+        beta = 4.730041
     omega = (beta / float(section.length)) ** 2 * math.sqrt(flexural / mass_per_length)
     x = omega * h
     report.append(
@@ -505,8 +535,9 @@ def translate(
     for name in dict.fromkeys(drivable):
         report.append(
             f"joint drive on '{name}': implicit spring-damper (backward Euler, no stability limit, PHY-034); with "
-            "x = omega h, omega = sqrt(K / m), the drive mode runs x^2 / 3 slow and loses about e^(-pi x) of its "
-            "amplitude per period (ruling 21)"
+            "x = omega h, omega = sqrt(K / m), the drive mode runs x^2 / 3 slow and loses about pi x of its "
+            f"amplitude per period (keeps (1 + x^2)^(-pi / atan x), about e^(-pi x); h = {h:.6g} s; K is the "
+            "controller's, so x is known only at run time; ruling 21)"
         )
     members = [_member(member, index.get(member.parent, -1), h, report) for member in model.lumped_members]
     ropes = [_rope(rope, index, model, h, report) for rope in model.ropes]

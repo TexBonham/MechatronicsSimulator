@@ -1,3 +1,4 @@
+#include <array>
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers_floating_point.hpp>
 #include <cmath>
@@ -60,6 +61,7 @@ struct Doc {
     std::string contact = "null";
     std::string payloads = "[]";
     std::string starts = "[]";
+    int substeps = 0;  // 0: the key is left out (one engine step per adapter step)
 
     [[nodiscard]] std::string text() const {
         std::string list;
@@ -79,7 +81,15 @@ struct Doc {
                R"("symmetry_tolerance": 1e-12}, "bodies": [)" +
                list + R"(], "neutral_bodies": )" + std::to_string(neutral) + R"(, "constraints": )" + constraints +
                R"(, "members": )" + members + R"(, "transmissions": )" + transmissions + R"(, "ropes": )" + ropes +
-               R"(, "contact": )" + contact + R"(, "payloads": )" + payloads + R"(, "starts": )" + starts + "}";
+               R"(, "contact": )" + contact + R"(, "payloads": )" + payloads + R"(, "starts": )" + starts +
+               substeps_key() + "}";
+    }
+
+    [[nodiscard]] std::string substeps_key() const {
+        if (substeps == 0) {
+            return "";
+        }
+        return R"(, "substeps": )" + std::to_string(substeps);
     }
 };
 
@@ -431,7 +441,15 @@ TEST_CASE("native adapter: a clamped member below eight segments is refused", "[
     load(adapter, doc);
     adapter.step();
     CHECK(adapter.outputs().members.size() == 1);
-    CHECK(adapter.outputs().bodies.size() == 1);
+    // The neutral body, then the member's eight chain bodies root to tip (member node poses, BLD-017).
+    REQUIRE(adapter.outputs().bodies.size() == 9);
+    CHECK_THAT(adapter.outputs().bodies[1].position[0], WithinAbs(0.5 / 8.0, 1e-12));
+    CHECK_THAT(adapter.outputs().bodies[8].position[0], WithinAbs(7.5 / 8.0, 1e-9));
+    PhysicsInputs tip;
+    tip.body_wrenches.push_back(mechsim::kernel::BodyWrench{8, {}});
+    adapter.set_inputs(tip);
+    tip.body_wrenches[0].body = 9;
+    CHECK_THROWS_AS(adapter.set_inputs(tip), AdapterError);
 }
 
 TEST_CASE("native adapter: a rope holding a load publishes its tensions", "[PHY-004]") {
@@ -453,12 +471,173 @@ TEST_CASE("native adapter: a rope holding a load publishes its tensions", "[PHY-
     // Load end: the load plus half the last segment's mass (the end half-mass sits on the load body).
     CHECK_THAT(loads[0], WithinRel((1.0 + 0.01 * 0.125) * g, 1e-3));
     CHECK(adapter.rope_segment_tensions()[0].size() == 4);
-    CHECK_THAT(adapter.outputs().ropes[0].tension, WithinRel((1.0 + 0.01 * 0.875) * g, 1e-3));
+    // Ruling 40: tension is the load end, max_tension the largest segment (the top one: load plus 3.5 segments).
+    CHECK_THAT(adapter.outputs().ropes[0].tension, WithinRel((1.0 + 0.01 * 0.125) * g, 1e-3));
+    CHECK(adapter.outputs().ropes[0].tension == loads[0]);
+    CHECK_THAT(adapter.outputs().ropes[0].max_tension, WithinRel((1.0 + 0.01 * 0.875) * g, 1e-3));
     CHECK_FALSE(adapter.outputs().ropes[0].slack);
     CHECK_THROWS_AS(adapter.release_load(2), AdapterError);
     adapter.release_load(1);
     adapter.step();
     CHECK(adapter.events()[0].source == "rope");
+}
+
+// ===== Model change events (PHY-008, ruling 40) ===========================
+
+namespace {
+
+using mechsim::kernel::ModelChangeEvent;
+using mechsim::kernel::ModelChangeKind;
+using mechsim::kernel::ModelChangeSource;
+
+// A 1 kg load hanging from the world on a 4-segment rope that starts unstretched: the load falls, the rope stretches
+// and the tension passes 9.5 N (just under the load's weight; the first stretch overshoots to about 2 m g) a few
+// steps in, so the rope snaps. Beside it a free ball held to the world by a point constraint, independent of the
+// rope, so a constraint can be disabled at the start of a tick.
+Doc snapping_rope(int substeps) {
+    Doc doc;
+    doc.elements = R"(["body", "joint.free", "joint.fixed", "constraint.point", "rope"])";
+    doc.bodies.push_back(body("load", -1, "free", "[0, 0, 1]", 1.0, "[]", "[]", {}, "[0, 0, -1]"));
+    doc.bodies.push_back(body("ball", -1, "free", "[0, 0, 1]", 1.0, "[]", "[]", {}, "[2, 0, 0]"));
+    doc.bodies.push_back(body("world_anchor", -1, "fixed", "[0, 0, 1]", 1.0, "[]", "[]", {}, "[2, 0, 0]"));
+    doc.neutral_bodies = 2;
+    doc.constraints = R"([{"type": "point", "body_a": 1, "body_b": 2, "point_a": [0, 0, 0], )"
+                      R"("point_b": [0, 0, 0]}])";
+    doc.ropes = R"([{"from_body": -1, "from_point": [0, 0, 0], "to_body": 0, "to_point": [0, 0, 0], )"
+                R"("segments": 4, "axial_rigidity": 1e5, "damping": 50.0, "mass_per_length": 0.01, )"
+                R"("rest_length": 1.0, "breaking_tension": 9.5, "attachment_damping": 0.0, )"
+                R"("attachment_friction": 0.0}])";
+    doc.substeps = substeps;
+    return doc;
+}
+
+struct Tick {
+    std::int64_t tick = 0;
+    ModelChangeEvent change;
+};
+
+std::vector<Tick> run_ticks(NativeAdapter& adapter, int ticks) {
+    std::vector<Tick> out;
+    for (int n = 1; n <= ticks; ++n) {
+        adapter.step();
+        for (const ModelChangeEvent& change : adapter.outputs().model_changes) {
+            out.push_back(Tick{n, change});
+        }
+    }
+    return out;
+}
+
+}  // namespace
+
+TEST_CASE("native adapter: a snap lists RopeSnapped then LoadReleased, each once", "[PHY-004][PHY-008]") {
+    // The engine detects the snap at the end of engine step k and releases the load in the same call (one
+    // release_load path, ENG-047): both events belong to step k, RopeSnapped first.
+    NativeAdapter reference;
+    load(reference, snapping_rope(0));
+    const std::vector<Tick> events = run_ticks(reference, 400);
+    REQUIRE(events.size() == 2);
+    CHECK(events[0].change.kind == ModelChangeKind::RopeSnapped);
+    CHECK(events[0].change.source == ModelChangeSource::Rope);
+    CHECK(events[0].change.index == 0);
+    CHECK(events[0].change.value > 9.5);
+    CHECK(events[1].change.kind == ModelChangeKind::LoadReleased);
+    CHECK(events[1].change.source == ModelChangeSource::Rope);
+    CHECK(events[1].change.index == 0);
+    CHECK(events[1].tick == events[0].tick);
+    const std::int64_t k = events[0].tick;
+    REQUIRE(k >= 2);
+
+    SECTION("two engine steps per tick: each event once, in the tick holding its engine step") {
+        NativeAdapter adapter;
+        adapter.load(PreparedModel{snapping_rope(2).text(), "", "1.0.0"}, Rate(500));
+        CHECK(adapter.timestep() == 1e-3);
+        const std::vector<Tick> paired = run_ticks(adapter, 200);
+        REQUIRE(paired.size() == 2);
+        CHECK(paired[0].change.kind == ModelChangeKind::RopeSnapped);
+        CHECK(paired[0].change.value == events[0].change.value);
+        CHECK(paired[0].tick == (k + 1) / 2);
+        CHECK(paired[1].change.kind == ModelChangeKind::LoadReleased);
+        CHECK(paired[1].tick == (k + 1) / 2);
+    }
+    SECTION("events from the first and the last engine step of one tick are both listed, in step order") {
+        const int substeps = static_cast<int>(k);
+        NativeAdapter adapter;
+        adapter.load(PreparedModel{snapping_rope(substeps).text(), "", "1.0.0"}, Rate(1000, substeps));
+        CHECK(adapter.timestep() == 1e-3);
+        adapter.disable_constraint(0);
+        adapter.step();
+        const std::vector<ModelChangeEvent> first = adapter.outputs().model_changes;
+        REQUIRE(first.size() == 3);
+        CHECK(first[0].kind == ModelChangeKind::ConstraintDisabled);
+        CHECK(first[0].source == ModelChangeSource::Constraint);
+        CHECK(first[0].index == 0);
+        CHECK(first[1].kind == ModelChangeKind::RopeSnapped);
+        CHECK(first[1].value == events[0].change.value);
+        CHECK(first[2].kind == ModelChangeKind::LoadReleased);
+        CHECK(adapter.events().size() == 3);
+        adapter.step();
+        CHECK(adapter.outputs().model_changes.empty());
+        CHECK(adapter.events().empty());
+    }
+    SECTION("run twice bitwise") {
+        std::array<std::vector<double>, 2> runs;
+        for (std::vector<double>& out : runs) {
+            NativeAdapter adapter;
+            adapter.load(PreparedModel{snapping_rope(2).text(), "", "1.0.0"}, Rate(500));
+            for (int n = 0; n < 100; ++n) {
+                adapter.step();
+                out.push_back(adapter.outputs().ropes[0].tension);
+                out.push_back(adapter.outputs().ropes[0].max_tension);
+                out.push_back(adapter.outputs().bodies[0].position[2]);
+                for (const ModelChangeEvent& change : adapter.outputs().model_changes) {
+                    out.push_back(static_cast<double>(change.kind));
+                    out.push_back(change.value);
+                }
+            }
+        }
+        CHECK(runs[0] == runs[1]);
+    }
+}
+
+TEST_CASE("native adapter: substeps below one are refused", "[PHY-031]") {
+    NativeAdapter adapter;
+    Doc doc = slider(1.0);
+    doc.substeps = -1;
+    CHECK_THROWS_AS(load(adapter, doc), AdapterError);
+}
+
+TEST_CASE("native adapter: joint and member spring changes are listed once, in the next tick", "[PHY-008]") {
+    NativeAdapter adapter;
+    Doc doc;
+    doc.elements = R"(["body", "joint.revolute", "joint.fixed", "lumped_member"])";
+    doc.gravity = "[0, 0, 0]";
+    doc.bodies.push_back(body("arm", -1, "revolute", "[0, 0, 1]", 1.0, "[10.0]", "[1.0]"));
+    doc.bodies.push_back(body("base", -1, "fixed", "[0, 0, 1]", 1.0));
+    doc.members = R"([{"parent": 1, "position": [0, 0, 0], "orientation": [1, 0, 0, 0], "youngs_modulus": 2e11, )"
+                  R"("area_moment": 1e-8, "density": 7800, "area": 1e-4, "length": 1.0, "node_damping": 0.0, )"
+                  R"("roller_mass_fraction": 0.001, "segments": 8, "ends": "cantilever"}])";
+    doc.substeps = 2;
+    adapter.load(PreparedModel{doc.text(), "", "1.0.0"}, Rate(500));
+    adapter.set_spring_stiffness(0, 40.0);
+    adapter.set_spring_offset(0, 0.2);
+    adapter.set_spring_offset(3, 0.01);
+    adapter.step();
+    const std::vector<ModelChangeEvent> changes = adapter.outputs().model_changes;
+    REQUIRE(changes.size() == 3);
+    CHECK(changes[0].kind == ModelChangeKind::SpringStiffness);
+    CHECK(changes[0].source == ModelChangeSource::Spring);
+    CHECK(changes[0].index == 0);
+    CHECK(changes[0].value == 40.0);
+    CHECK(changes[1].kind == ModelChangeKind::SpringOffset);
+    CHECK(changes[1].value == 0.2);
+    CHECK(changes[2].kind == ModelChangeKind::SpringOffset);
+    CHECK(changes[2].index == 3);
+    CHECK(changes[2].value == 0.01);
+    // The engine's own per-node event stays on events() only.
+    REQUIRE(adapter.events().size() == 1);
+    CHECK(adapter.events()[0].kind == "spring_offset");
+    adapter.step();
+    CHECK(adapter.outputs().model_changes.empty());
 }
 
 // ===== JSON reader =======================================================
@@ -477,4 +656,98 @@ TEST_CASE("native adapter: the JSON reader takes the translation's subset and re
     CHECK_THROWS_AS(v.at("missing"), ParseError);
     CHECK_THROWS_AS(v.at("b").number("b"), ParseError);
     CHECK_THROWS_AS(Value::parse("[1.5]").array("x")[0].integer("x"), ParseError);
+}
+
+TEST_CASE("native adapter: the JSON reader refuses duplicate keys and non-JSON numbers", "[PHY-009]") {
+    using mechsim::physics::native::json::ParseError;
+    using mechsim::physics::native::json::Value;
+    CHECK_THROWS_AS(Value::parse(R"({"a": 1, "a": 2})"), ParseError);
+    CHECK_THROWS_AS(Value::parse(R"({"a": {"b": 1, "b": 1}})"), ParseError);
+    for (const char* bad : {"[+1]", "[01]", "[-01]", "[.5]", "[1.]", "[-.5]", "[0x10]", "[NaN]", "[nan]", "[Infinity]",
+                            "[-Infinity]", "[inf]", "[1e]", "[1e+]", "[--1]", "[-]", "[1e999]", R"(["\x"])",
+                            "[\"a\tb\"]"}) {
+        CAPTURE(bad);
+        CHECK_THROWS_AS(Value::parse(bad), ParseError);
+    }
+    for (const char* good : {"[0]", "[-0]", "[10]", "[0.5]", "[-0.5e-3]", "[1E+2]", "[1e2]", R"(["\/\\\""])"}) {
+        CAPTURE(good);
+        CHECK_NOTHROW(Value::parse(good));
+    }
+    CHECK(Value::parse("[1E+2]").array("x")[0].number("x") == 100.0);
+}
+
+TEST_CASE("native adapter: the JSON reader refuses empty, truncated and too deeply nested input", "[PHY-009]") {
+    using mechsim::physics::native::json::ParseError;
+    using mechsim::physics::native::json::Value;
+    CHECK_THROWS_AS(Value::parse(""), ParseError);
+    CHECK_THROWS_AS(Value::parse("   "), ParseError);
+    const std::string text = slider(1.0).text();
+    for (const std::size_t cut : {std::size_t{1}, text.size() / 2, text.size() - 1}) {
+        CAPTURE(cut);
+        CHECK_THROWS_AS(Value::parse(text.substr(0, cut)), ParseError);
+    }
+    // Depth cap: 64 nested arrays parse, 65 are refused.
+    const std::string deep64 = std::string(64, '[') + std::string(64, ']');
+    const std::string deep65 = std::string(65, '[') + std::string(65, ']');
+    CHECK_NOTHROW(Value::parse(deep64));
+    CHECK_THROWS_AS(Value::parse(deep65), ParseError);
+    NativeAdapter adapter;
+    CHECK_THROWS_AS(adapter.load(PreparedModel{"", "", "1.0.0"}, Rate(1000)), AdapterError);
+    CHECK_THROWS_AS(adapter.load(PreparedModel{text.substr(0, text.size() - 1), "", "1.0.0"}, Rate(1000)),
+                    AdapterError);
+}
+
+TEST_CASE("native adapter: every body index in the document is range-checked with the field named", "[PHY-009]") {
+    // Each case swaps one index for one outside its range; the load ends with AdapterError naming the field.
+    const auto refused = [](const Doc& doc, const std::string& field) {
+        NativeAdapter adapter;
+        try {
+            load(adapter, doc);
+        } catch (const AdapterError& error) {
+            CAPTURE(error.cause());
+            CHECK(error.cause().find(field) != std::string::npos);
+            return;
+        }
+        FAIL("loaded a document with a bad " + field);
+    };
+    Doc parent = slider(1.0);
+    parent.bodies[0] = body("slider", 0, "prismatic", "[0, 0, 1]", 1.0);
+    refused(parent, "body parent");
+    Doc neutral = slider(1.0);
+    neutral.neutral_bodies = 2;
+    refused(neutral, "neutral_bodies");
+    Doc start = slider(1.0);
+    start.starts = R"([{"body": 1, "value": 0.1}])";
+    refused(start, "start body");
+    Doc negative = slider(1.0);
+    negative.starts = R"([{"body": -1, "value": 0.1}])";
+    refused(negative, "start body");
+    Doc constraint = slider(1.0);
+    constraint.elements = R"(["body", "joint.prismatic", "constraint.point"])";
+    constraint.constraints = R"([{"type": "point", "body_a": 0, "body_b": 5, "point_a": [0, 0, 0], )"
+                             R"("point_b": [0, 0, 0]}])";
+    refused(constraint, "constraint body_b");
+    Doc member = slider(1.0);
+    member.elements = R"(["body", "joint.prismatic", "lumped_member"])";
+    member.members = R"([{"parent": 3, "position": [0, 0, 0], "orientation": [1, 0, 0, 0], "youngs_modulus": 2e11, )"
+                     R"("area_moment": 1e-8, "density": 7800, "area": 1e-4, "length": 1.0, "node_damping": 0.0, )"
+                     R"("roller_mass_fraction": 0.001, "segments": 8, "ends": "cantilever"}])";
+    refused(member, "member parent");
+    Doc rope = slider(1.0);
+    rope.elements = R"(["body", "joint.prismatic", "rope"])";
+    rope.ropes = R"([{"from_body": -2, "from_point": [0, 0, 0], "to_body": 0, "to_point": [0, 0, 0], )"
+                 R"("segments": 4, "axial_rigidity": 1e5, "damping": 50.0, "mass_per_length": 0.01, )"
+                 R"("rest_length": 1.0, "breaking_tension": null, "attachment_damping": 0.0, )"
+                 R"("attachment_friction": 0.0}])";
+    refused(rope, "rope from_body");
+    Doc payload = slider(1.0);
+    payload.payloads = R"([{"body": 4, "carrier": 0}])";
+    refused(payload, "payload body");
+    Doc geometry = slider(1.0);
+    geometry.elements = R"(["body", "joint.prismatic", "contacts"])";
+    geometry.contact = R"({"default": {"stiffness": 1e5, "damping": 10, "friction": 0.5}, "pairs": [], )"
+                       R"("exclusions": [], "slip_velocity": 1e-4, "geometries": [{"kind": "sphere", "body": 7, )"
+                       R"("position": [0, 0, 0], "orientation": [1, 0, 0, 0], "radius": 0.1, "length": 0, )"
+                       R"("size": [0, 0, 0], "vertices": [], "material": "steel"}]})";
+    refused(geometry, "geometry body");
 }

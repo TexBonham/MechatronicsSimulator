@@ -1,12 +1,15 @@
 """Unit tier tests and stubs for the physics adapter spec (PHY); stubs are strict xfail until converted."""
 
 import math
+import re
+import time
 from pathlib import Path
 from typing import Any
 
 import pytest
 
 from mechsim import _core as core
+from mechsim.physics.mujoco.prepare import prepare_model as prepare_bridge
 from mechsim.physics.native.prepare import prepare_model as prepare_native
 from mechsim.physics.neutral import PhysicsModel, from_yaml
 
@@ -194,13 +197,56 @@ def test_phy_009() -> None:
         rig.release_load(3)
 
 
+def _neutral_values(value: Any, path: str, found: list[str]) -> None:
+    """Every value reachable from an adapter's outputs is a builtin or a kernel type of `mechsim._core_ext`; an engine
+    type (`mechsim._core_ext.engine`) or anything else is listed."""
+    if isinstance(value, bool | int | float | str) or value is None:
+        return
+    if isinstance(value, list | tuple):
+        for index, item in enumerate(value):
+            _neutral_values(item, f"{path}[{index}]", found)
+        return
+    module = type(value).__module__
+    if module != "mechsim._core_ext":
+        found.append(f"{path}: {module}.{type(value).__name__}")
+        return
+    if hasattr(type(value), "__members__"):
+        return
+    for name in dir(value):
+        if name.startswith("_") or name in ("name", "value"):
+            continue
+        attribute = getattr(value, name)
+        if callable(attribute):
+            continue
+        _neutral_values(attribute, f"{path}.{name}", found)
+
+
 @pytest.mark.req("PHY-012")
-@pytest.mark.xfail(strict=True, reason="stub")
-def test_phy_012() -> None:
+@pytest.mark.parametrize("adapter", ["mujoco", "native"])
+def test_phy_012(adapter: str) -> None:
     """The only model type that crosses into an adapter shall be the engine-neutral physics model, and the only values
-    that cross out shall be neutral types.
-    """
-    raise NotImplementedError
+    that cross out shall be neutral types: load takes a PreparedModel (the neutral model's translation) and nothing
+    else; every value under outputs() is a kernel type or a builtin, never an engine type."""
+    physics = core.make_physics_adapter(adapter)
+    model = from_yaml(PENDULUM)
+    if adapter == "native":
+        native = prepare_native(model, None, 1e-3)
+        prepared = core.PreparedModel(native.model_json, "", native.version)
+    else:
+        bridge = prepare_bridge(model, None, 1e-3)
+        prepared = core.PreparedModel(bridge.neutral_json, bridge.mjcf, bridge.version)
+    with pytest.raises(TypeError):
+        physics.load(model, core.Rate(1000))
+    physics.load(prepared, core.Rate(1000))
+    physics.step()
+    found: list[str] = []
+    _neutral_values(physics.outputs(), "outputs", found)
+    _neutral_values(physics.health(), "health", found)
+    assert found == []
+    rig = native_rig()
+    rig.step()
+    _neutral_values(rig.outputs(), "rig", found)
+    assert found == []
 
 
 @pytest.mark.req("PHY-018")
@@ -244,17 +290,78 @@ def test_phy_027() -> None:
     assert out.bodies[0].angular_velocity[2] != 0.0
 
 
+def _faller(adapter: str, hz: int) -> Any:
+    data = from_yaml(PENDULUM).model_dump(mode="json")
+    data["gravity"] = ("0 m/s**2", "0 m/s**2", "-9.81 m/s**2")
+    data["signals"] = {}
+    data["bodies"] = [
+        {
+            "name": "slider",
+            "mass": "1 kg",
+            "com": ORIGIN,
+            "inertia": {"ixx": "0.01 kg*m**2", "iyy": "0.01 kg*m**2", "izz": "0.01 kg*m**2"},
+            "material": "steel",
+            "parent": "world",
+            "joint": {"name": "drop", "type": "prismatic", "position": ORIGIN, "axis": (0, 0, 1)},
+        }
+    ]
+    model = PhysicsModel.model_validate(data)
+    physics = core.make_physics_adapter(adapter)
+    if adapter == "native":
+        native = prepare_native(model, None, 1.0 / hz)
+        physics.load(core.PreparedModel(native.model_json, "", native.version), core.Rate(hz))
+    else:
+        bridge = prepare_bridge(model, None, 1.0 / hz)
+        physics.load(core.PreparedModel(bridge.neutral_json, bridge.mjcf, bridge.version), core.Rate(hz))
+    return physics
+
+
 @pytest.mark.req("PHY-031")
-@pytest.mark.xfail(strict=True, reason="stub")
 def test_phy_031() -> None:
     """Integrator choice and step size shall be per-adapter configuration, and no adapter shall change another
-    adapter's configuration.
-    """
-    raise NotImplementedError
+    adapter's configuration: three adapters loaded side by side at 1000, 400 and 250 Hz each keep their own rate and
+    fall by their own step's closed form. Semi-implicit Euler under constant g: v_n = -g n h exactly (the bridge
+    integrates the free fall the same way); after n steps the speed names the step the adapter used."""
+    adapters = [("native", 1000), ("native", 400), ("mujoco", 250)]
+    loaded = [(_faller(name, hz), hz) for name, hz in adapters]
+    for _ in range(10):
+        for physics, _hz in loaded:
+            physics.step()
+    for physics, hz in loaded:
+        assert physics.health().physics_rate.numerator == hz
+        assert physics.health().steps == 10
+        assert physics.outputs().bodies[0].linear_velocity[2] == pytest.approx(-9.81 * 10 / hz, rel=1e-9)
 
 
 @pytest.mark.req("PHY-032")
-@pytest.mark.xfail(strict=True, reason="stub")
-def test_phy_032() -> None:
-    """An adapter shall advance simulated time only on a step call and shall not read wall-clock time."""
-    raise NotImplementedError
+@pytest.mark.parametrize("adapter", ["mujoco", "native"])
+def test_phy_032(adapter: str) -> None:
+    """An adapter shall advance simulated time only on a step call and shall not read wall-clock time: outputs,
+    health and inputs leave the step count and the state alone, and two runs with a pause between steps of one of
+    them are bitwise equal; the native sources name no clock."""
+    physics = _faller(adapter, 1000)
+    before = physics.outputs().bodies[0].position[2]
+    for _ in range(5):
+        physics.outputs()
+        physics.health()
+        physics.set_inputs(core.PhysicsInputs())
+    assert physics.health().steps == 0
+    assert physics.outputs().steps == 0
+    assert physics.outputs().bodies[0].position[2] == before
+    paused = _faller(adapter, 1000)
+    plain = _faller(adapter, 1000)
+    for n in range(20):
+        if n == 10:
+            time.sleep(0.05)
+        paused.step()
+        plain.step()
+    assert paused.outputs().bodies[0].position[2] == plain.outputs().bodies[0].position[2]
+    assert paused.health().steps == 20
+    clocks = re.compile(r"<chrono>|<ctime>|std::chrono|\bclock\(|\btime\(|gettimeofday|import time|datetime")
+    root = Path(__file__).resolve().parents[2]
+    sources = [
+        *sorted((root / "core/physics/native").rglob("*.[ch]pp")),
+        *sorted((root / "mechsim/physics/native").rglob("*.py")),
+    ]
+    assert len(sources) > 3
+    assert [path.name for path in sources if "tests" not in path.parts and clocks.search(path.read_text())] == []

@@ -109,7 +109,27 @@ void bind_types(py::module_& m) {
     py::class_<kernel::RopeTension>(m, "RopeTension")
         .def(py::init<>())
         .def_readwrite("tension", &kernel::RopeTension::tension)
+        .def_readwrite("max_tension", &kernel::RopeTension::max_tension)
         .def_readwrite("slack", &kernel::RopeTension::slack);
+    py::enum_<kernel::ModelChangeKind>(m, "ModelChangeKind")
+        .value("SpringOffset", kernel::ModelChangeKind::SpringOffset)
+        .value("SpringStiffness", kernel::ModelChangeKind::SpringStiffness)
+        .value("ConstraintDisabled", kernel::ModelChangeKind::ConstraintDisabled)
+        .value("LoadReleased", kernel::ModelChangeKind::LoadReleased)
+        .value("RopeSnapped", kernel::ModelChangeKind::RopeSnapped)
+        .value("PayloadAttached", kernel::ModelChangeKind::PayloadAttached)
+        .value("PayloadMass", kernel::ModelChangeKind::PayloadMass);
+    py::enum_<kernel::ModelChangeSource>(m, "ModelChangeSource")
+        .value("Spring", kernel::ModelChangeSource::Spring)
+        .value("Constraint", kernel::ModelChangeSource::Constraint)
+        .value("Rope", kernel::ModelChangeSource::Rope)
+        .value("Payload", kernel::ModelChangeSource::Payload);
+    py::class_<kernel::ModelChangeEvent>(m, "ModelChangeEvent", "A tick's model change or rope snap (ruling 40).")
+        .def(py::init<>())
+        .def_readwrite("kind", &kernel::ModelChangeEvent::kind)
+        .def_readwrite("source", &kernel::ModelChangeEvent::source)
+        .def_readwrite("index", &kernel::ModelChangeEvent::index)
+        .def_readwrite("value", &kernel::ModelChangeEvent::value);
     py::enum_<kernel::PowerFlow>(m, "PowerFlow")
         .value("Static", kernel::PowerFlow::Static)
         .value("Forward", kernel::PowerFlow::Forward)
@@ -163,7 +183,8 @@ void bind_types(py::module_& m) {
         .def_readwrite("transmissions", &kernel::PhysicsOutputs::transmissions)
         .def_readwrite("joint_positions", &kernel::PhysicsOutputs::joint_positions)
         .def_readwrite("joint_drive_torques", &kernel::PhysicsOutputs::joint_drive_torques)
-        .def_readwrite("payloads", &kernel::PhysicsOutputs::payloads);
+        .def_readwrite("payloads", &kernel::PhysicsOutputs::payloads)
+        .def_readwrite("model_changes", &kernel::PhysicsOutputs::model_changes);
     py::class_<kernel::BodyWrench>(m, "BodyWrench")
         .def(py::init<>())
         .def_readwrite("body", &kernel::BodyWrench::body)

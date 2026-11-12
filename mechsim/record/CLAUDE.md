@@ -9,7 +9,7 @@ types. `reader.py` imports `mechsim.testing.driver` and `.runner` types (no cycl
 | `tick.py` | `TickRecord` and physics structs, frozen mirror of `core/kernel/.../tick_record.hpp` (incl. `coupling`: `CouplingSample(name, kind, value, digest)`, kinds none/real/integer/flag/payload; `PhysicsOutputs.joint_positions`, `joint_drive_torques` (`JointDriveTorque(joint, torque)`), `payloads` (`PayloadState(body, carrier, attached, force)`, carrier `WORLD_BODY` = -1 once released); `RopeTension(tension = load end, slack, max_tension)`); `RecordError` |
 | `layout.py` | `FIXED_SERIES` (path, unit, axis, dtype) canonical order; `MEMBER_SERIES`, `ROPE_SERIES` (`ROPE_TENSION`, slack, `ROPE_MAX_TENSION`); `COLUMN_SERIES`, `Columns(names, units)`, `label_series`; `Series` (+ `names`, `units`), `Recording`; `seconds()` |
 | `stream.py` | `Recorder(base_rate, columns=None)`: `write_row`, `subscribe(cb) -> int`, `unsubscribe`, `recording()`, `flush(path, identity, end)` |
-| `archive.py` | `RunIdentity` (controller_mode native, emulated, none), `RunEnd`, `RunFault`, `write_archive(path, identity, end, recording, extra, columns)` (`extra` -> root attrs `meta_<key>`, read back as `RunArchive.extra`), `RunArchive(path)` reader, `coupling()`, `records()` replay, `repository_commit`, `tool_version` |
+| `archive.py` | `RunIdentity` (controller_mode native, emulated, none; physics_adapter mujoco, native), `RunEnd`, `RunFault`, `write_archive(path, identity, end, recording, extra, columns)` (`extra` -> root attrs `meta_<key>`, read back as `RunArchive.extra`), `RunArchive(path)` reader, `coupling()`, `records()` replay, `repository_commit`, `tool_version` |
 | `export.py` | `export_csv`, `export_json`, `export_mat(archive, path, names)`; index-column series exported with per-column names and units (`series[name] [unit]`, JSON `names`/`units`, MAT `series_columns`/`series_column_units`) |
 | `reader.py` | Engine-free read side (ruling 17; nothing from `mechsim._core`): `Kinematics`/`JointKinematics` (`of(model)`, `to_json`, `from_json`), `RecordingView` (the `RecordView` scoring and replay read: `pose:`, `joint:`, `actuator:`, `signal:` refs, events by the label table), `RecordArchiveReader.open(path) -> (RunMetadata, RecordingView)` (metadata `members`, `material_overrides`, `variation`, `integrity` from the extras), `DriverError`; re-exported by `testing/core_driver.py` |
 | `compare.py` | `archives_identical(a, b) -> Report(identical, content_identical, first_difference)` |
@@ -17,7 +17,7 @@ types. `reader.py` imports `mechsim.testing.driver` and `.runner` types (no cycl
 ## Archive layout (format version 2; reader accepts 1 and 2)
 
 - Root attrs: format, format_version, design_name/version/source_hash, test_case_id/hash, seed (uint64),
-  controller_mode, base/physics/control_rate (int64 [num, den]), repository_commit, tool_version, end_outcome,
+  controller_mode, physics_adapter (`mujoco`, `native`; absent reads `mujoco`, TST-040), base/physics/control_rate (int64 [num, den]), repository_commit, tool_version, end_outcome,
   end_time, end_ticks, fault_party/time/cause on run_error, `series` (canonical names).
 - `time/tick`, `time/seconds`, `physics/...`, `signals/{pins,rails,actuator_efforts}/<name>` (group attr `names`),
   `controller/state` (index into `controller/state_names`), `events` (row, tick, seconds, source, kind, detail),

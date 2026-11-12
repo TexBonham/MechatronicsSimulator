@@ -199,3 +199,53 @@ def test_segment_defaults_by_support_condition() -> None:
     for root, end in (("clamped", "free"), ("pinned", "roller"), ("clamped", "roller")):
         assert structure.default_segments(root, end) == 8
         assert structure.calibration_min_segments(root, end) == 8
+
+
+@pytest.mark.req("PHY-019")
+@pytest.mark.parametrize("kind", ["spherical", "free"])
+@pytest.mark.parametrize(
+    ("field", "value", "refusal"),
+    [("stiffness", 3.0, "stiffness on a"), ("lower", -0.5, "limits on a"), ("upper", 0.5, "limits on a")],
+)
+def test_stiffness_or_limits_on_a_ball_or_free_joint_are_refused(
+    kind: str, field: str, value: float, refusal: str
+) -> None:
+    """The own engine's joint springs and limits act on revolute, prismatic and planar coordinates. The neutral model
+    already refuses them on a ball or free joint; a model built without validation reaches the translation, which
+    refuses it with the joint named instead of dropping the value (PHY-019, invariant 7)."""
+    data = pendulum_data()
+    body = free_body("ball")
+    joint: dict[str, Any] = {"name": "ball_joint", "type": kind, "position": ("0 m", "0 m", "-0.3 m")}
+    joint["angular"] = [{}, {}, {}]
+    if kind == "free":
+        joint["linear"] = [{}, {}, {}]
+    body["joint"] = joint
+    data["bodies"] = [body]
+    data["signals"] = {}
+    model = model_of(data)
+    translate(model)
+    bad = dict(joint)
+    bad["angular"] = [{field: f"{value} rad"}, {}, {}]
+    if field == "stiffness":
+        bad["angular"] = [{field: f"{value} N*m/rad"}, {}, {}]
+    with pytest.raises(ValueError, match=f"joint 'ball_joint' \\({kind}\\) takes no"):
+        model_of({**data, "bodies": [{**body, "joint": bad}]})
+    built = model.bodies[0]
+    assert built.joint is not None
+    dof = built.joint.angular[0].model_copy(update={field: value})
+    unvalidated_joint = built.joint.model_copy(update={"angular": (dof, *built.joint.angular[1:])})
+    unvalidated = model.model_copy(update={"bodies": (built.model_copy(update={"joint": unvalidated_joint}),)})
+    with pytest.raises(UnmappableElementError, match=f"joint 'ball_joint'.*{refusal} {kind} joint"):
+        translate(unvalidated)
+
+
+@pytest.mark.req("PHY-031")
+def test_the_drive_line_names_the_loss_per_period() -> None:
+    """Ruling 21: backward Euler loses pi omega h of a mode's amplitude per period (it keeps about e^(-pi omega h))."""
+    data = pendulum_data()
+    data["bodies"] = [slider("cart")]
+    data["signals"] = {"drive_joints": ["cart_joint"]}
+    lines = [line for line in translate(model_of(data), step=1e-3).report if "joint drive" in line]
+    assert len(lines) == 1
+    assert "loses about pi x of its amplitude per period" in lines[0]
+    assert "keeps (1 + x^2)^(-pi / atan x), about e^(-pi x)" in lines[0]

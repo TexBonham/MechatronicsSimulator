@@ -1274,12 +1274,13 @@
     },
     "LumpedMember": {
       "additionalProperties": false,
-      "description": "Multi-segment lumped beam (R-13) rooted on `parent` at the given placement, along the root frame's x axis.\n\n`segments` defaults to 8 (ruling 17; the 2 percent references hold for N >= 8, ENG-040).",
+      "description": "Multi-segment lumped beam (R-13) rooted on `parent` at the given placement, along the root frame's x axis.\n\n`segments` defaults to 8, and to 16 for a clamped-clamped member (rulings 17 and 31: the chain's clamped-clamped\ndeflection error is -4 / N^2). A clamped far end (ruling 16) locks the end rotation and the transverse\ntranslation; it needs a clamped root.",
       "properties": {
         "end": {
           "enum": [
             "free",
-            "roller"
+            "roller",
+            "clamped"
           ],
           "title": "End",
           "type": "string"

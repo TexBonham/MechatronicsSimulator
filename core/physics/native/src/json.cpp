@@ -29,6 +29,7 @@ public:
     }
 
 private:
+    // At most 64 nested arrays or objects (the document nests four deep); deeper input is refused, not recursed.
     static constexpr int max_depth = 64;
 
     [[noreturn]] void fail(const std::string& why) const {
@@ -76,6 +77,9 @@ private:
             if (c == '"') {
                 return out;
             }
+            if (static_cast<unsigned char>(c) < 0x20U) {
+                fail("control character in string");
+            }
             if (c != '\\') {
                 out.push_back(c);
                 continue;
@@ -108,14 +112,16 @@ private:
                     fail("non-ASCII \\u escape");
                 }
                 out.push_back(static_cast<char>(code));
-            } else {
+            } else if (e == '"' || e == '\\' || e == '/') {
                 out.push_back(e);
+            } else {
+                fail(std::string("bad escape '\\") + e + "'");
             }
         }
     }
 
     Value parse_value(int depth) {
-        if (depth > max_depth) {
+        if (depth >= max_depth) {
             fail("nesting too deep");
         }
         Value value;
@@ -130,7 +136,10 @@ private:
             while (true) {
                 std::string key = parse_string();
                 expect(':');
-                value.object_.insert_or_assign(std::move(key), parse_value(depth + 1));
+                if (value.object_.contains(key)) {
+                    fail("duplicate key '" + key + "'");
+                }
+                value.object_.emplace(std::move(key), parse_value(depth + 1));
                 if (peek() == ',') {
                     ++at_;
                     continue;
@@ -174,16 +183,62 @@ private:
             return value;
         }
         const char* begin = text_.data() + at_;
-        const char* end = text_.data() + text_.size();
+        const char* end = text_.data() + at_ + number_length();
         double number = 0.0;
         const auto result = std::from_chars(begin, end, number);
-        if (result.ec != std::errc{} || result.ptr == begin || !std::isfinite(number)) {
-            fail("bad value");
+        if (result.ec != std::errc{} || result.ptr != end || !std::isfinite(number)) {
+            fail("bad number");
         }
         at_ += static_cast<std::size_t>(result.ptr - begin);
         value.kind_ = Value::Kind::Number;
         value.number_ = number;
         return value;
+    }
+
+    [[nodiscard]] bool digit(std::size_t i) const { return i < text_.size() && text_[i] >= '0' && text_[i] <= '9'; }
+
+    // Length of the JSON number at the cursor: -?(0|[1-9][0-9]*)(.[0-9]+)?([eE][+-]?[0-9]+)?. A leading plus, leading
+    // zeros, a bare dot, hex, NaN and Infinity are not JSON numbers.
+    [[nodiscard]] std::size_t number_length() const {
+        std::size_t i = at_;
+        if (i < text_.size() && text_[i] == '-') {
+            ++i;
+        }
+        if (!digit(i)) {
+            fail("bad value");
+        }
+        if (text_[i] == '0') {
+            ++i;
+            if (digit(i)) {
+                fail("bad number: leading zero");
+            }
+        } else {
+            while (digit(i)) {
+                ++i;
+            }
+        }
+        if (i < text_.size() && text_[i] == '.') {
+            ++i;
+            if (!digit(i)) {
+                fail("bad number: no digit after the point");
+            }
+            while (digit(i)) {
+                ++i;
+            }
+        }
+        if (i < text_.size() && (text_[i] == 'e' || text_[i] == 'E')) {
+            ++i;
+            if (i < text_.size() && (text_[i] == '+' || text_[i] == '-')) {
+                ++i;
+            }
+            if (!digit(i)) {
+                fail("bad number: no exponent digits");
+            }
+            while (digit(i)) {
+                ++i;
+            }
+        }
+        return i - at_;
     }
 
     std::string_view text_;

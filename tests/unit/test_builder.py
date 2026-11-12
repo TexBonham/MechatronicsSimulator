@@ -370,7 +370,7 @@ def test_structural_members_record_section_material_and_supports() -> None:
 
 
 @pytest.mark.parametrize(
-    "supports", [["clamped", "clamped"], ["roller", "free"], ["free", "free"], ["pinned", "pinned"]]
+    "supports", [["pinned", "clamped"], ["roller", "free"], ["free", "free"], ["pinned", "pinned"]]
 )
 def test_support_pair_without_a_lumped_form_fails(supports: list[str]) -> None:
     data = gantry_data()
@@ -523,10 +523,13 @@ def test_shipped_gantry_builds_rigid_on_its_placeholder_geometry() -> None:
     assert list(result.pending) == sorted(set(result.pending))
 
 
-def test_shipped_gantry_flexible_build_fails_on_clamped_clamped_rail_x() -> None:
-    """Documents the gap: the neutral lumped beam has no clamped-clamped form until milestone 3."""
-    failures = _failures(gantry())
-    assert any("flexible body 'rail_x': supports (clamped, clamped)" in failure for failure in failures)
+@pytest.mark.req("BLD-018")
+def test_shipped_gantry_flexible_build_maps_clamped_clamped_rail_x() -> None:
+    """Ruling 16: the neutral lumped beam has a clamped far end; rail_x gets sixteen segments (ruling 31)."""
+    result = _build(gantry())
+    assert result.physics is not None
+    members = {member.structural_member: member for member in result.physics.lumped_members}
+    assert (members["rail_x"].end, members["rail_x"].segments) == ("clamped", 16)
 
 
 def test_open_physics_value_keeps_physics_pending() -> None:
@@ -561,7 +564,9 @@ def test_rigid_build_needs_no_calibration_and_accepts_any_supports() -> None:
     rigid = _build(filled_gantry(data), rigid_members=True)
     assert rigid.physics is not None
     assert [(s.at, s.condition) for s in rigid.members[0].supports] == [(0.0, "clamped"), (1.0, "clamped")]
-    assert any("supports (clamped, clamped)" in failure for failure in _failures(filled_gantry(data)))
+    data["bodies"][1]["flexible"]["supports"] = ["pinned", "clamped"]
+    assert _build(filled_gantry(data), rigid_members=True).physics is not None
+    assert any("supports (pinned, clamped)" in failure for failure in _failures(filled_gantry(data)))
 
 
 def test_module_instances_follow_the_tick_order() -> None:

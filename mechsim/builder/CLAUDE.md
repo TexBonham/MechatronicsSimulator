@@ -46,8 +46,10 @@ Neutral quantities are written `repr(value) unit` in SI, validated once. Element
 
 - Calibration (BLD-019): E scaled by chain deflection / recorded deflection, then rho by (chain omega / recorded
   omega)^2, both exact on the chain; lumped member only; a scale outside [0.5, 2] adds an approximation note. No
-  calibration: built as is, with a note. Calibrated with segments < 8 (ruling 20) or pinned-free: build failure.
-  Clamped-clamped with calibration: a note, layout owed (ruling 16). Rigid builds calibrate nothing.
+  calibration: built as is, with a note. Calibrated below `structure.calibration_min_segments` (8; 16 clamped-clamped, rulings 20, 32) or pinned-free: build failure.
+  Clamped-clamped with calibration: a note, calibration chain layout owed (ruling 16). Segments: the design's, else
+  `structure.default_segments` (8; 16 clamped-clamped, BLD-018), always written to the neutral member. Supports:
+  root clamped or pinned, end free, roller or clamped (a clamped end needs a clamped root). Rigid builds calibrate nothing.
 - Materials: callers pass `design.schema.design_materials(design)` (the design's overrides applied, MAT-020).
 - Fastenings (BLD-031): `PhysicsModel.fastenings`, one per fixed joint (`mount`, the joint's name) and per body
   fastener entry (`fastener`, `<body>_<kind>[_<index>]`); `PhysicsModel.fastening_index(name)`. Not an element kind.
@@ -57,7 +59,7 @@ Neutral quantities are written `repr(value) unit` in SI, validated once. Element
 
 ## Later
 
-Loops as constraints (BLD-004), clamped-clamped beams, ropes to a case payload (X1).
+Loops as constraints (BLD-004), clamped-clamped calibration layout, ropes to a case payload (X1).
 
 ## Section index
 

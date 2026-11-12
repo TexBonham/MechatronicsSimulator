@@ -200,10 +200,7 @@ def tick_record(row: Any, events: Mapping[int, Sequence[RowEvent]] | None = None
         )
         for m in physics["members"]
     )
-    ropes = tuple(
-        RopeTension(float(r["tension"]), bool(r["slack"]), float(r.get("max_tension", r["tension"])))
-        for r in physics["ropes"]
-    )
+    ropes = tuple(RopeTension(float(r["tension"]), bool(r["slack"]), float(r["max_tension"])) for r in physics["ropes"])
     transmissions = tuple(
         TransmissionState(
             float(t["slip"]),

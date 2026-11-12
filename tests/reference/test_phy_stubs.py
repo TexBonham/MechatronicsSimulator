@@ -155,7 +155,8 @@ def test_phy_030() -> None:
 
 
 @pytest.mark.req("PHY-022", "PHY-007")
-def test_cantilever_member_end_loads_on_the_native_adapter() -> None:
+@pytest.mark.parametrize("adapter", ["mujoco", "native"])
+def test_cantilever_member_end_loads_on_the_native_adapter(adapter: str) -> None:
     """Statics of a lumped cantilever through the adapter (ENG-030, member frame of ruling 24).
 
     Steel 1 m member, 8 segments, along world x under g = -9.81 z: the clamped stub [0, l / 2] belongs to the parent,
@@ -183,7 +184,7 @@ def test_cantilever_member_end_loads_on_the_native_adapter() -> None:
             "node_damping": "5 N*m*s/rad",
         }
     ]
-    physics = loaded(PhysicsModel.model_validate(data))
+    physics = loaded(PhysicsModel.model_validate(data), adapter)
     for _ in range(4000):
         physics.step()
     loads = physics.outputs().members[0]

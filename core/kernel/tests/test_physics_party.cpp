@@ -37,6 +37,8 @@ public:
         PhysicsHealth health;
         // Mid-run operations as "operation index value @completed steps".
         std::vector<std::string> calls;
+        // Model changes the outputs list after the step that completes this many steps.
+        std::vector<std::pair<std::int64_t, ModelChangeEvent>> changes;
     };
 
     explicit CountingAdapter(std::shared_ptr<Shared> shared) : shared_(std::move(shared)) {
@@ -51,6 +53,12 @@ public:
         pending_ = PhysicsInputs{};
         ++outputs_.steps;
         outputs_.bodies[0].position[0] = static_cast<double>(outputs_.steps);
+        outputs_.model_changes.clear();
+        for (const auto& [at, change] : shared_->changes) {
+            if (at == outputs_.steps) {
+                outputs_.model_changes.push_back(change);
+            }
+        }
     }
     [[nodiscard]] const PhysicsOutputs& outputs() const override { return outputs_; }
     [[nodiscard]] PhysicsHealth health() const override {
@@ -322,8 +330,10 @@ struct FaultRun {
     std::vector<std::int64_t> event_rows;
 };
 
-FaultRun run_faults(const std::function<void(PhysicsParty&)>& schedule, std::int64_t ticks) {
+FaultRun run_faults(const std::function<void(PhysicsParty&)>& schedule, std::int64_t ticks,
+                    const std::vector<std::pair<std::int64_t, ModelChangeEvent>>& changes = {}) {
     auto shared = std::make_shared<CountingAdapter::Shared>();
+    shared->changes = changes;
     PhysicsPartyConfig config;
     config.inputs = {};
     auto party = std::make_unique<PhysicsParty>(std::make_unique<CountingAdapter>(shared), config);
@@ -533,4 +543,49 @@ TEST_CASE("Slip windows checked at a nominal rate the kernel overrides fault the
     CHECK(report.outcome == RunOutcome::run_error);
     CHECK(cause(report).find("steps every 2 ticks") != std::string::npos);
     CHECK(shared->calls.empty());
+}
+
+// ===== Model change events (ruling 26, ruling 40) =====================================================================
+
+TEST_CASE("Model change details name kind, source, index and value", "[PHY-008][REC-010]") {
+    using K = ModelChangeKind;
+    using S = ModelChangeSource;
+    CHECK(model_change_detail({K::SpringOffset, S::Spring, 3, 0.25}) == "spring_offset spring 3 value 0.25");
+    CHECK(model_change_detail({K::SpringStiffness, S::Spring, 0, 40.0}) == "spring_stiffness spring 0 value 40");
+    CHECK(model_change_detail({K::ConstraintDisabled, S::Constraint, 1, 0.0}) ==
+          "constraint_disabled constraint 1 value 0");
+    CHECK(model_change_detail({K::LoadReleased, S::Rope, 0, 0.0}) == "load_released rope 0 value 0");
+    CHECK(model_change_detail({K::LoadReleased, S::Payload, 4, 2.0}) == "load_released payload 4 value 2");
+    CHECK(model_change_detail({K::RopeSnapped, S::Rope, 2, 1500.125}) == "rope_snapped rope 2 value 1500.125");
+    CHECK(model_change_detail({K::PayloadAttached, S::Payload, 4, -1.0}) == "payload_attached payload 4 value -1");
+    CHECK(model_change_detail({K::PayloadMass, S::Payload, 4, 0.1}) == "payload_mass payload 4 value 0.1");
+}
+
+TEST_CASE("The physics party records each tick's model changes once, on the row of their step", "[PHY-008][REC-010]") {
+    const ModelChangeEvent snap{ModelChangeKind::RopeSnapped, ModelChangeSource::Rope, 0, 812.5};
+    const ModelChangeEvent release{ModelChangeKind::LoadReleased, ModelChangeSource::Rope, 0, 0.0};
+    const ModelChangeEvent mass{ModelChangeKind::PayloadMass, ModelChangeSource::Payload, 1, 3.0};
+    const FaultRun run = run_faults([](PhysicsParty& /*party*/) {}, 6, {{2, snap}, {2, release}, {4, mass}});
+    REQUIRE(run.report.outcome == RunOutcome::end_condition_met);
+    CHECK(event_texts(run) == std::vector<std::string>{"2 physics model_change rope_snapped rope 0 value 812.5",
+                                                       "2 physics model_change load_released rope 0 value 0",
+                                                       "4 physics model_change payload_mass payload 1 value 3"});
+    CHECK(run.event_rows == std::vector<std::int64_t>{2, 2, 4});
+}
+
+TEST_CASE("Recording one step twice lists its model changes once", "[PHY-008]") {
+    auto shared = std::make_shared<CountingAdapter::Shared>();
+    shared->changes = {{1, ModelChangeEvent{ModelChangeKind::ConstraintDisabled, ModelChangeSource::Constraint, 0, 0.0}}};
+    PhysicsPartyConfig config;
+    config.inputs = {};
+    PhysicsParty party(std::make_unique<CountingAdapter>(shared), config);
+    party.start(Rate(1000));
+    party.step(SimTime(0), Duration(1));
+    TickRecord first;
+    party.record(first);
+    TickRecord second;
+    party.record(second);
+    CHECK(first.events.size() == 1);
+    CHECK(second.events.empty());
+    CHECK(second.physics.model_changes.size() == 1);
 }

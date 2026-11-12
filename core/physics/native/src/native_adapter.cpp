@@ -209,6 +209,32 @@ std::string load_source(eng::LoadSource source) {
 
 kernel::Vec3 to_vec3(const Eigen::Vector3d& v) { return {v.x(), v.y(), v.z()}; }
 
+// A body index read from the model document (invariant 7): in [0, count), or -1 (the world) where allowed; anything
+// else is a ParseError naming the field.
+Eigen::Index body_index(const json::Value& value, const std::string& what, std::size_t count, bool world) {
+    const int index = value.integer(what);
+    if (index == -1 && world) {
+        return -1;
+    }
+    if (index < 0 || static_cast<std::size_t>(index) >= count) {
+        std::string range = "[0, " + std::to_string(count) + ")";
+        if (world) {
+            range = "-1 (world) or " + range;
+        }
+        throw json::ParseError(what + ": index " + std::to_string(index) + " outside " + range);
+    }
+    return index;
+}
+
+kernel::BodyState body_state(const eng::BodyOutput& pose) {
+    kernel::BodyState s;
+    s.position = to_vec3(pose.position);
+    s.orientation = {pose.orientation.w(), pose.orientation.x(), pose.orientation.y(), pose.orientation.z()};
+    s.angular_velocity = to_vec3(pose.spatial_velocity.head<3>());
+    s.linear_velocity = to_vec3(pose.origin_velocity);
+    return s;
+}
+
 // ===== Joint extras ======================================================
 // What the adapter adds to the engine's terms per velocity DOF, all implicit through K and D so the integrator solves
 // them at the step's end state (backward Euler, ADR 0013 A):
@@ -371,6 +397,10 @@ struct NativeAdapter::Engine {
     std::vector<kernel::JointDrive> drives;           // this step's drives, input order
     kernel::PhysicsOutputs outputs;
     std::vector<ModelChangeRecord> events;
+    int substeps = 1;                                        // engine steps per adapter step
+    kernel::PhysicsInputs inputs;                            // re-applied before each engine step of a tick
+    std::vector<kernel::ModelChangeEvent> pending_changes;  // mid-run spring changes, listed in the next tick
+    std::vector<Eigen::Index> node_bodies;  // member chain bodies, published after the neutral bodies, in order
 };
 
 namespace {
@@ -379,7 +409,7 @@ void parse_bodies(const json::Value& doc, eng::MultibodyModel& model, std::vecto
     for (const json::Value& b : doc.at("bodies").array("bodies")) {
         eng::Body body;
         body.name = b.at("name").string("body name");
-        body.parent = b.at("parent").integer("body parent");
+        body.parent = body_index(b.at("parent"), "body parent", model.bodies.size(), true);
         body.mass = b.at("mass").number("body mass");
         body.com = vec3(b.at("com"), "body com");
         const Eigen::VectorXd inertia = vecx(b.at("inertia"), "body inertia");
@@ -463,12 +493,19 @@ void NativeAdapter::load(const kernel::PreparedModel& prepared, const kernel::Ra
     }
     auto e = std::make_unique<Engine>();
     e->rate = physics_rate;
-    e->h = static_cast<double>(physics_rate.denominator()) / static_cast<double>(physics_rate.numerator());
     try {
         const json::Value doc = json::Value::parse(prepared.neutral_model_json);
         if (doc.at("format").string("format") != model_format) {
             throw json::ParseError("format: expected '" + std::string(model_format) + "'");
         }
+        if (doc.has("substeps")) {
+            e->substeps = doc.at("substeps").integer("substeps");
+            if (e->substeps < 1) {
+                throw json::ParseError("substeps: at least 1 engine step per adapter step");
+            }
+        }
+        e->h = static_cast<double>(physics_rate.denominator()) /
+               (static_cast<double>(physics_rate.numerator()) * static_cast<double>(e->substeps));
         for (const json::Value& kind : doc.at("elements").array("elements")) {
             const std::string& name = kind.string("element kind");
             if (std::ranges::find(supported_kinds, std::string_view(name)) == supported_kinds.end()) {
@@ -491,10 +528,13 @@ void NativeAdapter::load(const kernel::PreparedModel& prepared, const kernel::Ra
         model.gravity = vec3(doc.at("gravity"), "gravity");
         std::vector<std::vector<DofExtras>> per_body;
         parse_bodies(doc, model, per_body);
-        e->neutral_bodies = static_cast<std::size_t>(doc.at("neutral_bodies").integer("neutral_bodies"));
-        if (e->neutral_bodies > model.bodies.size()) {
-            throw json::ParseError("neutral_bodies: more than the bodies listed");
+        const std::size_t doc_bodies = model.bodies.size();
+        const int neutral = doc.at("neutral_bodies").integer("neutral_bodies");
+        if (neutral < 0 || static_cast<std::size_t>(neutral) > model.bodies.size()) {
+            throw json::ParseError("neutral_bodies: " + std::to_string(neutral) + " outside [0, " +
+                                   std::to_string(model.bodies.size()) + "]");
         }
+        e->neutral_bodies = static_cast<std::size_t>(neutral);
         for (std::size_t i = 0; i < e->neutral_bodies; ++i) {
             e->joint_types.push_back(model.bodies[i].joint.type);
         }
@@ -511,8 +551,8 @@ void NativeAdapter::load(const kernel::PreparedModel& prepared, const kernel::Ra
             } else {
                 throw json::ParseError("constraint type '" + type + "': unknown");
             }
-            lc.body_a = c.at("body_a").integer("constraint body_a");
-            lc.body_b = c.at("body_b").integer("constraint body_b");
+            lc.body_a = body_index(c.at("body_a"), "constraint body_a", doc_bodies, true);
+            lc.body_b = body_index(c.at("body_b"), "constraint body_b", doc_bodies, true);
             lc.point_a = vec3(c.at("point_a"), "constraint point_a");
             lc.point_b = vec3(c.at("point_b"), "constraint point_b");
             model.constraints.push_back(lc);
@@ -532,7 +572,7 @@ void NativeAdapter::load(const kernel::PreparedModel& prepared, const kernel::Ra
             spec.ends = beam_ends(m.at("ends").string("member ends"));
             spec.roller_mass_fraction = m.at("roller_mass_fraction").number("member roller_mass_fraction");
             const eng::LumpedBeam beam =
-                eng::add_lumped_beam(model, spec, m.at("parent").integer("member parent"),
+                eng::add_lumped_beam(model, spec, body_index(m.at("parent"), "member parent", doc_bodies, true),
                                      vec3(m.at("position"), "member position"),
                                      quat(m.at("orientation"), "member orientation"));
             const std::vector<Eigen::Index> nodes = eng::member_nodes(beam);
@@ -544,8 +584,8 @@ void NativeAdapter::load(const kernel::PreparedModel& prepared, const kernel::Ra
         for (const json::Value& t : doc.at("transmissions").array("transmissions")) {
             eng::Transmission tr;
             tr.type = transmission_type(t.at("type").string("transmission type"));
-            tr.input_body = t.at("input_body").integer("transmission input_body");
-            tr.output_body = t.at("output_body").integer("transmission output_body");
+            tr.input_body = body_index(t.at("input_body"), "transmission input_body", e->neutral_bodies, false);
+            tr.output_body = body_index(t.at("output_body"), "transmission output_body", e->neutral_bodies, false);
             tr.ratio = t.at("ratio").number("transmission ratio");
             tr.reverses = t.at("reverses").boolean("transmission reverses");
             tr.efficiency = t.at("efficiency").number("transmission efficiency");
@@ -567,7 +607,7 @@ void NativeAdapter::load(const kernel::PreparedModel& prepared, const kernel::Ra
 
         std::vector<std::pair<Eigen::Index, double>> starts;
         for (const json::Value& s : doc.at("starts").array("starts")) {
-            starts.emplace_back(s.at("body").integer("start body"), s.at("value").number("start value"));
+            starts.emplace_back(body_index(s.at("body"), "start body", e->neutral_bodies, false), s.at("value").number("start value"));
         }
         const auto start_q = [&starts](const eng::MultibodyProvider& p) {
             Eigen::VectorXd q = p.neutral_positions();
@@ -597,9 +637,9 @@ void NativeAdapter::load(const kernel::PreparedModel& prepared, const kernel::Ra
             };
             for (const json::Value& r : ropes) {
                 eng::Rope rope;
-                rope.from_body = r.at("from_body").integer("rope from_body");
+                rope.from_body = body_index(r.at("from_body"), "rope from_body", doc_bodies, true);
                 rope.from_point = vec3(r.at("from_point"), "rope from_point");
-                rope.to_body = r.at("to_body").integer("rope to_body");
+                rope.to_body = body_index(r.at("to_body"), "rope to_body", doc_bodies, true);
                 rope.to_point = vec3(r.at("to_point"), "rope to_point");
                 rope.segments = r.at("segments").integer("rope segments");
                 rope.axial_rigidity = r.at("axial_rigidity").number("rope axial_rigidity");
@@ -638,12 +678,13 @@ void NativeAdapter::load(const kernel::PreparedModel& prepared, const kernel::Ra
                 if (two.size() != 2) {
                     throw json::ParseError("exclusion: expected two body indices");
                 }
-                contacts.exclusions.emplace_back(two[0].integer("exclusion"), two[1].integer("exclusion"));
+                contacts.exclusions.emplace_back(body_index(two[0], "contact exclusion", doc_bodies, true),
+                                                 body_index(two[1], "contact exclusion", doc_bodies, true));
             }
             for (const json::Value& g : c.at("geometries").array("geometries")) {
                 eng::Geometry geometry;
                 geometry.kind = g.at("kind").string("geometry kind");
-                geometry.body = g.at("body").integer("geometry body");
+                geometry.body = body_index(g.at("body"), "geometry body", doc_bodies, true);
                 geometry.position = vec3(g.at("position"), "geometry position");
                 geometry.orientation = quat(g.at("orientation"), "geometry orientation");
                 geometry.radius = g.at("radius").number("geometry radius");
@@ -665,8 +706,8 @@ void NativeAdapter::load(const kernel::PreparedModel& prepared, const kernel::Ra
             const std::vector<eng::BodyOutput> old_poses = provider.body_states(provider.neutral_positions(), zero);
             const std::vector<eng::BodyOutput> new_poses = provider.body_states(q, zero);
             for (const json::Value& p : payloads) {
-                const Eigen::Index body = p.at("body").integer("payload body");
-                const Eigen::Index carrier = p.at("carrier").integer("payload carrier");
+                const Eigen::Index body = body_index(p.at("body"), "payload body", e->neutral_bodies, false);
+                const Eigen::Index carrier = body_index(p.at("carrier"), "payload carrier", e->neutral_bodies, false);
                 const eng::Body& payload_body = item(provider.model().bodies, body);
                 if (payload_body.joint.type != eng::JointType::Free || payload_body.parent != -1) {
                     throw AdapterError(0, "load: payload '" + payload_body.name + "' is not a free body under world");
@@ -689,12 +730,15 @@ void NativeAdapter::load(const kernel::PreparedModel& prepared, const kernel::Ra
             }
         }
         for (const json::Value& p : payloads) {
-            const Eigen::Index body = p.at("body").integer("payload body");
-            const Eigen::Index carrier = p.at("carrier").integer("payload carrier");
+            const Eigen::Index body = body_index(p.at("body"), "payload body", e->neutral_bodies, false);
+            const Eigen::Index carrier = body_index(p.at("carrier"), "payload carrier", e->neutral_bodies, false);
             provider.set_attachment(body, carrier, true, q);
             e->payload_bodies.push_back(body);
         }
 
+        for (const eng::LumpedBeam& beam : model.members) {
+            e->node_bodies.insert(e->node_bodies.end(), beam.bodies.begin(), beam.bodies.end());
+        }
         e->extras.h = e->h;
         e->extras.slip_threshold = config.friction_slip_threshold;
         e->extras.dofs.assign(static_cast<std::size_t>(provider.velocity_size()), DofExtras{});
@@ -773,18 +817,16 @@ void NativeAdapter::load(const kernel::PreparedModel& prepared, const kernel::Ra
     const std::vector<eng::BodyOutput> poses = en.provider->body_states(en.state.q, en.state.v);
     for (std::size_t b = 0; b < en.neutral_bodies; ++b) {
         const eng::BodyOutput& pose = poses[b];
-        kernel::BodyState s;
-        s.position = to_vec3(pose.position);
-        s.orientation = {pose.orientation.w(), pose.orientation.x(), pose.orientation.y(), pose.orientation.z()};
-        s.angular_velocity = to_vec3(pose.spatial_velocity.head<3>());
-        s.linear_velocity = to_vec3(pose.origin_velocity);
-        en.outputs.bodies.push_back(s);
+        en.outputs.bodies.push_back(body_state(pose));
         double coordinate = 0.0;
         const eng::JointType type = item(en.joint_types, index_of(b));
         if (type == eng::JointType::Revolute || type == eng::JointType::Prismatic) {
             coordinate = en.state.q[en.provider->position_offset(index_of(b))];
         }
         en.outputs.joint_positions.push_back(coordinate);
+    }
+    for (const Eigen::Index b : en.node_bodies) {
+        en.outputs.bodies.push_back(body_state(poses[static_cast<std::size_t>(b)]));
     }
     for (const Eigen::Index body : en.payload_bodies) {
         kernel::PayloadState p;
@@ -830,6 +872,7 @@ void NativeAdapter::set_inputs(const kernel::PhysicsInputs& inputs) {
     } catch (const eng::EngineError& error) {
         throw AdapterError(e.steps, "set_inputs: engine: " + error.cause());
     }
+    e.inputs = inputs;
 }
 
 void NativeAdapter::apply_inputs(Engine& e, const kernel::PhysicsInputs& inputs) {
@@ -856,11 +899,17 @@ void NativeAdapter::apply_inputs(Engine& e, const kernel::PhysicsInputs& inputs)
         provider.set_generalized_forces(tau);
     }
     for (const kernel::BodyWrench& w : inputs.body_wrenches) {
-        if (w.body >= e.neutral_bodies) {
+        const std::size_t published = e.neutral_bodies + e.node_bodies.size();
+        if (w.body >= published) {
             throw AdapterError(e.steps, "set_inputs: body wrench on body " + std::to_string(w.body) +
-                                            ", outside the model's " + std::to_string(e.neutral_bodies) + " bodies");
+                                            ", outside the model's " + std::to_string(e.neutral_bodies) +
+                                            " bodies and " + std::to_string(e.node_bodies.size()) + " member nodes");
         }
-        provider.apply_body_wrench(index_of(w.body),
+        Eigen::Index target = index_of(w.body);
+        if (w.body >= e.neutral_bodies) {
+            target = e.node_bodies[w.body - e.neutral_bodies];
+        }
+        provider.apply_body_wrench(target,
                                    Eigen::Vector3d(w.wrench.moment[0], w.wrench.moment[1], w.wrench.moment[2]),
                                    Eigen::Vector3d(w.wrench.force[0], w.wrench.force[1], w.wrench.force[2]));
     }
@@ -899,20 +948,14 @@ void NativeAdapter::apply_inputs(Engine& e, const kernel::PhysicsInputs& inputs)
 
 // ===== Step and outputs ==================================================
 
-void NativeAdapter::step() {
-    Engine& e = engine("step");
-    eng::MultibodyProvider& provider = *e.provider;
-    try {
-        e.last_health = provider.step(*e.integrator, e.state);
-    } catch (const eng::EngineError& error) {
-        throw AdapterError(e.steps, "engine: " + error.cause());
-    } catch (const std::exception& error) {
-        throw AdapterError(e.steps, std::string("engine: ") + error.what());
-    }
-    ++e.steps;
-    const eng::MultibodyOutputs& out = provider.outputs();
-    e.events.clear();
-    for (const eng::ModelChangeEvent& event : out.events) {
+// The engine overwrites its events every engine step: each step's are appended here, so a tick of several engine
+// steps lists every event once (ruling 40). Spring changes are listed by the mid-run entry with their spring index,
+// so the engine's per-node spring events are kept on events() only.
+namespace {
+
+void collect_events(const std::vector<eng::ModelChangeEvent>& events, std::vector<ModelChangeRecord>& records,
+                    std::vector<kernel::ModelChangeEvent>& changes) {
+    for (const eng::ModelChangeEvent& event : events) {
         ModelChangeRecord r;
         r.kind = change_kind(event.kind);
         if (event.kind == eng::ModelChange::LoadReleased) {
@@ -923,21 +966,89 @@ void NativeAdapter::step() {
         r.value = event.value;
         r.limit = event.limit;
         r.time = event.time;
-        e.events.push_back(r);
+        records.push_back(r);
+        kernel::ModelChangeEvent change;
+        change.index = static_cast<std::int64_t>(event.target);
+        switch (event.kind) {
+            case eng::ModelChange::SpringOffset:
+            case eng::ModelChange::SpringStiffness:
+                continue;
+            case eng::ModelChange::ConstraintDisabled:
+                change.kind = kernel::ModelChangeKind::ConstraintDisabled;
+                change.source = kernel::ModelChangeSource::Constraint;
+                break;
+            case eng::ModelChange::LoadReleased:
+                change.kind = kernel::ModelChangeKind::LoadReleased;
+                change.source = kernel::ModelChangeSource::Constraint;
+                if (event.source == eng::LoadSource::Rope) {
+                    change.source = kernel::ModelChangeSource::Rope;
+                }
+                if (event.source == eng::LoadSource::Payload) {
+                    change.source = kernel::ModelChangeSource::Payload;
+                    change.value = static_cast<double>(event.index);
+                }
+                break;
+            case eng::ModelChange::RopeSnapped:
+                change.kind = kernel::ModelChangeKind::RopeSnapped;
+                change.source = kernel::ModelChangeSource::Rope;
+                change.value = event.value;
+                break;
+            case eng::ModelChange::PayloadAttached:
+                change.kind = kernel::ModelChangeKind::PayloadAttached;
+                change.source = kernel::ModelChangeSource::Payload;
+                change.value = static_cast<double>(event.index);
+                break;
+            case eng::ModelChange::PayloadMass:
+                change.kind = kernel::ModelChangeKind::PayloadMass;
+                change.source = kernel::ModelChangeSource::Payload;
+                change.value = event.value;
+                break;
+        }
+        changes.push_back(change);
     }
+}
+
+}  // namespace
+
+void NativeAdapter::step() {
+    Engine& e = engine("step");
+    eng::MultibodyProvider& provider = *e.provider;
+    e.events.clear();
+    std::vector<kernel::ModelChangeEvent> changes = std::move(e.pending_changes);
+    e.pending_changes.clear();
+    double drift = 0.0;
+    int iterations = 0;
+    bool converged = true;
+    for (int sub = 0; sub < e.substeps; ++sub) {
+        try {
+            if (sub > 0) {
+                apply_inputs(e, e.inputs);
+            }
+            e.last_health = provider.step(*e.integrator, e.state);
+        } catch (const eng::EngineError& error) {
+            throw AdapterError(e.steps, "engine: " + error.cause());
+        } catch (const std::exception& error) {
+            throw AdapterError(e.steps, std::string("engine: ") + error.what());
+        }
+        drift = std::max(drift, e.last_health.max_constraint_drift);
+        iterations = std::max(iterations, e.last_health.iterations);
+        converged = converged && e.last_health.converged;
+        collect_events(provider.outputs().events, e.events, changes);
+    }
+    e.last_health.max_constraint_drift = drift;
+    e.last_health.iterations = iterations;
+    e.last_health.converged = converged;
+    ++e.steps;
+    const eng::MultibodyOutputs& out = provider.outputs();
     kernel::PhysicsOutputs& o = e.outputs;
     o.steps = e.steps;
+    o.model_changes = std::move(changes);
     o.bodies.clear();
     o.joints.clear();
     o.joint_positions.clear();
     for (std::size_t b = 0; b < e.neutral_bodies; ++b) {
         const eng::BodyOutput& pose = out.bodies[b];
-        kernel::BodyState s;
-        s.position = to_vec3(pose.position);
-        s.orientation = {pose.orientation.w(), pose.orientation.x(), pose.orientation.y(), pose.orientation.z()};
-        s.angular_velocity = to_vec3(pose.spatial_velocity.head<3>());
-        s.linear_velocity = to_vec3(pose.origin_velocity);
-        o.bodies.push_back(s);
+        o.bodies.push_back(body_state(pose));
         const eng::JointOutput& joint = out.joints[b];
         kernel::JointForce f;
         const eng::JointType type = item(e.joint_types, index_of(b));
@@ -965,6 +1076,12 @@ void NativeAdapter::step() {
             coordinate = e.state.q[provider.position_offset(index_of(b))];
         }
         o.joint_positions.push_back(coordinate);
+    }
+    // Member node poses after the neutral bodies (BLD-017, X1): each lumped member in neutral order, its chain bodies
+    // root to tip; named <member>.node<k> by mechsim.physics.native.member_node_names.
+    for (const Eigen::Index b : e.node_bodies) {
+        const eng::BodyOutput& pose = out.bodies[static_cast<std::size_t>(b)];
+        o.bodies.push_back(body_state(pose));
     }
     o.constraints.clear();
     for (std::size_t c = 0; c < e.neutral_constraints; ++c) {
@@ -1004,7 +1121,8 @@ void NativeAdapter::step() {
     o.ropes.clear();
     for (const eng::RopeOutput& r : out.ropes) {
         kernel::RopeTension t;
-        t.tension = r.max_tension;
+        t.tension = r.load_end_tension;
+        t.max_tension = r.max_tension;
         t.slack = r.load_end_tension <= 0.0;
         o.ropes.push_back(t);
     }
@@ -1080,13 +1198,16 @@ void NativeAdapter::set_spring_offset(std::size_t spring, double offset) {
     const auto [first, node] = e.springs[spring];
     if (node < 0) {
         item(e.extras.dofs, first).offset = offset;
-        return;
+    } else {
+        try {
+            e.provider->set_spring_offset(first, node, offset);
+        } catch (const eng::EngineError& error) {
+            throw AdapterError(e.steps, "set_spring_offset: engine: " + error.cause());
+        }
     }
-    try {
-        e.provider->set_spring_offset(first, node, offset);
-    } catch (const eng::EngineError& error) {
-        throw AdapterError(e.steps, "set_spring_offset: engine: " + error.cause());
-    }
+    e.pending_changes.push_back(kernel::ModelChangeEvent{kernel::ModelChangeKind::SpringOffset,
+                                                         kernel::ModelChangeSource::Spring,
+                                                         static_cast<std::int64_t>(spring), offset});
 }
 
 void NativeAdapter::set_spring_stiffness(std::size_t spring, double stiffness) {
@@ -1098,13 +1219,16 @@ void NativeAdapter::set_spring_stiffness(std::size_t spring, double stiffness) {
     const auto [first, node] = e.springs[spring];
     if (node < 0) {
         item(e.extras.dofs, first).stiffness = stiffness;
-        return;
+    } else {
+        try {
+            e.provider->set_spring_stiffness(first, node, stiffness);
+        } catch (const eng::EngineError& error) {
+            throw AdapterError(e.steps, "set_spring_stiffness: engine: " + error.cause());
+        }
     }
-    try {
-        e.provider->set_spring_stiffness(first, node, stiffness);
-    } catch (const eng::EngineError& error) {
-        throw AdapterError(e.steps, "set_spring_stiffness: engine: " + error.cause());
-    }
+    e.pending_changes.push_back(kernel::ModelChangeEvent{kernel::ModelChangeKind::SpringStiffness,
+                                                         kernel::ModelChangeSource::Spring,
+                                                         static_cast<std::int64_t>(spring), stiffness});
 }
 
 void NativeAdapter::disable_constraint(std::size_t constraint) {

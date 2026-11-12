@@ -1,6 +1,8 @@
 #include "mechsim/kernel/physics_party.hpp"
 
 #include <algorithm>
+#include <array>
+#include <charconv>
 #include <cmath>
 #include <cstddef>
 #include <memory>
@@ -263,6 +265,60 @@ void PhysicsParty::record(TickRecord& row) const {
     row.physics = adapter_->outputs();
     row.events.insert(row.events.end(), pending_events_.begin(), pending_events_.end());
     pending_events_.clear();
+    if (row.physics.steps == recorded_changes_step_) {
+        return;
+    }
+    recorded_changes_step_ = row.physics.steps;
+    for (const ModelChangeEvent& change : row.physics.model_changes) {
+        row.events.push_back(RecordedEvent{row.time, std::string(model_change_source),
+                                           std::string(model_change_kind), model_change_detail(change)});
+    }
+}
+
+std::string model_change_detail(const ModelChangeEvent& change) {
+    std::string kind;
+    switch (change.kind) {
+        case ModelChangeKind::SpringOffset:
+            kind = "spring_offset";
+            break;
+        case ModelChangeKind::SpringStiffness:
+            kind = "spring_stiffness";
+            break;
+        case ModelChangeKind::ConstraintDisabled:
+            kind = "constraint_disabled";
+            break;
+        case ModelChangeKind::LoadReleased:
+            kind = "load_released";
+            break;
+        case ModelChangeKind::RopeSnapped:
+            kind = "rope_snapped";
+            break;
+        case ModelChangeKind::PayloadAttached:
+            kind = "payload_attached";
+            break;
+        case ModelChangeKind::PayloadMass:
+            kind = "payload_mass";
+            break;
+    }
+    std::string source;
+    switch (change.source) {
+        case ModelChangeSource::Spring:
+            source = "spring";
+            break;
+        case ModelChangeSource::Constraint:
+            source = "constraint";
+            break;
+        case ModelChangeSource::Rope:
+            source = "rope";
+            break;
+        case ModelChangeSource::Payload:
+            source = "payload";
+            break;
+    }
+    std::array<char, 32> buffer{};
+    const std::to_chars_result written = std::to_chars(buffer.data(), buffer.data() + buffer.size(), change.value);
+    return kind + " " + source + " " + std::to_string(change.index) + " value " +
+           std::string(buffer.data(), written.ptr);
 }
 
 PhysicsAdapter& PhysicsParty::adapter() noexcept {

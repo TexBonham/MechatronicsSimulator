@@ -468,8 +468,9 @@ def test_calibrated_member_below_eight_segments_fails_the_build(segments: int) -
     # Ruling 20: the 2 percent tolerance holds for N >= 8 (midspan chain error -1/N^2: -1.56 % at 8, -6.25 % at 4).
     failures = _failures(_bar(["clamped", "free"], calibration=CALIBRATION, segments=segments))
     assert failures == [
-        f"flexible body 'bar': calibrated member has {segments} segments; calibration needs at least 8 (the 2 percent "
-        "tolerance holds for N >= 8, ruling 20; BLD-019)"
+        f"flexible body 'bar': calibrated member has {segments} segments; calibration needs at least 8 for supports "
+        "(clamped, free) (the 2 percent tolerance holds for N >= 8, and N >= 16 clamped-clamped, rulings 20 and 32; "
+        "BLD-018, BLD-019)"
     ]
 
 
@@ -520,9 +521,9 @@ def test_clamped_clamped_calibration_is_noted_as_owed_in_a_rigid_free_check() ->
     result = _build(design, rigid_members=True)
     assert result.notes == ()
     data = gantry_data()
-    data["bodies"][1]["flexible"]["supports"] = ["clamped", "clamped"]
+    data["bodies"][1]["flexible"]["supports"] = ["pinned", "clamped"]
     failures = _failures(filled_gantry(data))
-    assert any("supports (clamped, clamped) have no lumped beam" in failure for failure in failures)
+    assert any("supports (pinned, clamped) have no lumped beam" in failure for failure in failures)
 
 
 @pytest.mark.req("BLD-019")
@@ -536,8 +537,8 @@ def test_clamped_clamped_calibration_note_names_the_owed_layout() -> None:
     )
     assert scales is None
     assert collector.notes == [
-        "flexible body 'bar': supports (clamped, clamped) have no chain layout yet (owed, ruling 16); its calibration "
-        "data is not applied (BLD-019)"
+        "flexible body 'bar': supports (clamped, clamped) have no calibration chain layout yet (owed, ruling 16); its "
+        "calibration data is not applied (BLD-019)"
     ]
 
 
