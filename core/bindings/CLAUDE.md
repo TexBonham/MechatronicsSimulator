@@ -18,7 +18,7 @@ One pybind11 module, `mechsim._core_ext` (ADR 0005), imported through `mechsim/_
 | File | Binds |
 |---|---|
 | `bindings.hpp` | `bind_*` declarations; `call_override<R>(self, name, args...)` (takes the GIL, Python error -> C++); `party_fault_object`; `rethrow_as_cpp` |
-| `factories.hpp/.cpp` | `make_kernel(RunConfig)` (CoSimKernel); name registries `make_physics_adapter(name)`, `make_controller_runtime(name, rate)`, `*_names()`; adapters "mujoco", "null"; runtimes "null" |
+| `factories.hpp/.cpp` | `make_kernel(RunConfig)` (CoSimKernel); name registries `make_physics_adapter(name)`, `make_controller_runtime(name, rate)`, `*_names()`; adapters "mujoco", "native" (`core/physics/native/`), "null"; runtimes "null" |
 | `errors.cpp` | Python exception classes and the translator |
 | `bind_kernel.cpp` | `Rate`, `Seconds`, `Duration`, `SimTime`, `lcm`, `period_in_ticks`, `ticks_at`, `to_seconds`; `RunConfig`, `SolverConfig`, `DriftThresholds`, `ControllerMode`; `EndCondition(end_time, stop=None)`, `RunOutcome`, `RunReport` (`fault` -> `PartyFault` or None); `Party` (trampoline); `Kernel`, `NullKernel`, `make_kernel` |
 | `bind_physics.cpp` | Neutral physics types (`TransmissionState` + `PowerFlow`, `PayloadState`); `PreparedModel`; `PhysicsAdapter` (trampoline; optional `set_transmission_slip`), `MujocoAdapter` (+ `integrator`, `timestep`), `NullPhysicsAdapter`; `physics_adapter_step(adapter)` (C++ call path) |
