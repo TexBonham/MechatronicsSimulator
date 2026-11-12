@@ -6,7 +6,9 @@ State for the coordinating session. A new session reads this, then `docs/rulings
 
 Round 5 (milestone 3) in flight on `round/05-milestone-3`, cut from main at cf5c74f on 2026-11-11 (round 4 merged by
 PR #6). Plan of record `docs/briefs/round-05/plan.md` (signed off 2026-11-11, with the owner's amendment: milestone
-3 retires MuJoCo in favour of the own C++ engine). Wave 0: A (rope ADR 0016). Wave 1: E1, E2, M, D. Briefs of record
+3 retires MuJoCo in favour of the own C++ engine). Landed on the round branch: A (ADR 0016), M+D (f85803d), R
+(163ad24), I1 (dafaa6c). In flight: E3 (merge of E1 and E2, bindings, clamped far end; both accepted by review).
+Next: N (native adapter) after E3 lands, then I2 (tier 1 party, after N and I1), X1, X2, gate. Briefs of record
 in `docs/briefs/round-05/`; worktrees `../MechatronicsSimulator-05-<letter>`. Round 4's rulings and gate report
 are below for reference; round 4's cost rows are in `docs/cost-log-archive.md`.
 
