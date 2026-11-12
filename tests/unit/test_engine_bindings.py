@@ -206,9 +206,9 @@ def test_cantilever_end_loads_carry_the_weight_at_the_root() -> None:
     state = _rest(provider)
     provider.step(eng.SemiImplicitEuler(), state)
     member = provider.outputs.members[0]
-    l = 1.5 / 4
+    segment = 1.5 / 4
     masses = [model.bodies[b].mass for b in beam.bodies]
-    centres = [start + 0.5 * (l if k < 3 else 0.5 * l) for k, start in enumerate(beam.starts)]
+    centres = [start + 0.5 * (segment if k < 3 else 0.5 * segment) for k, start in enumerate(beam.starts)]
     weight = sum(masses) * G
     moment = sum(m * x for m, x in zip(masses, centres, strict=True)) * G
     assert member.start_force[2] == pytest.approx(weight, rel=1e-9)

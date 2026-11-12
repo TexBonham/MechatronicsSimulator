@@ -74,4 +74,3 @@ def test_eng_021() -> None:
     penetration = 0.05 - state.q[2]
     print(f"rest penetration: target {target:.6e} m, measured {penetration:.6e} m")
     assert abs(penetration - target) <= 0.01 * target
-

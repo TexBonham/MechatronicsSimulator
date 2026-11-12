@@ -156,4 +156,3 @@ def test_eng_035() -> None:
     assert not released.attached
     assert released.carrier == -1
     assert math.isclose(released.force[2], 0.0, abs_tol=0.0)
-
