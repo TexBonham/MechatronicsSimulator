@@ -961,3 +961,121 @@ TEST_CASE("joint drive arguments are validated with typed errors", "[ENG-051]") 
     REQUIRE_THROWS_AS(provider.set_joint_drive(0, 0, 0.0, inf, 1.0), InvalidModelError);
     REQUIRE_THROWS_AS(provider.set_joint_drive(0, 0, 0.0, 1.0, std::nan("")), InvalidModelError);
 }
+
+// ===== Zero-stretch coupling and starts on a bound =======================
+
+TEST_CASE("belt transmission with zero backlash at zero stretch is in contact on the first step", "[ENG-043]") {
+    // Shaft J, belt n, k, no damping, carriage m, from rest at zero stretch, shaft torque tau. One backward-Euler
+    // step with the coupling in K: (M + a b b^T) dv = h [tau, 0], a = h^2 k, b = [n, -1]. Sherman-Morrison:
+    // dv_x = h a n tau / (J m (1 + a (n^2 / J + 1 / m))), x_1 = h dv_x = 1.333e-6 m here (decoupled it would be 0).
+    const double n = 0.02;
+    const double j = 1e-4;
+    const double k = 1e5;
+    const double m = 1.0;
+    const double tau = 0.1;
+    Body shaft;
+    shaft.joint.type = JointType::Revolute;
+    shaft.inertia = Eigen::Vector3d(j, j, j).asDiagonal();
+    MultibodyModel model;
+    model.bodies = {shaft, slider(Eigen::Vector3d::UnitX(), m)};
+    Transmission belt;
+    belt.input_body = 0;
+    belt.output_body = 1;
+    belt.ratio = n;
+    belt.stiffness = k;
+    model.transmissions = {belt};
+    MultibodyProvider provider(model);
+    SemiImplicitEuler integrator{StepConfig{}};
+    State state = start(provider, 0.0, 0.0);
+    provider.set_shaft_torque(0, tau);
+    provider.step(integrator, state);
+    const double a = h * h * k;
+    const double dv = h * a * n * tau / (j * m * (1.0 + a * (n * n / j + 1.0 / m)));
+    REQUIRE(relative(state.q[1], h * dv, 1e-12));
+}
+
+TEST_CASE("belt transmission backlash is in contact at exactly plus and minus b / 2 and free at 0", "[ENG-043]") {
+    Transmission t;
+    t.ratio = 0.02;
+    t.backlash = 0.004;
+    t.damping = 3.0;
+    for (const double x : {-0.002, 0.002}) {
+        const auto c = mechsim::engine::couple(t, 0.0, 0.0, 0.0, 0.0, x, 0.0, 0.0);
+        REQUIRE(c.output.in_contact);
+        REQUIRE(c.output.force == 0.0);
+    }
+    REQUIRE_FALSE(mechsim::engine::couple(t, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0).output.in_contact);
+    REQUIRE_FALSE(mechsim::engine::couple(t, 0.0, 0.0, 0.0, 0.0, 0.0019, 0.0, 0.0).output.in_contact);
+    t.backlash = 0.0;
+    REQUIRE(mechsim::engine::couple(t, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0).output.in_contact);
+}
+
+TEST_CASE("belt transmission crossing step from zero stretch matches the coupled backward-Euler step",
+          "[ENG-013][ENG-043]") {
+    // The moving belt-coupled carriage of the energy test, stepped at exactly zero stretch: the crossing step is
+    // one coupled backward-Euler step plus the landing impulse. With A = diag(J, m) + h^2 k b b^T and w = A^-1 e_x,
+    // the row needs v_x' = gap / h: lambda = (v_x - gap / h) / w_x, v' = v - lambda w, q' = q + h v'; the energy
+    // J w'^2 / 2 + m v_x'^2 / 2 + k (n theta' - x')^2 / 2 follows.
+    const double n = 0.02;
+    const double j = 1e-4;
+    const double k = 1e5;
+    const double m = 1.0;
+    const double speed = 0.5;
+    const double stop = 0.0101;
+    Body shaft;
+    shaft.joint.type = JointType::Revolute;
+    shaft.inertia = Eigen::Vector3d(j, j, j).asDiagonal();
+    Body carriage = slider(Eigen::Vector3d::UnitX(), m);
+    carriage.joint.upper = one(stop);
+    MultibodyModel model;
+    model.bodies = {shaft, carriage};
+    Transmission belt;
+    belt.input_body = 0;
+    belt.output_body = 1;
+    belt.ratio = n;
+    belt.stiffness = k;
+    model.transmissions = {belt};
+    MultibodyProvider provider(model);
+    SemiImplicitEuler integrator{StepConfig{}};
+    State state = start(provider, 0.0, speed / n);
+    state.v[1] = speed;
+    for (int i = 0; i < 100; ++i) {
+        const State before = state;
+        provider.step(integrator, state);
+        if (provider.outputs().joints[1].limit_force[0] < 0.0) {
+            const Eigen::Vector2d b(n, -1.0);
+            const Eigen::Matrix2d system =
+                Eigen::Vector2d(j, m).asDiagonal().toDenseMatrix() + h * h * k * b * b.transpose();
+            const Eigen::Vector2d w = system.inverse().col(1);
+            const double gap = stop - before.q[1];
+            const double lambda = (before.v[1] - gap / h) / w[1];
+            const Eigen::Vector2d v = before.v - lambda * w;
+            const Eigen::Vector2d q = before.q + h * v;
+            const double stretch = n * q[0] - q[1];
+            const double expected = 0.5 * j * v[0] * v[0] + 0.5 * m * v[1] * v[1] + 0.5 * k * stretch * stretch;
+            const double s = n * state.q[0] - state.q[1];
+            const double measured =
+                0.5 * j * state.v[0] * state.v[0] + 0.5 * m * state.v[1] * state.v[1] + 0.5 * k * s * s;
+            REQUIRE(std::abs(before.v[1] - n * before.v[0]) <= 1e-15);
+            REQUIRE(relative(measured, expected, 1e-9));
+            return;
+        }
+    }
+    FAIL("never engaged");
+}
+
+TEST_CASE("joint limit start within the tolerance past a bound holds there at rest", "[ENG-013]") {
+    // 5e-7 m below the lower bound (inside the 1e-6 drift threshold): the row uses max(gap, 0), so under gravity
+    // the coordinate holds where it is with zero velocity instead of leaving at |gap| / h.
+    Body body = slider(Eigen::Vector3d::UnitZ(), 1.0);
+    body.joint.lower = one(0.0);
+    MultibodyProvider provider(single(body));
+    SemiImplicitEuler integrator{StepConfig{}};
+    State state = start(provider, -5e-7, 0.0);
+    for (int i = 0; i < 10; ++i) {
+        provider.step(integrator, state);
+        REQUIRE(state.v[0] == 0.0);
+        REQUIRE(state.q[0] == -5e-7);
+    }
+    REQUIRE(relative(provider.outputs().joints[0].limit_force[0], g, 1e-9));
+}

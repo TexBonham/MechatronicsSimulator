@@ -46,7 +46,7 @@ Translation 3/3 [p] (rope nodes);
 spherical/free v in child coordinates; quaternions renormalized in `integrate_positions`.
 Joint limits (ENG-013, ruling 43): `Joint.lower/upper` (empty or 1 entry; Revolute, Prismatic only; -inf/+inf open;
 lower == upper locks; else InvalidModelError naming the body). Every row J = s e_k (s +1 lower, -1 upper), impulse >= 0,
-anticipatory s v >= -gap / h (gap at step start), after the loop rows in each sweep, joint order; a binding row sets
+anticipatory s v >= -max(gap, 0) / h (gap at step start), after the loop rows in each sweep, joint order; a binding row sets
 v_k to its target exactly; no position projection for limits. Start coordinate past a bound by more than the drift
 threshold: InvalidModelError. `JointOutput.limit_force` = s lambda / h; `limit_overshoot` round-off pass.
 Joint friction (ENG-014, ruling 38): `Joint.friction` per DOF (Revolute, Prismatic, Planar), `add_joint_friction`:

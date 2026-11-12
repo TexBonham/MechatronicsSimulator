@@ -914,8 +914,8 @@ std::vector<ConstraintError> MultibodyProvider::constraint_errors(const Eigen::V
 // Block Gauss-Seidel over constraint impulses: each sweep solves every constraint's block of
 // J A^-1 J^T lambda = -J v exactly (pseudo-inverse, so rows with no reachable motion stay at zero), then every
 // travel-limit row (ENG-013, ruling 43) as an anticipatory projected scalar row: J = s e_k, lambda >= 0,
-// s v >= -gap / h with gap = s (q - bound) at the step start, so a step that would pass the bound lands on it and a
-// coordinate on the bound gets s v >= 0 (push only, zero restitution). A binding row sets v_k to its target exactly.
+// s v >= -max(gap, 0) / h with gap = s (q - bound) at the step start, so a step that would pass the bound lands on
+// it and a coordinate on or (within the drift threshold) past the bound gets s v >= 0 (push only, zero restitution). A binding row sets v_k to its target exactly.
 // A start coordinate past its bound by more than the drift threshold is an invalid state, never moved silently.
 int MultibodyProvider::solve_constraints(double t, double h, const Eigen::VectorXd& q,
                                          const Eigen::MatrixXd& system, Eigen::VectorXd& v) const {
@@ -932,7 +932,7 @@ int MultibodyProvider::solve_constraints(double t, double h, const Eigen::Vector
         if (gap < -threshold) {
             throw InvalidModelError(t, body_label(row.body) + "joint coordinate is outside its travel limits");
         }
-        target.push_back(-gap / h);
+        target.push_back(-std::max(gap, 0.0) / h);
     }
     if (constraints == 0 && limits_.empty()) {
         return 0;
@@ -1313,8 +1313,7 @@ void MultibodyProvider::record_members_and_ropes(const State& before, const Stat
 }
 
 // Driven DOF's mode (ruling 44): K = K_model + K_drive. Alone, omega^2 = K (H^-1)_kk. Coupled by a compliant
-// transmission in contact or without backlash (zero stretch reads as out of contact; the first in model order
-// naming its body), the lower root of the pair (shaft, output):
+// transmission in contact (the first in model order naming its body), the lower root of the pair (shaft, output):
 // det(K2 - w M2) = 0, M2 the pair's block of H, K2 = k a b^T (a = [g, -1], b = [n_eff, -1]) plus each DOF's model
 // and drive stiffness on the diagonal: qa w^2 - qb w + qc = 0, w = (qb - sqrt(qb^2 - 4 qa qc)) / (2 qa).
 double MultibodyProvider::drive_omega_squared(Eigen::Index body, Eigen::Index dof, const State& after,
@@ -1327,7 +1326,7 @@ double MultibodyProvider::drive_omega_squared(Eigen::Index body, Eigen::Index do
             continue;
         }
         const TransmissionCoupling c = coupling(i, after.q, after.v);
-        if (!c.output.in_contact && t.backlash > 0.0) {
+        if (!c.output.in_contact) {
             continue;
         }
         const std::array<Eigen::Index, 2> pair = {at(v_offset_, t.input_body), at(v_offset_, t.output_body)};

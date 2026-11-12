@@ -14,7 +14,8 @@ namespace mechsim::engine {
 // `reverses` flips its sign (external mesh, opposite hand). Slip sigma in [0, 1] is a fraction of the shaft motion
 // that does not reach the output: the slip offset s grows by sigma n dtheta each step, so the stretch
 //   E = n theta - x - s,  dE/dt = n_eff omega - xdot,  n_eff = (1 - sigma) n.
-// Backlash b is a total dead band at the output: d(E) = E - b/2 above b/2, E + b/2 below -b/2, else 0 (no contact).
+// Backlash b is a total dead band at the output: d(E) = E - b/2 at and above b/2, E + b/2 at and below -b/2 (in
+// contact, closed), else 0 (free, strictly inside). A coupling with b = 0 is always in contact, zero stretch too.
 //
 // Forces. In contact F = k d(E) + c dE/dt acts on the output joint; out of contact F = 0. The lossless reaction on
 // the shaft is r = -n F (tension times radius: slip dissipates sigma of the input power, it does not cut the torque).
