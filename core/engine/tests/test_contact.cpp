@@ -152,6 +152,51 @@ TEST_CASE("axis-aligned bounds and the broad phase", "[ENG-016]") {
     CHECK(pairs == expected);
 }
 
+TEST_CASE("curved pairs through GJK/EPA converge under the default limits", "[ENG-016]") {
+    // Sphere r 0.1 at (0.15, 0, 0) beside an upright cylinder r 0.1: axis distance 0.15, depth 0.05, normal sphere
+    // to cylinder -x. EPA stops when the support gain h(n_F) - d_F along the closest face normal is <= tol = 1e-12 m.
+    // The polytope lies inside the Minkowski difference, so d_F <= D (true depth) and h(n_F) <= D + tol: the depth
+    // is within tol. Where the boundary is locally curved with radius R, h(n) - D = R (1 - cos theta) for a normal
+    // off by theta, so theta <= sqrt(2 tol / R); R >= 0.1 m here (0.15 m sphere-cylinder, 0.1 m for each crossed
+    // cylinder), giving 4.5e-6 rad.
+    const double curved_normal = std::sqrt(2.0 * CollisionLimits{}.tolerance / 0.1);
+    std::vector<ContactPoint> c =
+        collide(sphere_shape(0.1), pose_at({0.15, 0, 0}), cylinder_shape(0.1, 0.3), pose_at({0, 0, 0}));
+    REQUIRE(c.size() == 1);
+    CHECK(std::abs(c[0].depth - 0.05) <= tol);
+    CHECK(angle_between(c[0].normal, -Eigen::Vector3d::UnitX()) <= curved_normal);
+    // Crossed cylinders r 0.1 (axes x and y), centers 0.15 apart along z: the curved sides meet; depth 0.05, +z.
+    c = collide(cylinder_shape(0.1, 0.5), pose_at({0, 0, 0}, rotation_about(Eigen::Vector3d::UnitY(), std::numbers::pi / 2.0)),
+                cylinder_shape(0.1, 0.5),
+                pose_at({0, 0, 0.15}, rotation_about(Eigen::Vector3d::UnitX(), std::numbers::pi / 2.0)));
+    REQUIRE(c.size() == 1);
+    CHECK(std::abs(c[0].depth - 0.05) <= tol);
+    CHECK(angle_between(c[0].normal, Eigen::Vector3d::UnitZ()) <= curved_normal);
+}
+
+TEST_CASE("GJK or EPA exhausting its cap throws instead of dropping the contact", "[ENG-016]") {
+    // Invariant 7: the overlapping sphere-cylinder pair above needs more than one EPA expansion (its Minkowski
+    // boundary is curved) and more than one GJK iteration; with either cap at 1 the result is a failure, not "no
+    // contact".
+    CollisionLimits one_epa;
+    one_epa.epa_iterations = 1;
+    CHECK_THROWS_AS(collide(sphere_shape(0.1), pose_at({0.15, 0, 0}), cylinder_shape(0.1, 0.3), pose_at({0, 0, 0}),
+                            one_epa),
+                    SolverNonConvergenceError);
+    CollisionLimits one_gjk;
+    one_gjk.gjk_iterations = 1;
+    CHECK_THROWS_WITH(collide(sphere_shape(0.1), pose_at({0.15, 0, 0}), cylinder_shape(0.1, 0.3), pose_at({0, 0, 0}),
+                              one_gjk),
+                      ContainsSubstring("GJK") && ContainsSubstring("sphere-cylinder"));
+    // A genuine separation stays empty even at the smallest caps: GJK's first support already separates.
+    CHECK(collide(sphere_shape(0.1), pose_at({1.0, 0, 0}), cylinder_shape(0.1, 0.3), pose_at({0, 0, 0}), one_gjk)
+              .empty());
+    CollisionLimits bad;
+    bad.tolerance = 0.0;
+    CHECK_THROWS_AS(collide(sphere_shape(0.1), pose_at({0, 0, 0}), sphere_shape(0.1), pose_at({0, 0, 0}), bad),
+                    InvalidConfigError);
+}
+
 // ===== ENG-017 unsupported geometry ======================================
 
 TEST_CASE("a geometry that is neither a primitive nor a convex hull ends the run naming it", "[ENG-017]") {
@@ -417,6 +462,31 @@ TEST_CASE("a welded payload carries m g and falls g t^2 / 2 once released", "[EN
     CHECK(std::abs(rig.provider.outputs().payloads[0].force.z() - 2.0 * g) <= 0.01 * 2.0 * g);
     CHECK(std::abs(rig.state.q[2] - held_at) <= 0.01);
     CHECK(rig.provider.attachments().size() == 1);
+}
+
+TEST_CASE("attach, release and mass change are listed as events in the next step", "[ENG-035]") {
+    Rig rig = carrier_and_payload();
+    SemiImplicitEuler integrator{StepConfig{}};
+    rig.provider.set_attachment(1, 0, true, rig.state.q);
+    run(rig, integrator, 1);
+    REQUIRE(rig.provider.outputs().events.size() == 1);
+    CHECK(rig.provider.outputs().events[0].kind == ModelChange::PayloadAttached);
+    CHECK(rig.provider.outputs().events[0].target == 1);
+    CHECK(rig.provider.outputs().events[0].index == 0);
+    CHECK(rig.provider.outputs().events[0].time == 0.0);
+    run(rig, integrator, 1);
+    CHECK(rig.provider.outputs().events.empty());
+    const double now = rig.provider.outputs().time;
+    rig.provider.set_body_mass(1, 3.0);
+    rig.provider.set_attachment(1, 0, false, rig.state.q);
+    run(rig, integrator, 1);
+    const std::vector<ModelChangeEvent>& events = rig.provider.outputs().events;
+    REQUIRE(events.size() == 2);
+    CHECK(events[0].kind == ModelChange::PayloadMass);
+    CHECK(events[0].value == 3.0);
+    CHECK(events[1].kind == ModelChange::PayloadReleased);
+    CHECK(events[1].index == 0);
+    CHECK(events[1].time == now);
 }
 
 TEST_CASE("a mid-run mass change rescales inertia and the weld load", "[ENG-035]") {

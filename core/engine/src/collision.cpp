@@ -17,9 +17,6 @@ namespace mechsim::engine {
 
 namespace {
 
-constexpr int gjk_iteration_cap = 64;
-constexpr int epa_iteration_cap = 128;
-constexpr double epa_tolerance = 1e-12;     // m, support gain below which the closest face is final
 constexpr double degenerate_scale = 1e-10;  // relative to the Minkowski difference's extent
 
 struct SupportPoint {
@@ -421,6 +418,7 @@ struct Pair {
     const Pose& pa;
     const Shape& b;
     const Pose& pb;
+    const CollisionLimits& limits;
 
     [[nodiscard]] SupportPoint operator()(const Eigen::Vector3d& d) const {
         SupportPoint p;
@@ -514,12 +512,12 @@ bool gjk(const Pair& pair, std::vector<SupportPoint>& s) {
     }
     s = {pair(d)};
     d = -s[0].w;
-    for (int iteration = 0; iteration < gjk_iteration_cap; ++iteration) {
+    for (int iteration = 0; iteration < pair.limits.gjk_iterations; ++iteration) {
         if (d.squaredNorm() == 0.0) {
             return true;
         }
         const SupportPoint p = pair(d);
-        if (p.w.dot(d) <= 0.0) {
+        if (p.w.dot(d) <= pair.limits.tolerance * d.norm()) {
             return false;
         }
         s.push_back(p);
@@ -531,7 +529,9 @@ bool gjk(const Pair& pair, std::vector<SupportPoint>& s) {
             return true;
         }
     }
-    return false;
+    throw SolverNonConvergenceError(0.0, std::string("GJK did not converge within ") +
+                                             std::to_string(pair.limits.gjk_iterations) + " iterations on " +
+                                             shape_name(pair.a.kind) + "-" + shape_name(pair.b.kind));
 }
 
 // Grows a simplex that contains the origin on its boundary to a tetrahedron with volume; false if the Minkowski
@@ -599,14 +599,15 @@ bool make_face(const std::vector<SupportPoint>& pts, std::size_t i, std::size_t 
     return true;
 }
 
-std::vector<ContactPoint> epa(const Pair& pair, std::vector<SupportPoint> pts, double eps) {
+std::vector<ContactPoint> epa(const Pair& pair, std::vector<SupportPoint> pts) {
     const Eigen::Vector3d centroid = 0.25 * (pts[0].w + pts[1].w + pts[2].w + pts[3].w);
     std::vector<Face> faces;
     const std::array<std::array<std::size_t, 3>, 4> initial{{{0, 1, 2}, {0, 3, 1}, {0, 2, 3}, {1, 3, 2}}};
     for (const auto& [i, j, k] : initial) {
         Face face;
         if (!make_face(pts, i, j, k, face)) {
-            return {};
+            throw SolverNonConvergenceError(0.0, std::string("EPA met a degenerate initial tetrahedron on ") +
+                                                     shape_name(pair.a.kind) + "-" + shape_name(pair.b.kind));
         }
         if (face.n.dot(pts[i].w - centroid) < 0.0) {
             static_cast<void>(make_face(pts, i, k, j, face));
@@ -614,7 +615,8 @@ std::vector<ContactPoint> epa(const Pair& pair, std::vector<SupportPoint> pts, d
         faces.push_back(face);
     }
     std::size_t best = 0;
-    for (int iteration = 0; iteration < epa_iteration_cap; ++iteration) {
+    bool converged = false;
+    for (int iteration = 0; iteration < pair.limits.epa_iterations; ++iteration) {
         best = 0;
         for (std::size_t f = 1; f < faces.size(); ++f) {
             if (faces[f].dist < faces[best].dist) {
@@ -623,7 +625,8 @@ std::vector<ContactPoint> epa(const Pair& pair, std::vector<SupportPoint> pts, d
         }
         const Face closest = faces[best];
         const SupportPoint p = pair(closest.n);
-        if (p.w.dot(closest.n) - closest.dist <= epa_tolerance) {
+        if (p.w.dot(closest.n) - closest.dist <= pair.limits.tolerance) {
+            converged = true;
             break;
         }
         pts.push_back(p);
@@ -631,7 +634,7 @@ std::vector<ContactPoint> epa(const Pair& pair, std::vector<SupportPoint> pts, d
         std::vector<std::pair<std::size_t, std::size_t>> horizon;
         std::vector<Face> kept;
         for (const Face& face : faces) {
-            if (face.n.dot(p.w - pts[face.v[0]].w) > eps) {
+            if (face.n.dot(p.w - pts[face.v[0]].w) > pair.limits.tolerance) {
                 for (int e = 0; e < 3; ++e) {
                     const std::pair<std::size_t, std::size_t> edge{face.v[static_cast<std::size_t>(e)],
                                                                    face.v[static_cast<std::size_t>((e + 1) % 3)]};
@@ -664,6 +667,11 @@ std::vector<ContactPoint> epa(const Pair& pair, std::vector<SupportPoint> pts, d
         }
         faces = kept;
         best = 0;
+    }
+    if (!converged) {
+        throw SolverNonConvergenceError(0.0, std::string("EPA did not reach its tolerance within ") +
+                                                 std::to_string(pair.limits.epa_iterations) + " iterations on " +
+                                                 shape_name(pair.a.kind) + "-" + shape_name(pair.b.kind));
     }
     best = 0;
     for (std::size_t f = 1; f < faces.size(); ++f) {
@@ -704,8 +712,9 @@ std::vector<ContactPoint> epa(const Pair& pair, std::vector<SupportPoint> pts, d
     return {out};
 }
 
-std::vector<ContactPoint> gjk_epa(const Shape& a, const Pose& pa, const Shape& b, const Pose& pb) {
-    const Pair pair{a, pa, b, pb};
+std::vector<ContactPoint> gjk_epa(const Shape& a, const Pose& pa, const Shape& b, const Pose& pb,
+                                  const CollisionLimits& limits) {
+    const Pair pair{a, pa, b, pb, limits};
     std::vector<SupportPoint> simplex;
     if (!gjk(pair, simplex)) {
         return {};
@@ -719,7 +728,7 @@ std::vector<ContactPoint> gjk_epa(const Shape& a, const Pose& pa, const Shape& b
     if (!complete_simplex(pair, simplex, eps)) {
         return {};
     }
-    return epa(pair, simplex, eps);
+    return epa(pair, simplex);
 }
 
 std::vector<ContactPoint> flipped(std::vector<ContactPoint> contacts) {
@@ -733,7 +742,12 @@ std::vector<ContactPoint> flipped(std::vector<ContactPoint> contacts) {
 
 // ===== Narrow phase ======================================================
 
-std::vector<ContactPoint> collide(const Shape& a, const Pose& pa, const Shape& b, const Pose& pb) {
+std::vector<ContactPoint> collide(const Shape& a, const Pose& pa, const Shape& b, const Pose& pb,
+                                  const CollisionLimits& limits) {
+    if (limits.gjk_iterations < 1 || limits.epa_iterations < 1 || !std::isfinite(limits.tolerance) ||
+        !(limits.tolerance > 0.0)) {
+        throw InvalidConfigError(0.0, "collision limits need iteration caps >= 1 and a finite tolerance > 0");
+    }
     if (a.kind == ShapeKind::Plane && b.kind == ShapeKind::Plane) {
         return {};
     }
@@ -768,7 +782,7 @@ std::vector<ContactPoint> collide(const Shape& a, const Pose& pa, const Shape& b
     if (a.kind == ShapeKind::Box && b.kind == ShapeKind::Sphere) {
         return flipped(sphere_box(b, pb, a, pa));
     }
-    return gjk_epa(a, pa, b, pb);
+    return gjk_epa(a, pa, b, pb, limits);
 }
 
 }  // namespace mechsim::engine

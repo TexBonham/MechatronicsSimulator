@@ -2,6 +2,7 @@
 
 #include <Eigen/Core>
 #include <Eigen/Geometry>
+#include <cstdint>
 #include <vector>
 
 #include "mechsim/engine/contact.hpp"
@@ -45,6 +46,23 @@ struct ContactOutput {
     double depth = 0.0;                                // penetration, m
 };
 
+// Mid-run model changes, as the adapter reads them; shaped as E2's ModelChangeEvent so the merge unifies payload
+// release with release_load (ENG-034, ENG-035).
+enum class ModelChange : std::uint8_t {
+    PayloadAttached,  // target payload body, index carrier (-1 the world)
+    PayloadReleased,  // target payload body, index the carrier it left
+    PayloadMass       // target payload body, value mass (kg)
+};
+
+struct ModelChangeEvent {
+    ModelChange kind = ModelChange::PayloadAttached;
+    Eigen::Index target = -1;
+    Eigen::Index index = -1;
+    double value = 0.0;
+    double limit = 0.0;
+    double time = 0.0;  // s: a requested change takes effect at this time (the next step's start)
+};
+
 struct MultibodyOutputs {
     std::vector<BodyOutput> bodies;
     std::vector<JointOutput> joints;  // one per body, the joint to its parent
@@ -52,6 +70,7 @@ struct MultibodyOutputs {
     std::vector<ContactOutput> contacts;
     std::vector<TransmissionOutput> transmissions;  // at the end state, slip offset advanced by the step
     std::vector<PayloadOutput> payloads;            // one per attachment, at the step's start state (ENG-035)
+    std::vector<ModelChangeEvent> events;           // changes applied in this step
     double time = 0.0;  // end of the step, s
 };
 
@@ -106,8 +125,8 @@ public:
     void set_body_mass(Eigen::Index body, double mass);
     // Welds body to carrier (-1 the world) at their relative pose in q, or releases it (attached false).
     void set_attachment(Eigen::Index body, Eigen::Index carrier, bool attached, const Eigen::VectorXd& q,
-                        double frequency = Attachment::default_frequency);
-    [[nodiscard]] const std::vector<Attachment>& attachments() const noexcept;
+                        double frequency = WeldAttachment::default_frequency);
+    [[nodiscard]] const std::vector<WeldAttachment>& attachments() const noexcept;
 
     StepHealth step(Integrator& integrator, State& state);
     [[nodiscard]] const MultibodyOutputs& outputs() const noexcept;
@@ -159,7 +178,8 @@ private:
     mutable std::vector<ConstraintError> error_;
     ContactModel contact_model_;
     std::vector<Shape> contact_shapes_;
-    std::vector<Attachment> attachments_;
+    std::vector<WeldAttachment> attachments_;
+    std::vector<ModelChangeEvent> pending_events_;  // listed in the next step's outputs
     mutable std::vector<ContactOutput> contact_cache_;   // from the last evaluate
     mutable std::vector<PayloadOutput> payload_cache_;   // from the last evaluate
     mutable std::vector<spatial::Vector6d> attachment_wrench_;  // on the payload, world-aligned [torque; force]

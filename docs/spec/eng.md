@@ -45,10 +45,10 @@ proposed <value>)".
 | ENG-013 | The engine shall enforce joint travel limits as one-sided constraints. | Requirements doc, Component library requirements (Joints); Requirements doc, Physics and structural analysis requirements (Dynamics) | M1 | unit | n/a |
 | ENG-014 | The engine shall apply joint friction and joint damping from per-joint parameters. | Requirements doc, Component library requirements (Joints); Architecture doc, Modules: core (Physics engine row) | M1 | unit | n/a |
 | ENG-015 | The engine shall apply joint backlash from a per-joint parameter. | Requirements doc, Component library requirements (Joints) | M1 | unit | n/a |
-| ENG-016 | The engine shall detect collisions between primitives and between convex hulls with in-house code. | ADR 0002, Decision; R-05; R-06 | M2 | unit | n/a |
+| ENG-016 | The engine shall detect collisions between primitives and between convex hulls with in-house code. Box-box and hull-hull contact carry one witness point in milestone 3 (a box resting on a box tips; payload-on-floor uses the per-corner plane form), ruling 23. | ADR 0002, Decision; R-05; R-06 | M2 | unit | n/a |
 | ENG-017 | The engine shall end the run with an error when a contact geometry is neither a primitive nor a convex hull. | ADR 0002, Consequences; Architecture doc, Repository starting point (invariant 7) | M2 | unit | n/a |
 | ENG-018 | The engine shall not link the reference collision library; that library shall be used only inside the test suite. | ADR 0002, Decision and Consequences; R-05 | M2 | invariant | n/a |
-| ENG-019 | The engine's collision detection shall agree with the reference collision library on contact existence, normal and penetration depth over a shared case set. | ADR 0002, Decision (differential oracle) | M2 | reference | not set (owed by owner, proposed 1e-9 m depth, 1e-6 rad normal; oracle: closed-form set (sphere-sphere, sphere-plane, box-plane per corner, capsule-plane, capsule-capsule, box-box face and edge, hull-plane), no reference library installed) |
+| ENG-019 | The engine's collision detection shall agree with the closed-form contact set on contact existence, normal and penetration depth: sphere-sphere, sphere-plane, box-plane per corner, capsule-plane, capsule-capsule, box-box face and edge, hull-plane (ruling 23). | ADR 0002, Decision (differential oracle); ruling 23 | M2 | reference | not set (owed by owner, proposed 1e-9 m depth, 1e-6 rad normal) |
 | ENG-020 | The engine shall model contact as soft contact integrated implicitly, with contact friction. | ADR 0002, Decision; R-06; Requirements doc, Physics and structural analysis requirements (Dynamics) | M2 | unit | n/a |
 | ENG-021 | The engine shall bring a body dropped onto a plane to rest with steady penetration within tolerance, and shall stop a body driven into a fixed hard stop. | Architecture doc, Decisions log row 28; ADR 0002, Consequences | M2 | reference | not set (owed by owner, proposed: rest penetration within 1 % of m*g/K_n and no motion above 1e-6 m after 1 s; hard-stop penetration within 1 % of F/K_n; incline slide acceleration g*(sin a - mu*cos a) within 1 %) |
 | ENG-022 | The engine shall simulate a flexible member as a multi-segment lumped beam built from the member's section and material. Spike tier: planar bending about one axis, one spring E*I/l per segment at its midpoint; two-axis bending plus torsion is the next tier (ADR 0001, invariant 6). | R-13; ADR 0001, Decision (lumped domain models); ADR 0010, Decision (milestone 3) | spike | unit | n/a |
@@ -87,11 +87,11 @@ proposed <value>)".
 | Parameter | Current value | Owed by |
 |---|---|---|
 | Primitive set for collision | not set, implemented (M3-E1): sphere, capsule, box, cylinder (exact support, four rim points per cap on a plane), plane (world only), convex hull | owner, at the collision package brief |
-| Reference collision library | not set; none added (M3-E1): the closed-form set is the ENG-019 oracle | owner, at the collision package brief (ADR 0002, Open items) |
+| Reference collision library | none: the ENG-019 oracle is the closed-form contact set (ruling 23) | owner (ADR 0002, Open items) |
 | Contact slip velocity v_s (ENG-020) | 1e-4 m/s default, `ContactModel.slip_velocity`; viscous friction below it | owner |
 | Contact stiffness unit (ENG-020) | K_n and C_n per contact point (a box flat on a plane carries 4 K_n) | owner |
-| Payload weld (ENG-035) | implicit 6-DOF spring-damper at the payload com, critically damped at 1 kHz by default (sag g/w^2 = 2.5e-7 m); not a hard constraint | owner |
-| Collision differential tolerance (ENG-019) | not set, proposed 1e-9 m depth, 1e-6 rad normal (closed-form oracle) | owner |
+| Payload weld (ENG-035) | implicit 6-DOF spring-damper at the payload com, critically damped at 1 kHz by default (sag g/w^2 = 2.5e-7 m); milestone 3 scope, becomes a six-row fixed loop constraint with disable when the clamped far end lands (ruling 23) | owner |
+| Collision tolerance against the closed-form contact set (ENG-019) | not set, proposed 1e-9 m depth, 1e-6 rad normal | owner |
 | Contact rest penetration tolerance (ENG-021) | not set, proposed 1 % of m*g/K_n (rest), 1e-6 m residual motion after 1 s, 1 % of F/K_n (hard stop), 1 % of incline acceleration | owner |
 | Constraint drift threshold (ENG-024) | 1e-6 m and 1e-6 rad (ADR 0013; change by reviewed spec edit, T4) | owner |
 | Solver iteration limit (ENG-025) | 50 by default from the run configuration (ADR 0013); enforced by the constraint solver (package 2a) | owner |

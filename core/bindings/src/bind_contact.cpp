@@ -115,7 +115,7 @@ void bind_contact(py::module_& m) {
     add_method(provider, "contacts", &MultibodyProvider::contacts, py::arg("q"), py::arg("v"));
     add_method(provider, "set_body_mass", &MultibodyProvider::set_body_mass, py::arg("body"), py::arg("mass"));
     add_method(provider, "set_attachment", &MultibodyProvider::set_attachment, py::arg("body"), py::arg("carrier"),
-               py::arg("attached"), py::arg("q"), py::arg("frequency") = engine::Attachment::default_frequency);
+               py::arg("attached"), py::arg("q"), py::arg("frequency") = engine::WeldAttachment::default_frequency);
 }
 
 }  // namespace mechsim::bindings

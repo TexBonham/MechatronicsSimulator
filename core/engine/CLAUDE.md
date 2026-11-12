@@ -17,7 +17,7 @@ Namespace `mechsim::engine`; q (nq), v (nv). Eigen only, dense (ENG-001).
 | `multibody_provider.hpp` | `MultibodyProvider`, output structs |
 | `transmission.hpp` | `Transmission` (belt, screw, gear), `TransmissionOutput`, `PowerFlow`, `couple` (derivation) |
 | `collision.hpp` | `ShapeKind`, `shape_kind(name)` (unknown throws, ENG-017), `Shape`, `Pose`, `ContactPoint{point, normal a->b, depth}`, `Aabb`, `bounds`, `broad_phase`, `collide(a, pa, b, pb)`, `support` |
-| `contact.hpp` | `ContactParameters{K_n, C_n, mu}`, `MaterialPair`, `Geometry` (neutral sizes, body -1 world), `ContactModel{geometries, default, pairs, exclusions, slip_velocity 1e-4}`, `contact_force`, `Attachment`, `PayloadOutput` (derivations in the header) |
+| `contact.hpp` | `ContactParameters{K_n, C_n, mu}`, `MaterialPair`, `Geometry` (neutral sizes, body -1 world), `ContactModel{geometries, default, pairs, exclusions, slip_velocity 1e-4}`, `contact_force`, `WeldAttachment`, `PayloadOutput` (derivations in the header) |
 | `lumped_beam.hpp` | `BeamSpec`, `add_lumped_beam(model, spec, parent, position, orientation)`, `beam_point(beam, x)` (ENG-022) |
 
 ## DynamicsProvider hooks
@@ -83,12 +83,19 @@ Transmissions: Revolute shaft to Prismatic or (gear) Revolute output; K, D += k,
 Broad phase: all-pairs AABB in geometry order (plane unbounded). Narrow phase in-house, no library (ENG-018):
 closed forms for sphere-sphere, sphere-capsule, capsule-capsule, sphere-box and every shape against a plane (one
 contact per penetrating feature: box corners, hull vertices, capsule caps, 4 rim points per cylinder cap); GJK + EPA
-(tolerance 1e-12 m, cap 128 expansions) for the rest, one contact. Point = midpoint of the witness points.
+(`CollisionLimits`: tolerance 1e-12 m, GJK cap 64, EPA cap 128) for the rest, one contact. Point = midpoint of the
+witness points. Box-box and hull-hull carry one witness point in milestone 3 (a box on a box tips; payload-on-floor
+uses the per-corner plane form), ruling 23. Empty = no contact only for a geometric answer (separated, touching,
+GJK separating within tolerance, flat Minkowski difference); GJK/EPA cap exhaustion or a degenerate EPA face before tolerance throws
+`SolverNonConvergenceError` (rethrown by `evaluate` with the step time).
 Provider: `set_contact_model(ContactModel)` validates (planes only on the world); `evaluate` adds per contact
 G^T F, G^T K_s G, G^T D_s G (G = J_b(p) - J_a(p)); same-body and excluded pairs skipped; `contacts(q, v)`;
 `outputs().contacts` at the step's start state, force on body a; joint outputs include contact and weld loads.
 Payload (ENG-035): `set_body_mass(b, m)` (inertia scaled), `set_attachment(body, carrier, attached, q, f = 1 kHz)`
 weld as implicit 6-DOF spring-damper at the payload com captured from q; `attachments()`, `outputs().payloads`.
+Weld is milestone 3 scope: becomes a six-row fixed loop constraint with disable (ruling 23). Attach, release and
+mass change push `ModelChangeEvent{PayloadAttached|PayloadReleased|PayloadMass}` into the next step's
+`outputs().events` (E2's event shape; release unifies with `release_load` at the merge).
 
 ## Lumped beam
 

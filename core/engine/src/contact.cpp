@@ -125,6 +125,6 @@ ContactForce contact_force(const ContactParameters& parameters, double slip_velo
     return out;
 }
 
-double angular_frequency(const Attachment& attachment) { return 2.0 * std::numbers::pi * attachment.frequency; }
+double angular_frequency(const WeldAttachment& attachment) { return 2.0 * std::numbers::pi * attachment.frequency; }
 
 }  // namespace mechsim::engine

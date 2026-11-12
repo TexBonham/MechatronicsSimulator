@@ -19,10 +19,10 @@ def _geometry(kind: str, position: tuple[float, float, float], body: int = -1) -
 
 @pytest.mark.req("ENG-019")
 def test_eng_019() -> None:
-    """The engine's collision detection shall agree with the reference collision library on contact existence, normal
-    and penetration depth over a shared case set.
+    """The engine's collision detection shall agree with the closed-form contact set on contact existence, normal and
+    penetration depth (ruling 23).
     """
-    # Oracle: closed forms (no reference collision library installs through uv here; the row says so). Tolerance
+    # Oracle: the closed-form contact set (ruling 23). Tolerance
     # (proposed): 1e-9 m depth, 1e-6 rad normal.
     # Sphere r 0.2 at z 0.15 over the floor: depth 0.05, normal sphere to plane -z.
     sphere = _geometry("sphere", (1.0, -2.0, 0.15))

@@ -488,7 +488,7 @@ std::vector<Vector6d> MultibodyProvider::applied_body_wrenches(const Kinematics&
     return out;
 }
 
-void MultibodyProvider::evaluate(double /*t*/, const Eigen::VectorXd& q, const Eigen::VectorXd& v,
+void MultibodyProvider::evaluate(double t, const Eigen::VectorXd& q, const Eigen::VectorXd& v,
                                  DynamicsTerms& terms) const {
     const Kinematics kin = kinematics(q, v);
     terms.mass = mass_matrix(kin);
@@ -504,7 +504,11 @@ void MultibodyProvider::evaluate(double /*t*/, const Eigen::VectorXd& q, const E
     terms.stiffness = stiffness_.asDiagonal();
     terms.damping = damping_.asDiagonal();
     add_transmission_terms(q, v, terms);
-    contact_cache_ = add_contact_terms(kin, v, terms);
+    try {
+        contact_cache_ = add_contact_terms(kin, v, terms);
+    } catch (const SolverNonConvergenceError& error) {
+        throw SolverNonConvergenceError(t, "contact detection: " + error.cause());
+    }
     add_attachment_terms(kin, v, terms);
 }
 
@@ -575,7 +579,7 @@ void MultibodyProvider::add_attachment_terms(const Kinematics& kin, const Eigen:
     payload_cache_.clear();
     attachment_wrench_.clear();
     attachment_point_.clear();
-    for (const Attachment& a : attachments_) {
+    for (const WeldAttachment& a : attachments_) {
         const Body& payload = at(model_.bodies, a.body);
         const Transform& xp = at(kin.world, a.body);
         const Eigen::Matrix3d rp = xp.rotation.transpose();
@@ -1036,6 +1040,8 @@ void MultibodyProvider::record_outputs(const State& before, const State& after, 
     outputs_.bodies = body_states(after.q, after.v);
     outputs_.contacts = contact_cache_;
     outputs_.payloads = payload_cache_;
+    outputs_.events = pending_events_;
+    pending_events_.clear();
     outputs_.time = after.t;
 }
 
@@ -1075,6 +1081,7 @@ void MultibodyProvider::set_body_mass(Eigen::Index body, double mass) {
     b.inertia *= mass / b.mass;
     b.mass = mass;
     at(inertia_, body) = spatial::inertia(b.mass, b.com, b.inertia);
+    pending_events_.push_back({ModelChange::PayloadMass, body, -1, mass, 0.0, outputs_.time});
 }
 
 void MultibodyProvider::set_attachment(Eigen::Index body, Eigen::Index carrier, bool attached,
@@ -1089,7 +1096,7 @@ void MultibodyProvider::set_attachment(Eigen::Index body, Eigen::Index carrier, 
     if (!std::isfinite(frequency) || !(frequency > 0.0)) {
         throw InvalidModelError(0.0, "attachment frequency must be finite and > 0");
     }
-    Attachment a;
+    WeldAttachment a;
     a.body = body;
     a.carrier = carrier;
     a.attached = attached;
@@ -1104,7 +1111,12 @@ void MultibodyProvider::set_attachment(Eigen::Index body, Eigen::Index carrier, 
     }
     a.position = rc.transpose() * (world_point(xp, at(model_.bodies, body).com) - pc);
     a.rotation = rc.transpose() * xp.rotation.transpose();
-    for (Attachment& existing : attachments_) {
+    ModelChangeEvent event{ModelChange::PayloadReleased, body, carrier, 0.0, 0.0, outputs_.time};
+    if (attached) {
+        event.kind = ModelChange::PayloadAttached;
+    }
+    pending_events_.push_back(event);
+    for (WeldAttachment& existing : attachments_) {
         if (existing.body == body) {
             existing = a;
             return;
@@ -1113,6 +1125,6 @@ void MultibodyProvider::set_attachment(Eigen::Index body, Eigen::Index carrier, 
     attachments_.push_back(a);
 }
 
-const std::vector<Attachment>& MultibodyProvider::attachments() const noexcept { return attachments_; }
+const std::vector<WeldAttachment>& MultibodyProvider::attachments() const noexcept { return attachments_; }
 
 }  // namespace mechsim::engine

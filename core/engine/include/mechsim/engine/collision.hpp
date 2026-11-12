@@ -19,6 +19,13 @@ namespace mechsim::engine {
 //   every other pair (box-box, box-capsule, hull-*, cylinder-*): GJK for overlap, EPA for depth, normal and witness
 //     points, one contact. Cylinder is exact (its own support function), not a capsule or box approximation.
 // The contact point is the midpoint of the two witness points (deepest point of a inside b, of b inside a).
+// Box-box and hull-hull carry one witness point in milestone 3 (a box resting on a box tips; payload-on-floor uses the
+// per-corner plane form), ruling 23.
+//
+// Results: empty means no contact, and only for a genuine geometric answer: separated, touching (depth <= 0), GJK
+// finding a separating direction within `tolerance`, or a flat (zero-volume) Minkowski difference. GJK or EPA
+// exhausting its iteration cap, or EPA meeting a degenerate face before its tolerance, is a failure and throws
+// SolverNonConvergenceError (invariant 7): a dropped contact would be a silent wrong number.
 
 enum class ShapeKind : std::uint8_t { Sphere, Capsule, Box, Cylinder, Plane, ConvexHull };
 
@@ -47,6 +54,12 @@ struct ContactPoint {
     double depth = 0.0;                                // > 0, m
 };
 
+struct CollisionLimits {
+    int gjk_iterations = 64;   // >= 1
+    int epa_iterations = 128;  // >= 1
+    double tolerance = 1e-12;  // m: EPA support gain at which the closest face is final; GJK separation margin
+};
+
 struct Aabb {
     Eigen::Vector3d min = Eigen::Vector3d::Zero();
     Eigen::Vector3d max = Eigen::Vector3d::Zero();
@@ -61,7 +74,8 @@ void validate_shape(const Shape& shape, const std::string& label);
 [[nodiscard]] std::vector<std::pair<std::size_t, std::size_t>> broad_phase(const std::vector<Aabb>& boxes);
 
 // Narrow phase; empty when the shapes do not penetrate. Plane-plane is always empty.
-[[nodiscard]] std::vector<ContactPoint> collide(const Shape& a, const Pose& pa, const Shape& b, const Pose& pb);
+[[nodiscard]] std::vector<ContactPoint> collide(const Shape& a, const Pose& pa, const Shape& b, const Pose& pb,
+                                                const CollisionLimits& limits = {});
 
 // Farthest point of the shape along a world direction (GJK support); the plane has none and throws.
 [[nodiscard]] Eigen::Vector3d support(const Shape& shape, const Pose& pose, const Eigen::Vector3d& direction);

@@ -82,7 +82,9 @@ struct ContactForce {
 // enabled. Implicit 6-DOF spring-damper at the payload's center of mass, critically damped at `frequency`:
 // k = m w^2, c = 2 m w, rotational K = w^2 I_c, C = 2 w I_c (I_c about the com, world), w = 2 pi frequency. Static
 // sag g / w^2 (2.5e-7 m at 1 kHz); the weld force is exact at rest whatever w.
-struct Attachment {
+// Milestone 3 scope (ruling 23): the penalty weld becomes a six-row fixed loop constraint with disable when the
+// clamped far end lands. Attach, release and mass change each list a ModelChangeEvent in the next step's outputs.
+struct WeldAttachment {
     static constexpr double default_frequency = 1000.0;  // Hz
 
     Eigen::Index body = 0;
@@ -93,7 +95,7 @@ struct Attachment {
     double frequency = default_frequency;                       // Hz, finite > 0
 };
 
-[[nodiscard]] double angular_frequency(const Attachment& attachment);  // w = 2 pi frequency, rad/s
+[[nodiscard]] double angular_frequency(const WeldAttachment& attachment);  // w = 2 pi frequency, rad/s
 
 struct PayloadOutput {
     Eigen::Index body = 0;
