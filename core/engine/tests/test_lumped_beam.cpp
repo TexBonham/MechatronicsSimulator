@@ -202,6 +202,14 @@ TEST_CASE("beam on a parent body follows the root frame and beam_point maps mate
         CAPTURE(x, point.body);
         CHECK((actual - expected).norm() <= 1e-14);
     }
+    if (ends == BeamEnds::Clamped) {
+        // The far end's hinge axis is the beam x axis turned by the parent's placement: at neutral it lines up with
+        // the roller's, so the rotational residual is zero (a wrongly oriented axis would read the 90 degree turn).
+        const std::vector<ConstraintError> errors = provider.constraint_errors(provider.neutral_positions());
+        const ConstraintError& lock = errors.at(static_cast<std::size_t>(beam.roller_constraint));
+        CHECK(lock.rotational <= 1e-14);
+        CHECK(lock.translational <= 1e-14);
+    }
     if (ends == BeamEnds::Cantilever) {
         CHECK(beam_point(beam, 0.1).body == 0);
         CHECK(beam_point(beam, 0.125).body == beam.bodies.front());

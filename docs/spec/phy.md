@@ -45,7 +45,7 @@ proposed <value>)".
 | PHY-017 | The MuJoCo adapter shall map only elements of the neutral model and shall add no element type the neutral model lacks. | ADR 0004, Consequences (the adapter stays thin) | M1 | unit | n/a |
 | PHY-018 | Every adapter shall map the neutral model's transmissions and lumped members onto its engine. | Ruling P3; ADR 0003 | M1 | unit | n/a |
 | PHY-019 | An adapter shall declare the neutral elements it can map and shall refuse to load a model containing any other element, ending with a report. | ADR 0003, Consequences; Architecture doc, Repository starting point, invariant 7 | M1 | unit | n/a |
-| PHY-020 | The native adapter shall bind the own engine through the core runtime's single Python binding. | ADR 0003; ruling R-08 | roadmap | unit | n/a |
+| PHY-020 | The native adapter shall bind the own engine through the core runtime's single Python binding. | ADR 0003; ruling R-08 | M3 | unit | n/a |
 | PHY-021 | Two adapters run on the same neutral model, inputs and seed shall agree on body poses, velocities and forces within the differential tolerance. | ADR 0003, Consequences; ADR 0004 (differential oracle); ruling R-11 | roadmap | reference | not set (owed by owner) |
 | PHY-022 | A new adapter shall pass the analytical reference suite before it is accepted. | Architecture doc, How to extend, "A physics engine" row | M1 | reference | n/a |
 | PHY-023 | The MuJoCo retirement check shall pass only when the native adapter passes the whole analytical suite. | ADR 0004, Decision table (retirement criteria); ruling R-11 | roadmap | acceptance | n/a |
@@ -70,13 +70,15 @@ proposed <value>)".
 | Pendulum period tolerance (PHY-028) | 0.1 % of period (coordinator ruling, as ENG-036; owner confirms at the gate) | owner |
 | Resting-contact penetration and drift tolerance (PHY-029) | not set | owner |
 | Friction deceleration tolerance (PHY-030) | not set | owner |
-| Milestone at which the native adapter is required (PHY-020) | not ruled | owner (ADR 0004 open item) |
+| Milestone at which the native adapter is required (PHY-020) | milestone 3 (round 5 ruling 1: milestone 3 retires MuJoCo) | owner |
+| Native joint limit form (PHY-027) | implicit one-sided spring-damper, K = m w^2, D = 2 m w, w = 1 / (2 h), m the DOF's diagonal of H; active when q or q + h v is past the limit; static penetration 4 g h^2 (the bridge's solref 2 h floor) | owner |
+| Native joint friction form (PHY-027, PHY-030) | constant -F sign(v) while sliding (deceleration F / m exact); below h F / m the implicit damper F / max(v_s, abs(v)), v_s = 1e-4 m/s or rad/s (the engine's friction slip threshold): no overshoot, force at most F | owner |
 | Engine carrying milestone 3 if retirement criteria are unmet | not ruled; ADR 0004 reads MuJoCo continues | owner |
 | Status of the reserved Chrono adapter | not ruled | owner (ADR 0004 open item) |
 | MuJoCo joint drive form (PHY-034) | soft one-joint equality `<joint>.drive` (polycoef rest 0 0 0 0, `eq_data[0]` = rest c - v h each step with v the driven DOF's velocity at the step's start, `eq_active` toggled per step) in MuJoCo's direct form: solref = (-s0, -s1) with s0 = (1 - d) K_d A0, s1 = (1 - d) D_d A0, K_d = K / c^2, D_d = D / c^2, A0 = `dof_invweight0` of the driven DOF (MuJoCo's `diagApprox` for the row); then (m / (1 - d)) a = F - D_d v - K_d (q + v h - rest_d) with m = 1 / A0. solimp = (d, d, 0.001, 0.5, 2), d = Z / (1 + Z), Z = (K_d h^2 + D_d h) A0, so (m + D_d h + K_d h^2) a = F - D_d v - K_d (q + v h - rest_d): backward Euler, the spring and damper at the step's end state, exact static sag F / K_d and steady lag D_d w / K_d behind the same step's rest. No explicit-integration limit; the mapping's own envelope: Z <= 400 (d <= 400 / 401), else `AdapterError` (past it backward Euler is lost and from Z of about 535 the semi-implicit map diverges). The M1 form (eq_data = rest c, d = clamp(1 - 1 / (K_d A0 h^2), 1e-4, 0.99)) put the spring at the step's start state, which let a stepper's braking rest run G10's x axis away (brief M2-C2); replaced | M1-X5; mapping confirmed by the coordinator (M1-X6 ruling 1), for owner confirmation; brief M2-C2 (backward Euler), stage review fix round |
 | Drive torque through a transmission's efficiency (PHY-034) | the drive acts on the driven joint lossless (K / c^2, no eta); its shaft torque is F c; the transmission's power flow and gain still follow the explicit shaft torque only; stays lossless (M1-X6 ruling 1); owner ruling 2026-11-05: the transmission loss sits on the rotor side, so efficiency scales the motor torque and the rotor inertia reflects lossless, `(m + J/c^2) a = eta tau / c`; the own engine's package 7 is aligned to this reading when the native adapter lands (PHY-020) | owner (with the loss-placement question) |
 
-Which adapter carries milestone 3 is not ruled (ADR 0004 open item); live member end-loads at M3 require it.
+Round 5 ruling 1: milestone 3 runs every case on the native adapter (X2 switches the default); live member end-loads come from it (ADR 0010).
 
 ## MuJoCo adapter, milestone 1 mapping
 
@@ -111,3 +113,21 @@ segment length). The retirement baselines and milestone 3 bridge runs stay insid
 | Building the neutral model | BLD |
 | Recording and baseline storage format | REC, SCO |
 | Structural limit detection on end-loads | INT |
+
+## Native adapter, milestone 3 mapping
+
+Recorded with the native adapter (PHY-020, ADR 0013, ADR 0014; R-18). Full tables: `core/physics/native/CLAUDE.md` and
+`mechsim/physics/native/CLAUDE.md`.
+
+| Item | Milestone 3 behavior |
+|---|---|
+| Selection | Run configuration `physics.adapter`: `mujoco` (default until X2) or `native`; `CoreDriver(adapter=...)` or the environment variable `MECHSIM_PHYSICS_ADAPTER`; the first approximation line names the adapter |
+| Prepared model | `mechsim/physics/native/translate.py` writes the engine model document (format `mechsim-native-1`) into `PreparedModel::neutral_model_json`; `engine_artifact` is empty (a non-empty one is refused) |
+| Step | `MultibodyProvider` stepped by `SemiImplicitEuler` at 1 / physics rate; integrator `backward_euler` (PHY-031); engine errors and refused inputs end the run as `AdapterError` (PHY-009) |
+| Joint drives (PHY-034) | Implicit diagonal spring-damper on the joint's DOF added to the engine's K and D each step; torque K (rest - q') - D v' at the end state; static sag and steady lag D u / K exact; no stability limit (envelope: backward Euler, the drive mode runs (omega h)^2 / 3 slow and loses about e^(-pi omega h) per period, one approximation line per drivable joint) |
+| Transmissions (PHY-018, PHY-033) | The engine's compliant belt, screw and gear (ENG-043 to ENG-046): the shaft is a real revolute body; efficiency both directions = the neutral efficiency; damping 0; a shaft starts at its driven joint's start / n; the shaft joint's generalized force is the engine's `shaft_load_torque`; explicit shaft torque through `set_shaft_torque`; `slip` = the engine's slip offset / n (shaft units) |
+| Members (PHY-007) | Lumped beams as the neutral model states them (cantilever, pinned-roller; clamped-clamped once the neutral model can say it); end-loads in the member root frame (ruling 24), so `CoreDriver` rotates only the bridge's |
+| Ropes (PHY-004) | `RopeTension.tension` = the maximum segment tension, `slack` = load-end tension zero; per-segment and load-end tensions on `NativeAdapter::rope_segment_tensions()` / `rope_load_end_tensions()` (the kernel type carries one tension) |
+| Loads (PHY-008) | `release_load(i)`: a payload body index releases its weld; neutral body count + r releases rope r; a second release is an engine error that ends the run; model-change events per step on `NativeAdapter::events()` |
+| Joint positions | Coordinate from the neutral placement (kernel contract); the bridge reports it from the start coordinate, a differential item for X2 |
+

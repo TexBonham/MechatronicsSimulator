@@ -39,7 +39,8 @@ namespace mechsim::engine {
 //     4 / N^2): N = 8 gives -6.25 %, outside the 2 % tolerance; N = 16 gives -1.5625 %. First mode (chain
 //     eigenproblem, rods integrated exactly, null space of the two end rows): 22.373^2 scale times 1.10789 at N = 4,
 //     1.024865 at N = 8, 1.006091 at N = 16 (closed form beta_1 L = 4.730041, cos x cosh x = 1). Clamped-clamped
-//     members therefore run at N >= 16 for the 2 % references, or calibrate (ruling 20).
+//     members therefore default to N = 16 for the 2 % references; a calibrated clamped-clamped member below 16 is a
+//     build error (ruling 32).
 // Mass: each body is a uniform rod of its span s, m = rho A s, I_zz = m s^2 / 12 about its center (Euler-Bernoulli:
 // no section rotary inertia in the bending plane).
 enum class BeamEnds : std::uint8_t { Cantilever, SimplySupported, Clamped };

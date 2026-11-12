@@ -9,6 +9,7 @@ from typing import Any
 
 import pytest
 
+from mechsim.builder import structure
 from mechsim.physics.native.prepare import prepare_model
 from mechsim.physics.native.translate import (
     SUPPORTED_ELEMENTS,
@@ -196,3 +197,12 @@ def test_adapter_selection(monkeypatch: pytest.MonkeyPatch) -> None:
     assert physics_adapter_name("mujoco") == "mujoco"
     with pytest.raises(DriverError, match="physics.adapter"):
         physics_adapter_name("bullet")
+
+
+@pytest.mark.req("BLD-018")
+def test_segment_defaults_by_support_condition() -> None:
+    assert structure.default_segments("clamped", "clamped") == 16
+    assert structure.calibration_min_segments("clamped", "clamped") == 16
+    for root, end in (("clamped", "free"), ("pinned", "roller"), ("clamped", "roller")):
+        assert structure.default_segments(root, end) == 8
+        assert structure.calibration_min_segments(root, end) == 8
