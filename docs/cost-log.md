@@ -43,3 +43,6 @@ type live in the root `CLAUDE.md` dispatch table once measured.
 | 2026-11-11 | M3-E3 invariant audit: clean | invariant-auditor (sonnet) | ~20K | 4 calls |
 | 2026-11-11 | M3-E3 fix round: clamped floor, rope end mass, carrier check, binding test edges (wip/05-e3 1fc9750) | module-writer (opus), resumed | ~25K | 17 calls; ctest debug-sanitize 426 |
 | 2026-11-11 | M3-E3 re-review after the fix round: accept, three lows carried to brief N | Fable review (general-purpose), resumed | ~45K | 6 calls |
+| 2026-11-12 | M3-N native adapter: G3 and P1 on the own engine, reference tier on native (wip/05-n 530e55b); stopped at the cap, N2 follows | module-writer (opus) | 346K | 150 calls |
+| 2026-11-12 | M3 review: N (wip/05-n 530e55b): fix round before the stage commit, 2 high, 5 medium, 3 low; rulings 37 to 41 | Fable review (general-purpose) | 177K | 24 calls |
+| 2026-11-12 | M3-N invariant audit: one minor (adapter not in archive metadata) | invariant-auditor (sonnet) | 23K | 4 calls |
