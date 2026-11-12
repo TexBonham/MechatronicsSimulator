@@ -26,7 +26,7 @@ runner, recorder, scoring and viewer.
 | `report(suite_id)`, `diff(suite_id)` | text + Markdown; diff entries in report order (FAC-012) |
 | `replay_open(archive)` | `ReplayHandle` keyed by run id; archive reader only (FAC-008) |
 | `events`, `timeline`, `probe(run_id, kind, name)`, `geometry` | viewer results (VIE-002 to VIE-006, VIE-015) |
-| `member_stress(run_id)`, `swing_angle(run_id, load, attachment)` | `MemberStressResult` (unit Pa, times, members with fibre, second_moment, start, end), `SwingAngleResult` (unit rad, times, values; down from the archived design's gravity); VIE-010, VIE-011 |
+| `member_stress(run_id)`, `swing_angle(run_id, load, attachment)` | `MemberStressResult` (unit Pa, times, members with area, second moments y and z, fibres y and z, start, end), `SwingAngleResult` (unit rad, times, values; down from the archived design's gravity, an unreadable archive `not_found`); VIE-010, VIE-011 |
 | `series(run_id, names, t_start, t_end, points)` | `SeriesWindow`, decimated; archive untouched (FAC-007) |
 | `value_at(run_id, ref, t)` | latest sample at or before t; refs `pose:`, `joint:`, `signal:`, `actuator:` |
 | `scrub`, `pause`, `step`, `advance` | `CursorResult` (index, t, paused, samples) |

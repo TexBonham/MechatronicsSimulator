@@ -488,13 +488,21 @@ DEFAULT_ROLLER_MASS_FRACTION = 1e-3
 
 
 class Section(_Model):
-    """Member section and material constants: E, I, rho, A, L."""
+    """Member section and material constants: E, I (about the member z axis, bending along y), rho, A, L; and, for a
+    section given by its shape (ruling 25), the second moment about y, the extreme-fibre distances along y and z, the
+    torsion constant and the shear areas along y and z (member frame: x along the member)."""
 
     elastic_modulus: PositivePressure
     second_moment_of_area: PositiveSecondMoment
     density: PositiveDensity
     area: PositiveArea
     length: PositiveLength
+    second_moment_y: PositiveSecondMoment | None = None
+    fibre_y: PositiveLength | None = None
+    fibre_z: PositiveLength | None = None
+    torsion_constant: PositiveSecondMoment | None = None
+    shear_area_y: PositiveArea | None = None
+    shear_area_z: PositiveArea | None = None
 
 
 class LumpedMember(_Model):

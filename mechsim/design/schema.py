@@ -16,6 +16,7 @@ import math
 import re
 import sys
 from collections.abc import Callable, Iterator
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Annotated, Any, Literal
 
@@ -470,6 +471,78 @@ def shape_area_and_moment(shape: SectionShape) -> tuple[float, float]:
     return area, (width * height**3 - inner_width * inner_height**3) / 12.0
 
 
+@dataclass(frozen=True)
+class SectionProperties:
+    """Section properties in the member frame (x along the member, y the bending direction a shape's `height` lies
+    along, z across it; ruling 25), SI: area, second moments about y and z, extreme-fibre distances along y and z,
+    torsion constant, and shear areas along y and z (Cowper's shear coefficients at Poisson ratio 0: 5/6 for a
+    rectangle, 6/7 for a circle, 6 (1 + m^2)^2 / (7 (1 + m^2)^2 + 20 m^2) for a tube of diameter ratio m; the webs
+    for a rectangular tube)."""
+
+    area: float
+    second_moment_y: float
+    second_moment_z: float
+    fibre_y: float
+    fibre_z: float
+    torsion_constant: float
+    shear_area_y: float
+    shear_area_z: float
+
+
+def _rectangle_torsion(long: float, short: float) -> float:
+    """Saint-Venant torsion constant of a solid rectangle, Roark's form: a b^3 (1/3 - 0.21 (b/a) (1 - b^4 / (12 a^4)))
+    with a the long and b the short side (within 4 percent for every aspect ratio)."""
+    ratio = short / long
+    return long * short**3 * (1.0 / 3.0 - 0.21 * ratio * (1.0 - ratio**4 / 12.0))
+
+
+def shape_properties(shape: SectionShape) -> SectionProperties:
+    """`SectionProperties` of a section shape from its dimensions (ruling 25)."""
+    if isinstance(shape, RectangleShape):
+        width, height = _set_floats(shape.width, shape.height)
+        area = width * height
+        shear = 5.0 / 6.0 * area
+        return SectionProperties(
+            area,
+            height * width**3 / 12.0,
+            width * height**3 / 12.0,
+            height / 2.0,
+            width / 2.0,
+            _rectangle_torsion(max(width, height), min(width, height)),
+            shear,
+            shear,
+        )
+    if isinstance(shape, (CircleShape, TubeShape)):
+        if isinstance(shape, CircleShape):
+            (outer,) = _set_floats(shape.diameter)
+            inner = 0.0
+        else:
+            outer, inner = _set_floats(shape.outer_diameter, shape.inner_diameter)
+        area = math.pi * (outer**2 - inner**2) / 4.0
+        moment = math.pi * (outer**4 - inner**4) / 64.0
+        m2 = (inner / outer) ** 2
+        coefficient = 6.0 * (1.0 + m2) ** 2 / (7.0 * (1.0 + m2) ** 2 + 20.0 * m2)
+        shear = coefficient * area
+        return SectionProperties(area, moment, moment, outer / 2.0, outer / 2.0, 2.0 * moment, shear, shear)
+    width, height, wall = _set_floats(shape.width, shape.height, shape.wall)
+    inner_width = width - 2.0 * wall
+    inner_height = height - 2.0 * wall
+    area = width * height - inner_width * inner_height
+    mean_width = width - wall
+    mean_height = height - wall
+    torsion = 4.0 * (mean_width * mean_height) ** 2 * wall / (2.0 * (mean_width + mean_height))
+    return SectionProperties(
+        area,
+        (height * width**3 - inner_height * inner_width**3) / 12.0,
+        (width * height**3 - inner_width * inner_height**3) / 12.0,
+        height / 2.0,
+        width / 2.0,
+        torsion,
+        2.0 * wall * height,
+        2.0 * wall * width,
+    )
+
+
 def _set_floats(*values: float | OpenValue) -> tuple[float, ...]:
     out: list[float] = []
     for value in values:
@@ -531,6 +604,12 @@ class Section(_Strict):
         _require_positive(self.second_moment, "section second_moment")
         _require_positive(self.length, "section length")
         return self
+
+    def properties(self) -> SectionProperties | None:
+        """Full section properties: from the shape, or None for the explicit area and second-moment form."""
+        if self.shape is None:
+            return None
+        return shape_properties(self.shape)
 
     def area_and_moment(self) -> tuple[float, float]:
         """SI area and second moment; raises TypeError while a dimension is open."""
