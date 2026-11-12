@@ -63,6 +63,20 @@ core_driver.py` and `core_wiring.py` only for the adapter selection (run configu
 7. Approximations recorded per run (SCO-013 line): rigid-vs-compliant choices, the one-witness-point contact,
    the backward-Euler decay of every oscillatory mode the adapter can name.
 
+## Additions from the E3 review (rulings 31 to 33)
+
+- Ownership extended: `mechsim/builder/structure.py` (segment default by support condition only) and the BLD-017 and
+  BLD-018 rows in `docs/spec/bld.md`: eight segments per member, sixteen for clamped-clamped; a calibrated
+  clamped-clamped member below sixteen is a build error; BLD-017 names the support conditions (simply supported,
+  cantilever, clamped-clamped). The translation emits the engine's `ends: Clamped` for a clamped-clamped member; the
+  engine refuses Clamped below N = 8. The clamped reference asserts 2 percent at N = 16.
+- `outputs().events` is overwritten each engine step: the adapter collects events per step when several steps run
+  per tick, and delivers each once.
+- A payload release is `release_load(Payload)` emitting `LoadReleased` with source Payload; there is no
+  `PayloadReleased`; a second release is an engine error and ends the run (invariant 7).
+- Twist and the axial slide are free at a clamped end in milestone 3: record it as an approximation line per run for
+  a design with a clamped member (deliverable 7).
+
 ## Report
 
 Under 300 words: files, ctest counts on `debug` and `debug-sanitize`, the reference tier result on the native
