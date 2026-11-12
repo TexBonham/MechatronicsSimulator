@@ -1,7 +1,9 @@
 """The real simulation driver over the core binding (TST-012, TST-021, TST-036), the record view scoring reads, and
 the archive writer and reader the runner and the CLI use (TST-033, L8).
 
-`CoreDriver.load` prepares the neutral model for the MuJoCo bridge (translation report kept, ADR 0003), `run` builds
+`CoreDriver.run` prepares the neutral model for the physics adapter the run configuration names (`physics.adapter`
+of the case or `--set`, TST-040; `mujoco` by default until X2; `native` is the own engine, PHY-020), translation
+report kept (ADR 0003); `run` builds
 a co-simulation kernel with the physics party and records every row through an in-memory sink into
 `mechsim.record.Recorder`. Joint coordinates and poses are derived from the recorded body poses with the model's
 kinematics (TST-038): a joint coordinate is zero at the neutral placement; a pose is the body frame's displacement
@@ -30,6 +32,9 @@ from mechsim.library.registry import default_registry
 from mechsim.materials.schema import MaterialError
 from mechsim.physics.mujoco.prepare import StartStateError, prepare_model
 from mechsim.physics.mujoco.translate import UnmappableElementError
+from mechsim.physics.native.prepare import prepare_model as prepare_native_model
+from mechsim.physics.native.translate import StartStateError as NativeStartStateError
+from mechsim.physics.native.translate import UnmappableElementError as NativeUnmappableElementError
 from mechsim.physics.neutral import PhysicsModel
 from mechsim.record.archive import RunEnd, RunFault, RunIdentity, repository_commit, tool_version
 from mechsim.record.archive import write_archive as write_record_archive
@@ -84,7 +89,16 @@ from mechsim.testing.driver import (
     members_json,
 )
 from mechsim.testing.runner import Services
-from mechsim.testing.schema import DESIGNS_ROOT, ROOT, Case, InitialState, Quantity
+from mechsim.testing.schema import (
+    DEFAULT_PHYSICS_ADAPTER,
+    DESIGNS_ROOT,
+    NATIVE_ADAPTER,
+    PHYSICS_ADAPTERS,
+    ROOT,
+    Case,
+    InitialState,
+    Quantity,
+)
 
 OPERATOR_EVENT_KINDS = ("operator_status", "operator_command")
 SIGNAL_LAYER_CATEGORIES = ("sensor", "front_end", "actuator", "driver", "power", "safety", "communication")
@@ -186,10 +200,7 @@ def tick_record(row: Any, events: Mapping[int, Sequence[RowEvent]] | None = None
         )
         for m in physics["members"]
     )
-    ropes = tuple(
-        RopeTension(float(r["tension"]), bool(r["slack"]), float(r.get("max_tension", r["tension"])))
-        for r in physics["ropes"]
-    )
+    ropes = tuple(RopeTension(float(r["tension"]), bool(r["slack"]), float(r["max_tension"])) for r in physics["ropes"])
     transmissions = tuple(
         TransmissionState(
             float(t["slip"]),
@@ -264,8 +275,10 @@ class CoreDriver:
 
     def __init__(self, subscribers: Sequence[Callable[[Any], None]] = ()) -> None:
         """`subscribers` receive each row as the kernel writes it (REC-019); one that raises is a recorder error,
-        which ends the scoring as a run error and lands in the archive metadata (invariant 7)."""
+        which ends the scoring as a run error and lands in the archive metadata (invariant 7). The physics adapter is
+        the run configuration's `physics.adapter`, set by `configure`."""
         self._subscribers = tuple(subscribers)
+        self.adapter: str = DEFAULT_PHYSICS_ADAPTER
         self._build: CoreBuild | None = None
         self._model: PhysicsModel | None = None
         self._config: RunConfig | None = None
@@ -322,6 +335,9 @@ class CoreDriver:
                 f"base rate {config.base_rate} Hz must equal the physics rate {config.physics_rate} Hz (milestone 1 "
                 "runs the controller at the physics rate)"
             )
+        if config.physics_adapter not in PHYSICS_ADAPTERS:
+            raise DriverError(f"physics.adapter {config.physics_adapter!r}: one of {', '.join(PHYSICS_ADAPTERS)}")
+        self.adapter = config.physics_adapter
         self._config = config
 
     def _sensed_payload(self) -> tuple[str, str] | None:
@@ -395,7 +411,7 @@ class CoreDriver:
             return self._run(end, config, self._model)
         except DriverError:
             raise
-        except (StartStateError, UnmappableElementError) as error:
+        except (StartStateError, UnmappableElementError, NativeStartStateError, NativeUnmappableElementError) as error:
             raise DriverError(str(error)) from error
         except WiringError as error:
             raise DriverError(str(error)) from error
@@ -415,10 +431,17 @@ class CoreDriver:
                 raise DriverError(str(failure)) from failure
             if not fixed:
                 payloads[name] = carrier
-        artifacts = prepare_model(model, self._starts, float(1 / config.physics_rate), payloads)
-        self.approximations = artifacts.report
-        adapter = core.make_physics_adapter("mujoco")
-        prepared = core.PreparedModel(artifacts.neutral_json, artifacts.mjcf, artifacts.version)
+        step = float(1 / config.physics_rate)
+        native = self.adapter == NATIVE_ADAPTER
+        if native:
+            prepared_native = prepare_native_model(model, self._starts, step, payloads)
+            self.approximations = (f"physics adapter: {NATIVE_ADAPTER}", *prepared_native.report)
+            prepared = core.PreparedModel(prepared_native.model_json, "", prepared_native.version)
+        else:
+            artifacts = prepare_model(model, self._starts, step, payloads)
+            self.approximations = artifacts.report
+            prepared = core.PreparedModel(artifacts.neutral_json, artifacts.mjcf, artifacts.version)
+        adapter = core.make_physics_adapter(self.adapter)
         rate = _rate(config.physics_rate)
         adapter.load(prepared, rate)
         run_config = core.RunConfig()
@@ -448,6 +471,8 @@ class CoreDriver:
         report = kernel.run(core.EndCondition(_seconds(stop, config.base_rate)), sink)
         recorder = Recorder(config.base_rate, model_columns(model, sorted(payloads)))
         frames = member_frames(model)
+        if native:
+            frames = ()
         decoded: list[RowEvent] = []
         if self._runner is not None:
             decoded = [RowEvent(tick, "controller", kind, detail) for tick, kind, detail in self._runner.events]
@@ -461,7 +486,10 @@ class CoreDriver:
             while taken < len(decoded) and decoded[taken].time <= row_tick:
                 due.append(decoded[taken])
                 taken += 1
-            recorder.write_row(member_frame_loads(tick_record(row, {row_tick: due}), frames))
+            record = tick_record(row, {row_tick: due})
+            if not native:
+                record = member_frame_loads(record, frames)
+            recorder.write_row(record)
         self.subscriber_errors = tuple(str(error) for error in sink.subscriber_errors())
         self._view = RecordingView(
             recorder.recording(),
@@ -701,7 +729,8 @@ def member_frame_loads(record: TickRecord, frames: Sequence[tuple[int, Quat]]) -
     start to the end node, y and z the section's principal axes; ruling 24). Each wrench is rotated by the inverse
     of the member root frame's world orientation, the parent body's recorded orientation times the member's placement;
     the root frame stands for the member frame while the deflection is small. The native adapter publishes the member
-    frame directly."""
+    frame directly (the engine's member root frame axes, ENG-030), so `CoreDriver` applies this on the bridge only and
+    never twice."""
     members = record.physics.members
     if len(members) == 0:
         return record
@@ -772,6 +801,7 @@ class RecordArchiver:
             tool_version=tool_version(),
             design_file=design_file,
             test_case_file=_case_file(metadata.case_hash, self._cases_root),
+            physics_adapter=metadata.physics_adapter,
         )
         fault: RunFault | None = None
         outcome = "end_condition_met"
@@ -807,11 +837,12 @@ class RecordArchiver:
 # ===== Services =========================================================
 
 
-def core_builder(design: Design) -> CoreBuild:
-    """The shipped catalog and chips, the shipped materials with the design's overrides (MAT-020); rigid members
-    (milestone 1 runs rigid, BLD-033)."""
+def core_builder(design: Design, adapter: str = DEFAULT_PHYSICS_ADAPTER) -> CoreBuild:
+    """The shipped catalog and chips, the shipped materials with the design's overrides (MAT-020); lumped members
+    rigid on the bridge until X2 (BLD-033, ruling 29), flexible as the design states them on the native adapter."""
+    rigid = adapter != NATIVE_ADAPTER
     try:
-        return build(design, default_registry(), design_materials(design), rigid_members=True)
+        return build(design, default_registry(), design_materials(design), rigid_members=rigid)
     except (BuildError, DesignError, MaterialError) as error:
         raise DriverError(str(error)) from error
 

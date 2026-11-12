@@ -21,6 +21,12 @@ namespace mechsim::kernel {
 inline constexpr std::string_view physics_outputs_kind = "PhysicsOutputs";
 inline constexpr std::string_view physics_inputs_kind = "PhysicsInputs";
 
+// Recorded event of each model change in the outputs (ruling 26, ruling 40): source "physics", kind "model_change",
+// detail "<kind> <source> <index> value <value>" (snake case names, value in shortest round-trip form).
+inline constexpr std::string_view model_change_source = "physics";
+inline constexpr std::string_view model_change_kind = "model_change";
+[[nodiscard]] std::string model_change_detail(const ModelChangeEvent& change);
+
 struct PhysicsPartyConfig {
     std::string name = "physics";
     Rate rate{RunConfig::default_physics_rate_hz};
@@ -106,6 +112,7 @@ private:
     Duration period_{1};
     // Written in step(), handed to the next row by record(), which the kernel calls const once per row.
     mutable std::vector<RecordedEvent> pending_events_;
+    mutable std::int64_t recorded_changes_step_ = -1;
 };
 
 }  // namespace mechsim::kernel

@@ -177,6 +177,24 @@ def test_a_requested_seed_or_mode_must_be_the_cases_own(tmp_path: Path) -> None:
     assert facade.run_id_of(case) == "M1-seed7"
 
 
+@pytest.mark.req("TST-040", "FAC-010")
+def test_run_id_of_follows_the_adapter_identity_rule(tmp_path: Path) -> None:
+    facade = Facade(fake_services(tmp_path))
+    case = write_case(tmp_path / "cases", MACHINE_CASE)
+    assert facade.run_id_of(case) == "M1-seed7"
+    assert facade.run_id_of(case, sets={"physics.adapter": "mujoco"}) == "M1-seed7"
+    assert facade.run_id_of(case, sets={"physics.adapter": "native"}) == "M1-seed7-native"
+    assert facade.run_id_of(case, sets={"other": "1"}) == "M1-seed7"
+    native = write_case(tmp_path / "native", MACHINE_CASE + "physics:\n  adapter: native\n")
+    assert facade.run_id_of(native) == "M1-seed7-native"
+    assert facade.run_id_of(native, sets={"physics.adapter": "mujoco"}) == "M1-seed7"
+    with pytest.raises(FacadeError) as raised:
+        facade.run_id_of(case, sets={"physics.adapter": "bullet"})
+    assert raised.value.code == "validation_failed"
+    assert raised.value.field == "physics.adapter"
+    assert "bullet" in raised.value.message
+
+
 @pytest.mark.req("FAC-010", "FAC-012")
 def test_suite_report_and_diff_are_served_by_suite_id(tmp_path: Path) -> None:
     facade = Facade(fake_services(tmp_path))

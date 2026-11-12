@@ -73,14 +73,14 @@ def _self_locking_lift(transmissions: tuple[Any, ...]) -> tuple[Any, ...]:
     return tuple(swapped)
 
 
-def _lashed(design: Design) -> BuildResult:
+def _lashed(design: Design, adapter: str = "mujoco") -> BuildResult:
     built = core_builder(design)
     assert built.physics is not None
     locked = _self_locking_lift(built.physics.transmissions)
     return built.model_copy(update={"physics": built.physics.model_copy(update={"transmissions": locked})})
 
 
-def _off_inertia(design: Design) -> BuildResult:
+def _off_inertia(design: Design, adapter: str = "mujoco") -> BuildResult:
     """The x shaft body's axial inertia 1e-6 relative off the motor's rotor inertia, over the 1e-9 tolerance."""
     built = core_builder(design)
     assert built.physics is not None
@@ -161,7 +161,7 @@ def test_a_shaft_inertia_off_the_rotor_inertia_is_refused_by_the_signal_layer() 
     _run_failed(run_case(G3, _services(_off_inertia)), "x_motor", "shaft body 'x_motor_shaft'", "SIG-037")
 
 
-def _brake_on_the_lift_axis(design: Design) -> BuildResult:
+def _brake_on_the_lift_axis(design: Design, adapter: str = "mujoco") -> BuildResult:
     """The lift brake moved from the motor shaft joint to the belt-driven lift_axis, where the bridge carries no
     second drive (PHY-034)."""
     built = core_builder(design)

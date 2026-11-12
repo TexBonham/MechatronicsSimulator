@@ -34,7 +34,7 @@ from mechsim.scoring.score import (
 from mechsim.testing.baseline import BaselineDiff, baseline_text
 from mechsim.testing.driver import ArchiveReader, RecordView, RunMetadata
 from mechsim.testing.runner import RunResult, Services, run_case, run_id, run_suite
-from mechsim.testing.schema import DESIGNS_ROOT, ROOT, CaseError, load_test_case
+from mechsim.testing.schema import ADAPTER_SETTING, DESIGNS_ROOT, PHYSICS_ADAPTERS, ROOT, CaseError, load_test_case
 from mechsim.viewer import (
     ANGLE_UNIT,
     STRESS_UNIT,
@@ -557,13 +557,25 @@ class Facade:
             raise FacadeError("not_found", f"{design}: not a <designs>/<name>/design.yaml file", "FAC-010", "design")
         return replace(runner, designs_root=design.resolve().parent.parent)
 
-    def run_id_of(self, case: Path, design: Path | None = None) -> str:
-        """The run id a nominal run of the case gets (`<case id>-seed<seed>`), for subscribing before it starts."""
+    def run_id_of(self, case: Path, design: Path | None = None, sets: Mapping[str, str] | None = None) -> str:
+        """The run id a nominal run of the case gets, for subscribing before it starts: `<case id>-seed<seed>`, with
+        `-<adapter>` on any adapter but the default, the case's own or `physics.adapter` in `sets` (TST-040)."""
         runner = self._runner(design)
         try:
-            return run_id(load_test_case(case, runner.designs_root), None)
+            loaded = load_test_case(case, runner.designs_root)
         except CaseError as error:
             raise FacadeError("validation_failed", str(error), "TST-009", "case") from error
+        adapter: str = loaded.physics.adapter
+        if sets is not None and ADAPTER_SETTING in sets:
+            adapter = sets[ADAPTER_SETTING]
+        if adapter not in PHYSICS_ADAPTERS:
+            raise FacadeError(
+                "validation_failed",
+                f"{ADAPTER_SETTING}: unknown adapter {adapter!r}, expected one of {', '.join(PHYSICS_ADAPTERS)}",
+                "TST-040",
+                ADAPTER_SETTING,
+            )
+        return run_id(loaded, None, None, adapter)
 
     def _check_identity(self, case: Path, designs_root: Path, seed: int | None, mode: str | None) -> None:
         """A requested seed or mode must be the case's own; a case that does not load is left to the runner, which

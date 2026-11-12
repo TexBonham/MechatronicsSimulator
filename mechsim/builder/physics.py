@@ -45,7 +45,7 @@ FLOOR_MATERIAL = "floor"
 LUMPED_SUFFIX = "_beam"
 TRANSMISSION_TYPES = ("belt_pulley", "lead_screw")
 LUMPED_ROOTS = ("clamped", "pinned")
-LUMPED_ENDS = ("free", "roller")
+LUMPED_ENDS = ("free", "roller", "clamped")
 
 
 @dataclass
@@ -163,10 +163,11 @@ def _check_supports(design: Design, collector: Collector) -> None:
     for body in design.bodies:
         if body.flexible is not None:
             root, end = body.flexible.supports
-            if root not in LUMPED_ROOTS or end not in LUMPED_ENDS:
+            clamped_end_on_pin = end == "clamped" and root != "clamped"
+            if root not in LUMPED_ROOTS or end not in LUMPED_ENDS or clamped_end_on_pin:
                 collector.failures.append(
                     f"flexible body '{body.name}': supports ({root}, {end}) have no lumped beam; the neutral model "
-                    f"takes a root in {LUMPED_ROOTS} and an end in {LUMPED_ENDS}"
+                    f"takes a root in {LUMPED_ROOTS} and an end in {LUMPED_ENDS}, a clamped end with a clamped root"
                 )
 
 
@@ -483,19 +484,23 @@ def _flexible(
     lumped_constants = dict(constants)
     scales: CalibrationScales | None = None
     calibration = flexible.calibration
-    segments = flexible.segments
-    lumped_form = root in LUMPED_ROOTS and end in LUMPED_ENDS
+    segments = structure.default_segments(root, end)
+    if "segments" in flexible.model_fields_set:
+        segments = flexible.segments
+    minimum = structure.calibration_min_segments(root, end)
+    lumped_form = root in LUMPED_ROOTS and end in ("free", "roller")
     if rigid:
         scales = None
-    elif isinstance(calibration, Calibration) and not lumped_form:
-        collector.notes.append(
-            f"flexible body '{body.name}': supports ({root}, {end}) have no chain layout yet (owed, ruling 16); its "
-            "calibration data is not applied (BLD-019)"
-        )
-    elif isinstance(calibration, Calibration) and segments < structure.CALIBRATION_MIN_SEGMENTS:
+    elif isinstance(calibration, Calibration) and segments < minimum:
         collector.failures.append(
             f"flexible body '{body.name}': calibrated member has {segments} segments; calibration needs at least "
-            f"{structure.CALIBRATION_MIN_SEGMENTS} (the 2 percent tolerance holds for N >= 8, ruling 20; BLD-019)"
+            f"{minimum} for supports ({root}, {end}) (the 2 percent tolerance holds for N >= 8, and N >= 16 "
+            "clamped-clamped, rulings 20 and 32; BLD-018, BLD-019)"
+        )
+    elif isinstance(calibration, Calibration) and not lumped_form:
+        collector.notes.append(
+            f"flexible body '{body.name}': supports ({root}, {end}) have no calibration chain layout yet (owed, "
+            "ruling 16); its calibration data is not applied (BLD-019)"
         )
     elif isinstance(calibration, Calibration):
         chain = structure.chain_layout(root, end, segments, constants["length"])
@@ -528,8 +533,7 @@ def _flexible(
         "end": end,
         "structural_member": body.name,
     }
-    if "segments" in flexible.model_fields_set:
-        member["segments"] = flexible.segments
+    member["segments"] = segments
     length = constants["length"]
     supports = [{"at": _q(0.0, "m"), "condition": root}]
     if end != "free":

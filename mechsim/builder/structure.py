@@ -104,6 +104,26 @@ def chain_first_frequency(chain: Chain, flexural_rigidity: float, mass_per_lengt
 
 
 CALIBRATION_MIN_SEGMENTS = 8
+DEFAULT_SEGMENTS = 8
+CLAMPED_CLAMPED_SEGMENTS = 16
+
+
+def default_segments(root: str, end: str) -> int:
+    """The segment count a member gets when its design states none (BLD-018, rulings 17 and 31): eight, and sixteen
+    for a clamped-clamped member, whose chain deflection error is -4 / N^2 (-6.25 % at 8, -1.56 % at 16)."""
+    if root == "clamped" and end == "clamped":
+        return CLAMPED_CLAMPED_SEGMENTS
+    return DEFAULT_SEGMENTS
+
+
+def calibration_min_segments(root: str, end: str) -> int:
+    """The fewest segments a calibrated member may have (ruling 32): calibrating a clamped-clamped member below
+    sixteen would scale E by 1.067 and density by 1.120 at eight, so it is a build error; eight otherwise."""
+    if root == "clamped" and end == "clamped":
+        return CLAMPED_CLAMPED_SEGMENTS
+    return CALIBRATION_MIN_SEGMENTS
+
+
 CALIBRATION_SCALE_RANGE = (0.5, 2.0)
 
 

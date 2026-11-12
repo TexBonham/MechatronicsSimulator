@@ -161,11 +161,15 @@ def test_rope_snap_lists_rope_snapped_then_load_released() -> None:
 @pytest.mark.req("ENG-022")
 @pytest.mark.req("ENG-030")
 def test_clamped_beam_and_member_end_loads_binding() -> None:
-    # Gravity -z acts out of the bending plane (root z bending), so nothing moves. The member's segments outside the
-    # clamped root stub weigh (N - 1/2) l rho A g; the two supports share it in a split statics leaves open (both
-    # are rigid out of plane), so the sum of their z forces is asserted.
+    # Gravity -y lies in the bending plane (root z bending): the clamped-clamped chain sags and, with node damping,
+    # settles to statics (first mode about 23 Hz, damped within 3 s). The member's segments outside the clamped root
+    # stub weigh W = sum m_k g; statics of the whole member (support wrenches on it, moments about x = 0, member frame =
+    # world): start_force_y + end_force_y = W and start_moment_z + end_moment_z + L end_force_y = sum m_k g x_k, with
+    # x_k each segment's centre. The far lock carries a real end moment, read through ConstraintOutput.torque.
     spec = _steel_beam(eng.BeamEnds.Clamped, 8)
+    spec.node_damping = 2.0
     model = eng.MultibodyModel()
+    model.gravity = [0.0, -G, 0.0]
     beam = eng.add_lumped_beam(model, spec)
     assert not beam.pinned_root
     assert eng.member_nodes(beam) == beam.bodies
@@ -173,14 +177,23 @@ def test_clamped_beam_and_member_end_loads_binding() -> None:
     assert model.constraints[0].type == eng.ConstraintType.Hinge
     provider = eng.MultibodyProvider(model)
     state = _rest(provider)
-    provider.step(eng.SemiImplicitEuler(), state)
+    integrator = eng.SemiImplicitEuler()
+    for _ in range(3000):
+        provider.step(integrator, state)
     member = provider.outputs.members[0]
-    weight = 7.5 * (1.5 / 8) * 7850.0 * 1e-4 * G
-    assert member.start_force[2] + member.end_force[2] == pytest.approx(weight, rel=1e-9)
+    segment = 1.5 / 8
+    masses = [model.bodies[b].mass for b in beam.bodies]
+    spans = [segment] * 7 + [0.5 * segment]
+    centres = [start + 0.5 * span for start, span in zip(beam.starts, spans, strict=True)]
+    weight = sum(masses) * G
+    moment = sum(m * x for m, x in zip(masses, centres, strict=True)) * G
+    assert member.start_force[1] + member.end_force[1] == pytest.approx(weight, rel=1e-6)
+    assert member.start_moment[2] + member.end_moment[2] + 1.5 * member.end_force[1] == pytest.approx(moment, rel=1e-6)
+    assert abs(member.end_moment[2]) > 0.01 * weight * 1.5
     # The hinge rows' torque axes are u x axis_b with axis_b the beam x axis, so the lock's torque has no x (twist)
     # part; with the root frame the world frame, MemberOutput.end_moment is that torque unchanged.
     torque = np.asarray(provider.outputs.constraints[0].torque)
-    assert abs(torque[0]) <= 1e-12 * max(1.0, float(np.abs(torque).max()))
+    assert abs(torque[0]) <= 1e-12 * float(np.abs(torque).max())
     assert np.array_equal(np.asarray(member.end_moment), torque)
 
 

@@ -11,6 +11,7 @@
 
 #include "mechsim/kernel/cosim_kernel.hpp"
 #include "mechsim/physics/mujoco/mujoco_adapter.hpp"
+#include "mechsim/physics/native/native_adapter.hpp"
 
 namespace mechsim::bindings {
 
@@ -19,6 +20,7 @@ namespace {
 const std::map<std::string, PhysicsAdapterFactory, std::less<>>& physics_adapters() {
     static const std::map<std::string, PhysicsAdapterFactory, std::less<>> factories{
         {"mujoco", [] { return std::make_unique<physics::mujoco::MujocoAdapter>(); }},
+        {"native", [] { return std::make_unique<physics::native::NativeAdapter>(); }},
         {"null", [] { return std::make_unique<kernel::NullPhysicsAdapter>(); }},
     };
     return factories;

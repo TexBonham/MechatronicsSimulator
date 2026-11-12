@@ -311,7 +311,7 @@ def test_adapter_misuse_raises_adapter_error() -> None:
         adapter.load(core.PreparedModel(), core.Rate(1000))
     with pytest.raises(core.AdapterError, match="spring 3"):
         adapter.set_spring_offset(3, 0.1)
-    with pytest.raises(ValueError, match="unknown physics adapter 'nope'; known: mujoco, null"):
+    with pytest.raises(ValueError, match="unknown physics adapter 'nope'; known: mujoco, native, null"):
         core.make_physics_adapter("nope")
 
 

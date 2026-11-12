@@ -396,6 +396,7 @@ class RecordArchiveReader:
             material_overrides=_overrides(extra),
             variation=_variation(extra.get("variation", "null")),
             integrity=_integrity(extra),
+            physics_adapter=identity.physics_adapter,
         )
         labels = json.loads(extra.get("labels", "{}"))
         actuators = json.loads(extra.get("actuators", "{}"))

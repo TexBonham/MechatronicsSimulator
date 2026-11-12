@@ -215,6 +215,21 @@ class Rates(StrictModel):
         return self
 
 
+PhysicsAdapterName = Literal["mujoco", "native"]
+MUJOCO_ADAPTER: PhysicsAdapterName = "mujoco"
+NATIVE_ADAPTER: PhysicsAdapterName = "native"
+DEFAULT_PHYSICS_ADAPTER: PhysicsAdapterName = MUJOCO_ADAPTER
+PHYSICS_ADAPTERS: tuple[PhysicsAdapterName, ...] = (MUJOCO_ADAPTER, NATIVE_ADAPTER)
+ADAPTER_SETTING = "physics.adapter"
+
+
+class PhysicsSettings(StrictModel):
+    """The run configuration's physics section (TST-040): `adapter` selects the physics adapter, `mujoco` by default
+    until X2 (ruling 41); `--set physics.adapter=<name>` overrides it."""
+
+    adapter: PhysicsAdapterName = DEFAULT_PHYSICS_ADAPTER
+
+
 # ===== Initial state ===================================================
 
 
@@ -785,6 +800,7 @@ class Case(StrictModel):
     controller_mode: Literal["native", "emulated"] | None = None
     seed: int = Field(ge=0, le=2**64 - 1)
     rates: Rates | None = None
+    physics: PhysicsSettings = Field(default_factory=PhysicsSettings)
     open_parameters: list[OpenParameter] = Field(default_factory=list)
     parameters: dict[str, str] = Field(
         default_factory=dict,

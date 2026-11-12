@@ -67,6 +67,8 @@ from mechsim.testing.driver import (
     SimulationDriver,
 )
 from mechsim.testing.schema import (
+    ADAPTER_SETTING,
+    DEFAULT_PHYSICS_ADAPTER,
     DESIGNS_ROOT,
     INSTANCE_PREFIX,
     SUITE_FILE,
@@ -320,9 +322,16 @@ def prepare(
     then resolve every `${}` in both from `bindings`; anything left unresolved is an error. `instance:` entries of
     `bindings` and the case's `parameters` override catalog parameters and parts (LIB-016, LIB-017), `bindings`
     first; each applied override is listed in the prepared bindings, so the archive records it."""
-    given, given_instances = split_instance_values(bindings or {})
+    given_all = dict(bindings or {})
+    adapter = given_all.pop(ADAPTER_SETTING, None)
+    given, given_instances = split_instance_values(given_all)
     raw_case = _plain(case_path, "test case")
     written = _validate_case(raw_case, case_path)
+    if adapter is not None:
+        physics = raw_case.get("physics")
+        if not isinstance(physics, dict):
+            physics = {}
+        raw_case["physics"] = {**physics, "adapter": adapter}
     design_path = designs_root / written.design.name / "design.yaml"
     if not design_path.is_file():
         raise RunnerError(f"{case_path}: design.name: no design file {design_path}")
@@ -430,6 +439,7 @@ def run_config(case: Case, design: Design, build: BuildResult, dry: bool = False
         module_seeds=module_seeds(case.seed, build.module_instances),
         controller_mode=case.controller_mode,
         dry=dry,
+        physics_adapter=case.physics.adapter,
     )
 
 
@@ -555,19 +565,31 @@ class Variant:
     variation: tuple[tuple[str, str], ...] | None = None
 
 
-def run_id(case: Case, sweep_index: tuple[int, int] | None, sweep_value: str | None = None) -> str:
+def run_id(
+    case: Case,
+    sweep_index: tuple[int, int] | None,
+    sweep_value: str | None = None,
+    adapter: str = DEFAULT_PHYSICS_ADAPTER,
+) -> str:
     """`<case>-seed<seed>`; a sweep run adds `-sweep<i>-<j>-<value>` (TST-025); a variation run is
-    `<case>-variation-seed<variation seed>`, the same whether run in the batch or alone (TST-026)."""
+    `<case>-variation-seed<variation seed>`, the same whether run in the batch or alone (TST-026); a run on any
+    adapter but the default ends in `-<adapter>` (TST-040)."""
     text = f"{case.id}-seed{case.seed}"
     if sweep_index is not None:
         text = f"{text}-sweep{sweep_index[0]}-{sweep_index[1]}"
         if sweep_value is not None:
             text = f"{text}-{sweep_value}"
-    return _SAFE.sub("_", text)
+    return _SAFE.sub("_", _adapter_suffix(text, adapter))
 
 
-def variation_run_id(case_id: str, seed: int) -> str:
-    return _SAFE.sub("_", f"{case_id}-variation-seed{seed}")
+def variation_run_id(case_id: str, seed: int, adapter: str = DEFAULT_PHYSICS_ADAPTER) -> str:
+    return _SAFE.sub("_", _adapter_suffix(f"{case_id}-variation-seed{seed}", adapter))
+
+
+def _adapter_suffix(text: str, adapter: str) -> str:
+    if adapter == DEFAULT_PHYSICS_ADAPTER:
+        return text
+    return f"{text}-{adapter}"
 
 
 def _assign(parameter: str, value: str, values: dict[str, str], design_values: dict[str, str]) -> None:
@@ -651,7 +673,7 @@ def run_case(
     if variant.seed is not None:
         case = case.model_copy(update={"seed": variant.seed})
     try:
-        build = services.builder(prepared.design)
+        build = services.builder(prepared.design, case.physics.adapter)
         config = run_config(case, prepared.design, build, dry)
         commands = command_timeline(case, config.base_rate)
         faults = fault_timeline(case, config.base_rate)
@@ -684,9 +706,10 @@ def run_case(
             commands=tuple(commands),
             faults=tuple(faults),
         )
-    identifier = run_id(case, variant.sweep_index, _sweep_value(variant))
+    adapter = case.physics.adapter
+    identifier = run_id(case, variant.sweep_index, _sweep_value(variant), adapter)
     if variant.seed is not None:
-        identifier = variation_run_id(case.id, variant.seed)
+        identifier = variation_run_id(case.id, variant.seed, adapter)
     metadata = RunMetadata(
         run_id=identifier,
         case_id=case.id,
@@ -704,6 +727,7 @@ def run_case(
         material_overrides=overrides,
         variation=variant.variation,
         integrity=integrity,
+        physics_adapter=adapter,
     )
     archive: Path | None = None
     identity: RunIdentity | None = None
