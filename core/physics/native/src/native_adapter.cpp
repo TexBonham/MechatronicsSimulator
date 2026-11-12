@@ -656,6 +656,9 @@ void NativeAdapter::load(const kernel::PreparedModel& prepared, const kernel::Ra
         Eigen::VectorXd q = start_q(provider);
         for (std::size_t b = 0; b < doc_bodies; ++b) {
             const eng::Joint& joint = model.bodies[b].joint;
+            if (joint.lower.size() == 0 && joint.upper.size() == 0) {
+                continue;
+            }
             double tolerance = config.drift_threshold_m;
             if (joint.type == eng::JointType::Revolute) {
                 tolerance = config.drift_threshold_rad;

@@ -98,6 +98,24 @@ def rope() -> PhysicsModel:
     return PhysicsModel.model_validate(data)
 
 
+def member() -> PhysicsModel:
+    """A cantilever on a fixed base, released from its straight start under gravity: the chain swings and its
+    end-loads and node poses change every step."""
+    data = _base()
+    data["bodies"] = [_body("base", "1 kg", {"name": "mount", "type": "fixed", "position": ORIGIN})]
+    section = {
+        "elastic_modulus": "2e11 Pa",
+        "second_moment_of_area": "1e-8 m**4",
+        "density": "7800 kg/m**3",
+        "area": "1e-4 m**2",
+        "length": "1 m",
+    }
+    data["lumped_members"] = [
+        {"name": "arm", "parent": "base", "position": ORIGIN, "section": section, "root": "clamped", "end": "free"}
+    ]
+    return PhysicsModel.model_validate(data)
+
+
 def _load(model: PhysicsModel, adapter: str) -> Any:
     physics = core.make_physics_adapter(adapter)
     if adapter == "native":
@@ -112,6 +130,14 @@ def _load(model: PhysicsModel, adapter: str) -> Any:
 def _drive(physics: Any, n: int) -> None:
     inputs = core.PhysicsInputs()
     inputs.generalized_forces = [0.002 * math.sin(n / 40.0), 0.0]
+    physics.set_inputs(inputs)
+
+
+def _joint_drive(physics: Any, n: int) -> None:
+    """A real joint drive on the belt's shaft toward a moving rest (PHY-034), plus a small varying shaft torque."""
+    inputs = core.PhysicsInputs()
+    inputs.generalized_forces = [0.001 * math.sin(n / 30.0), 0.0]
+    inputs.joint_drives = [core.JointDrive(0, 0.5 * math.sin(n / 50.0), 1.0, 0.05, n % 97 != 0)]
     physics.set_inputs(inputs)
 
 
@@ -131,6 +157,8 @@ def _record(out: Any) -> bytes:
         values += [*joint.generalized_force, *joint.reaction.moment, *joint.reaction.force]
     for item in out.contacts:
         values += [float(item.body_a), float(item.body_b), *item.point, *item.force]
+    for item in out.members:
+        values += [*item.start.moment, *item.start.force, *item.end.moment, *item.end.force]
     for item in out.ropes:
         values += [item.tension, item.max_tension, float(item.slack)]
     for item in out.transmissions:
@@ -155,6 +183,10 @@ def _run(model: PhysicsModel, adapter: str, inputs: Callable[[Any, int], None], 
 CASES = [
     ("driven", driven, _drive, "mujoco"),
     ("driven", driven, _drive, "native"),
+    ("joint-drive", driven, _joint_drive, "mujoco"),
+    ("joint-drive", driven, _joint_drive, "native"),
+    ("member", member, _no_inputs, "mujoco"),
+    ("member", member, _no_inputs, "native"),
     ("contact", contact, _no_inputs, "mujoco"),
     ("contact", contact, _no_inputs, "native"),
     ("rope", rope, _no_inputs, "native"),
@@ -167,7 +199,8 @@ def test_phy_010_run_twice_bitwise(
     name: str, model: Callable[[], PhysicsModel], inputs: Callable[[Any, int], None], adapter: str
 ) -> None:
     """The same neutral model and inputs run twice on one adapter give identical outputs at every step, bit for bit:
-    a driven transmission (joint drive through a compliant belt), a contact case (a tilted box landing on the floor,
+    a driven transmission (a varying shaft torque through a compliant belt), a real joint drive on that shaft
+    toward a moving rest (disabled every 97th tick), a lumped cantilever (end-loads and node poses), a contact case (a tilted box landing on the floor,
     friction and per-corner contacts) and a rope case (a swinging load whose rope snaps; the bridge maps no ropes)."""
     first = _run(model(), adapter, inputs, 600)
     second = _run(model(), adapter, inputs, 600)
