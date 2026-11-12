@@ -7,20 +7,72 @@ from typing import Any
 import pytest
 
 from mechsim import _core as core
+from mechsim.physics.native.prepare import prepare_model as prepare_native
+from mechsim.physics.neutral import PhysicsModel, from_yaml
+
+
+ORIGIN = ("0 m", "0 m", "0 m")
+PENDULUM = (Path(__file__).resolve().parents[2] / "schemas/examples/physics_model.pendulum.yaml").read_text()
+
+
+def native_rig(friction: str = "0 N", lower: str | None = None) -> Any:
+    """The pendulum example plus a slider (prismatic along z, optional friction and lower limit), a rope from the
+    world to a free load, and a cantilever member on the link; loaded on the native adapter at 1 kHz."""
+    data = from_yaml(PENDULUM).model_dump(mode="json")
+    dof: dict[str, Any] = {"friction": friction}
+    if lower is not None:
+        dof["lower"] = lower
+    inertia = {"ixx": "0.01 kg*m**2", "iyy": "0.01 kg*m**2", "izz": "0.01 kg*m**2"}
+    slider = {"name": "slide", "type": "prismatic", "position": ORIGIN, "axis": (0, 1, 0), "linear": [dof]}
+    hang = {"name": "hang", "type": "free", "position": ("2 m", "-1 m", "0 m")}
+    data["bodies"] = [
+        *data["bodies"],
+        {"name": "slider", "mass": "1 kg", "com": ORIGIN, "inertia": inertia, "material": "steel", "parent": "world",
+         "joint": slider},
+        {"name": "load", "mass": "1 kg", "com": ORIGIN, "inertia": inertia, "material": "steel", "parent": "world",
+         "joint": hang},
+    ]
+    data["ropes"] = [
+        {"name": "line", "from_body": "world", "from_point": ("2 m", "0 m", "0 m"), "to_body": "load",
+         "to_point": ORIGIN, "segments": 4, "axial_stiffness": "1e5 N", "damping": "20 N*s",
+         "mass_per_length": "0.01 kg/m", "rest_length": "1 m"}
+    ]
+    section = {"elastic_modulus": "2e11 Pa", "second_moment_of_area": "1e-8 m**4", "density": "7800 kg/m**3",
+               "area": "1e-4 m**2", "length": "0.2 m"}
+    data["lumped_members"] = [
+        {"name": "fin", "parent": "link", "position": ORIGIN, "section": section, "root": "clamped", "end": "free"}
+    ]
+    prepared = prepare_native(PhysicsModel.model_validate(data), None, 1e-3)
+    adapter = core.make_physics_adapter("native")
+    adapter.load(core.PreparedModel(prepared.model_json, "", prepared.version), core.Rate(1000))
+    return adapter
 
 
 @pytest.mark.req("PHY-003")
-@pytest.mark.xfail(strict=True, reason="stub")
 def test_phy_003() -> None:
     """The adapter interface shall report body poses, velocities, joint forces and contact forces after every step."""
-    raise NotImplementedError
+    rig = native_rig()
+    rig.step()
+    out = rig.outputs()
+    assert len(out.bodies) == 3
+    assert len(out.joints) == 3
+    # Gravity -9.81 along y, the slider's axis: one semi-implicit step from rest gives v = -g h exactly; the hanging
+    # link starts at equilibrium and its joint carries no torque.
+    assert out.bodies[1].linear_velocity[1] == pytest.approx(-9.81e-3, rel=1e-12)
+    assert out.joints[0].generalized_force[0] == pytest.approx(0.0, abs=1e-12)
+    assert out.steps == 1
 
 
 @pytest.mark.req("PHY-004")
-@pytest.mark.xfail(strict=True, reason="stub")
 def test_phy_004() -> None:
     """The adapter interface shall report rope tension after every step for every rope in the model."""
-    raise NotImplementedError
+    rig = native_rig()
+    for _ in range(2000):
+        rig.step()
+    rope = rig.outputs().ropes[0]
+    assert not rope.slack
+    assert rope.tension == pytest.approx((1.0 + 0.01 * 0.875) * 9.81, rel=1e-3)
+    assert len(rig.outputs().ropes) == 1
 
 
 @pytest.mark.req("PHY-006")
@@ -84,19 +136,35 @@ def test_phy_006() -> None:
 
 
 @pytest.mark.req("PHY-007")
-@pytest.mark.xfail(strict=True, reason="stub")
 def test_phy_007() -> None:
     """Every adapter that carries milestone 3 or later shall publish live member end-loads every tick."""
-    raise NotImplementedError
+    rig = native_rig()
+    rig.step()
+    first = rig.outputs().members[0]
+    rig.step()
+    assert len(rig.outputs().members) == 1
+    assert rig.outputs().members[0].start.force != first.start.force
 
 
 @pytest.mark.req("PHY-009")
-@pytest.mark.xfail(strict=True, reason="stub")
 def test_phy_009() -> None:
     """An adapter shall report constraint drift beyond its threshold and solver failure as run errors that end the run
     with a report, never as returned numbers.
     """
-    raise NotImplementedError
+    rig = native_rig()
+    inputs = core.PhysicsInputs()
+    wrench = core.BodyWrench()
+    wrench.body = 0
+    torque = core.Wrench()
+    torque.moment = [math.inf, 0.0, 0.0]
+    wrench.wrench = torque
+    inputs.body_wrenches = [wrench]
+    with pytest.raises(core.AdapterError, match="not finite"):
+        rig.set_inputs(inputs)
+    rig.release_load(3)
+    rig.step()
+    with pytest.raises(core.AdapterError, match="release"):
+        rig.release_load(3)
 
 
 @pytest.mark.req("PHY-012")
@@ -109,17 +177,22 @@ def test_phy_012() -> None:
 
 
 @pytest.mark.req("PHY-018")
-@pytest.mark.xfail(strict=True, reason="stub")
 def test_phy_018() -> None:
     """Every adapter shall map the neutral model's transmissions and lumped members onto its engine."""
-    raise NotImplementedError
+    rig = native_rig()
+    rig.step()
+    assert len(rig.outputs().members) == 1
+    assert "lumped_member" in rig.supported_elements()
+    assert "transmission.belt_pulley" in rig.supported_elements()
 
 
 @pytest.mark.req("PHY-020")
-@pytest.mark.xfail(strict=True, reason="stub")
 def test_phy_020() -> None:
     """The native adapter shall bind the own engine through the core runtime's single Python binding."""
-    raise NotImplementedError
+    adapter = core.make_physics_adapter("native")
+    assert "rope" in adapter.supported_elements()
+    with pytest.raises(core.AdapterError):
+        adapter.step()
 
 
 @pytest.mark.req("PHY-025")
@@ -132,10 +205,16 @@ def test_phy_025() -> None:
 
 
 @pytest.mark.req("PHY-027")
-@pytest.mark.xfail(strict=True, reason="stub")
 def test_phy_027() -> None:
     """Every adapter shall apply the design's gravity, joint friction and joint limits."""
-    raise NotImplementedError
+    rig = native_rig("2 N", "-0.001 m")
+    # The limit spring m w^2 (w = 1 / (2 h)) holds m g at 4 g h^2 below the limit; the stick damper F / v_s slows the
+    # approach (time constant (F / v_s) / (m w^2) = 0.08 s), so 2 s settle it to e^-25.
+    for _ in range(2000):
+        rig.step()
+    out = rig.outputs()
+    assert out.joint_positions[1] == pytest.approx(-0.001 - 4.0 * 9.81 * 1e-6, rel=1e-6)
+    assert out.bodies[0].angular_velocity[2] != 0.0
 
 
 @pytest.mark.req("PHY-031")
