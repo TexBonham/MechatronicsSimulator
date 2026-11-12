@@ -20,7 +20,7 @@ nothing.
 - `fault:<name>` (ruling 30): as a quantity 1 while the last `controller_fault` event at or before the sample names it, else 0; as an event each change to it.
 - Structural (SCO-014): `safety_factor:<member>`, `deflection:<member>` read `IntegrityResults` (one sample at its
   time) through `_StructuralView`; never recomputed; missing results or member is an error.
-- Crossings (SCO-015): each `integrity` event is a `crossings` line (report `integrity crossing:`); a passing case
+- Crossings (SCO-015): each `integrity` event whose detail states tier 1 (ruling 26) is a `crossings` line (report `integrity crossing:`); a passing case
   with one fails; not baselined.
 - Variations (SCO-019): titled `[variation seed <s>: <drawn>]`, a per-seed table after the sweep tables; not baselined.
 - `interval` and `no_overlap` measures: `testing/CLAUDE.md`, Criteria on recorded events.

@@ -429,13 +429,26 @@ def member_constants(body: Body, material: Material, registry: Registry) -> dict
             "length": values["length"],
         }
     area, moment = flexible.section.area_and_moment()
-    return {
+    constants = {
         "elastic_modulus": material.youngs_modulus.typ,
         "second_moment_of_area": moment,
         "density": material.density.typ,
         "area": area,
         "length": _f(flexible.section.length),
     }
+    properties = flexible.section.properties()
+    if properties is not None:
+        constants.update(
+            {
+                "second_moment_y": properties.second_moment_y,
+                "fibre_y": properties.fibre_y,
+                "fibre_z": properties.fibre_z,
+                "torsion_constant": properties.torsion_constant,
+                "shear_area_y": properties.shear_area_y,
+                "shear_area_z": properties.shear_area_z,
+            }
+        )
+    return constants
 
 
 SECTION_UNITS = {
@@ -444,11 +457,17 @@ SECTION_UNITS = {
     "density": "kg/m**3",
     "area": "m**2",
     "length": "m",
+    "second_moment_y": "m**4",
+    "fibre_y": "m",
+    "fibre_z": "m",
+    "torsion_constant": "m**4",
+    "shear_area_y": "m**2",
+    "shear_area_z": "m**2",
 }
 
 
 def _section(constants: Mapping[str, float]) -> dict[str, str]:
-    return {name: _q(constants[name], unit) for name, unit in SECTION_UNITS.items()}
+    return {name: _q(constants[name], unit) for name, unit in SECTION_UNITS.items() if name in constants}
 
 
 def _flexible(

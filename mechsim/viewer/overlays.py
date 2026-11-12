@@ -29,9 +29,19 @@ class SectionLike(Protocol):
     def name(self) -> str: ...
 
     @property
-    def second_moment(self) -> float: ...
+    def area(self) -> float: ...
 
-    def fibre(self) -> float: ...
+    @property
+    def second_moment_y(self) -> float | None: ...
+
+    @property
+    def second_moment_z(self) -> float: ...
+
+    @property
+    def fibre_y(self) -> float | None: ...
+
+    @property
+    def fibre_z(self) -> float | None: ...
 
 
 class ViewLike(Protocol):
@@ -42,13 +52,17 @@ class ViewLike(Protocol):
 
 @dataclass(frozen=True)
 class MemberStress:
-    """Bending stress magnitude at the member's start and end, Pa, per sample: M c / I with M the bending moment
-    sqrt(M_y^2 + M_z^2) of the recorded end moment (member frame, x along the member, ENG-030), I the section's second
-    moment of area and c its extreme-fibre distance, both from the run's member list (`MemberSection.fibre`)."""
+    """Peak normal stress at the member's start and end, Pa, per sample (ruling 25): |N| / A + |M_y| c_z / I_y +
+    |M_z| c_y / I_z, with N the axial force and M_y, M_z the bending moments of the recorded end-loads in the member
+    frame (x from the start to the end node, y and z the section's principal axes; ENG-030, ruling 24) and A, I_y,
+    I_z, c_y, c_z from the run's member list."""
 
     member: str
-    fibre: float
-    second_moment: float
+    area: float
+    second_moment_y: float
+    second_moment_z: float
+    fibre_y: float
+    fibre_z: float
     start: tuple[float, ...]
     end: tuple[float, ...]
 
@@ -62,42 +76,53 @@ class SwingAngle:
     values: tuple[float, ...]
 
 
-def _bending(moments: Any) -> list[float]:
-    values = np.asarray(moments, dtype=float)
-    return [float(value) for value in np.hypot(values[:, 1], values[:, 2])]
+def _stress(forces: Any, moments: Any, section: SectionLike, i_y: float, c_y: float, c_z: float) -> tuple[float, ...]:
+    f = np.asarray(forces, dtype=float)
+    m = np.asarray(moments, dtype=float)
+    values = (
+        np.abs(f[:, 0]) / section.area + np.abs(m[:, 1]) * c_z / i_y + np.abs(m[:, 2]) * c_y / section.second_moment_z
+    )
+    return tuple(float(value) for value in values)
 
 
 def member_stress(view: ViewLike, members: Sequence[SectionLike]) -> tuple[MemberStress, ...]:
     """One `MemberStress` per recorded member column, in recorded order. The member columns must be named (REC-004
-    labels); a recorded member missing from the member list is an `OverlayError`."""
+    labels); a recorded member missing from the member list, or listed without its y-axis second moment and fibre
+    distances (a section given only by area and second moment), is an `OverlayError`."""
     recording = getattr(view, "recording", None)
     if recording is None:
         raise OverlayError("member stress needs the archived recording")
-    start_series = recording.series.get(MEMBER_SERIES[0])
-    end_series = recording.series.get(MEMBER_SERIES[2])
-    if start_series is None or end_series is None:
+    series = [recording.series.get(path) for path in MEMBER_SERIES]
+    if any(item is None for item in series):
         raise OverlayError("the recording has no member end-loads")
-    start_values = np.asarray(start_series.values, dtype=float)
-    end_values = np.asarray(end_series.values, dtype=float)
+    start_moment, start_force, end_moment, end_force = (np.asarray(item.values, dtype=float) for item in series)
+    names = series[0].names
     columns = 0
-    if start_values.ndim == 3:
-        columns = int(start_values.shape[1])
-    if columns > 0 and len(start_series.names) != columns:
+    if start_moment.ndim == 3:
+        columns = int(start_moment.shape[1])
+    if columns > 0 and len(names) != columns:
         raise OverlayError("the recorded member columns carry no names")
     sections = {member.name: member for member in members}
     found: list[MemberStress] = []
-    for index, name in enumerate(start_series.names):
+    for index, name in enumerate(names):
         if name not in sections:
             raise OverlayError(f"member {name!r} is not in the run's member list")
         section = sections[name]
-        scale = section.fibre() / section.second_moment
+        i_y = section.second_moment_y
+        c_y = section.fibre_y
+        c_z = section.fibre_z
+        if i_y is None or c_y is None or c_z is None:
+            raise OverlayError(f"member {name!r}: the section states no y-axis second moment or fibre distances")
         found.append(
             MemberStress(
                 name,
-                section.fibre(),
-                section.second_moment,
-                tuple(value * scale for value in _bending(start_values[:, index, :])),
-                tuple(value * scale for value in _bending(end_values[:, index, :])),
+                section.area,
+                i_y,
+                section.second_moment_z,
+                c_y,
+                c_z,
+                _stress(start_force[:, index, :], start_moment[:, index, :], section, i_y, c_y, c_z),
+                _stress(end_force[:, index, :], end_moment[:, index, :], section, i_y, c_y, c_z),
             )
         )
     return tuple(found)

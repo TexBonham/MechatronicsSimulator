@@ -590,7 +590,9 @@ def member_sections(build: BuildResult) -> tuple[MemberSection, ...]:
                 float(section.area),
                 float(section.second_moment_of_area),
                 float(section.length),
-                _optional_float(getattr(section, "extreme_fibre", None)),
+                _optional_float(section.second_moment_y),
+                _optional_float(section.fibre_y),
+                _optional_float(section.fibre_z),
             )
         )
     return tuple(members)

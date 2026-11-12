@@ -196,13 +196,16 @@ class _StructuralView:
 
 
 def _crossings(recording: RecordView) -> tuple[str, ...]:
-    """Each recorded tier 1 integrity crossing (an `integrity` event, INT-024) as one report line, in record order."""
+    """Each recorded tier 1 integrity crossing (an `integrity` event whose detail says tier 1; INT-024, ruling 26)
+    as one report line, in record order; an unreadable detail is a line too (it may be tier 1)."""
     lines: list[str] = []
     for event in recording.events():
         if event.kind != INTEGRITY_KIND:
             continue
         try:
             crossing = IntegrityCrossing.parse(event.detail)
+            if crossing.tier != 1:
+                continue
             lines.append(
                 f"{crossing.member} {crossing.quantity} {crossing.value:.12g} crossed limit {crossing.limit:.12g} "
                 f"at {event.time:.12g} s (tier {crossing.tier})"

@@ -13,6 +13,7 @@ from __future__ import annotations
 import hashlib
 import json
 from collections.abc import Callable, Mapping, Sequence
+from dataclasses import replace
 from fractions import Fraction
 from pathlib import Path
 from typing import Any
@@ -445,6 +446,7 @@ class CoreDriver:
             sink.subscribe(subscriber)
         report = kernel.run(core.EndCondition(_seconds(stop, config.base_rate)), sink)
         recorder = Recorder(config.base_rate, model_columns(model, sorted(payloads)))
+        frames = member_frames(model)
         decoded: list[RowEvent] = []
         if self._runner is not None:
             decoded = [RowEvent(tick, "controller", kind, detail) for tick, kind, detail in self._runner.events]
@@ -458,7 +460,7 @@ class CoreDriver:
             while taken < len(decoded) and decoded[taken].time <= row_tick:
                 due.append(decoded[taken])
                 taken += 1
-            recorder.write_row(tick_record(row, {row_tick: due}))
+            recorder.write_row(member_frame_loads(tick_record(row, {row_tick: due}), frames))
         self.subscriber_errors = tuple(str(error) for error in sink.subscriber_errors())
         self._view = RecordingView(
             recorder.recording(),
@@ -644,11 +646,80 @@ def model_columns(model: PhysicsModel, payloads: Sequence[str] = ()) -> dict[str
     if len(members) > 0:
         for path in MEMBER_SERIES:
             columns[path] = Columns(members)
-    ropes = tuple(str(rope.name) for rope in getattr(model, "ropes", ()))
+    ropes = tuple(rope.name for rope in model.ropes)
     if len(ropes) > 0:
         for path in ROPE_SERIES:
             columns[path] = Columns(ropes)
     return columns
+
+
+# ===== Member frames ====================================================
+
+
+def _rotate(q: Quat, v: Vec) -> Vec:
+    w, x, y, z = q
+    tx = 2.0 * (y * v[2] - z * v[1])
+    ty = 2.0 * (z * v[0] - x * v[2])
+    tz = 2.0 * (x * v[1] - y * v[0])
+    return (
+        v[0] + w * tx + (y * tz - z * ty),
+        v[1] + w * ty + (z * tx - x * tz),
+        v[2] + w * tz + (x * ty - y * tx),
+    )
+
+
+def _multiply(a: Quat, b: Quat) -> Quat:
+    aw, ax, ay, az = a
+    bw, bx, by, bz = b
+    return (
+        aw * bw - ax * bx - ay * by - az * bz,
+        aw * bx + ax * bw + ay * bz - az * by,
+        aw * by - ax * bz + ay * bw + az * bx,
+        aw * bz + ax * by - ay * bx + az * bw,
+    )
+
+
+def _conjugate(q: Quat) -> Quat:
+    return (q[0], -q[1], -q[2], -q[3])
+
+
+def member_frames(model: PhysicsModel) -> tuple[tuple[int, Quat], ...]:
+    """Per lumped member, in neutral order: the index of its parent body (-1 for world) and its root frame's
+    orientation in the parent frame (x along the member, ruling 24)."""
+    index = {body.name: position for position, body in enumerate(model.bodies)}
+    frames: list[tuple[int, Quat]] = []
+    for member in model.lumped_members:
+        parent = index.get(member.parent, -1)
+        q = member.orientation
+        frames.append((parent, (float(q[0]), float(q[1]), float(q[2]), float(q[3]))))
+    return tuple(frames)
+
+
+def member_frame_loads(record: TickRecord, frames: Sequence[tuple[int, Quat]]) -> TickRecord:
+    """The bridge publishes member end-loads along world axes; ENG-030 states them in the member frame (x from the
+    start to the end node, y and z the section's principal axes; ruling 24). Each wrench is rotated by the inverse
+    of the member root frame's world orientation, the parent body's recorded orientation times the member's placement;
+    the root frame stands for the member frame while the deflection is small. The native adapter publishes the member
+    frame directly."""
+    members = record.physics.members
+    if len(members) == 0:
+        return record
+    if len(members) != len(frames):
+        raise DriverError(f"{len(members)} member end-loads for {len(frames)} lumped members")
+    bodies = record.physics.bodies
+    loads: list[MemberEndLoads] = []
+    for loads_of, (parent, placement) in zip(members, frames, strict=True):
+        world = placement
+        if parent >= 0:
+            world = _multiply(bodies[parent].orientation, placement)
+        inverse = _conjugate(world)
+        loads.append(
+            MemberEndLoads(
+                Wrench(_rotate(inverse, loads_of.start.moment), _rotate(inverse, loads_of.start.force)),
+                Wrench(_rotate(inverse, loads_of.end.moment), _rotate(inverse, loads_of.end.force)),
+            )
+        )
+    return replace(record, physics=replace(record.physics, members=tuple(loads)))
 
 
 # ===== Archives =========================================================

@@ -6,6 +6,7 @@ from __future__ import annotations
 import csv
 import hashlib
 import json
+import math
 from fractions import Fraction
 from pathlib import Path
 
@@ -19,6 +20,7 @@ from mechsim.record.export import export_csv, export_json
 from mechsim.record.layout import MEMBER_SERIES, ROPE_MAX_TENSION, ROPE_SERIES, ROPE_TENSION, Columns
 from mechsim.record.reader import Kinematics, RecordArchiveReader, RecordingView
 from mechsim.record.tick import (
+    BodyState,
     MemberEndLoads,
     PhysicsOutputs,
     RecordedEvent,
@@ -27,7 +29,7 @@ from mechsim.record.tick import (
     TickRecord,
     Wrench,
 )
-from mechsim.testing.core_driver import RecordArchiver
+from mechsim.testing.core_driver import DriverError, RecordArchiver, member_frame_loads
 from mechsim.testing.driver import (
     INTEGRITY_KIND,
     INTEGRITY_SOURCE,
@@ -36,6 +38,7 @@ from mechsim.testing.driver import (
     MaterialOverridesRecord,
     MemberIntegrity,
     MemberSection,
+    RopeIntegrity,
     RunMetadata,
     RunReport,
     StructuralError,
@@ -216,10 +219,13 @@ def test_run_metadata_records_the_member_list_overrides_variation_and_integrity(
     text = "material_overrides:\n  petg_printed: {}\n"
     overrides = MaterialOverridesRecord(text, hashlib.sha256(text.encode()).hexdigest())
     members = (
-        MemberSection("rail_x", "petg_printed", 4e-4, 1.3e-8, 0.5),
-        MemberSection("rail_y", "pla", 1e-4, 2e-9, 0.4, 0.01),
+        MemberSection("rail_x", "petg_printed", 4e-4, 1.3e-8, 0.5, 3.0e-9, 0.02, 0.01),
+        MemberSection("rail_y", "pla", 1e-4, 2e-9, 0.4),
     )
-    integrity = IntegrityResults((MemberIntegrity("rail_x", 3.5e7, 0.004, 0.002, 0.003, 1.2, 0.004, ("tier1",)),))
+    integrity = IntegrityResults(
+        (MemberIntegrity("rail_x", 3.5e7, 0.004, 0.002, 0.003, 1.2, 0.004, ("tier1",)),),
+        (RopeIntegrity("hoist", 950.0, 0.005, ("tier1",)),),
+    )
     metadata = _metadata(
         members=members, material_overrides=overrides, variation=(("${damping}", "0.05 kg"),), integrity=integrity
     )
@@ -246,10 +252,29 @@ def test_run_metadata_without_structural_fields_reads_back_empty(rows: list[Tick
     assert (read.members, read.material_overrides, read.variation, read.integrity) == ((), None, None, None)
 
 
-@pytest.mark.req("VIE-010")
-def test_member_section_fibre_is_stated_or_that_of_the_equivalent_rectangle() -> None:
-    # Rectangle b = 0.02 m, h = 0.04 m: A = 8e-4 m^2, I = b h^3 / 12 = 1.0667e-7 m^4, c = h / 2 = 0.02 m exactly.
-    area = 0.02 * 0.04
-    second = 0.02 * 0.04**3 / 12.0
-    assert MemberSection("m", "pla", area, second, 1.0).fibre() == pytest.approx(0.02, rel=1e-12)
-    assert MemberSection("m", "pla", area, second, 1.0, 0.03).fibre() == 0.03
+@pytest.mark.req("REC-004")
+def test_bridge_member_wrenches_are_rotated_into_the_member_frame() -> None:
+    # Member 0 rooted on body 1, placed with no rotation; body 1 turned +90 degrees about world z, q = (cos 45, 0, 0,
+    # sin 45): the member x axis is world +y, member y is world -x. A world force (0, 5, 0) is axial: (5, 0, 0) in
+    # the member frame; a world moment (1, 0, 0) is -1 about member y: (0, -1, 0). Member 1 rooted on the world with
+    # placement turned 180 degrees about x, q = (0, 1, 0, 0): world (0, 2, 3) reads (0, -2, -3).
+    half = math.sqrt(0.5)
+    record = TickRecord(
+        time=0,
+        physics=PhysicsOutputs(
+            bodies=(BodyState(), BodyState(orientation=(half, 0.0, 0.0, half))),
+            members=(
+                MemberEndLoads(Wrench((1.0, 0.0, 0.0), (0.0, 5.0, 0.0)), Wrench((0.0, 0.0, 7.0), (0.0, 0.0, 0.0))),
+                MemberEndLoads(Wrench((0.0, 2.0, 3.0), (0.0, 0.0, 0.0)), Wrench()),
+            ),
+        ),
+    )
+    rotated = member_frame_loads(record, ((1, (1.0, 0.0, 0.0, 0.0)), (-1, (0.0, 1.0, 0.0, 0.0))))
+    first, second = rotated.physics.members
+    assert first.start.force == pytest.approx((5.0, 0.0, 0.0), abs=1e-12)
+    assert first.start.moment == pytest.approx((0.0, -1.0, 0.0), abs=1e-12)
+    assert first.end.moment == pytest.approx((0.0, 0.0, 7.0), abs=1e-12)
+    assert second.start.moment == pytest.approx((0.0, -2.0, -3.0), abs=1e-12)
+    assert member_frame_loads(TickRecord(time=0), ()) == TickRecord(time=0)
+    with pytest.raises(DriverError, match="2 member end-loads for 1 lumped members"):
+        member_frame_loads(record, ((1, (1.0, 0.0, 0.0, 0.0)),))

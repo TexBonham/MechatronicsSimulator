@@ -10,7 +10,6 @@ Times cross this boundary as integer base ticks; quantities as SI floats.
 from __future__ import annotations
 
 import json
-import math
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from fractions import Fraction
@@ -267,11 +266,23 @@ class MemberIntegrity:
 
 
 @dataclass(frozen=True)
+class RopeIntegrity:
+    """One row of the per-rope table: peak tension (N) over the run, the simulated time it occurred (s), and the
+    integrity flags raised on the rope."""
+
+    rope: str
+    peak_tension: float
+    peak_tension_time: float
+    flags: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
 class IntegrityResults:
-    """What integrity attaches to a run (INT-022, brief I1 fills it); scoring reads structural criteria from it and
-    never recomputes them (SCO-014)."""
+    """What integrity attaches to a run (INT-022, brief I1 fills it): the per-member table and, optionally, the
+    per-rope table; scoring reads structural criteria from it and never recomputes them (SCO-014)."""
 
     members: tuple[MemberIntegrity, ...]
+    ropes: tuple[RopeIntegrity, ...] = ()
 
     def member(self, name: str) -> MemberIntegrity:
         for entry in self.members:
@@ -280,27 +291,35 @@ class IntegrityResults:
         raise KeyError(name)
 
     def to_json(self) -> str:
-        return json.dumps(
-            [
-                {
-                    "deflection": entry.deflection,
-                    "deflection_time": entry.deflection_time,
-                    "flags": list(entry.flags),
-                    "member": entry.member,
-                    "peak_stress": entry.peak_stress,
-                    "peak_stress_time": entry.peak_stress_time,
-                    "safety_factor": entry.safety_factor,
-                    "safety_factor_time": entry.safety_factor_time,
-                }
-                for entry in self.members
-            ],
-            sort_keys=True,
-        )
+        """`{"members": [...], "ropes": [...]}`, keys sorted."""
+        members = [
+            {
+                "deflection": entry.deflection,
+                "deflection_time": entry.deflection_time,
+                "flags": list(entry.flags),
+                "member": entry.member,
+                "peak_stress": entry.peak_stress,
+                "peak_stress_time": entry.peak_stress_time,
+                "safety_factor": entry.safety_factor,
+                "safety_factor_time": entry.safety_factor_time,
+            }
+            for entry in self.members
+        ]
+        ropes = [
+            {
+                "flags": list(entry.flags),
+                "peak_tension": entry.peak_tension,
+                "peak_tension_time": entry.peak_tension_time,
+                "rope": entry.rope,
+            }
+            for entry in self.ropes
+        ]
+        return json.dumps({"members": members, "ropes": ropes}, sort_keys=True)
 
     @classmethod
     def from_json(cls, text: str) -> IntegrityResults:
         try:
-            rows = json.loads(text)
+            data = json.loads(text)
             members = tuple(
                 MemberIntegrity(
                     str(row["member"]),
@@ -312,72 +331,77 @@ class IntegrityResults:
                     float(row["safety_factor_time"]),
                     tuple(str(flag) for flag in row["flags"]),
                 )
-                for row in rows
+                for row in data["members"]
+            )
+            ropes = tuple(
+                RopeIntegrity(
+                    str(row["rope"]),
+                    float(row["peak_tension"]),
+                    float(row["peak_tension_time"]),
+                    tuple(str(flag) for flag in row["flags"]),
+                )
+                for row in data["ropes"]
             )
         except (ValueError, KeyError, TypeError) as error:
             raise StructuralError(f"integrity results: {error}") from error
-        return cls(members)
+        return cls(members, ropes)
 
 
 @dataclass(frozen=True)
 class MemberSection:
-    """A structural member as the run recorded it (BLD-008): name, material, section area (m^2), second moment of
-    area (m^4), length (m), and the extreme-fibre distance c (m) when the section states one."""
+    """A structural member as the run recorded it (BLD-008), SI, member frame (x along the member, y the bending
+    direction, z across; ruling 25): area, second moments about z (`second_moment_z`, the neutral model's
+    `second_moment_of_area`) and y, extreme-fibre distances along y and z, length. A section given only by area and
+    second moment has no y-axis properties (None); stress overlays need them."""
 
     name: str
     material: str
     area: float
-    second_moment: float
+    second_moment_z: float
     length: float
-    extreme_fibre: float | None = None
+    second_moment_y: float | None = None
+    fibre_y: float | None = None
+    fibre_z: float | None = None
 
-    def fibre(self) -> float:
-        """c for M c / I: the stated extreme-fibre distance, else that of the solid rectangle with this section's
-        A and I (b h = A, b h^3 / 12 = I give h / 2 = sqrt(3 I / A); the placeholder sections are rectangular,
-        round 5 ruling 6)."""
-        if self.extreme_fibre is not None:
-            return self.extreme_fibre
-        return math.sqrt(3.0 * self.second_moment / self.area)
+
+_SECTION_FIELDS = ("area", "second_moment_z", "length", "second_moment_y", "fibre_y", "fibre_z")
 
 
 def members_json(members: Sequence[MemberSection]) -> str:
-    return json.dumps(
-        [
-            {
-                "area": member.area,
-                "extreme_fibre": member.extreme_fibre,
-                "length": member.length,
-                "material": member.material,
-                "name": member.name,
-                "second_moment": member.second_moment,
-            }
-            for member in members
-        ],
-        sort_keys=True,
-    )
+    rows: list[dict[str, object]] = []
+    for member in members:
+        row: dict[str, object] = {"material": member.material, "name": member.name}
+        for name in _SECTION_FIELDS:
+            row[name] = getattr(member, name)
+        rows.append(row)
+    return json.dumps(rows, sort_keys=True)
+
+
+def _optional(value: object) -> float | None:
+    if value is None:
+        return None
+    return float(value)  # type: ignore[arg-type]
 
 
 def members_from_json(text: str) -> tuple[MemberSection, ...]:
     try:
         rows = json.loads(text)
-        members: list[MemberSection] = []
-        for row in rows:
-            fibre: float | None = None
-            if row["extreme_fibre"] is not None:
-                fibre = float(row["extreme_fibre"])
-            members.append(
-                MemberSection(
-                    str(row["name"]),
-                    str(row["material"]),
-                    float(row["area"]),
-                    float(row["second_moment"]),
-                    float(row["length"]),
-                    fibre,
-                )
+        members = tuple(
+            MemberSection(
+                str(row["name"]),
+                str(row["material"]),
+                float(row["area"]),
+                float(row["second_moment_z"]),
+                float(row["length"]),
+                _optional(row["second_moment_y"]),
+                _optional(row["fibre_y"]),
+                _optional(row["fibre_z"]),
             )
+            for row in rows
+        )
     except (ValueError, KeyError, TypeError) as error:
         raise StructuralError(f"member list: {error}") from error
-    return tuple(members)
+    return members
 
 
 @dataclass(frozen=True)

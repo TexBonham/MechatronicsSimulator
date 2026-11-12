@@ -393,28 +393,110 @@ def _structural_view() -> object:
     return _View()
 
 
-# Rectangle b = 0.02 m, h = 0.04 m: A = 8e-4 m^2, I = b h^3 / 12, c = h / 2 = 0.02 m; rail_y states c = 0.015 m.
+# Rectangle, width w = 0.02 m across (z), height h = 0.04 m along the bending direction (y): A = w h = 8e-4 m^2,
+# I_z = w h^3 / 12 = 1.0667e-7 m^4, I_y = h w^3 / 12 = 2.6667e-8 m^4, c_y = h / 2 = 0.02 m, c_z = w / 2 = 0.01 m.
+W, H = 0.02, 0.04
+A, I_Z, I_Y, C_Y, C_Z = W * H, W * H**3 / 12.0, H * W**3 / 12.0, H / 2.0, W / 2.0
 SECTIONS = (
-    MemberSection("rail_x", "petg_printed", 8e-4, 0.02 * 0.04**3 / 12.0, 0.5),
-    MemberSection("rail_y", "petg_printed", 8e-4, 0.02 * 0.04**3 / 12.0, 0.5, 0.015),
+    MemberSection("rail_x", "petg_printed", A, I_Z, 0.5, I_Y, C_Y, C_Z),
+    MemberSection("rail_y", "petg_printed", A, I_Z, 0.5, I_Y, C_Y, C_Z),
 )
 
 
 @pytest.mark.req("VIE-010")
-def test_member_stress_is_m_c_over_i_at_each_end_per_sample() -> None:
-    # The synthetic rows put member k's start moment at (t + 0.1 k, 2 t, -1 - k) and its end moment at
-    # (-t, 3 + k, 4 t) for tick t; the bending moment is the part normal to the member's x axis, so
-    # sigma_start = sqrt((2 t)^2 + (1 + k)^2) c / I and sigma_end = sqrt((3 + k)^2 + (4 t)^2) c / I.
+def test_member_stress_is_axial_plus_both_bending_terms_at_each_end() -> None:
+    # Member k at tick t: start force (10 k, t, 0.5), start moment (t + 0.1 k, 2 t, -1 - k); end force (1, -2, t + k),
+    # end moment (-t, 3 + k, 4 t), member frame. sigma = |N| / A + |M_y| c_z / I_y + |M_z| c_y / I_z (ruling 25):
+    # start 10 k / A + 2 t c_z / I_y + (1 + k) c_y / I_z; end 1 / A + (3 + k) c_z / I_y + 4 t c_y / I_z.
     found = member_stress(_structural_view(), SECTIONS)
     assert [entry.member for entry in found] == ["rail_x", "rail_y"]
     for k, entry in enumerate(found):
-        c = (0.02, 0.015)[k]
-        second = 0.02 * 0.04**3 / 12.0
-        assert (entry.fibre, entry.second_moment) == (pytest.approx(c, rel=1e-12), second)
-        start = [math.hypot(2.0 * t, 1.0 + k) * c / second for t in range(6)]
-        end = [math.hypot(3.0 + k, 4.0 * t) * c / second for t in range(6)]
+        assert (entry.area, entry.second_moment_y, entry.second_moment_z, entry.fibre_y, entry.fibre_z) == (
+            A,
+            I_Y,
+            I_Z,
+            C_Y,
+            C_Z,
+        )
+        start = [10.0 * k / A + 2.0 * t * C_Z / I_Y + (1.0 + k) * C_Y / I_Z for t in range(6)]
+        end = [1.0 / A + (3.0 + k) * C_Z / I_Y + 4.0 * t * C_Y / I_Z for t in range(6)]
         assert entry.start == pytest.approx(start, rel=1e-12)
         assert entry.end == pytest.approx(end, rel=1e-12)
+
+
+@pytest.mark.req("VIE-010")
+def test_member_stress_refuses_a_section_without_y_axis_properties() -> None:
+    bare = (SECTIONS[0], MemberSection("rail_y", "petg_printed", A, I_Z, 0.5))
+    with pytest.raises(OverlayError, match="'rail_y': the section states no y-axis second moment"):
+        member_stress(_structural_view(), bare)
+
+
+@pytest.mark.req("VIE-010")
+@pytest.mark.parametrize(
+    ("shape", "expected"),
+    [
+        # Rectangle w = 0.02 (z), h = 0.04 (y): A = 8e-4, I_y = h w^3 / 12, I_z = w h^3 / 12, c_y = 0.02, c_z = 0.01;
+        # Roark's J = a b^3 (1/3 - 0.21 (b/a)(1 - b^4 / (12 a^4))) with a = 0.04, b = 0.02:
+        # 3.2e-7 (1/3 - 0.105 (1 - 1/192)) = 7.32417e-8; shear areas 5/6 A.
+        (
+            {"kind": "rectangle", "width": "0.02 m", "height": "0.04 m"},
+            (
+                8e-4,
+                2.6666666666666667e-8,
+                1.0666666666666667e-7,
+                0.02,
+                0.01,
+                3.2e-7 * (1.0 / 3.0 - 0.105 * (1.0 - 1.0 / 192.0)),
+                6.6666666666666667e-4,
+            ),
+        ),
+        # Circle d = 0.02: A = pi d^2 / 4 = 3.14159e-4, I = pi d^4 / 64 = 7.85398e-9, c = 0.01, J = 2 I, shear 6/7 A.
+        (
+            {"kind": "circle", "diameter": "0.02 m"},
+            (
+                math.pi * 1e-4,
+                math.pi * 1.6e-7 / 64.0,
+                math.pi * 1.6e-7 / 64.0,
+                0.01,
+                0.01,
+                math.pi * 1.6e-7 / 32.0,
+                6.0 / 7.0 * math.pi * 1e-4,
+            ),
+        ),
+        # Tube 0.02 / 0.016: A = pi (4e-4 - 2.56e-4) / 4, I = pi (1.6e-7 - 6.5536e-8) / 64, c = 0.01, J = 2 I;
+        # m^2 = 0.64: Cowper (nu = 0) 6 (1.64)^2 / (7 (1.64)^2 + 20 (0.64)) = 16.1376 / 31.6272 = 0.510244.
+        (
+            {"kind": "tube", "outer_diameter": "0.02 m", "inner_diameter": "0.016 m"},
+            (
+                math.pi * 1.44e-4 / 4.0,
+                math.pi * 9.4464e-8 / 64.0,
+                math.pi * 9.4464e-8 / 64.0,
+                0.01,
+                0.01,
+                math.pi * 9.4464e-8 / 32.0,
+                16.1376 / 31.6272 * math.pi * 1.44e-4 / 4.0,
+            ),
+        ),
+    ],
+)
+def test_section_shapes_give_every_property_by_hand(shape: dict[str, str], expected: tuple[float, ...]) -> None:
+    from mechsim.design.schema import Section
+
+    section = Section.model_validate({"shape": shape, "length": "0.5 m"})
+    found = section.properties()
+    assert found is not None
+    measured = (
+        found.area,
+        found.second_moment_y,
+        found.second_moment_z,
+        found.fibre_y,
+        found.fibre_z,
+        found.torsion_constant,
+        found.shear_area_y,
+    )
+    assert measured == pytest.approx(expected, rel=1e-12)
+    assert found.shear_area_z == found.shear_area_y
+    assert Section.model_validate({"area": "1 m**2", "second_moment": "1 m**4", "length": "1 m"}).properties() is None
 
 
 @pytest.mark.req("VIE-010")

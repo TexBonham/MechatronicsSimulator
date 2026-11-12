@@ -1792,7 +1792,7 @@
     },
     "Section": {
       "additionalProperties": false,
-      "description": "Member section and material constants: E, I, rho, A, L.",
+      "description": "Member section and material constants: E, I (about the member z axis, bending along y), rho, A, L; and, for a\nsection given by its shape (ruling 25), the second moment about y, the extreme-fibre distances along y and z, the\ntorsion constant and the shear areas along y and z (member frame: x along the member).",
       "properties": {
         "area": {
           "description": "Quantity with an explicit unit of dimension [length]**2; SI unit m**2",
@@ -1812,6 +1812,34 @@
           "title": "Elastic Modulus",
           "type": "string"
         },
+        "fibre_y": {
+          "anyOf": [
+            {
+              "description": "Quantity with an explicit unit of dimension [length]; SI unit m",
+              "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s|$)",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Fibre Y"
+        },
+        "fibre_z": {
+          "anyOf": [
+            {
+              "description": "Quantity with an explicit unit of dimension [length]; SI unit m",
+              "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s|$)",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Fibre Z"
+        },
         "length": {
           "description": "Quantity with an explicit unit of dimension [length]; SI unit m",
           "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s|$)",
@@ -1823,6 +1851,62 @@
           "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s|$)",
           "title": "Second Moment Of Area",
           "type": "string"
+        },
+        "second_moment_y": {
+          "anyOf": [
+            {
+              "description": "Quantity with an explicit unit of dimension [length]**4; SI unit m**4",
+              "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s|$)",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Second Moment Y"
+        },
+        "shear_area_y": {
+          "anyOf": [
+            {
+              "description": "Quantity with an explicit unit of dimension [length]**2; SI unit m**2",
+              "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s|$)",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Shear Area Y"
+        },
+        "shear_area_z": {
+          "anyOf": [
+            {
+              "description": "Quantity with an explicit unit of dimension [length]**2; SI unit m**2",
+              "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s|$)",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Shear Area Z"
+        },
+        "torsion_constant": {
+          "anyOf": [
+            {
+              "description": "Quantity with an explicit unit of dimension [length]**4; SI unit m**4",
+              "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s|$)",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Torsion Constant"
         }
       },
       "required": [

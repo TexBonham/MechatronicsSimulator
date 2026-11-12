@@ -946,11 +946,14 @@ def test_a_recorded_tier_1_crossing_fails_the_case() -> None:
 
 
 @pytest.mark.req("SCO-015")
-def test_a_crossing_keeps_an_errored_run_errored_and_an_unreadable_one_still_fails() -> None:
+def test_a_crossing_keeps_an_errored_run_errored_only_tier_1_counts_and_an_unreadable_one_fails() -> None:
     case = case_with(value("maximum", "at_most", "3 V", name="a"))
     detail = IntegrityCrossing("rail_x", "stress", 3.5e7, 3.0e7).detail()
     errored = score_run(case, _crossing_recording(detail), RunReport("run_error", 2, Fraction(1), "boom"))
     assert errored.status == "error"
+    tier_two = IntegrityCrossing("rope", "tension", 1200.0, 1000.0, tier=2).detail()
+    later = score_run(case, _crossing_recording(tier_two), ENDED)
+    assert (later.status, later.crossings) == ("pass", ())
     unreadable = score_run(case, _crossing_recording("garbage"), ENDED)
     assert unreadable.status == "fail"
     assert unreadable.crossings[0].startswith("unreadable crossing at 2 s: integrity event detail 'garbage'")

@@ -262,14 +262,17 @@ class TimelineResult(StrictModel):
 
 class MemberStressEntry(StrictModel):
     member: str
-    fibre: float = Field(description="Extreme-fibre distance c, m (the member list's section).")
-    second_moment: float = Field(description="Second moment of area I, m^4 (the member list's section).")
+    area: float = Field(description="Section area, m^2 (the member list's section).")
+    second_moment_y: float = Field(description="Second moment about the member y axis, m^4.")
+    second_moment_z: float = Field(description="Second moment about the member z axis, m^4.")
+    fibre_y: float = Field(description="Extreme-fibre distance along y, m.")
+    fibre_z: float = Field(description="Extreme-fibre distance along z, m.")
     start: list[float]
     end: list[float]
 
 
 class MemberStressResult(StrictModel):
-    """Bending stress M c / I at each member end per recorded sample, Pa (VIE-010)."""
+    """Peak normal stress |N| / A + |M_y| c_z / I_y + |M_z| c_y / I_z at each member end per sample, Pa (VIE-010)."""
 
     run_id: str
     unit: str
@@ -774,8 +777,11 @@ class Facade:
             members=[
                 MemberStressEntry(
                     member=entry.member,
-                    fibre=entry.fibre,
-                    second_moment=entry.second_moment,
+                    area=entry.area,
+                    second_moment_y=entry.second_moment_y,
+                    second_moment_z=entry.second_moment_z,
+                    fibre_y=entry.fibre_y,
+                    fibre_z=entry.fibre_z,
                     start=list(entry.start),
                     end=list(entry.end),
                 )
@@ -787,12 +793,13 @@ class Facade:
         """VIE-011 overlay: the load body's swing from the vertical (the archived design's gravity) through the
         attachment body's origin, or through the world origin for `world`."""
         replay = self._replay(run_id)
-        design_file = b""
         try:
             with RunArchive(replay.archive) as archive:
                 design_file = archive.identity.design_file
-        except (OSError, ValueError, KeyError):
-            design_file = b""
+        except (OSError, ValueError, KeyError) as error:
+            raise FacadeError(
+                "not_found", f"run {run_id}: cannot read the design from the archive: {error}", "VIE-011", "run_id"
+            ) from error
         try:
             found = swing_angle(replay.view, load, attachment, down=down_from_design(design_file))
         except OverlayError as error:
