@@ -336,6 +336,21 @@ class MemberStressRequest(_Envelope):
     payload: ReplayRefPayload
 
 
+class IntegrityResultsRequest(_Envelope):
+    kind: Literal["integrity_results"]
+    payload: ReplayRefPayload
+
+
+class LoadCasePayload(StrictModel):
+    run_id: RunId = Field(description="An open replay's run id.")
+    format: Literal["csv", "json"] = Field(description="Load-case file format (FAC-013).")
+
+
+class LoadCaseRequest(_Envelope):
+    kind: Literal["load_case"]
+    payload: LoadCasePayload
+
+
 class SwingAngleRequest(_Envelope):
     kind: Literal["swing_angle"]
     payload: SwingAnglePayload
@@ -410,6 +425,8 @@ Message = Annotated[
     | ProbeRequest
     | MemberStressRequest
     | SwingAngleRequest
+    | IntegrityResultsRequest
+    | LoadCaseRequest
     | ReportRequest
     | DiffRequest
     | ReadFileRequest

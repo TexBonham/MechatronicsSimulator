@@ -3,31 +3,6 @@
 import pytest
 
 
-@pytest.mark.req("INT-001")
-@pytest.mark.xfail(strict=True, reason="stub")
-def test_int_001() -> None:
-    """Each integrity check shall be a plugin, added as a plugin class, its schema entry and a reference
-    test with no change to other integrity code.
-    """
-    raise NotImplementedError
-
-
-@pytest.mark.req("INT-002")
-@pytest.mark.xfail(strict=True, reason="stub")
-def test_int_002() -> None:
-    """Which checks apply to a design and their parameters shall come from data files, not code."""
-    raise NotImplementedError
-
-
-@pytest.mark.req("INT-003")
-@pytest.mark.xfail(strict=True, reason="stub")
-def test_int_003() -> None:
-    """Each check shall be tiered like component plugins, and adding a higher tier shall not change a lower
-    tier's results.
-    """
-    raise NotImplementedError
-
-
 @pytest.mark.req("INT-014")
 @pytest.mark.xfail(strict=True, reason="stub")
 def test_int_014() -> None:
@@ -69,40 +44,6 @@ def test_int_017() -> None:
 def test_int_018() -> None:
     """The tip-over design rule shall flag a design whose combined center of mass can leave its support
     footprint under the design load.
-    """
-    raise NotImplementedError
-
-
-@pytest.mark.req("INT-019")
-@pytest.mark.xfail(strict=True, reason="stub")
-def test_int_019() -> None:
-    """Integrity checks shall apply the design-load rule each design file states, and no rule written into
-    code.
-    """
-    raise NotImplementedError
-
-
-@pytest.mark.req("INT-020")
-@pytest.mark.xfail(strict=True, reason="stub")
-def test_int_020() -> None:
-    """Integrity shall flag every member and mount whose safety factor is below the design's minimum safety
-    factor.
-    """
-    raise NotImplementedError
-
-
-@pytest.mark.req("INT-021")
-@pytest.mark.xfail(strict=True, reason="stub")
-def test_int_021() -> None:
-    """Integrity shall flag every member whose deflection exceeds the design's deflection target."""
-    raise NotImplementedError
-
-
-@pytest.mark.req("INT-022")
-@pytest.mark.xfail(strict=True, reason="stub")
-def test_int_022() -> None:
-    """Integrity shall produce, per test case, a per-member table of peak stress, deflection and safety
-    factor.
     """
     raise NotImplementedError
 
@@ -209,20 +150,6 @@ def test_int_035() -> None:
     """An FEA import shall record the design version it belongs to and end with an error when that version
     differs from the design being calibrated.
     """
-    raise NotImplementedError
-
-
-@pytest.mark.req("INT-036")
-@pytest.mark.xfail(strict=True, reason="stub")
-def test_int_036() -> None:
-    """The integrity data model shall carry a thermal check slot that v1 accepts and does not evaluate."""
-    raise NotImplementedError
-
-
-@pytest.mark.req("INT-037")
-@pytest.mark.xfail(strict=True, reason="stub")
-def test_int_037() -> None:
-    """Integrity shall record cycle counts for the wear seam without integrating wear in v1."""
     raise NotImplementedError
 
 

@@ -276,6 +276,38 @@
       "title": "GeometryRequest",
       "type": "object"
     },
+    "IntegrityResultsRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "version": {
+          "const": 1,
+          "description": "Protocol version; the service accepts only its own version.",
+          "title": "Version",
+          "type": "integer"
+        },
+        "message_id": {
+          "minLength": 1,
+          "title": "Message Id",
+          "type": "string"
+        },
+        "kind": {
+          "const": "integrity_results",
+          "title": "Kind",
+          "type": "string"
+        },
+        "payload": {
+          "$ref": "#/$defs/ReplayRefPayload"
+        }
+      },
+      "required": [
+        "version",
+        "message_id",
+        "kind",
+        "payload"
+      ],
+      "title": "IntegrityResultsRequest",
+      "type": "object"
+    },
     "JsonValue": {},
     "ListDesignsPayload": {
       "additionalProperties": false,
@@ -351,6 +383,64 @@
         "payload"
       ],
       "title": "ListRunsRequest",
+      "type": "object"
+    },
+    "LoadCasePayload": {
+      "additionalProperties": false,
+      "properties": {
+        "run_id": {
+          "description": "An open replay's run id.",
+          "minLength": 1,
+          "title": "Run Id",
+          "type": "string"
+        },
+        "format": {
+          "description": "Load-case file format (FAC-013).",
+          "enum": [
+            "csv",
+            "json"
+          ],
+          "title": "Format",
+          "type": "string"
+        }
+      },
+      "required": [
+        "run_id",
+        "format"
+      ],
+      "title": "LoadCasePayload",
+      "type": "object"
+    },
+    "LoadCaseRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "version": {
+          "const": 1,
+          "description": "Protocol version; the service accepts only its own version.",
+          "title": "Version",
+          "type": "integer"
+        },
+        "message_id": {
+          "minLength": 1,
+          "title": "Message Id",
+          "type": "string"
+        },
+        "kind": {
+          "const": "load_case",
+          "title": "Kind",
+          "type": "string"
+        },
+        "payload": {
+          "$ref": "#/$defs/LoadCasePayload"
+        }
+      },
+      "required": [
+        "version",
+        "message_id",
+        "kind",
+        "payload"
+      ],
+      "title": "LoadCaseRequest",
       "type": "object"
     },
     "MemberStressRequest": {
@@ -1629,8 +1719,10 @@
       "error": "#/$defs/ErrorResponse",
       "events": "#/$defs/EventsRequest",
       "geometry": "#/$defs/GeometryRequest",
+      "integrity_results": "#/$defs/IntegrityResultsRequest",
       "list_designs": "#/$defs/ListDesignsRequest",
       "list_runs": "#/$defs/ListRunsRequest",
+      "load_case": "#/$defs/LoadCaseRequest",
       "member_stress": "#/$defs/MemberStressRequest",
       "ok": "#/$defs/OkResponse",
       "pause": "#/$defs/PauseRequest",
@@ -1709,6 +1801,12 @@
     },
     {
       "$ref": "#/$defs/SwingAngleRequest"
+    },
+    {
+      "$ref": "#/$defs/IntegrityResultsRequest"
+    },
+    {
+      "$ref": "#/$defs/LoadCaseRequest"
     },
     {
       "$ref": "#/$defs/ReportRequest"

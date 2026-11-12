@@ -1,0 +1,402 @@
+{
+  "$defs": {
+    "BucklingCheckEntry": {
+      "additionalProperties": false,
+      "properties": {
+        "check": {
+          "const": "buckling",
+          "title": "Check",
+          "type": "string"
+        },
+        "parameters": {
+          "$ref": "#/$defs/BucklingParameters"
+        },
+        "tier": {
+          "const": 1,
+          "default": 1,
+          "description": "Fidelity tier (INT-003).",
+          "title": "Tier",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "check"
+      ],
+      "title": "BucklingCheckEntry",
+      "type": "object"
+    },
+    "BucklingParameters": {
+      "additionalProperties": false,
+      "properties": {
+        "effective_length_factors": {
+          "additionalProperties": {
+            "type": "number"
+          },
+          "description": "Per member K overriding the one its end conditions give.",
+          "title": "Effective Length Factors",
+          "type": "object"
+        }
+      },
+      "title": "BucklingParameters",
+      "type": "object"
+    },
+    "DeflectionCheckEntry": {
+      "additionalProperties": false,
+      "properties": {
+        "check": {
+          "const": "deflection",
+          "title": "Check",
+          "type": "string"
+        },
+        "parameters": {
+          "$ref": "#/$defs/NoParameters"
+        },
+        "tier": {
+          "const": 1,
+          "default": 1,
+          "description": "Fidelity tier (INT-003).",
+          "title": "Tier",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "check"
+      ],
+      "title": "DeflectionCheckEntry",
+      "type": "object"
+    },
+    "ExcitationSource": {
+      "additionalProperties": false,
+      "properties": {
+        "hz_per_unit": {
+          "description": "Excitation frequency in Hz per unit of the series' SI value.",
+          "exclusiveMinimum": 0.0,
+          "title": "Hz Per Unit",
+          "type": "number"
+        },
+        "series": {
+          "description": "Recorded quantity reference, e.g. `joint:x_axis.velocity`.",
+          "minLength": 1,
+          "title": "Series",
+          "type": "string"
+        }
+      },
+      "required": [
+        "series",
+        "hz_per_unit"
+      ],
+      "title": "ExcitationSource",
+      "type": "object"
+    },
+    "FastenerCheckEntry": {
+      "additionalProperties": false,
+      "properties": {
+        "check": {
+          "const": "fastener",
+          "title": "Check",
+          "type": "string"
+        },
+        "parameters": {
+          "$ref": "#/$defs/FastenerParameters"
+        },
+        "tier": {
+          "const": 1,
+          "default": 1,
+          "description": "Fidelity tier (INT-003).",
+          "title": "Tier",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "check"
+      ],
+      "title": "FastenerCheckEntry",
+      "type": "object"
+    },
+    "FastenerParameters": {
+      "additionalProperties": false,
+      "properties": {
+        "ratings": {
+          "additionalProperties": {
+            "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s+\\S.*)?$",
+            "type": "string"
+          },
+          "description": "Load rating per fastening name.",
+          "title": "Ratings",
+          "type": "object"
+        }
+      },
+      "title": "FastenerParameters",
+      "type": "object"
+    },
+    "FatigueCheckEntry": {
+      "additionalProperties": false,
+      "properties": {
+        "check": {
+          "const": "fatigue",
+          "title": "Check",
+          "type": "string"
+        },
+        "parameters": {
+          "$ref": "#/$defs/FatigueParameters"
+        },
+        "tier": {
+          "const": 1,
+          "default": 1,
+          "description": "Fidelity tier (INT-003).",
+          "title": "Tier",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "check"
+      ],
+      "title": "FatigueCheckEntry",
+      "type": "object"
+    },
+    "FatigueParameters": {
+      "additionalProperties": false,
+      "properties": {
+        "damage_limit": {
+          "default": 1.0,
+          "description": "Miner sum at which the member is flagged.",
+          "exclusiveMinimum": 0.0,
+          "title": "Damage Limit",
+          "type": "number"
+        }
+      },
+      "title": "FatigueParameters",
+      "type": "object"
+    },
+    "ImpactCheckEntry": {
+      "additionalProperties": false,
+      "properties": {
+        "check": {
+          "const": "impact",
+          "title": "Check",
+          "type": "string"
+        },
+        "parameters": {
+          "$ref": "#/$defs/ImpactParameters"
+        },
+        "tier": {
+          "const": 1,
+          "default": 1,
+          "description": "Fidelity tier (INT-003).",
+          "title": "Tier",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "check",
+        "parameters"
+      ],
+      "title": "ImpactCheckEntry",
+      "type": "object"
+    },
+    "ImpactParameters": {
+      "additionalProperties": false,
+      "properties": {
+        "impact_factor": {
+          "description": "Multiplier on the event's peak stress.",
+          "minimum": 1.0,
+          "title": "Impact Factor",
+          "type": "number"
+        },
+        "step_threshold": {
+          "description": "Rise between consecutive samples that marks an impact event.",
+          "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s+\\S.*)?$",
+          "title": "Step Threshold",
+          "type": "string"
+        },
+        "window": {
+          "description": "Time after the event's first sample over which its peak is taken.",
+          "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s+\\S.*)?$",
+          "title": "Window",
+          "type": "string"
+        }
+      },
+      "required": [
+        "impact_factor",
+        "step_threshold",
+        "window"
+      ],
+      "title": "ImpactParameters",
+      "type": "object"
+    },
+    "JsonValue": {},
+    "NoParameters": {
+      "additionalProperties": false,
+      "description": "A check without parameters.",
+      "properties": {},
+      "title": "NoParameters",
+      "type": "object"
+    },
+    "ResonanceCheckEntry": {
+      "additionalProperties": false,
+      "properties": {
+        "check": {
+          "const": "resonance",
+          "title": "Check",
+          "type": "string"
+        },
+        "parameters": {
+          "$ref": "#/$defs/ResonanceParameters"
+        },
+        "tier": {
+          "const": 1,
+          "default": 1,
+          "description": "Fidelity tier (INT-003).",
+          "title": "Tier",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "check",
+        "parameters"
+      ],
+      "title": "ResonanceCheckEntry",
+      "type": "object"
+    },
+    "ResonanceParameters": {
+      "additionalProperties": false,
+      "properties": {
+        "band": {
+          "description": "Screening half-width as a fraction of the natural frequency.",
+          "exclusiveMaximum": 1.0,
+          "exclusiveMinimum": 0.0,
+          "title": "Band",
+          "type": "number"
+        },
+        "excitations": {
+          "items": {
+            "$ref": "#/$defs/ExcitationSource"
+          },
+          "title": "Excitations",
+          "type": "array"
+        }
+      },
+      "required": [
+        "band"
+      ],
+      "title": "ResonanceParameters",
+      "type": "object"
+    },
+    "StrengthCheckEntry": {
+      "additionalProperties": false,
+      "properties": {
+        "check": {
+          "const": "strength",
+          "title": "Check",
+          "type": "string"
+        },
+        "parameters": {
+          "$ref": "#/$defs/NoParameters"
+        },
+        "tier": {
+          "default": 1,
+          "description": "Fidelity tier (INT-003).",
+          "enum": [
+            1,
+            2
+          ],
+          "title": "Tier",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "check"
+      ],
+      "title": "StrengthCheckEntry",
+      "type": "object"
+    },
+    "ThermalSlot": {
+      "additionalProperties": false,
+      "description": "Thermal check slot (INT-036): accepted and recorded, not evaluated in v1.",
+      "properties": {
+        "parameters": {
+          "additionalProperties": {
+            "$ref": "#/$defs/JsonValue"
+          },
+          "title": "Parameters",
+          "type": "object"
+        }
+      },
+      "title": "ThermalSlot",
+      "type": "object"
+    }
+  },
+  "$id": "integrity.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "Root of `designs/<name>/integrity.yaml`.",
+  "properties": {
+    "checks": {
+      "items": {
+        "discriminator": {
+          "mapping": {
+            "buckling": "#/$defs/BucklingCheckEntry",
+            "deflection": "#/$defs/DeflectionCheckEntry",
+            "fastener": "#/$defs/FastenerCheckEntry",
+            "fatigue": "#/$defs/FatigueCheckEntry",
+            "impact": "#/$defs/ImpactCheckEntry",
+            "resonance": "#/$defs/ResonanceCheckEntry",
+            "strength": "#/$defs/StrengthCheckEntry"
+          },
+          "propertyName": "check"
+        },
+        "oneOf": [
+          {
+            "$ref": "#/$defs/BucklingCheckEntry"
+          },
+          {
+            "$ref": "#/$defs/DeflectionCheckEntry"
+          },
+          {
+            "$ref": "#/$defs/FastenerCheckEntry"
+          },
+          {
+            "$ref": "#/$defs/FatigueCheckEntry"
+          },
+          {
+            "$ref": "#/$defs/ImpactCheckEntry"
+          },
+          {
+            "$ref": "#/$defs/ResonanceCheckEntry"
+          },
+          {
+            "$ref": "#/$defs/StrengthCheckEntry"
+          }
+        ]
+      },
+      "title": "Checks",
+      "type": "array"
+    },
+    "halt_on_crossing": {
+      "default": false,
+      "title": "Halt On Crossing",
+      "type": "boolean"
+    },
+    "schema_version": {
+      "const": 1,
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "thermal": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/ThermalSlot"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    }
+  },
+  "required": [
+    "schema_version"
+  ],
+  "title": "IntegrityFile",
+  "type": "object"
+}

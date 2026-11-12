@@ -33,6 +33,8 @@ from mechsim.design.schema import (
     open_name,
     yaml_loader,
 )
+from mechsim.integrity.export import write_beside
+from mechsim.integrity.plugin import IntegrityError
 from mechsim.library.registry import Registry, RegistryError, default_registry
 from mechsim.library.schema import dimensions_equal
 from mechsim.schema_base import format_errors
@@ -675,7 +677,7 @@ def run_case(
         integrity: IntegrityResults | None = None
         if services.integrity is not None and not report.errored:
             integrity = services.integrity(build, case, recording)
-    except RunnerError as error:
+    except (RunnerError, IntegrityError) as error:
         return RunResult(
             _scored(run_failed(case, str(error), variant.sweep), variant),
             config=config,
@@ -715,6 +717,8 @@ def run_case(
             design_hash=metadata.design_hash,
             case_hash=metadata.case_hash,
         )
+        if integrity is not None:
+            write_beside(archive, integrity, recording, metadata)
     score = score_run(case, recording, report, prepared.limits, variant.sweep, identity, integrity)
     return RunResult(_scored(score, variant), report, metadata, archive, config, tuple(commands), tuple(faults))
 
