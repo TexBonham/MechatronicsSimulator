@@ -98,3 +98,8 @@ built.
   parameters meaningful) and a damped ACC-037 decay variant: owner, before G12 settle time is scored.
 - Rope mass change with length (paying out adds mass): not modelled; revisit with the winch.
 - Gantry rope part, length and segment count: gantry team (placeholders in the design stage).
+
+## Amendment 2026-11-11 (round 5 rulings 14 and 15)
+
+- Swing damping: the rope's top end hangs from the hook through a damped spherical joint whose damping and friction are the design's `hook_damping` and `hook_friction` parameters, so G12's settle time is a design input; the rope itself damps only along its length.
+- Snatch peaks are underestimated at 1 ms when a segment's natural frequency times the step exceeds 0.2; the adapter records an approximation line when a rope crosses it.

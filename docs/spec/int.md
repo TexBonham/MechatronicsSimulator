@@ -57,7 +57,7 @@ proposed <value>)".
 | INT-023 | A tier 1 kernel party shall evaluate member stress, buckling margin, fastener load and deflection every tick from the live loads physics publishes. | ADR 0010, Decision, Tier 1; Ruling R-21 | M3 | unit | n/a |
 | INT-024 | When a tier 1 quantity crosses its limit, integrity shall raise an event stamped with the simulated time of the crossing. | ADR 0010, Decision, Tier 1, On a limit crossing; Ruling R-21 | M3 | unit | n/a |
 | INT-025 | A tier 1 limit crossing shall fail the case. | ADR 0010, Decision, Tier 1, On a limit crossing; Ruling R-21 | M3 | unit | n/a |
-| INT-026 | A tier 1 limit crossing shall halt the run when halting is configured, and let the run continue otherwise. | ADR 0010, Decision, Tier 1, On a limit crossing; ADR 0010, Open items | M3 | unit | n/a |
+| INT-026 | A tier 1 limit crossing shall halt the run when halting is configured, and let the run continue otherwise. | ADR 0010, Decision, Tier 1, On a limit crossing; ADR 0010 amendment 2026-11-11 (halt field, round 5 ruling 4) | M3 | unit | n/a |
 | INT-027 | Tier 1 events shall be deterministic: the same design, test case, seed and mode raise the same events at the same simulated times. | ADR 0010, Consequences; Architecture doc, Repository starting point, invariant 4 | M3 | unit | n/a |
 | INT-028 | A tier 2 yield shall set a permanent spring offset in the member's model for the rest of the run. | ADR 0010, Decision, Tier 2; Ruling R-21 | M4 | unit | n/a |
 | INT-029 | A tier 2 buckling failure shall collapse the member's stiffness for the rest of the run. | ADR 0010, Decision, Tier 2; Ruling R-21 | M4 | unit | n/a |

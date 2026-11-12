@@ -14,6 +14,8 @@ are below for reference; round 4's cost rows are in `docs/cost-log-archive.md`.
 
 | # | Question | Planned default | Status |
 |---|---|---|---|
+| 14 | ADR 0016 (A's open issue): the rope damps only along its length, so swing decay for G12 comes from rotational damping at the hook attachment: the rope's top end hangs from the hook through a damped spherical joint whose damping is the design's `hook_damping` open parameter (and `hook_friction`), so the swing settle time is a design input, not a numerical artefact. E2 implements the attachment; the ADR gains the sentence. | as stated | coordinator ruling, for confirmation |
+| 15 | ADR 0016: snatch peaks are underestimated at 1 ms when the segment frequency times the step exceeds 0.2; recorded as an approximation line by the adapter when a rope's segment frequency crosses it. | record | coordinator ruling, for confirmation |
 | 1 | Milestone 3 retires MuJoCo: every case on the native adapter, PHY-025 baselines, PHY-026 MuJoCo out of runtime and CI; fallback per ADR 0004 only if the contact solver or the differential check fails by the gate | retire | owner 2026-11-11 (amendment) |
 | 2 | Rope model: lumped chain of point masses, unilateral tension springs with damping, slack below rest length, driven-end length change; the gantry payload hangs on one rope from the hook; a rope pendulum joins the rigid one (ACC-037) | ADR 0016 | open (owner reviews the ADR) |
 | 3 | Tier 2 split (ADR 0010): M3 yield offset and rope snap; M4 buckling collapse and fastener break | as stated | open |

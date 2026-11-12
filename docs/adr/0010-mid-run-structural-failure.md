@@ -61,7 +61,7 @@ milestone 3 gate.
 | Item | Decision | Source |
 |---|---|---|
 | Tier 2 split, milestone 3 | Yield: permanent spring offset (ENG-031). Rope snap: load release (ENG-034), with the rope model and snap rule of ADR 0016 | Round 5 ruling 3 |
-| Tier 2 split, milestone 4 | Buckling: stiffness collapse (ENG-032). Fastener break: constraint disable (ENG-033) | Round 5 ruling 3 |
+| Tier 2 split, milestone 4 | Buckling: stiffness collapse (ENG-032). Fastener break: constraint disable (ENG-033). The engine calls land in milestone 3 with the other mid-run changes; their use by integrity is milestone 4 | Round 5 ruling 3 |
 | Halt configuration | Test-case field `integrity.halt_on_crossing`, boolean, default false; true halts the run at the crossing, false lets it continue (INT-026) | Round 5 ruling 4 |
 | Case result on a crossing | The case fails on a tier 1 crossing whether or not the run halts (INT-025) | Round 5 ruling 4; Decision, Tier 1 |
 
