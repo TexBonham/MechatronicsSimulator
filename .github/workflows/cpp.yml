@@ -60,8 +60,8 @@ jobs:
         run: cmake --preset windows-debug
       - name: Build windows-debug
         run: cmake --build --preset windows-debug -- -k 0
-      - name: Test windows-debug
-        run: ctest --preset windows-debug
+      - name: Test windows-debug (reference tier runs on windows-release; unoptimised MSVC took 57 min on it)
+        run: ctest --preset windows-debug -LE reference
       - name: Configure windows-release
         run: cmake --preset windows-release
       - name: Build windows-release
