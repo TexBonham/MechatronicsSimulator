@@ -70,6 +70,7 @@ private:
 
     [[nodiscard]] Engine& engine(const char* operation) const;
     static void apply_inputs(Engine& e, const kernel::PhysicsInputs& inputs);
+    static void clear_drives(Engine& e);
 
     std::vector<std::string> supported_;
     std::unique_ptr<Engine> engine_;

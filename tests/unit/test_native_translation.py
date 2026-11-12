@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import math
 import re
 from pathlib import Path
 from typing import Any
@@ -16,6 +17,8 @@ from mechsim.physics.native.translate import (
     StartStateError,
     UnmappableElementError,
     element_kinds,
+    mode_text,
+    scheme_mode,
     translate,
 )
 from mechsim.physics.neutral import PhysicsModel, from_yaml
@@ -240,12 +243,115 @@ def test_stiffness_or_limits_on_a_ball_or_free_joint_are_refused(
 
 
 @pytest.mark.req("PHY-031")
-def test_the_drive_line_names_the_loss_per_period() -> None:
-    """Ruling 21: backward Euler loses pi omega h of a mode's amplitude per period (it keeps about e^(-pi omega h))."""
+def test_the_drive_line_names_the_engine_scheme_decay_form() -> None:
+    """Ruling 45: a driven DOF's line gives x = omega h from the engine's scheme decay (ruling 44), the amplitude kept
+    per period and the frequency ratio, never the small-x pi omega h."""
     data = pendulum_data()
     data["bodies"] = [slider("cart")]
     data["signals"] = {"drive_joints": ["cart_joint"]}
     lines = [line for line in translate(model_of(data), step=1e-3).report if "joint drive" in line]
     assert len(lines) == 1
-    assert "loses about pi x of its amplitude per period" in lines[0]
-    assert "keeps (1 + x^2)^(-pi / atan x), about e^(-pi x)" in lines[0]
+    assert "amplitude kept per period (1 + x^2)^(-pi / atan x), frequency ratio atan(x) / x" in lines[0]
+    assert "scheme decay pi x" in lines[0]
+    assert "unresolved above x = 0.2" in lines[0]
+
+
+@pytest.mark.req("PHY-031")
+@pytest.mark.parametrize(("x", "kept", "ratio", "unresolved"), [(0.1, 0.730813, 0.996687, False), (1.3, 0.0335, 0.704, True)])
+def test_mode_lines_publish_x_the_amplitude_kept_and_the_frequency_ratio(
+    x: float, kept: float, ratio: float, unresolved: bool
+) -> None:
+    """Ruling 45: backward Euler on a mode with x = omega h keeps (1 + x^2)^(-pi / atan x) of its amplitude per period
+    and runs at atan(x) / x of its frequency. x = 0.1: (1.01)^(-pi / 0.0996687) = exp(-31.5202 * 0.00995033) = 0.730813,
+    ratio 0.996687; x = 1.3 (the gantry's flexible rail at 1 ms): (2.69)^(-pi / 0.915101) = exp(-3.43307 * 0.989541)
+    = 0.0335, ratio 0.704 (frequency 30 percent low); above x = 0.2 the line says unresolved."""
+    assert scheme_mode(x)[0] == pytest.approx(kept, rel=1e-3)
+    assert scheme_mode(x)[1] == pytest.approx(ratio, rel=1e-3)
+    assert scheme_mode(0.0) == (1.0, 1.0)
+    text = mode_text(x)
+    assert f"x = omega h = {x:.3g}" in text
+    assert f"amplitude kept per period {kept:.3g}" in text
+    assert f"frequency ratio {ratio:.3g}" in text
+    assert ("unresolved at this step" in text) == unresolved
+
+
+@pytest.mark.req("PHY-031")
+def test_member_rope_and_belt_lines_carry_the_mode_form() -> None:
+    """Every oscillatory-mode line (member first mode, rope swing, belt mode) carries mode_text of its own x."""
+    rope_x = math.sqrt(9.81 / 1.0) * 1e-3
+    data = pendulum_data()
+    data["bodies"] = [*data["bodies"], free_body("load")]
+    data["ropes"] = [
+        {
+            "name": "line",
+            "from_body": "world",
+            "from_point": ("0 m", "0 m", "0 m"),
+            "to_body": "load",
+            "to_point": ("0 m", "0 m", "0 m"),
+            "segments": 4,
+            "axial_stiffness": "1e5 N",
+            "damping": "20 N*s",
+            "mass_per_length": "0.01 kg/m",
+            "rest_length": "1 m",
+        }
+    ]
+    model = model_of(data)
+    lines = [line for line in translate(model, step=1e-3).report if line.startswith("rope 'line': lumped")]
+    assert len(lines) == 1
+    assert mode_text(rope_x) in lines[0]
+    assert "pi omega h" not in " ".join(translate(model, step=1e-3).report)
+
+
+@pytest.mark.req("PHY-027", "PHY-019")
+def test_friction_lines_publish_the_creep_bound_and_planar_limits_are_refused() -> None:
+    """Ruling 38: every joint with friction gets a line with its creep law v_s L / F; ENG-013: limits on a planar
+    joint are refused with the joint named (the engine's limits are single-DOF)."""
+    data = pendulum_data()
+    cart = slider("cart")
+    cart["joint"]["linear"] = [{"friction": "2 N"}]
+    data["bodies"] = [cart]
+    data["signals"] = {}
+    lines = [line for line in translate(model_of(data)).report if "Coulomb friction" in line]
+    assert len(lines) == 1
+    assert "creeps at v_s L / F = 5e-05 L" in lines[0]
+    plate = slider("plate")
+    plate["joint"] = {"name": "plate_joint", "type": "planar", "position": ("0 m", "0 m", "0 m"), "axis": (0, 0, 1)}
+    data["bodies"] = [plate]
+    built = model_of(data)
+    joint = built.bodies[0].joint
+    assert joint is not None
+    dofs = (*joint.linear, *joint.angular)
+    assert len(dofs) == 3
+    limited = joint.linear[0].model_copy(update={"lower": -0.1})
+    unvalidated_joint = joint.model_copy(update={"linear": (limited, *joint.linear[1:])})
+    unvalidated = built.model_copy(update={"bodies": (built.bodies[0].model_copy(update={"joint": unvalidated_joint}),)})
+    with pytest.raises(UnmappableElementError, match="joint 'plate_joint'.*limits on a planar joint"):
+        translate(unvalidated)
+
+
+@pytest.mark.req("PHY-031")
+def test_substeps_are_written_and_run_at_h_over_substeps() -> None:
+    """A translation with substeps writes the key (left out at one), refuses fewer than one, and its report states the
+    engine step h / substeps; the adapter then takes that many engine steps per call: under constant g, semi-implicit
+    Euler over 2 n steps of h / 2 gives v = -g n h and q = -g (h / 2)^2 (2 n)(2 n + 1) / 2 (exact recurrence)."""
+    from mechsim import _core as core
+
+    data = pendulum_data()
+    data["gravity"] = ("0 m/s**2", "0 m/s**2", "-9.81 m/s**2")
+    data["bodies"] = [slider("drop", axis=(0.0, 0.0, 1.0))]
+    data["signals"] = {}
+    model = model_of(data)
+    assert "substeps" not in translate(model, step=1e-3).document
+    halved = translate(model, step=1e-3, substeps=2)
+    assert halved.document["substeps"] == 2
+    assert "at 0.0005 s" in halved.report[0]
+    with pytest.raises(UnmappableElementError, match="substeps 0"):
+        translate(model, step=1e-3, substeps=0)
+    prepared = prepare_model(model, None, 1e-3, None, 2)
+    physics = core.make_physics_adapter("native")
+    physics.load(core.PreparedModel(prepared.model_json, "", prepared.version), core.Rate(1000))
+    for _ in range(10):
+        physics.step()
+    assert physics.health().steps == 10
+    assert physics.outputs().bodies[0].linear_velocity[2] == pytest.approx(-9.81 * 10 * 1e-3, rel=1e-12)
+    assert physics.outputs().joint_positions[0] == pytest.approx(-9.81 * 0.5e-3**2 * 20 * 21 / 2, rel=1e-12)
