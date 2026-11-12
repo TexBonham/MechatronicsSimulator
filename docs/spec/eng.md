@@ -76,7 +76,7 @@ proposed <value>)".
 | ENG-044 | The engine shall simulate a lead screw transmission element with its lead, efficiency, stiffness, backlash and slip parameters, and a self-locking lead screw shall hold its joint against back-driving load with no motor torque. Lowering a self-locking screw under an active drive is unresisted in this tier (no nut-friction model): a zero load torque while lowering is a documented limit. | Requirements doc, Component library requirements (Transmissions row); ADR 0003, P3; ADR 0001, R-13; Decisions log row 15 | M1 | unit | n/a |
 | ENG-045 | The engine shall simulate a gear pair transmission element with its ratio, efficiency, stiffness, backlash and slip parameters. | Requirements doc, Component library requirements (Transmissions row); ADR 0003, P3; ADR 0001, R-13; pulled forward from M2 to M1 (delivered with engine package 7) | M1 | unit | n/a |
 | ENG-046 | Every transmission element's slip parameter shall be zero by default, and the engine shall accept a mid-run change of it so that a slip fault makes that transmission slip for the fault window. | Requirements doc, Component library requirements (Transmissions row); ADR 0003, P3; ADR 0001, R-13; Architecture doc, Data flows (fault fan-out, belt or rope slip); pulled forward from M2 to M1 (delivered with engine package 7) | M1 | unit | n/a |
-| ENG-047 | The engine shall simulate a rope as a lumped chain with unilateral tension, slack and length change. | Requirements doc, Component library requirements (Transmissions row); ADR 0003, P3 and P4; ADR 0001, R-13; Decisions log row 15 | M3 | unit | n/a |
+| ENG-047 | The engine shall simulate a rope as a lumped chain of point masses joined by tension-only spring-dampers, with slack below the segment rest length, a rest length changed at run time, and release of the load end when a segment's tension exceeds the breaking tension. | Requirements doc, Component library requirements (Transmissions row); ADR 0003, P3 and P4; ADR 0001, R-13; ADR 0016; Decisions log rows 15, 48 | M3 | unit | n/a |
 | ENG-048 | Each transmission element shall map the motor shaft torque the signal layer applies into joint force for the step, and the engine shall publish the load torque on each motor shaft after every step for the stepper model, as the torque the shaft must supply along its + axis (PHY-033 convention: g F, evaluated at the step's end state), crossing the adapter in `kernel::TransmissionState::shaft_load_torque`. | Architecture doc, Data flows (within one physics tick, step 5); ADR 0003, P3; ADR 0001, R-13 | M1 | unit | n/a |
 | ENG-049 | The engine shall reject an invalid model before stepping: a mass matrix that is not symmetric positive definite, or mismatched dimensions between H, forces, Jacobians and state, with an error naming the cause. | Architecture doc, Repository starting point (invariant 7) | spike | unit | n/a |
 | ENG-050 | The engine shall reject a step or solver configuration value outside its stated range (non-positive or non-finite step length, zero iteration cap, non-positive tolerances) with an error naming the cause. | Architecture doc, Repository starting point (invariant 7) | spike | unit | n/a |
@@ -106,14 +106,14 @@ proposed <value>)".
 | Beam roller mass fraction (ENG-022, ENG-040, ENG-041) | 1e-3 of member mass (change by reviewed spec edit, T4) | owner |
 | Transmission coupling model (ENG-043 to ENG-046, ENG-048) | Compliant spring-damper from n theta to the driven joint, finite stiffness required (rigid coupling as a constraint: next tier); backlash a total dead band at the output; slip a fraction of shaft motion not transmitted, reaction at full ratio; efficiency by the sign of the power flow at the step start, lossless at zero shaft speed, no threshold speed; self-locking lead screw passes no back-driving or static unopposed load torque (change by reviewed spec edit) | owner |
 | Transmission unit-test tolerance (ENG-043 to ENG-046, ENG-048) | 1e-9 relative or tighter, per-case values in the header of `core/engine/tests/test_transmissions.cpp`; transient decayed to 1e-20 by the scheme's spectral radius, 20 000-step cap (change by reviewed spec edit, T4) | owner |
-| Milestone of each tier 2 model change (ENG-031 to ENG-034) | not set; tier 2 spans milestones 3 and 4 | owner, milestone 3 plan (ADR 0010, Open items) |
+| Milestone of each tier 2 model change (ENG-031 to ENG-034) | M3: ENG-031, ENG-034; M4: ENG-032, ENG-033 (ADR 0010, amendment 2026-11-11; round 5 ruling 3) | owner confirms at the milestone 3 gate |
 
 ## Out of scope
 
 | Item | Seam it belongs to |
 |---|---|
 | Translating the neutral physics model into engine objects | PHY (native adapter) |
-| Rope model detail beyond ENG-047 | Milestone 3 ADR (ADR 0003, P4) |
+| Rope model detail beyond ENG-047 | ADR 0016 |
 | Stepper torque-speed curve, stall and missed steps | SIG (behavioral stepper, SIG-032 to SIG-034) |
 | Mesh contact | Later contact tier (ADR 0002) |
 | Convex decomposition of imported meshes | BLD (library, ADR 0002) |

@@ -45,9 +45,25 @@ Interface requirement: physics publishes live member end-loads every tick.
 - Failure events are part of the recording and must be deterministic (invariant 4).
 - The tier 1 party follows the plugin tiers of ADR 0005 and ADR 0009: a check may start on the Python slow path and be
   promoted to C++.
-- Rope snap depends on the rope model of the milestone 3 ADR (ADR 0003, P4).
+- Rope snap depends on the rope model of the milestone 3 ADR (ADR 0003, P4), now ADR 0016.
 
 ## Open items
-- Split of tier 2 failure modes between milestones 3 and 4: not ruled; set in the milestone 3 plan.
-- Rope model: milestone 3 ADR.
-- Where the optional halt is configured (test case or design) and its default: not ruled; phase 1 schemas.
+- Split of tier 2 failure modes between milestones 3 and 4: not ruled; set in the milestone 3 plan. Closed by the
+  2026-11-11 amendment.
+- Rope model: milestone 3 ADR. Closed: ADR 0016.
+- Where the optional halt is configured (test case or design) and its default: not ruled; phase 1 schemas. Closed by
+  the 2026-11-11 amendment.
+
+## Amendment 2026-11-11: open items closed (round 5 rulings 3 and 4)
+Decisions, sourced to the round 5 rulings in `docs/queue.md` at their planned defaults; the owner confirms at the
+milestone 3 gate.
+
+| Item | Decision | Source |
+|---|---|---|
+| Tier 2 split, milestone 3 | Yield: permanent spring offset (ENG-031). Rope snap: load release (ENG-034), with the rope model and snap rule of ADR 0016 | Round 5 ruling 3 |
+| Tier 2 split, milestone 4 | Buckling: stiffness collapse (ENG-032). Fastener break: constraint disable (ENG-033) | Round 5 ruling 3 |
+| Halt configuration | Test-case field `integrity.halt_on_crossing`, boolean, default false; true halts the run at the crossing, false lets it continue (INT-026) | Round 5 ruling 4 |
+| Case result on a crossing | The case fails on a tier 1 crossing whether or not the run halts (INT-025) | Round 5 ruling 4; Decision, Tier 1 |
+
+The open items "Split of tier 2 failure modes", "Rope model" (ADR 0016) and "Where the optional halt is configured"
+are closed by this amendment.
