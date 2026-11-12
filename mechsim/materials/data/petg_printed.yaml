@@ -23,14 +23,26 @@ yield_strength:
   min: "20 MPa"
   typ: "40 MPa"
   max: "53 MPa"
+  temperature_dependence:
+    - {temperature: "253 K", factor: 1.1}
+    - {temperature: "296 K", factor: 1.0}
+    - {temperature: "348 K", factor: 0.5}
 ultimate_strength:
   min: "25 MPa"
   typ: "45 MPa"
   max: "55 MPa"
+  temperature_dependence:
+    - {temperature: "253 K", factor: 1.1}
+    - {temperature: "296 K", factor: 1.0}
+    - {temperature: "348 K", factor: 0.5}
 shear_strength:
   min: "10 MPa"
   typ: "22 MPa"
   max: "35 MPa"
+  temperature_dependence:
+    - {temperature: "253 K", factor: 1.1}
+    - {temperature: "296 K", factor: 1.0}
+    - {temperature: "348 K", factor: 0.5}
 sn_curve:
   - {cycles: 1e3, stress_amplitude: "25 MPa"}
   - {cycles: 1e5, stress_amplitude: "15 MPa"}
