@@ -1,0 +1,354 @@
+{
+  "$defs": {
+    "MaterialOverride": {
+      "additionalProperties": false,
+      "description": "Overrides for one shipped material; every field optional, at least one given.",
+      "properties": {
+        "density": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PropertyOverride"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "max_service_temperature": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PropertyOverride"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "poissons_ratio": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PropertyOverride"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "shear_strength": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PropertyOverride"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "sn_curve": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SNCurveOverride"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "specific_heat": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PropertyOverride"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "strength_factors": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/StrengthFactorsOverride"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "thermal_conductivity": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PropertyOverride"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "thermal_expansion": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PropertyOverride"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "ultimate_strength": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PropertyOverride"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "yield_strength": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PropertyOverride"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "youngs_modulus": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PropertyOverride"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "title": "MaterialOverride",
+      "type": "object"
+    },
+    "PropertyOverride": {
+      "additionalProperties": false,
+      "description": "Either `value` (min = typ = max) or the full `min`, `typ`, `max` spread. A `temperature_dependence` given here\nreplaces the shipped table; omitted, the shipped table is kept.",
+      "properties": {
+        "max": {
+          "anyOf": [
+            {
+              "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s+\\S.*)?$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Max"
+        },
+        "min": {
+          "anyOf": [
+            {
+              "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s+\\S.*)?$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Min"
+        },
+        "source": {
+          "minLength": 1,
+          "title": "Source",
+          "type": "string"
+        },
+        "temperature_dependence": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/TemperaturePoint"
+              },
+              "minItems": 2,
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Temperature Dependence"
+        },
+        "typ": {
+          "anyOf": [
+            {
+              "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s+\\S.*)?$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Typ"
+        },
+        "value": {
+          "anyOf": [
+            {
+              "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s+\\S.*)?$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Value"
+        }
+      },
+      "required": [
+        "source"
+      ],
+      "title": "PropertyOverride",
+      "type": "object"
+    },
+    "SNCurveOverride": {
+      "additionalProperties": false,
+      "properties": {
+        "points": {
+          "items": {
+            "$ref": "#/$defs/SNPoint"
+          },
+          "minItems": 2,
+          "title": "Points",
+          "type": "array"
+        },
+        "source": {
+          "minLength": 1,
+          "title": "Source",
+          "type": "string"
+        }
+      },
+      "required": [
+        "source",
+        "points"
+      ],
+      "title": "SNCurveOverride",
+      "type": "object"
+    },
+    "SNPoint": {
+      "additionalProperties": false,
+      "properties": {
+        "cycles": {
+          "minimum": 1.0,
+          "title": "Cycles",
+          "type": "number"
+        },
+        "stress_amplitude": {
+          "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s+\\S.*)?$",
+          "title": "Stress Amplitude",
+          "type": "string"
+        }
+      },
+      "required": [
+        "cycles",
+        "stress_amplitude"
+      ],
+      "title": "SNPoint",
+      "type": "object"
+    },
+    "StrengthFactorsOverride": {
+      "additionalProperties": false,
+      "properties": {
+        "in_layer": {
+          "exclusiveMinimum": 0.0,
+          "maximum": 1.0,
+          "title": "In Layer",
+          "type": "number"
+        },
+        "interlayer": {
+          "exclusiveMinimum": 0.0,
+          "maximum": 1.0,
+          "title": "Interlayer",
+          "type": "number"
+        },
+        "source": {
+          "minLength": 1,
+          "title": "Source",
+          "type": "string"
+        }
+      },
+      "required": [
+        "in_layer",
+        "interlayer",
+        "source"
+      ],
+      "title": "StrengthFactorsOverride",
+      "type": "object"
+    },
+    "TemperaturePoint": {
+      "additionalProperties": false,
+      "properties": {
+        "factor": {
+          "exclusiveMinimum": 0.0,
+          "title": "Factor",
+          "type": "number"
+        },
+        "temperature": {
+          "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s+\\S.*)?$",
+          "title": "Temperature",
+          "type": "string"
+        }
+      },
+      "required": [
+        "temperature",
+        "factor"
+      ],
+      "title": "TemperaturePoint",
+      "type": "object"
+    }
+  },
+  "$id": "material_overrides.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "Root of a `material_overrides.yaml` file.",
+  "properties": {
+    "description": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Description"
+    },
+    "material_overrides": {
+      "additionalProperties": {
+        "$ref": "#/$defs/MaterialOverride"
+      },
+      "minProperties": 1,
+      "title": "Material Overrides",
+      "type": "object"
+    }
+  },
+  "required": [
+    "material_overrides"
+  ],
+  "title": "MaterialOverridesFile",
+  "type": "object"
+}
