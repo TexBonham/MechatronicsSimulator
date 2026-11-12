@@ -41,3 +41,4 @@ type live in the root `CLAUDE.md` dispatch table once measured.
 | 2026-11-11 | M3-E3 engine merge of E1 and E2, bindings, clamped far end (wip/05-e3 ea37b2d) | module-writer (opus) | 228K | 111 calls; stalled 45 min on lost background tasks, resumed |
 | 2026-11-11 | M3 review: E3 (wip/05-e3 ea37b2d): accept with fixes, 3 medium, 6 low; rulings 31 to 33 | Fable review (general-purpose) | ~120K | 23 calls |
 | 2026-11-11 | M3-E3 invariant audit: clean | invariant-auditor (sonnet) | ~20K | 4 calls |
+| 2026-11-11 | M3-E3 fix round: clamped floor, rope end mass, carrier check, binding test edges (wip/05-e3 1fc9750) | module-writer (opus), resumed | ~25K | 17 calls; ctest debug-sanitize 426 |
