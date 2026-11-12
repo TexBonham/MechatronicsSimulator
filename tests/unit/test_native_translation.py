@@ -22,11 +22,14 @@ from mechsim.record.reader import DriverError
 from mechsim.testing.core_driver import ADAPTER_VARIABLE, physics_adapter_name
 
 ROOT = Path(__file__).resolve().parents[2]
+ORIGIN = ("0 m", "0 m", "0 m")
 PENDULUM = (ROOT / "schemas/examples/physics_model.pendulum.yaml").read_text()
 
 
 def pendulum_data() -> dict[str, Any]:
-    return from_yaml(PENDULUM).model_dump(mode="python")
+    data = from_yaml(PENDULUM).model_dump(mode="json")
+    data["bodies"] = list(data["bodies"])
+    return data
 
 
 def model_of(data: dict[str, Any]) -> PhysicsModel:
@@ -36,12 +39,12 @@ def model_of(data: dict[str, Any]) -> PhysicsModel:
 def slider(name: str, parent: str = "world", axis: tuple[float, float, float] = (1.0, 0.0, 0.0)) -> dict[str, Any]:
     return {
         "name": name,
-        "mass": 2.0,
-        "com": (0.0, 0.0, 0.0),
-        "inertia": {"ixx": 0.01, "iyy": 0.01, "izz": 0.01},
+        "mass": "2 kg",
+        "com": ("0 m", "0 m", "0 m"),
+        "inertia": {"ixx": "0.01 kg*m**2", "iyy": "0.01 kg*m**2", "izz": "0.01 kg*m**2"},
         "material": "steel",
         "parent": parent,
-        "joint": {"name": name + "_joint", "type": "prismatic", "position": (0.0, 0.0, 0.0), "axis": axis},
+        "joint": {"name": name + "_joint", "type": "prismatic", "position": ORIGIN, "axis": axis},
     }
 
 
@@ -50,9 +53,9 @@ def free_body(name: str) -> dict[str, Any]:
     body["joint"] = {
         "name": name + "_joint",
         "type": "free",
-        "position": (0.0, 0.0, -0.3),
-        "linear": [{"damping": 1.0}, {"damping": 2.0}, {"damping": 3.0}],
-        "angular": [{"damping": 4.0}, {"damping": 5.0}, {"damping": 6.0}],
+        "position": ("0 m", "0 m", "-0.3 m"),
+        "linear": [{"damping": f"{d} N*s/m"} for d in (1, 2, 3)],
+        "angular": [{"damping": f"{d} N*m*s/rad"} for d in (4, 5, 6)],
     }
     return body
 
@@ -93,7 +96,7 @@ def test_free_joint_dofs_are_in_engine_order_and_world_constraints_get_an_anchor
     data = pendulum_data()
     data["bodies"].append(free_body("ball"))
     data["constraints"] = [
-        {"type": "point", "name": "tie", "body_a": "ball", "body_b": "world", "anchor_a": (0, 0, 0), "anchor_b": (0, 0, -0.3)}
+        {"type": "point", "name": "tie", "body_a": "ball", "body_b": "world", "anchor_a": ORIGIN, "anchor_b": ("0 m", "0 m", "-0.3 m")}
     ]
     doc = translate(model_of(data)).document
     assert doc["bodies"][1]["joint"]["damping"] == [4.0, 5.0, 6.0, 1.0, 2.0, 3.0]
@@ -108,14 +111,20 @@ def test_free_joint_dofs_are_in_engine_order_and_world_constraints_get_an_anchor
 def test_friction_on_a_ball_joint_and_an_unsupported_member_are_refused() -> None:
     data = pendulum_data()
     ball = free_body("ball")
-    ball["joint"]["linear"] = [{"friction": 1.0}, {}, {}]
+    ball["joint"]["linear"] = [{"friction": "1 N"}, {}, {}]
     data["bodies"].append(ball)
     with pytest.raises(UnmappableElementError, match="ball_joint"):
         translate(model_of(data))
     data = pendulum_data()
-    section = {"elastic_modulus": 2e11, "second_moment_of_area": 1e-8, "density": 7800.0, "area": 1e-4, "length": 1.0}
+    section = {
+        "elastic_modulus": "2e11 Pa",
+        "second_moment_of_area": "1e-8 m**4",
+        "density": "7800 kg/m**3",
+        "area": "1e-4 m**2",
+        "length": "1 m",
+    }
     data["lumped_members"] = [
-        {"name": "beam", "parent": "link", "position": (0, 0, 0), "section": section, "root": "clamped", "end": "roller"}
+        {"name": "beam", "parent": "link", "position": ORIGIN, "section": section, "root": "clamped", "end": "roller"}
     ]
     with pytest.raises(UnmappableElementError, match="beam"):
         translate(model_of(data))
@@ -129,7 +138,7 @@ def test_friction_on_a_ball_joint_and_an_unsupported_member_are_refused() -> Non
 def test_transmission_mapping_and_its_report() -> None:
     data = pendulum_data()
     shaft = slider("motor")
-    shaft["joint"] = {"name": "motor_joint", "type": "revolute", "position": (0, 0, 0), "axis": (0, 0, 1)}
+    shaft["joint"] = {"name": "motor_joint", "type": "revolute", "position": ORIGIN, "axis": (0, 0, 1)}
     data["bodies"] += [shaft, slider("carriage")]
     data["transmissions"] = [
         {
@@ -139,14 +148,14 @@ def test_transmission_mapping_and_its_report() -> None:
             "driven_joint": "carriage_joint",
             "efficiency": 0.9,
             "ratio": -3.0,
-            "stiffness": 1e4,
-            "backlash": 0.01,
+            "stiffness": "1e4 N*m/rad",
+            "backlash": "0.01 rad",
         }
     ]
     with pytest.raises(ValueError):
         model_of(data)
     carriage = data["bodies"][2]
-    carriage["joint"] = {"name": "carriage_joint", "type": "revolute", "position": (0, 0, 0), "axis": (0, 0, 1)}
+    carriage["joint"] = {"name": "carriage_joint", "type": "revolute", "position": ORIGIN, "axis": (0, 0, 1)}
     doc = translate(model_of(data)).document
     gear = doc["transmissions"][0]
     assert (gear["input_body"], gear["output_body"], gear["ratio"], gear["reverses"]) == (1, 2, 3.0, True)

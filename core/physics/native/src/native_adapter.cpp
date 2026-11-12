@@ -217,8 +217,9 @@ kernel::Vec3 to_vec3(const Eigen::Vector3d& v) { return {v.x(), v.y(), v.z()}; }
 // - joint spring changes (ENG-031, ENG-032 on joint springs): the engine applies -K0 (q - rest0); the change to K1 and
 //   rest0 + offset adds -(K1 - K0)(q - rest0) + K1 offset with stiffness K1 - K0 (the total stays K1 >= 0).
 // - Coulomb joint friction F (PHY-027, PHY-030): the constant -F sign(v) while sliding, so the deceleration is F / m
-//   exactly; inside the band |v| < max(v_s, h F / m) (m the DOF's diagonal of H) the damper F / v_s, implicit, which
-//   stops the joint without the explicit force overshooting zero (a step of -F h / m would reverse a slower joint).
+//   exactly. Below |v| = h F / m (m the DOF's diagonal of H) that force would reverse the joint in one step, so it
+//   becomes the implicit damper F / max(v_s, |v|): its force F |v'| / max(v_s, |v|) never exceeds F, it stops the
+//   joint without overshoot, and below the slip threshold v_s it is the engine's regularised stick (F / v_s).
 // - joint limits (PHY-027): a one-sided implicit spring-damper critically damped at w = 1 / (2 h), the stability
 //   floor the bridge uses (solref 2 h): K = m w^2, D = 2 m w with m the DOF's diagonal of H; active when the start
 //   state or its prediction q + h v lies beyond the limit; static penetration m g / K = 4 g h^2 (4e-5 m at 1 ms).
@@ -276,9 +277,9 @@ public:
             }
             const double m = terms.mass(k, k);
             if (d.friction > 0.0) {
-                const double band = std::max(extras_.slip_threshold, h * d.friction / m);
-                if (std::abs(vk) < band) {
-                    const double c = d.friction / extras_.slip_threshold;
+                const double speed = std::abs(vk);
+                if (speed < h * d.friction / m) {
+                    const double c = d.friction / std::max(extras_.slip_threshold, speed);
                     terms.force[k] += -c * vk;
                     terms.damping(k, k) += c;
                 } else if (vk > 0.0) {

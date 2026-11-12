@@ -429,6 +429,24 @@ def _transmission(transmission: Any, model: PhysicsModel, joints: Mapping[str, i
     }
 
 
+def output_per_input(transmission: Any) -> float:
+    """Driven travel per shaft radian, the engine's n (`output_per_input`): r, lead / 2 pi, 1 / ratio (signed)."""
+    if isinstance(transmission, BeltPulley):
+        return float(transmission.pulley_radius)
+    if isinstance(transmission, LeadScrew):
+        return float(transmission.lead) / (2.0 * math.pi)
+    return 1.0 / float(transmission.ratio)
+
+
+def _shaft_starts(model: PhysicsModel, starts: dict[str, float]) -> dict[str, float]:
+    """A shaft starts where its driven joint does, theta = x / n, so the coupling starts unstretched (a shaft left at
+    zero under a driven start of 0.1 m would stretch a belt by 0.1 m); an explicit shaft start is kept."""
+    for transmission in model.transmissions:
+        if transmission.driven_joint in starts and transmission.shaft_joint not in starts:
+            starts[transmission.shaft_joint] = starts[transmission.driven_joint] / output_per_input(transmission)
+    return starts
+
+
 # ===== Model ============================================================
 
 
@@ -505,7 +523,8 @@ def translate(
             f"Hz (ruling 23), static sag g / w^2 = {_gravity(model) / (2 * math.pi * WELD_FREQUENCY) ** 2:.3g} m"
         )
     start_entries: list[dict[str, Any]] = []
-    for name in sorted(starts or {}):
+    chosen = _shaft_starts(model, dict(starts or {}))
+    for name in sorted(chosen):
         if name not in joints:
             raise StartStateError(f"joint '{name}': no such joint in the physics model")
         body = model.bodies[joints[name]]
@@ -514,7 +533,7 @@ def translate(
             if body.joint is not None:
                 kind = body.joint.type
             raise StartStateError(f"joint '{name}': a {kind} joint takes no single start coordinate")
-        start_entries.append({"body": joints[name], "value": float((starts or {})[name])})
+        start_entries.append({"body": joints[name], "value": float(chosen[name])})
     run = model.run
     document: dict[str, Any] = {
         "format": FORMAT,
