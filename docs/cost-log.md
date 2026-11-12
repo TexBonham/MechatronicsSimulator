@@ -50,3 +50,4 @@ type live in the root `CLAUDE.md` dispatch table once measured.
 | 2026-11-12 | M3-E4 engine joint limits, friction, per-step drive (wip/05-e4 c072dee) | module-writer (opus) | 218K | 74 calls; ctest debug-sanitize 469 |
 | 2026-11-12 | M3 review: E4 (wip/05-e4 c072dee): changes requested, 2 major, 5 minor; rulings 42 to 44 | Fable review (general-purpose) | ~85K | 15 calls |
 | 2026-11-12 | M3-E4 invariant audit: clean | invariant-auditor (sonnet) | 28K | 7 calls |
+| 2026-11-12 | M3-N2b verify and finish the adapter fix round (wip/05-n 0984229): beams within 2 percent, G3 and P1 on native with flexible rails | module-writer (opus) | 119K | 73 calls; ctest debug-sanitize 454 |
