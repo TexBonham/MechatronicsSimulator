@@ -8,6 +8,7 @@ One compiled library, one pybind11 binding (R-08, ADR 0005). Own CMake tree.
 | `kernel/` | Co-simulation kernel: time, rates, sync points, seeds |
 | `signals/` | Built-in signal components: sensors, front-ends, rails, safety hardware, operator link, pin bindings |
 | `controller/` | Controller runtimes: native shim, Renode bridge |
+| `integrity/` | Tier 1 integrity party: member stress, buckling, deflection, fastener load per tick; tier 2 yield requests (ADR 0010) |
 | `physics/` | `PhysicsAdapter` implementations: `mujoco/` (MuJoCo C API), `native/` (own engine) (ADR 0014); stubs |
 | `bindings/` | pybind11 binding exposing the core runtime to Python |
 | `viewer_debug/` | Minimal immediate-mode C++ window for engine development (ADR 0007) |
@@ -27,7 +28,7 @@ One compiled library, one pybind11 binding (R-08, ADR 0005). Own CMake tree.
 - C++20, Eigen, pybind11; ASan, UBSan, clang-tidy, warnings as errors on every target here (ADR 0005).
 - No raw owning pointers across any API.
 - Curly braces on all control flow; no ternary operators; no comments unless the why is non-obvious.
-- Catch2 tests tag requirement IDs: `[ENG-001]`, `[KER-001]`, `[SIG-001]`, `[CTL-001]`, `[PHY-001]`, `[REC-001]`.
+- Catch2 tests tag requirement IDs: `[ENG-001]`, `[KER-001]`, `[SIG-001]`, `[CTL-001]`, `[PHY-001]`, `[REC-001]`, `[INT-023]`.
 
 ## Plugin tiers (ADR 0005)
 
@@ -60,3 +61,4 @@ Physics publishes live member end-loads every tick and accepts mid-run model cha
 | Kernel: time, `Party`, `Kernel`, `PhysicsAdapter`, `RecorderSink` | `kernel/CLAUDE.md` | `mechsim_kernel` |
 | Signals: `SignalComponent`, `PinBindingTable`, `PowerRail` | `signals/CLAUDE.md` | `mechsim_signals` -> kernel |
 | Controller: `ControllerRuntime`, `PinInputs`/`PinOutputs` | `controller/CLAUDE.md` | `mechsim_controller` -> signals |
+| Integrity: `IntegrityParty`, limits table | `integrity/CLAUDE.md` | `mechsim_integrity` -> kernel |

@@ -16,6 +16,7 @@ import hashlib
 import json
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import replace
+from functools import partial
 from fractions import Fraction
 from pathlib import Path
 from typing import Any
@@ -27,7 +28,9 @@ from mechsim.builder import BuildError, build
 from mechsim.builder.payload import with_payload
 from mechsim.builder.result import BuildResult as CoreBuild
 from mechsim.design.schema import Design, DesignError, blob_hash, design_materials
+from mechsim.integrity.plugin import IntegrityError
 from mechsim.integrity.service import IntegrityService
+from mechsim.integrity.tier1 import MODEL_REQUESTS, NOT_EVALUATED, PARTY, Tier1Service, Tier1Setup
 from mechsim.library.registry import default_registry
 from mechsim.materials.schema import MaterialError
 from mechsim.physics.mujoco.prepare import StartStateError, prepare_model
@@ -77,10 +80,12 @@ from mechsim.testing.core_wiring import (
     work_directory,
 )
 from mechsim.testing.driver import (
+    INTEGRITY_KIND,
     MATERIAL_OVERRIDES_KEY,
     BuildResult,
     EndReason,
     EndSpec,
+    IntegrityCrossing,
     RunConfig,
     RunMetadata,
     RunReport,
@@ -273,11 +278,19 @@ def _si(amount: object, joint: str) -> float:
 class CoreDriver:
     """`SimulationDriver` over the core binding. One driver per run (the runner's factory makes a fresh one)."""
 
-    def __init__(self, subscribers: Sequence[Callable[[Any], None]] = ()) -> None:
+    def __init__(
+        self,
+        subscribers: Sequence[Callable[[Any], None]] = (),
+        tier1: Callable[[Any, PhysicsModel], Tier1Setup | None] | None = None,
+    ) -> None:
         """`subscribers` receive each row as the kernel writes it (REC-019); one that raises is a recorder error,
         which ends the scoring as a run error and lands in the archive metadata (invariant 7). The physics adapter is
-        the run configuration's `physics.adapter`, set by `configure`."""
+        the run configuration's `physics.adapter`, set by `configure`. `tier1` gives the tier 1 integrity party's
+        setup for a build (`integrity.tier1.Tier1Service`, INT-023); None or a None setup registers no party."""
         self._subscribers = tuple(subscribers)
+        self._tier1 = tier1
+        self._case: Case | None = None
+        self.integrity_trace: Any = None
         self.adapter: str = DEFAULT_PHYSICS_ADAPTER
         self._build: CoreBuild | None = None
         self._model: PhysicsModel | None = None
@@ -301,6 +314,7 @@ class CoreDriver:
             raise DriverError("the design's physics is pending: " + ", ".join(build.pending))
         self._build = build
         self._model = build.physics
+        self._case = case
 
     def reported_controller_state(self) -> Mapping[str, bool | str]:
         """`{"state": name, "fault": name}` at power on, before t = 0, from the design's code tables (DES-045);
@@ -441,6 +455,10 @@ class CoreDriver:
             artifacts = prepare_model(model, self._starts, step, payloads)
             self.approximations = artifacts.report
             prepared = core.PreparedModel(artifacts.neutral_json, artifacts.mjcf, artifacts.version)
+        tier1 = self._tier1_setup(model)
+        if tier1 is not None and not native:
+            self.approximations = (*self.approximations, NOT_EVALUATED)
+            tier1 = None
         adapter = core.make_physics_adapter(self.adapter)
         rate = _rate(config.physics_rate)
         adapter.load(prepared, rate)
@@ -456,9 +474,24 @@ class CoreDriver:
         signals = self._signals()
         if signals:
             party.inputs = ["signals.physics_inputs"]
+        if tier1 is not None and tier1.yield_offset:
+            party.model_requests = MODEL_REQUESTS
         physics = core.PhysicsParty(adapter, party)
         self._schedule_physics(physics, model)
         kernel.register_party(physics)
+        halt = False
+        self.integrity_trace = None
+        if tier1 is not None:
+            halt = self._halt(tier1)
+            self.approximations = (*self.approximations, *tier1.approximations)
+            settings = core.IntegrityPartyConfig()
+            settings.name = PARTY
+            settings.rate = rate
+            settings.halt_on_crossing = halt
+            self.integrity_trace = core.IntegrityTrace()
+            kernel.register_party(core.IntegrityParty(tier1.limits, settings, self.integrity_trace))
+            if halt:
+                kernel.set_end_triggers(core.EndTriggers(None, "", PARTY))
         self.labels = {}
         if signals:
             self._register_signals(kernel, config, model, sorted(payloads))
@@ -486,7 +519,7 @@ class CoreDriver:
             while taken < len(decoded) and decoded[taken].time <= row_tick:
                 due.append(decoded[taken])
                 taken += 1
-            record = tick_record(row, {row_tick: due})
+            record = _canonical_crossings(tick_record(row, {row_tick: due}))
             if not native:
                 record = member_frame_loads(record, frames)
             recorder.write_row(record)
@@ -502,6 +535,13 @@ class CoreDriver:
         reason: EndReason = "max_duration"
         if end.at_tick is not None and end.at_tick <= end.max_tick:
             reason = "end_time"
+        if report.end_reason == core.EndReason.party_state:
+            reason = "end_time"
+            seconds = float(Fraction(int(report.ticks)) / config.base_rate)
+            self.approximations = (
+                *self.approximations,
+                f"integrity halt: the run ended at {seconds:.12g} s on its first tier 1 crossing (INT-026)",
+            )
         error: str | None = None
         if report.outcome == core.RunOutcome.run_error:
             reason = "run_error"
@@ -522,6 +562,21 @@ class CoreDriver:
         return RunReport(
             reason, int(report.ticks), config.base_rate, error, tuple(sink_errors), hook_errors, self.approximations
         )
+
+    def _tier1_setup(self, model: PhysicsModel) -> Tier1Setup | None:
+        if self._tier1 is None or self._build is None:
+            return None
+        try:
+            return self._tier1(self._build, model)
+        except IntegrityError as error:
+            raise DriverError(f"integrity tier 1: {error}") from error
+
+    def _halt(self, tier1: Tier1Setup) -> bool:
+        """The case's `integrity.halt_on_crossing` (ruling 4); `integrity.yaml`'s mirror when the case has none."""
+        case = self._case
+        if case is not None and case.integrity is not None:
+            return case.integrity.halt_on_crossing
+        return tier1.halt_on_crossing
 
     def _states(self) -> dict[str, str]:
         if self._build is None or self._build.design.firmware is None:
@@ -641,6 +696,19 @@ class CoreDriver:
         if self._view is None:
             raise DriverError("no recording before run")
         return self._view
+
+
+def _canonical_crossings(record: TickRecord) -> TickRecord:
+    """Tier 1 crossing events with the detail text of `IntegrityCrossing.detail()` (the party writes the same JSON
+    with C++ number formatting)."""
+    if not any(event.kind == INTEGRITY_KIND for event in record.events):
+        return record
+    events = []
+    for event in record.events:
+        if event.kind == INTEGRITY_KIND:
+            event = replace(event, detail=IntegrityCrossing.parse(event.detail).detail())
+        events.append(event)
+    return replace(record, events=tuple(events))
 
 
 def model_columns(model: PhysicsModel, payloads: Sequence[str] = ()) -> dict[str, Columns]:
@@ -850,8 +918,9 @@ def core_builder(design: Design, adapter: str = DEFAULT_PHYSICS_ADAPTER) -> Core
 def core_services(designs_root: Path = DESIGNS_ROOT) -> Services:
     """The runner's real services: a fresh `CoreDriver` per run, the builder, the record archiver, and integrity
     over the recording when the design has an `integrity.yaml` beside its design file (INT-022)."""
+    tier1 = Tier1Service(designs_root)
     return Services(
-        driver=CoreDriver,
+        driver=partial(CoreDriver, tier1=tier1),
         builder=core_builder,
         archiver=RecordArchiver(designs_root),
         designs_root=designs_root,

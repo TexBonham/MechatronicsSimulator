@@ -26,6 +26,10 @@ PhysicsParty::PhysicsParty(std::unique_ptr<PhysicsAdapter> adapter, PhysicsParty
         throw std::invalid_argument("physics party: null adapter");
     }
     published_ = {config_.name + ".outputs"};
+    consumed_ = config_.inputs;
+    if (!config_.model_requests.empty()) {
+        consumed_.push_back(config_.model_requests);
+    }
 }
 
 std::string_view PhysicsParty::name() const {
@@ -45,7 +49,7 @@ std::span<const std::string> PhysicsParty::published() const {
 }
 
 std::span<const std::string> PhysicsParty::consumed() const {
-    return config_.inputs;
+    return consumed_;
 }
 
 namespace {
@@ -198,6 +202,9 @@ void PhysicsParty::apply_faults(SimTime t) {
 void PhysicsParty::read_inputs(const CouplingReader& inputs) {
     pending_ = PhysicsInputs{};
     has_pending_ = false;
+    if (!config_.model_requests.empty() && inputs.has_value(config_.model_requests)) {
+        requests_ = inputs.payload<ModelChangeRequests>(config_.model_requests);
+    }
     for (const std::string& source : config_.inputs) {
         if (!inputs.has_value(source)) {
             continue;
@@ -239,6 +246,7 @@ void PhysicsParty::step(SimTime t, Duration dt) {
                                 std::to_string(period_.count()) + " ticks)");
     }
     apply_faults(t);
+    apply_requests();
     if (has_pending_) {
         adapter_->set_inputs(pending_);
     }
@@ -252,6 +260,34 @@ void PhysicsParty::step(SimTime t, Duration dt) {
     if (health.max_constraint_drift > limit) {
         throw AdapterError(health.steps, "constraint drift " + std::to_string(health.max_constraint_drift) +
                                              " exceeds the threshold " + std::to_string(limit) + " (KER-016)");
+    }
+}
+
+void PhysicsParty::apply_requests() {
+    if (requests_.sequence <= applied_sequence_) {
+        return;
+    }
+    applied_sequence_ = requests_.sequence;
+    for (const ModelChangeRequest& request : requests_.requests) {
+        switch (request.kind) {
+            case ModelChangeKind::SpringOffset:
+                adapter_->set_spring_offset(request.index, request.value);
+                break;
+            case ModelChangeKind::SpringStiffness:
+                adapter_->set_spring_stiffness(request.index, request.value);
+                break;
+            case ModelChangeKind::ConstraintDisabled:
+                adapter_->disable_constraint(request.index);
+                break;
+            case ModelChangeKind::LoadReleased:
+                adapter_->release_load(request.index);
+                break;
+            case ModelChangeKind::RopeSnapped:
+            case ModelChangeKind::PayloadAttached:
+            case ModelChangeKind::PayloadMass:
+                throw KernelConfigError("physics party '" + config_.name + "': model change request '" +
+                                        config_.model_requests + "' carries a kind that is not a request (KER-028)");
+        }
     }
 }
 

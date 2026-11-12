@@ -27,6 +27,21 @@ inline constexpr std::string_view model_change_source = "physics";
 inline constexpr std::string_view model_change_kind = "model_change";
 [[nodiscard]] std::string model_change_detail(const ModelChangeEvent& change);
 
+// Mid-run model changes another party requests (PHY-008, ADR 0010 tier 2; the tier 1 integrity party's yield offsets):
+// kind SpringOffset (index spring, value offset), SpringStiffness (index spring, value stiffness), ConstraintDisabled
+// (index constraint) or LoadReleased (index load). The publisher writes the whole list with a new sequence number when
+// it has new requests; the physics party applies each list once, in order, before its next step.
+inline constexpr std::string_view model_requests_kind = "ModelChangeRequests";
+struct ModelChangeRequest {
+    ModelChangeKind kind = ModelChangeKind::SpringOffset;
+    std::size_t index = 0;
+    double value = 0.0;
+};
+struct ModelChangeRequests {
+    std::int64_t sequence = 0;
+    std::vector<ModelChangeRequest> requests;
+};
+
 struct PhysicsPartyConfig {
     std::string name = "physics";
     Rate rate{RunConfig::default_physics_rate_hz};
@@ -34,6 +49,8 @@ struct PhysicsPartyConfig {
     // or empty), body wrenches concatenated in this order.
     std::vector<std::string> inputs{"signals.physics_inputs"};
     DriftThresholds drift;
+    // ModelChangeRequests name consumed and applied through the adapter's mid-run entry; empty: unwired (KER-028).
+    std::string model_requests;
 };
 
 // Scheduled payload changes (ENG-035, PHY-006): a new mass, or a new carrier (kWorldBody releases).
@@ -100,10 +117,14 @@ private:
 
     void check_schedulable(SimTime start) const;
     void apply_faults(SimTime t);
+    void apply_requests();
 
     std::unique_ptr<PhysicsAdapter> adapter_;
     PhysicsPartyConfig config_;
     std::vector<std::string> published_;
+    std::vector<std::string> consumed_;
+    ModelChangeRequests requests_;
+    std::int64_t applied_sequence_ = 0;
     PhysicsInputs pending_;
     bool has_pending_ = false;
     std::vector<SlipWindow> slips_;

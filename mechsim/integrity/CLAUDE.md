@@ -14,6 +14,7 @@ regenerate with `uv run python -m mechsim.integrity.config --write-schema`, neve
 | `inputs.py` | `run_inputs(build, recording, materials)`: members from `BuildResult.members` (+ calibrated frequency from `lumped`), end-loads from `recording.recording.series["physics/members/..."]` by column name, fastenings from `physics.fastenings` with joint reactions, ropes from `physics.ropes` with `physics/ropes/max_tension`, design-load factor, minimum safety factor, accuracy target, ambient temperature; `section_properties` (`second_moment_y`, `fibre_y`, `fibre_z`; single-axis fallback) |
 | `table.py` | `evaluate(config, inputs) -> IntegrityReport` (subclass of `testing.driver.IntegrityResults(members, ropes)`: rope rows with `snap`, `design_load`; `approximation: single-axis section` member flag; + `checks`, `load_factor`, `notes`, `cycle_counts()`, `report_json()`); `THERMAL_NOTE` |
 | `export.py` | `load_case(view, members, design_name, design_version, run_id) -> LoadCase` (`to_json`, `to_csv`), `write_beside(archive, results, recording, metadata)` -> `<run>.integrity.json`, `<run>.load_case.json/.csv` |
+| `tier1.py` | Tier 1 party setup (INT-023, INT-028): `enabled(config)` (listed `strength` -> stress, `buckling`, `deflection`, `fastener`; `strength` tier 2 -> `yield_offset`), `tier1_enabled`, `first_springs(model)` (revolute, prismatic 1, planar 3, then N per lumped member), `limits_table(build, model, config, materials)` (JSON dict, format `mechsim-integrity-limits-1`; unrated `fastener` fastening -> `IntegrityError`), `Tier1Service(designs_root, config=None, design_dir=None)` -> `Tier1Setup(limits, yield_offset, halt_on_crossing, approximations)` or None (no file, no tier 1 check); `YIELD_RULE`, `NOT_EVALUATED` lines, `MODEL_REQUESTS`, `PARTY` |
 | `service.py` | `IntegrityService(designs_root, config=None, design_dir=None)`: wired by `testing.core_driver.core_services` as `Services.integrity` (`(build, case, recording) -> IntegrityReport | None`, None without `integrity.yaml` beside the design file, ruling 27); materials from `MaterialSet.from_files(<design folder>/<materials.overrides>)` |
 
 ## Conventions
@@ -24,7 +25,7 @@ regenerate with `uv run python -m mechsim.integrity.config --write-schema`, neve
 - Fastener ratings from configuration only in milestone 3 (catalog grade ratings owed, ruling 27).
 - Table values at the design load (recorded loads times 1 + allowance from the design file, INT-019).
 - Safety factors use the minimum strength spread for flags and the table; spreads kept in `CheckRow.margin`.
-- Integrity never emits `integrity` events (ruling 26: tier 1 only).
+- Post-run integrity never emits `integrity` events (ruling 26): only the tier 1 party (`core/integrity/`) does.
 - Runner: `Services.integrity` result attached to metadata; `IntegrityError` ends the run as `run_failed`;
   `write_beside` after the archive is written.
 - Facade: `integrity_results(run_id)`, `load_case(run_id, format)` (FAC-013); `validate` file kind `integrity`.

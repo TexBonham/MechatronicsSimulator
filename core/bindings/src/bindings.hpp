@@ -22,6 +22,7 @@ void bind_controller(pybind11::module_& m);
 void bind_engine(pybind11::module_& m);
 void bind_contact(pybind11::module_& m);  // engine submodule, after bind_engine's outputs and provider
 void bind_cosim(pybind11::module_& m);
+void bind_integrity(pybind11::module_& m);  // after bind_cosim (Party, PhysicsParty)
 
 // Coupling values across the binding (KER-008): scalars as bool, int, float; payloads as their bound classes
 // (PhysicsOutputs, PhysicsInputs, PinInputs, PinOutputs, list[PowerRail], list[StatusMessage],
