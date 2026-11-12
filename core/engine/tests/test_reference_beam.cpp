@@ -17,6 +17,7 @@ using mechsim::engine::BeamEnds;
 using mechsim::engine::BeamPoint;
 using mechsim::engine::BeamSpec;
 using mechsim::engine::LumpedBeam;
+using mechsim::engine::MemberOutput;
 using mechsim::engine::MultibodyModel;
 using mechsim::engine::MultibodyProvider;
 using mechsim::engine::SemiImplicitEuler;
@@ -37,9 +38,14 @@ namespace {
 
 constexpr double deflection_tolerance = 0.02;           // ENG-038, ENG-040
 constexpr double frequency_tolerance = 0.03;            // ENG-039, ENG-041
+constexpr double clamped_tolerance = 0.02;              // ENG-022 clamped far end (ruling 16), BLD-017 proposal
 constexpr double cantilever_root = 1.8751040687119611;  // beta_1 L, first root of cos(x) cosh(x) = -1
 constexpr double cantilever_length = 1.0;               // m
 constexpr double supported_length = 1.5;                // m
+constexpr double clamped_root = 4.730040744862704;      // beta_1 L, first root of cos(x) cosh(x) = 1
+// Clamped-clamped chain first mode over the closed form, from the chain eigenproblem (lumped_beam.hpp).
+constexpr double clamped_chain_ratio_8 = 1.024865;
+constexpr double clamped_chain_ratio_16 = 1.006091;
 
 struct Built {
     MultibodyModel model;
@@ -56,6 +62,7 @@ Built build(BeamSpec spec) {
 struct Settled {
     double deflection = 0.0;   // world y of the point, m
     double last_change = 0.0;  // |y change| over the final 100 steps, m
+    MemberOutput member;       // end-loads of the last step (ENG-030)
 };
 
 // Static load held every step; node damping D = (2 / omega_c) K gives every mode zeta_i = omega_i / omega_c, about
@@ -81,6 +88,7 @@ Settled settle(BeamSpec spec, double closed_form_omega, double x_load, double fo
     Settled out;
     out.deflection = world_point(provider, state, point).y();
     out.last_change = std::abs(out.deflection - marker);
+    out.member = provider.outputs().members.at(0);
     return out;
 }
 
@@ -241,4 +249,106 @@ TEST_CASE("simply supported first mode matches (pi / (2 L^2)) sqrt(E I / (rho A)
     WARN("ENG-041 N = " << segments << ": closed form " << omega_c << " rad/s, simulated " << measured
                         << " rad/s, error " << measured / omega_c - 1.0);
     CHECK(std::abs(measured / omega_c - 1.0) <= frequency_tolerance);
+}
+
+struct ClampedMidspan {
+    double closed_form = 0.0;  // P L^3 / (192 E I), m
+    double chain = 0.0;        // closed_form (1 - 4 / N^2), m
+    double load = 0.0;         // N, world -y at x = L / 2
+    double length = 0.0;       // m
+    Settled settled;
+};
+
+ClampedMidspan clamped_midspan_deflection(int segments) {
+    const BeamSpec spec = steel_bar(supported_length, BeamEnds::Clamped, segments);
+    ClampedMidspan out;
+    out.length = spec.length;
+    out.load = 192.0 * flexural_rigidity(spec) * 1e-4 / (out.length * out.length);
+    out.closed_form = out.load * out.length * out.length * out.length / (192.0 * flexural_rigidity(spec));
+    out.chain = out.closed_form * (1.0 - 4.0 / (segments * segments));
+    const double omega_c = clamped_root * clamped_root * frequency_scale(spec);
+    out.settled = settle(spec, omega_c, 0.5 * out.length, -out.load);
+    return out;
+}
+
+TEST_CASE("clamped-clamped midspan deflection at N = 16 matches P L^3 / (192 E I)",
+          "[ENG-022][BLD-017][ENG-030][reference]") {
+    // Chain value P L^3 / (192 E I) (1 - 4 / N^2) for even N (lumped_beam.hpp): N = 16 is -1.5625 %, inside the 2 %
+    // tolerance; N = 8 is -6.25 % and is checked against the chain value only (next case). End-loads by statics:
+    // each support carries P / 2 up and, from the far rotation lock sum M(x_j) = 0, the moment P L / 8, +z at the
+    // root and -z at the far end (moments of the forces about x = 0 cancel: -P L / 2 + P L / 2). Deflection 1e-4 L:
+    // geometric nonlinearity O(1e-8), so the chain values hold to 1e-6.
+    const ClampedMidspan result = clamped_midspan_deflection(16);
+    const double measured = -result.settled.deflection;
+    CAPTURE(measured, result.closed_form, result.chain, measured / result.closed_form - 1.0);
+    WARN("ENG-022 clamped N = 16: closed form " << result.closed_form << " m, measured " << measured << " m, error "
+                                                << measured / result.closed_form - 1.0);
+    CHECK(result.settled.last_change <= 1e-9 * result.closed_form);
+    CHECK(std::abs(measured / result.chain - 1.0) <= 1e-6);
+    CHECK(std::abs(measured / result.closed_form - 1.0) <= clamped_tolerance);
+
+    const MemberOutput& ends = result.settled.member;
+    const double force = 0.5 * result.load;
+    const double moment = result.load * result.length / 8.0;
+    CAPTURE(ends.start_force, ends.start_moment, ends.end_force, ends.end_moment);
+    CHECK(std::abs(ends.start_force.y() / force - 1.0) <= 1e-6);
+    CHECK(std::abs(ends.end_force.y() / force - 1.0) <= 1e-6);
+    CHECK(std::abs(ends.start_moment.z() / moment - 1.0) <= 1e-6);
+    CHECK(std::abs(ends.end_moment.z() / moment + 1.0) <= 1e-6);
+    CHECK(std::abs(ends.start_force.x()) <= 1e-6 * force);
+    CHECK(std::abs(ends.end_force.x()) <= 1e-6 * force);
+}
+
+TEST_CASE("clamped-clamped midspan deflection at N = 8 equals the chain value (1 - 4 / 64) P L^3 / (192 E I)",
+          "[ENG-022][BLD-017][reference]") {
+    // Consistency check only: the N = 8 chain is -6.25 % by derivation and is not held to the 2 % tolerance.
+    const ClampedMidspan result = clamped_midspan_deflection(8);
+    const double measured = -result.settled.deflection;
+    CAPTURE(measured, result.closed_form, result.chain);
+    WARN("ENG-022 clamped N = 8: closed form " << result.closed_form << " m, chain " << result.chain
+                                               << " m, measured " << measured << " m");
+    CHECK(result.settled.last_change <= 1e-9 * result.closed_form);
+    CHECK(std::abs(measured / result.chain - 1.0) <= 1e-6);
+}
+
+TEST_CASE("clamped-clamped first mode matches (22.37 / (2 pi)) sqrt(E I / (rho A L^4))",
+          "[ENG-022][BLD-017][reference]") {
+    // Lumped eigenfrequency on the null space of the far end's hinge rows against the chain ratio derived in
+    // lumped_beam.hpp (+2.4865 % at N = 8, +0.6091 % at N = 16, printed to 1e-6, so asserted to 2e-6); the 2 %
+    // tolerance holds at N = 16. Then the simulated midspan frequency from the static midspan-load shape (symmetric:
+    // no content in the antisymmetric mode 2; mode 3 at 5.40 omega_1, omega_3 h about 0.78, falls below 1e-4 within
+    // 40 steps) against atan(omega h) / h.
+    const int segments = GENERATE(8, 16);
+    const BeamSpec spec = steel_bar(supported_length, BeamEnds::Clamped, segments);
+    const Built built = build(spec);
+    const double omega_c = clamped_root * clamped_root * frequency_scale(spec);
+    const double lumped = lumped_first_frequency(MultibodyProvider(built.model));
+    double chain_ratio = clamped_chain_ratio_16;
+    if (segments == 8) {
+        chain_ratio = clamped_chain_ratio_8;
+    }
+    CAPTURE(segments, lumped, omega_c, lumped / omega_c - 1.0);
+    WARN("ENG-022 clamped N = " << segments << ": closed form " << omega_c << " rad/s, lumped " << lumped
+                                << " rad/s, error " << lumped / omega_c - 1.0);
+    CHECK(std::abs(lumped / omega_c / chain_ratio - 1.0) <= 2e-6);
+    if (segments == 16) {
+        CHECK(std::abs(lumped / omega_c - 1.0) <= clamped_tolerance);
+    }
+
+    const double length = spec.length;
+    const double load = 192.0 * flexural_rigidity(spec) * 1e-3 / (length * length);
+    const MultibodyProvider shape(built.model);
+    Eigen::VectorXd q = shape.neutral_positions();
+    for (std::size_t j = 0; j < built.beam.bodies.size(); ++j) {
+        const double x = built.beam.starts[j];
+        q[shape.position_offset(built.beam.bodies[j])] =
+            -0.5 * load * (std::min(x, length - x) - 0.25 * length) / built.beam.node_stiffness;
+    }
+    const double measured = measured_frequency(built, q, 0.5 * length, lumped, 12);
+    check_dispersion(measured, lumped);
+    WARN("ENG-022 clamped N = " << segments << ": closed form " << omega_c << " rad/s, simulated " << measured
+                                << " rad/s, error " << measured / omega_c - 1.0);
+    if (segments == 16) {
+        CHECK(std::abs(measured / omega_c - 1.0) <= clamped_tolerance);
+    }
 }

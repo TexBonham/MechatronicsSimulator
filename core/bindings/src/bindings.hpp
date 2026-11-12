@@ -20,6 +20,7 @@ void bind_recorder(pybind11::module_& m);
 void bind_signals(pybind11::module_& m);
 void bind_controller(pybind11::module_& m);
 void bind_engine(pybind11::module_& m);
+void bind_contact(pybind11::module_& m);  // engine submodule, after bind_engine's outputs and provider
 void bind_cosim(pybind11::module_& m);
 
 // Coupling values across the binding (KER-008): scalars as bool, int, float; payloads as their bound classes

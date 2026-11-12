@@ -9,7 +9,7 @@ namespace mechsim::engine {
 std::vector<Eigen::Index> member_nodes(const LumpedBeam& beam) {
     std::vector<Eigen::Index> nodes;
     std::size_t first = 0;
-    if (beam.roller >= 0) {
+    if (beam.pinned_root) {
         first = 1;
     }
     for (std::size_t k = first; k < beam.bodies.size(); ++k) {
@@ -45,6 +45,7 @@ MemberOutput member_end_loads(const LumpedBeam& beam, const std::vector<BodyOutp
     if (beam.roller_constraint >= 0) {
         const ConstraintOutput& end = constraints.at(static_cast<std::size_t>(beam.roller_constraint));
         out.end_force = root_rotation.transpose() * end.force.head<3>();
+        out.end_moment = root_rotation.transpose() * end.torque;
     }
     return out;
 }

@@ -25,6 +25,7 @@ using mechsim::engine::DynamicsTerms;
 using mechsim::engine::InvalidModelError;
 using mechsim::engine::JointType;
 using mechsim::engine::LumpedBeam;
+using mechsim::engine::member_nodes;
 using mechsim::engine::MultibodyModel;
 using mechsim::engine::MultibodyProvider;
 using mechsim::engine::SemiImplicitEuler;
@@ -114,6 +115,53 @@ TEST_CASE("simply supported beam has a free pin, N spring nodes and a roller loo
     SemiImplicitEuler integrator(StepConfig{});
     provider.step(integrator, state);
     CHECK(state.q.cwiseAbs().maxCoeff() == 0.0);
+}
+
+TEST_CASE("clamped beam has N spring nodes on clamped stubs and a hinge roller lock on the far end",
+          "[ENG-022][ENG-030]") {
+    const int segments = GENERATE(1, 4, 8);
+    const BeamSpec spec = steel_bar(1.5, BeamEnds::Clamped, segments);
+    MultibodyModel model;
+    model.gravity = Eigen::Vector3d::Zero();
+    const LumpedBeam beam = add_lumped_beam(model, spec);
+    const double l = spec.length / segments;
+    REQUIRE(beam.bodies.size() == static_cast<std::size_t>(segments));
+    CHECK_FALSE(beam.pinned_root);
+    CHECK(member_nodes(beam) == beam.bodies);
+    CHECK(model.bodies[static_cast<std::size_t>(beam.bodies.front())].parent == -1);
+    for (std::size_t j = 0; j < beam.bodies.size(); ++j) {
+        CHECK(std::abs(beam.starts[j] - (static_cast<double>(j) + 0.5) * l) <= 1e-15);
+        CHECK(model.bodies[static_cast<std::size_t>(beam.bodies[j])].joint.stiffness[0] == beam.node_stiffness);
+    }
+    const double member_mass = spec.density * spec.area * spec.length;
+    CHECK(std::abs(total_mass(model, beam) - (1.0 - 0.5 / segments) * member_mass) <= 1e-12 * member_mass);
+    REQUIRE(beam.roller == static_cast<Eigen::Index>(model.bodies.size()) - 1);
+    const auto& roller = model.bodies.back();
+    CHECK(roller.joint.type == JointType::Prismatic);
+    CHECK(roller.joint.axis == Eigen::Vector3d::UnitX());
+    CHECK(std::abs(roller.joint.position.x() - spec.length) <= 1e-15);
+    REQUIRE(beam.roller_constraint == 0);
+    const auto& lock = model.constraints[0];
+    CHECK(lock.type == ConstraintType::Hinge);
+    CHECK(lock.body_a == beam.bodies.back());
+    CHECK(lock.body_b == beam.roller);
+    CHECK(lock.axis_a == Eigen::Vector3d::UnitX());
+    CHECK(lock.axis_b == Eigen::Vector3d::UnitX());
+    CHECK(std::abs(lock.point_a.x() - 0.5 * l) <= 1e-15);
+
+    MultibodyProvider provider(model);
+    State state{provider.neutral_positions(), Eigen::VectorXd::Zero(provider.velocity_size()), 0.0};
+    for (const auto& error : provider.constraint_errors(state.q)) {
+        CHECK(error.translational <= 1e-15);
+        CHECK(error.rotational <= 1e-15);
+    }
+    SemiImplicitEuler integrator(StepConfig{});
+    provider.step(integrator, state);
+    CHECK(state.q.cwiseAbs().maxCoeff() == 0.0);
+    // A rotation of the last segment alone breaks the lock: the hinge rows see the z rotation.
+    Eigen::VectorXd turned = state.q;
+    turned[provider.position_offset(beam.bodies.back())] = 1e-3;
+    CHECK(std::abs(provider.constraint_errors(turned)[0].rotational - 1e-3) <= 1e-12);
 }
 
 TEST_CASE("beam on a parent body follows the root frame and beam_point maps material points", "[ENG-022]") {

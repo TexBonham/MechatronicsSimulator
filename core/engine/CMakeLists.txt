@@ -13,6 +13,8 @@ endif()
 include(${CMAKE_CURRENT_SOURCE_DIR}/../cmake/Eigen.cmake)
 
 add_library(mechsim_engine
+    src/collision.cpp
+    src/contact.cpp
     src/engine_error.cpp
     src/lumped_beam.cpp
     src/member_loads.cpp
@@ -27,6 +29,7 @@ target_link_libraries(mechsim_engine PUBLIC Eigen3::Eigen PRIVATE mechsim_warnin
 
 add_executable(mechsim_engine_tests
     tests/test_constraints.cpp
+    tests/test_contact.cpp
     tests/test_errors.cpp
     tests/test_joint_springs.cpp
     tests/test_joints.cpp
@@ -46,6 +49,7 @@ add_executable(mechsim_engine_reference
     tests/test_reference_beam.cpp
     tests/test_reference_belt.cpp
     tests/test_reference_buckling.cpp
+    tests/test_reference_contact.cpp
     tests/test_reference_members.cpp
     tests/test_reference_pendulum.cpp
     tests/test_reference_rope.cpp

@@ -16,6 +16,8 @@ Namespace `mechsim::engine`; q (nq), v (nv). Eigen only, dense (ENG-001).
 | `multibody_model.hpp` | `JointType`, `Joint`, `Body`, `LoopConstraint` (Point 3, Hinge 5 rows), `MultibodyModel`, `MultibodyConfig` |
 | `multibody_provider.hpp` | `MultibodyProvider`, output structs |
 | `transmission.hpp` | `Transmission` (belt, screw, gear), `TransmissionOutput`, `PowerFlow`, `couple` (derivation) |
+| `collision.hpp` | `ShapeKind`, `shape_kind(name)` (unknown throws, ENG-017), `Shape`, `Pose`, `ContactPoint{point, normal a->b, depth}`, `Aabb`, `bounds`, `broad_phase`, `collide(a, pa, b, pb)`, `support` |
+| `contact.hpp` | `ContactParameters{K_n, C_n, mu}`, `MaterialPair`, `Geometry` (neutral sizes, body -1 world), `ContactModel{geometries, default, pairs, exclusions, slip_velocity 1e-4}`, `contact_force`, `WeldAttachment`, `PayloadOutput` (derivations in the header) |
 | `lumped_beam.hpp` | `BeamSpec`, `add_lumped_beam(model, spec, parent, position, orientation)` (registers `model.members`), `beam_point(beam, x)` (ENG-022) |
 | `member_loads.hpp` | `LumpedBeam`, `member_nodes(beam)`, `MemberOutput` (start/end moment, force), `member_end_loads` (ENG-030) |
 | `rope.hpp` | `Rope`, `RopeOutput`, `add_rope(model, rope, from_world, to_world)`, `rope_segment`, `validate_rope_parameters` (ENG-047, ADR 0016) |
@@ -46,7 +48,7 @@ Constraints: block Gauss-Seidel (per-constraint pseudo-inverse of J A^-1 J^T) un
 cap `iteration_cap` (50) else `SolverNonConvergenceError`; then `projection_iterations` (3) Gauss-Newton
 min-norm steps; drift > `drift_threshold_m/_rad` (1e-6) throws `DriftError(t, cause, index)`.
 `step(integrator, state)`: steps, records `outputs()` (body pose and twists; joint `S^T f` and wrench; constraint
-impulse, force, errors; empty `contacts`), clears inputs.
+impulse, force, errors; `contacts`; `payloads`), clears inputs.
 Inputs: `set_generalized_forces(tau)`, `apply_body_wrench(body, torque, force)` world-aligned at the com.
 Also `constraint_errors(q)`, `body_states(q, v)`, `neutral_positions()`, `*_offset(b)`.
 Hooks write mutable `impulse_`/`error_`; single-threaded (ENG-023).
@@ -71,7 +73,8 @@ Ruling 21: swing and belt modes go through K, so they integrate as backward Eule
 (1 + x^2)^(-pi / atan x) of its amplitude per period (about pi x; 1 % at 1 ms for a 1 m pendulum) and runs x^2 / 3
 slow (1 % at 27 Hz at 1 kHz); `RopeOutput::scheme_decay` and `TransmissionOutput::scheme_decay` publish pi omega h
 for the adapter to record. Attachment friction regularised below `MultibodyConfig::friction_slip_threshold` (1e-4).
-Load releases (constraint or rope, requested or by snap) go through one `release_load` path: `LoadReleased` + source.
+Load releases (constraint, rope or payload weld, requested or by snap) go through one `release_load` path:
+`LoadReleased` + source.
 
 ## Section index, `src/multibody_provider.cpp`
 
@@ -86,15 +89,52 @@ Load releases (constraint or rope, requested or by snap) go through one `release
 | Members, ropes and model changes | 770 |
 | Inputs and outputs | 1194 |
 
+## Section index, `src/collision.cpp`
+
+| Section | Line |
+|---|---|
+| Shapes | 16 |
+| Broad phase | 183 |
+| Closed forms | 246 |
+| GJK | 417 |
+| EPA | 582 |
+| Narrow phase | 734 |
+
+## Collision and contact (ADR 0002, ENG-016 to ENG-021)
+
+Broad phase: all-pairs AABB in geometry order (plane unbounded). Narrow phase in-house, no library (ENG-018):
+closed forms for sphere-sphere, sphere-capsule, capsule-capsule, sphere-box and every shape against a plane (one
+contact per penetrating feature: box corners, hull vertices, capsule caps, 4 rim points per cylinder cap); GJK + EPA
+(`CollisionLimits`: tolerance 1e-12 m, GJK cap 64, EPA cap 128) for the rest, one contact. Point = midpoint of the
+witness points. Box-box and hull-hull carry one witness point in milestone 3 (a box on a box tips; payload-on-floor
+uses the per-corner plane form), ruling 23. Empty = no contact only for a geometric answer (separated, touching,
+GJK separating within tolerance, flat Minkowski difference); GJK/EPA cap exhaustion or a degenerate EPA face before tolerance throws
+`SolverNonConvergenceError` (rethrown by `evaluate` with the step time).
+Provider: `set_contact_model(ContactModel)` validates (planes only on the world); `evaluate` adds per contact
+G^T F, G^T K_s G, G^T D_s G (G = J_b(p) - J_a(p)); same-body and excluded pairs skipped; `contacts(q, v)`;
+`outputs().contacts` at the step's start state, force on body a; joint outputs include contact and weld loads.
+Payload (ENG-035): `set_body_mass(b, m)` (inertia scaled), `set_attachment(body, carrier, attached, q, f = 1 kHz)`
+weld as implicit 6-DOF spring-damper at the payload com captured from q; `attachments()`, `outputs().payloads`.
+Weld is milestone 3 scope: becomes a six-row fixed loop constraint with disable (ruling 23). Attach and mass
+change push `PayloadAttached` / `PayloadMass` into the next step's `outputs().events`; release (attached false) goes
+through `release_load(Payload, body)`: `LoadReleased`, index the carrier left; no held weld throws.
+
 ## Lumped beam
 
-N segments, spring E I / l at each segment midpoint; clamped or pinned root, free or roller end.
+N segments, spring E I / l at each segment midpoint. `BeamEnds`: Cantilever (clamped root, free end),
+SimplySupported (pin segment at the root, `pinned_root`; point constraint onto a prismatic roller at x = L),
+Clamped (ruling 16; clamped root, and the roller constraint becomes a Hinge about the beam x axis: point plus two
+rotation rows, so the far stub moves with the roller; the axial slide stays free). Clamped-clamped midspan chain value
+P L^3 / (192 E I) (1 - 4 / N^2): -6.25 % at N = 8, so the 2 % references run at N = 16 (-1.56 %); first mode
++2.49 % at N = 8, +0.61 % at N = 16 (header derivation). `ConstraintOutput::torque` (world, on body_a) gives the
+clamped end moment in `MemberOutput::end_moment`.
 Euler buckling (ENG-042): N = 8 critical load (2N / L)^2 E I sin^2(pi / 2N) = 0.9872 P_Euler.
 Planar bending about root z; two-axis bending plus torsion: next tier. Derivation in the header.
 
 ## Tests
 
-Unit: `mechsim_engine_tests`. Reference: `mechsim_engine_reference`, `ctest -L reference`.
+Unit: `mechsim_engine_tests`. Reference: `mechsim_engine_reference`, `ctest -L reference`. Contact helpers:
+`tests/contact_helpers.hpp`.
 
 ## Conventions
 
