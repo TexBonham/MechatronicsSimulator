@@ -23,3 +23,4 @@ type live in the root `CLAUDE.md` dispatch table once measured.
 | 2026-11-11 | M3 review: M and D | general-purpose (fable) | ~95K | 20 calls; M accept, D accept with fixes (2 medium: segment defaults; 5 low; rulings 19, 20) |
 | 2026-11-11 | M3-E2: member end-loads, mid-run changes, Euler buckling, rope chain on translation joints, belt compliance; 389 ctest (wip/05-e2 a3638a4) | module-writer (opus), worktree | est. 300K | pending usage; backward-Euler swing damping finding (ruling 21) |
 | 2026-11-11 | Invariant audit: E1 and E2 | invariant-auditor (sonnet) | ~40K | clean; minors: GJK/EPA cap path, ENG-019 wording, Attachment name clash at merge |
+| 2026-11-11 | M3 review: E1 and E2 (physics; integrator derivation) | general-purpose (fable) | ~95K | 17 calls; both accept with follow-ups, ruling 21 settled against the midpoint proposal |
