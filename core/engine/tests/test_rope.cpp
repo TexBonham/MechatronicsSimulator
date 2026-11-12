@@ -3,6 +3,7 @@
 #include <cmath>
 #include <cstddef>
 #include <limits>
+#include <numbers>
 
 #include "mechsim/engine/dynamics_provider.hpp"
 #include "mechsim/engine/engine_error.hpp"
@@ -15,6 +16,7 @@
 using mechsim::engine::DynamicsTerms;
 using mechsim::engine::InvalidModelError;
 using mechsim::engine::JointType;
+using mechsim::engine::LoadSource;
 using mechsim::engine::ModelChange;
 using mechsim::engine::MultibodyModel;
 using mechsim::engine::MultibodyProvider;
@@ -180,8 +182,10 @@ TEST_CASE("a taut segment adds axial and geometric stiffness", "[ENG-047]") {
 }
 
 // Ruling 14: bob at (0, 0, -L) moving at u along x on a slack single segment. omega_rel = n x v / L = (0, -u / L, 0),
-// tau = -(c + f L / |u|) omega_rel, force on the bob (tau x n) / L = -(c u / L^2 + f sign(u) / L) along x; D_xx gets
-// (c + f L / |u|) / L^2. At rest the friction term is absent.
+// tau = -(c + f / max(|u| / L, w)) omega_rel with w the friction slip threshold (MultibodyConfig, 1e-4 rad/s): above
+// w the force on the bob (tau x n) / L is -(c u / L^2 + f sign(u) / L) along x, the full Coulomb value, and D_xx gets
+// (c + f L / |u|) / L^2; at zero rate the force is 0 and D_xx is the bounded (c + f / w) / L^2; exactly at the
+// threshold both forms agree.
 TEST_CASE("the top attachment damps and rubs the swing", "[ENG-047]") {
     MultibodyModel model;
     model.gravity = Eigen::Vector3d::Zero();
@@ -206,9 +210,29 @@ TEST_CASE("the top attachment damps and rubs the swing", "[ENG-047]") {
     REQUIRE(std::abs(terms.damping(0, 0) - coefficient / (length * length)) <= 1e-12);
     REQUIRE(std::abs(terms.damping(1, 1) - coefficient / (length * length)) <= 1e-12);
     REQUIRE(std::abs(terms.damping(2, 2)) <= 1e-15);
+    const double threshold = provider.config().friction_slip_threshold;
+    REQUIRE(threshold == 1e-4);
+    const double regularised = (0.2 + 0.05 / threshold) / (length * length);
     provider.evaluate(0.0, provider.neutral_positions(), Eigen::VectorXd::Zero(provider.velocity_size()), terms);
-    REQUIRE(std::abs(terms.damping(0, 0) - 0.2 / (length * length)) <= 1e-12);
+    REQUIRE(std::abs(terms.damping(0, 0) / regularised - 1.0) <= 1e-12);
     REQUIRE(terms.force.norm() == 0.0);
+    v[0] = threshold * length;
+    provider.evaluate(0.0, provider.neutral_positions(), v, terms);
+    REQUIRE(std::abs(terms.damping(0, 0) / regularised - 1.0) <= 1e-12);
+    const double coulomb = -(0.2 * v[0] / (length * length) + 0.05 / length);
+    REQUIRE(std::abs(terms.force[0] / coulomb - 1.0) <= 1e-12);
+    v[0] = 0.5 * threshold * length;
+    provider.evaluate(0.0, provider.neutral_positions(), v, terms);
+    REQUIRE(std::abs(terms.force[0] / (-regularised * v[0]) - 1.0) <= 1e-12);
+}
+
+TEST_CASE("a non-positive friction slip threshold is rejected", "[ENG-047]") {
+    MultibodyModel model;
+    mechsim::engine::MultibodyConfig config;
+    config.friction_slip_threshold = 0.0;
+    REQUIRE_THROWS(MultibodyProvider(model, config));
+    config.friction_slip_threshold = std::numeric_limits<double>::quiet_NaN();
+    REQUIRE_THROWS(MultibodyProvider(model, config));
 }
 
 // Gravity off, ends 0.9 m apart on a 1 m rope: every segment is slack, nothing moves, every tension is exactly 0.
@@ -290,7 +314,10 @@ TEST_CASE("a load above the breaking tension snaps the rope within one step", "[
     REQUIRE(out.ropes[0].max_tension > gravity * bob_mass + 0.99 * 10.0);
     REQUIRE_FALSE(out.ropes[0].attached);
     REQUIRE_FALSE(provider.rope_attached(0));
-    REQUIRE(out.events.size() == 1);
+    REQUIRE(out.events.size() == 2);
+    REQUIRE(out.events[1].kind == ModelChange::LoadReleased);
+    REQUIRE(out.events[1].source == LoadSource::Rope);
+    REQUIRE(out.events[1].time == state.t);
     REQUIRE(out.events[0].kind == ModelChange::RopeSnapped);
     REQUIRE(out.events[0].target == 0);
     REQUIRE(out.events[0].value == out.ropes[0].max_tension);
@@ -318,12 +345,18 @@ TEST_CASE("a rope released on request lets its load go and lists the release", "
     State state = rest_state(provider);
     const double h = integrator.config().h;
     provider.step(integrator, state);
+    // Ruling 21: the swing's pi omega h, omega = sqrt(g / d), d the segment length (the bob's distance).
+    const Eigen::Vector3d bob_at = provider.outputs().bodies[0].position;
+    const double swing = std::numbers::pi * std::sqrt(gravity / bob_at.norm()) * h;
+    REQUIRE(std::abs(provider.outputs().ropes[0].scheme_decay / swing - 1.0) <= 1e-12);
     provider.release_rope(0);
     const double before = state.v[2];
     provider.step(integrator, state);
     REQUIRE(std::abs((state.v[2] - before) / h + gravity) <= 1e-12 * gravity);
     REQUIRE(provider.outputs().events.size() == 1);
-    REQUIRE(provider.outputs().events[0].kind == ModelChange::RopeReleased);
+    REQUIRE(provider.outputs().events[0].kind == ModelChange::LoadReleased);
+    REQUIRE(provider.outputs().events[0].source == LoadSource::Rope);
+    REQUIRE(provider.outputs().events[0].target == 0);
     REQUIRE(provider.outputs().events[0].time == h);
     REQUIRE(provider.outputs().ropes[0].tension.size() == 1);
     REQUIRE(provider.outputs().ropes[0].max_tension == 0.0);

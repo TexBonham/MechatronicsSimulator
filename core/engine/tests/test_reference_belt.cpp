@@ -97,6 +97,25 @@ TEST_CASE("belt with the shaft held is a spring between shaft and carriage", "[E
     REQUIRE(std::abs(frequency / scheme - 1.0) <= 1e-4);
 }
 
+// Ruling 21 approximation value: the belt mode's pi omega h with omega^2 = k (r^2 / J + 1 / m) (transmission.hpp,
+// the coupling's only non-zero eigenvalue of H^-1 K), J the shaft inertia; exact to rounding.
+TEST_CASE("belt publishes its mode's backward-Euler decay per period", "[ENG-043][reference]") {
+    const double stiffness = 1e4;
+    MultibodyModel model = belt_rig(stiffness);
+    const double shaft = model.bodies[0].inertia(2, 2);
+    MultibodyProvider provider(model);
+    SemiImplicitEuler integrator(StepConfig{});
+    State state{provider.neutral_positions(), Eigen::VectorXd::Zero(provider.velocity_size()), 0.0};
+    state.q[1] = 1e-3;  // stretched: in contact (zero stretch with zero backlash is not)
+    provider.step(integrator, state);
+    REQUIRE(provider.outputs().transmissions[0].in_contact);
+    const double h = integrator.config().h;
+    const double omega = std::sqrt(stiffness * (radius * radius / shaft + 1.0 / carriage_mass));
+    const double decay = provider.outputs().transmissions[0].scheme_decay;
+    std::printf("ENG-043 belt scheme decay %.12g, pi omega h %.12g\n", decay, std::numbers::pi * omega * h);
+    REQUIRE(std::abs(decay / (std::numbers::pi * omega * h) - 1.0) <= 1e-12);
+}
+
 // Envelope: the gantry placeholder stiffness at 1 kHz. One step from rest at x0 is backward Euler's exactly,
 // x1 = x0 / (1 + omega^2 h^2), v1 = -h omega^2 x0 / (1 + omega^2 h^2) (the shaft's participation r^2 m / J = 1e-6
 // changes omega^2 by that fraction, hence 1e-5), and over 1000 steps the amplitude never exceeds x0: implicit, no

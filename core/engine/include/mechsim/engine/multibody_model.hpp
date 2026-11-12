@@ -79,6 +79,7 @@ struct MultibodyConfig {
     static constexpr double default_drift_threshold_m = 1e-6;      // ENG-024
     static constexpr double default_drift_threshold_rad = 1e-6;    // ENG-024
     static constexpr double default_unit_tolerance = 1e-12;        // |norm^2 - 1| of axes and quaternions
+    static constexpr double default_friction_slip_threshold = 1e-4;  // rad/s; Coulomb friction regularisation
 
     int iteration_cap = default_iteration_cap;                       // >= 1
     double velocity_tolerance = default_velocity_tolerance;          // finite, > 0
@@ -86,6 +87,9 @@ struct MultibodyConfig {
     double drift_threshold_m = default_drift_threshold_m;            // finite, > 0
     double drift_threshold_rad = default_drift_threshold_rad;        // finite, > 0
     double unit_tolerance = default_unit_tolerance;                  // finite, > 0
+    // Below this relative rate Coulomb friction (the rope attachment's) acts as the viscous damping
+    // friction / threshold, so D stays bounded at zero rate; at and above it the torque is the full Coulomb value.
+    double friction_slip_threshold = default_friction_slip_threshold;  // finite, > 0
 };
 
 }  // namespace mechsim::engine

@@ -60,27 +60,31 @@ Members (ENG-030): `outputs().members` per `model.members`, support-on-member wr
 the end point, member root frame axes, from the step's start state like `joints`.
 Mid-run changes (ENG-031 to 034), next step on, each listed in the next step's `outputs().events` (`ModelChange`):
 `set_spring_offset(member, node, offset)` (rest = built + offset), `set_spring_stiffness(member, node, k)`,
-`disable_constraint(c)` / `release_load(c)` (zero rows; twice throws), `release_rope(r)`; `constraint_enabled`, `rope_attached`.
+`disable_constraint(c)` / `release_load(c)` (zero rows; twice throws), `release_rope(r)` (same path); `constraint_enabled`, `rope_attached`.
 Ropes (ENG-047, ADR 0016, rulings 14, 15): N segments, N - 1 Translation nodes, end half-masses on the end bodies;
 tension-only spring-dampers, slack or taut from the step start; K gets k n n^T + (T / d)(I - n n^T), D gets c n n^T;
 top attachment damping and friction (spherical joint torque, in D); `set_rope_rest_length(r, L)` (winch);
-`outputs().ropes` per segment tension, max, load end, `snatch_omega_h` (flag above 0.2); snap: end-of-step tension
+`outputs().ropes` per segment tension, max, load end, `snatch_omega_h` = sqrt(EA / (L M)) h (flag above 0.2:
+first snatch peak about 15 % low); snap: end-of-step tension
 over `breaking_tension` releases `to_body` from the next step, event `RopeSnapped`.
-Swing modes go through K, so they integrate as backward Euler: about pi omega h amplitude loss per period
-(1 % at 1 ms for a 1 m pendulum); belts likewise (frequency error (omega h)^2 / 3, 1 % at f = 27 Hz at 1 kHz).
+Ruling 21: swing and belt modes go through K, so they integrate as backward Euler: with x = omega h the mode loses
+(1 + x^2)^(-pi / atan x) of its amplitude per period (about pi x; 1 % at 1 ms for a 1 m pendulum) and runs x^2 / 3
+slow (1 % at 27 Hz at 1 kHz); `RopeOutput::scheme_decay` and `TransmissionOutput::scheme_decay` publish pi omega h
+for the adapter to record. Attachment friction regularised below `MultibodyConfig::friction_slip_threshold` (1e-4).
+Load releases (constraint or rope, requested or by snap) go through one `release_load` path: `LoadReleased` + source.
 
 ## Section index, `src/multibody_provider.cpp`
 
 | Section | Line |
 |---|---|
-| Helpers | 39 |
-| Construction | 264 |
-| Kinematics | 341 |
-| Dynamics | 413 |
-| Transmissions | 519 |
-| Constraints | 618 |
-| Members, ropes and model changes | 768 |
-| Inputs and outputs | 1132 |
+| Helpers | 40 |
+| Construction | 266 |
+| Kinematics | 343 |
+| Dynamics | 415 |
+| Transmissions | 521 |
+| Constraints | 620 |
+| Members, ropes and model changes | 770 |
+| Inputs and outputs | 1194 |
 
 ## Lumped beam
 

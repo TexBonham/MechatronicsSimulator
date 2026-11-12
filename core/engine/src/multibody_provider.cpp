@@ -7,6 +7,7 @@
 #include <array>
 #include <cmath>
 #include <cstddef>
+#include <numbers>
 #include <string>
 #include <utility>
 #include <vector>
@@ -145,6 +146,7 @@ void validate_config(const MultibodyConfig& config) {
         {config.drift_threshold_m, "translational drift threshold"},
         {config.drift_threshold_rad, "rotational drift threshold"},
         {config.unit_tolerance, "unit tolerance"},
+        {config.friction_slip_threshold, "friction slip threshold"},
     };
     for (const auto& [value, name] : positive) {
         if (!std::isfinite(value) || value <= 0.0) {
@@ -781,27 +783,35 @@ struct MultibodyProvider::RopePoint {
 namespace {
 
 // Ruling 14: the top attachment's spherical-joint torque coefficient and the relative swing rate omega_rel.
-struct Attachment {
+struct RopeAttachment {
     Eigen::Vector3d rate = Eigen::Vector3d::Zero();  // omega_rel, world, rad/s
     double coefficient = 0.0;                        // N m s/rad
     bool active = false;
 };
 
-Attachment attachment(const Rope& rope, const Eigen::Vector3d& n, double d, const Eigen::Vector3d& relative_velocity,
-                      const Eigen::Vector3d& from_angular_velocity) {
-    Attachment out;
+RopeAttachment attachment(const Rope& rope, const Eigen::Vector3d& n, double d,
+                          const Eigen::Vector3d& relative_velocity, const Eigen::Vector3d& from_angular_velocity,
+                          double slip_threshold) {
+    RopeAttachment out;
     if (d <= 0.0 || (rope.attachment_damping == 0.0 && rope.attachment_friction == 0.0)) {
         return out;
     }
     const Eigen::Matrix3d across = Eigen::Matrix3d::Identity() - n * n.transpose();
     out.rate = across * (n.cross(relative_velocity) / d - from_angular_velocity);
     out.coefficient = rope.attachment_damping;
-    const double speed = out.rate.norm();
-    if (speed > 0.0) {
-        out.coefficient += rope.attachment_friction / speed;
-    }
+    out.coefficient += rope.attachment_friction / std::max(out.rate.norm(), slip_threshold);
     out.active = out.coefficient > 0.0;
     return out;
+}
+
+ModelChangeEvent change_event(ModelChange kind, Eigen::Index target, Eigen::Index index, double value, double time) {
+    ModelChangeEvent event;
+    event.kind = kind;
+    event.target = target;
+    event.index = index;
+    event.value = value;
+    event.time = time;
+    return event;
 }
 
 }  // namespace
@@ -886,8 +896,9 @@ void MultibodyProvider::add_rope_wrenches(const Kinematics& kin, std::vector<Vec
         const RopePoint& a = at(points, 0);
         const RopePoint& b = at(points, 1);
         const RopeSegment& top = at(segments, 0);
-        const Attachment joint =
-            attachment(at(model_.ropes, r), top.direction, top.length, b.velocity - a.velocity, a.angular_velocity);
+        const RopeAttachment joint = attachment(at(model_.ropes, r), top.direction, top.length,
+                                                b.velocity - a.velocity, a.angular_velocity,
+                                                config_.friction_slip_threshold);
         if (!joint.active) {
             continue;
         }
@@ -924,8 +935,8 @@ void MultibodyProvider::add_rope_terms(const Kinematics& kin, DynamicsTerms& ter
         const RopePoint& a = at(points, 0);
         const RopePoint& b = at(points, 1);
         const RopeSegment& top = at(segments, 0);
-        const Attachment joint = attachment(rope, top.direction, top.length, b.velocity - a.velocity,
-                                            a.angular_velocity);
+        const RopeAttachment joint = attachment(rope, top.direction, top.length, b.velocity - a.velocity,
+                                                a.angular_velocity, config_.friction_slip_threshold);
         if (!joint.active) {
             continue;
         }
@@ -1004,7 +1015,6 @@ void MultibodyProvider::record_members_and_ropes(const State& before, const Stat
                 worst = s;
             }
         }
-        at(rope_attached_, r) = 0;
         out.attached = false;
         ModelChangeEvent event;
         event.kind = ModelChange::RopeSnapped;
@@ -1014,6 +1024,45 @@ void MultibodyProvider::record_members_and_ropes(const State& before, const Stat
         event.limit = rope.breaking_tension;
         event.time = after.t;
         outputs_.events.push_back(event);
+        outputs_.events.push_back(release_load(LoadSource::Rope, r, after.t));
+    }
+    record_scheme_decay(after, h);
+}
+
+// Ruling 21: pi omega h per rope swing mode and per transmission coupling mode, at the end state.
+void MultibodyProvider::record_scheme_decay(const State& after, double h) {
+    const double g = model_.gravity.norm();
+    const Kinematics kin = kinematics(after.q, after.v);
+    for (Eigen::Index r = 0; r < count(outputs_.ropes.size()); ++r) {
+        RopeOutput& out = at(outputs_.ropes, r);
+        double length = 0.0;
+        for (const RopeSegment& seg : rope_segments(rope_points(kin, r, false), r)) {
+            length += seg.length;
+        }
+        if (g > 0.0 && length > 0.0) {
+            out.scheme_decay = std::numbers::pi * std::sqrt(g / length) * h;
+        }
+    }
+    if (model_.transmissions.empty()) {
+        return;
+    }
+    const Eigen::LLT<Eigen::MatrixXd> mass(mass_matrix(kin));
+    for (Eigen::Index i = 0; i < count(model_.transmissions.size()); ++i) {
+        const Transmission& t = at(model_.transmissions, i);
+        const TransmissionCoupling c = coupling(i, after.q, after.v);
+        if (!c.output.in_contact) {
+            continue;
+        }
+        Eigen::VectorXd a = Eigen::VectorXd::Zero(nv_);
+        Eigen::VectorXd b = Eigen::VectorXd::Zero(nv_);
+        a[at(v_offset_, t.input_body)] = c.gain;
+        a[at(v_offset_, t.output_body)] = -1.0;
+        b[at(v_offset_, t.input_body)] = c.n_eff;
+        b[at(v_offset_, t.output_body)] = -1.0;
+        const double omega_squared = t.stiffness * b.dot(mass.solve(a));
+        if (omega_squared > 0.0) {
+            at(outputs_.transmissions, i).scheme_decay = std::numbers::pi * std::sqrt(omega_squared) * h;
+        }
     }
 }
 
@@ -1055,7 +1104,7 @@ void MultibodyProvider::set_spring_offset(Eigen::Index member, Eigen::Index node
         built = joint.rest[0];
     }
     rest_[at(v_offset_, body)] = built + offset;
-    pending_events_.push_back({ModelChange::SpringOffset, member, node, offset, 0.0, outputs_.time});
+    pending_events_.push_back(change_event(ModelChange::SpringOffset, member, node, offset, outputs_.time));
 }
 
 void MultibodyProvider::set_spring_stiffness(Eigen::Index member, Eigen::Index node, double stiffness) {
@@ -1070,7 +1119,7 @@ void MultibodyProvider::set_spring_stiffness(Eigen::Index member, Eigen::Index n
         throw InvalidModelError(0.0, "spring stiffness must be finite and not negative");
     }
     stiffness_[at(v_offset_, at(nodes, node))] = stiffness;
-    pending_events_.push_back({ModelChange::SpringStiffness, member, node, stiffness, 0.0, outputs_.time});
+    pending_events_.push_back(change_event(ModelChange::SpringStiffness, member, node, stiffness, outputs_.time));
 }
 
 void MultibodyProvider::check_constraint_change(Eigen::Index constraint) const {
@@ -1085,24 +1134,37 @@ void MultibodyProvider::check_constraint_change(Eigen::Index constraint) const {
 void MultibodyProvider::disable_constraint(Eigen::Index constraint) {
     check_constraint_change(constraint);
     at(constraint_enabled_, constraint) = 0;
-    pending_events_.push_back({ModelChange::ConstraintDisabled, constraint, -1, 0.0, 0.0, outputs_.time});
+    pending_events_.push_back(change_event(ModelChange::ConstraintDisabled, constraint, -1, 0.0, outputs_.time));
 }
 
 void MultibodyProvider::release_load(Eigen::Index constraint) {
-    check_constraint_change(constraint);
-    at(constraint_enabled_, constraint) = 0;
-    pending_events_.push_back({ModelChange::LoadReleased, constraint, -1, 0.0, 0.0, outputs_.time});
+    pending_events_.push_back(release_load(LoadSource::Constraint, constraint, outputs_.time));
 }
 
 void MultibodyProvider::release_rope(Eigen::Index rope) {
-    if (rope < 0 || rope >= count(model_.ropes.size())) {
-        throw InvalidModelError(0.0, "release of a missing rope");
+    pending_events_.push_back(release_load(LoadSource::Rope, rope, outputs_.time));
+}
+
+// The one load-release path (ENG-034): a constraint holding the load is disabled, or a rope's to_body end removed.
+ModelChangeEvent MultibodyProvider::release_load(LoadSource source, Eigen::Index target, double time) {
+    if (source == LoadSource::Constraint) {
+        check_constraint_change(target);
+        at(constraint_enabled_, target) = 0;
+    } else {
+        if (target < 0 || target >= count(model_.ropes.size())) {
+            throw InvalidModelError(0.0, "release of a missing rope");
+        }
+        if (at(rope_attached_, target) == 0) {
+            throw InvalidModelError(0.0, "rope " + std::to_string(target) + " is already released");
+        }
+        at(rope_attached_, target) = 0;
     }
-    if (at(rope_attached_, rope) == 0) {
-        throw InvalidModelError(0.0, "rope " + std::to_string(rope) + " is already released");
-    }
-    at(rope_attached_, rope) = 0;
-    pending_events_.push_back({ModelChange::RopeReleased, rope, -1, 0.0, 0.0, outputs_.time});
+    ModelChangeEvent event;
+    event.kind = ModelChange::LoadReleased;
+    event.target = target;
+    event.source = source;
+    event.time = time;
+    return event;
 }
 
 bool MultibodyProvider::constraint_enabled(Eigen::Index constraint) const {

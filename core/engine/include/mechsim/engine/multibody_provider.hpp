@@ -48,10 +48,12 @@ enum class ModelChange : std::uint8_t {
     SpringOffset,        // target member, index node, value offset (rad)
     SpringStiffness,     // target member, index node, value stiffness (N m/rad)
     ConstraintDisabled,  // target constraint
-    LoadReleased,        // target constraint holding the load
-    RopeReleased,        // target rope
+    LoadReleased,        // source Constraint: target constraint; source Rope: target rope (its to_body end)
     RopeSnapped          // target rope, index segment, value tension (N), limit breaking tension (N)
 };
+
+// What held a released load (ENG-034): one release_load path for both.
+enum class LoadSource : std::uint8_t { Constraint, Rope };
 
 struct ModelChangeEvent {
     ModelChange kind = ModelChange::SpringOffset;
@@ -61,6 +63,7 @@ struct ModelChangeEvent {
     double limit = 0.0;
     double time = 0.0;  // s: a requested change takes effect at this time (the next step's start); a snap at the
                         // end of the step whose tension exceeded the limit
+    LoadSource source = LoadSource::Constraint;  // LoadReleased only
 };
 
 struct MultibodyOutputs {
@@ -123,7 +126,7 @@ public:
     void set_spring_stiffness(Eigen::Index member, Eigen::Index node, double stiffness);  // N m/rad, finite, >= 0
     void disable_constraint(Eigen::Index constraint);  // fastener break; zero rows from then on
     void release_load(Eigen::Index constraint);        // a load held by a loop constraint (ENG-034)
-    void release_rope(Eigen::Index rope);              // the rope's to_body attachment (ENG-034)
+    void release_rope(Eigen::Index rope);              // the rope's to_body attachment (ENG-034), via release_load
     [[nodiscard]] bool constraint_enabled(Eigen::Index constraint) const;
     [[nodiscard]] bool rope_attached(Eigen::Index rope) const;
     // Rope rest length for the next step on (winch), m, finite and > 0 (ENG-047); not an event.
@@ -163,6 +166,8 @@ private:
     void setup_members_and_ropes();
     void record_members_and_ropes(const State& before, const State& after, double h);
     void check_constraint_change(Eigen::Index constraint) const;
+    ModelChangeEvent release_load(LoadSource source, Eigen::Index target, double time);
+    void record_scheme_decay(const State& after, double h);
 
     MultibodyModel model_;
     MultibodyConfig config_;

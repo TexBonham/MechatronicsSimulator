@@ -32,8 +32,12 @@ struct MultibodyModel;
 // Snap (ENG-034). When a segment's end-of-step tension exceeds breaking_tension, the last segment (to to_body) is
 // removed from the next step on; the chain stays hung from from_body.
 //
-// Snatch resolution (ruling 15, ADR 0016 Consequences): omega_s = sqrt(EA / (rest_length M)), M the to_body mass;
-// omega_s h above snatch_resolution_limit means implicit Euler underestimates snatch peaks (an approximation line).
+// Snatch resolution (rulings 15 and 22, ADR 0016 Consequences): the rope's fundamental with the load,
+// omega_s = sqrt(EA / (rest_length M)), M the to_body mass; above omega_s h = 0.2 the first snatch peak is about
+// 15 % low (implicit Euler), published as a flag the adapter records as an approximation line.
+// Swing (ruling 21): the swing mode runs through K, so backward Euler removes (1 + x^2)^(-pi / atan x) of its
+// amplitude per period (about pi x) and runs x^2 / 3 slow, x = omega h; published as scheme_decay = pi omega h with
+// omega = sqrt(|g| / d), d the summed segment lengths.
 struct Rope {
     static constexpr int default_segments = 8;                // ADR 0016
     static constexpr double snatch_resolution_limit = 0.2;    // omega_s h, round 5 ruling 15
@@ -61,7 +65,9 @@ struct RopeOutput {
     bool attached = true;            // false once the to_body attachment is released
     double rest_length = 0.0;        // current, m
     double snatch_omega_h = 0.0;     // omega_s h; 0 when to_body is the world
-    bool snatch_underestimated = false;  // snatch_omega_h > Rope::snatch_resolution_limit
+    bool snatch_underestimated = false;  // snatch_omega_h > Rope::snatch_resolution_limit: first snatch peak
+                                         // about 15 % low
+    double scheme_decay = 0.0;           // pi omega h of the swing mode (ruling 21); 0 without gravity
 };
 
 // Appends the chain's nodes evenly between from_world and to_world (the attach points' world positions in the model's

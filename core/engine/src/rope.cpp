@@ -70,7 +70,6 @@ Eigen::Index add_rope(MultibodyModel& model, Rope rope, const Eigen::Vector3d& f
         node.joint.type = JointType::Translation;
         node.joint.position = from_world + (static_cast<double>(i) / rope.segments) * (to_world - from_world);
         node.mass = node_mass;
-        node.inertia = (node_mass * l * l / 12.0) * Eigen::Matrix3d::Identity();
         model.bodies.push_back(node);
         rope.nodes.push_back(static_cast<Eigen::Index>(model.bodies.size()) - 1);
     }

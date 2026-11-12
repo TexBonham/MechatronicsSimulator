@@ -53,9 +53,9 @@ struct BeamPoint {
 };
 
 // Appends the beam to model along +x of a root frame placed at position, orientation in the parent body (-1 is the
-// world), and registers it in model.members (ENG-030). The roller of a SimplySupported beam slides along the root x axis at x = L with roller_mass_fraction of
-// the member's mass: a roller is massless, and its axial motion is second order in the deflection. Throws
-// InvalidModelError.
+// world), and registers it in model.members (ENG-030). The roller of a SimplySupported beam slides along the root
+// x axis at x = L with roller_mass_fraction of the member's mass: a roller is massless, and its axial motion is
+// second order in the deflection. Throws InvalidModelError.
 LumpedBeam add_lumped_beam(MultibodyModel& model, const BeamSpec& spec, Eigen::Index parent = -1,
                            const Eigen::Vector3d& position = Eigen::Vector3d::Zero(),
                            const Eigen::Quaterniond& orientation = Eigen::Quaterniond::Identity());
