@@ -162,7 +162,7 @@ class FakeBuilder:
         self.instances = tuple(instances)
         self.built: list[Design] = []
 
-    def __call__(self, design: Design) -> FakeBuild:
+    def __call__(self, design: Design, adapter: str = "mujoco") -> FakeBuild:
         self.built.append(design)
         return FakeBuild(design, self.instances)
 

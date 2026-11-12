@@ -19,8 +19,6 @@ from mechsim.physics.native.translate import (
     translate,
 )
 from mechsim.physics.neutral import PhysicsModel, from_yaml
-from mechsim.record.reader import DriverError
-from mechsim.testing.core_driver import ADAPTER_VARIABLE, physics_adapter_name
 
 ROOT = Path(__file__).resolve().parents[2]
 ORIGIN = ("0 m", "0 m", "0 m")
@@ -192,18 +190,6 @@ def test_starts_and_payloads() -> None:
     prepared = prepare_model(model, {"pivot": 0.1}, 5e-5)
     assert prepared.version == "0.1.0"
     assert "5e-05 s" in prepared.report[0]
-
-
-@pytest.mark.req("PHY-031")
-def test_adapter_selection(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.delenv(ADAPTER_VARIABLE, raising=False)
-    assert physics_adapter_name() == "mujoco"
-    assert physics_adapter_name("native") == "native"
-    monkeypatch.setenv(ADAPTER_VARIABLE, "native")
-    assert physics_adapter_name() == "native"
-    assert physics_adapter_name("mujoco") == "mujoco"
-    with pytest.raises(DriverError, match=r"physics\.adapter"):
-        physics_adapter_name("bullet")
 
 
 @pytest.mark.req("BLD-018")

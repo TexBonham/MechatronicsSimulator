@@ -121,7 +121,7 @@ Recorded with the native adapter (PHY-020, ADR 0013, ADR 0014; R-18). Full table
 
 | Item | Milestone 3 behavior |
 |---|---|
-| Selection | Run configuration `physics.adapter`: `mujoco` (default until X2) or `native`; `CoreDriver(adapter=...)` or the environment variable `MECHSIM_PHYSICS_ADAPTER`; the first approximation line names the adapter |
+| Selection | Run configuration `physics.adapter` (TST-040, ruling 41): `mujoco` (default until X2) or `native`, from the case's `physics.adapter` or `--set physics.adapter=<name>`, never the environment; recorded in the run id (non-default only) and the archive; `core_builder` builds lumped members rigid for the bridge (ruling 29) and flexible for `native`; the first approximation line names the native adapter |
 | Prepared model | `mechsim/physics/native/translate.py` writes the engine model document (format `mechsim-native-1`) into `PreparedModel::neutral_model_json`; `engine_artifact` is empty (a non-empty one is refused) |
 | Step | `MultibodyProvider` stepped by `SemiImplicitEuler` at 1 / physics rate; integrator `backward_euler` (PHY-031); engine errors and refused inputs end the run as `AdapterError` (PHY-009) |
 | Joint drives (PHY-034) | Implicit diagonal spring-damper on the joint's DOF added to the engine's K and D each step; torque K (rest - q') - D v' at the end state; static sag and steady lag D u / K exact; no stability limit (envelope: backward Euler, the drive mode runs (omega h)^2 / 3 slow and loses about e^(-pi omega h) per period, one approximation line per drivable joint) |

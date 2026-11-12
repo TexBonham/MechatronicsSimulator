@@ -1,9 +1,9 @@
 """The real simulation driver over the core binding (TST-012, TST-021, TST-036), the record view scoring reads, and
 the archive writer and reader the runner and the CLI use (TST-033, L8).
 
-`CoreDriver.load` prepares the neutral model for the physics adapter the run configuration names (`physics.adapter`:
-the environment variable `MECHSIM_PHYSICS_ADAPTER` or the driver's `adapter` argument, `mujoco` by default until X2;
-`native` is the own engine, PHY-020), translation report kept (ADR 0003); `run` builds
+`CoreDriver.run` prepares the neutral model for the physics adapter the run configuration names (`physics.adapter`
+of the case or `--set`, TST-040; `mujoco` by default until X2; `native` is the own engine, PHY-020), translation
+report kept (ADR 0003); `run` builds
 a co-simulation kernel with the physics party and records every row through an in-memory sink into
 `mechsim.record.Recorder`. Joint coordinates and poses are derived from the recorded body poses with the model's
 kinematics (TST-038): a joint coordinate is zero at the neutral placement; a pose is the body frame's displacement
@@ -14,7 +14,6 @@ from __future__ import annotations
 
 import hashlib
 import json
-import os
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import replace
 from fractions import Fraction
@@ -90,7 +89,16 @@ from mechsim.testing.driver import (
     members_json,
 )
 from mechsim.testing.runner import Services
-from mechsim.testing.schema import DESIGNS_ROOT, ROOT, Case, InitialState, Quantity
+from mechsim.testing.schema import (
+    DEFAULT_PHYSICS_ADAPTER,
+    DESIGNS_ROOT,
+    NATIVE_ADAPTER,
+    PHYSICS_ADAPTERS,
+    ROOT,
+    Case,
+    InitialState,
+    Quantity,
+)
 
 OPERATOR_EVENT_KINDS = ("operator_status", "operator_command")
 SIGNAL_LAYER_CATEGORIES = ("sensor", "front_end", "actuator", "driver", "power", "safety", "communication")
@@ -268,12 +276,12 @@ def _si(amount: object, joint: str) -> float:
 class CoreDriver:
     """`SimulationDriver` over the core binding. One driver per run (the runner's factory makes a fresh one)."""
 
-    def __init__(self, subscribers: Sequence[Callable[[Any], None]] = (), adapter: str | None = None) -> None:
+    def __init__(self, subscribers: Sequence[Callable[[Any], None]] = ()) -> None:
         """`subscribers` receive each row as the kernel writes it (REC-019); one that raises is a recorder error,
-        which ends the scoring as a run error and lands in the archive metadata (invariant 7). `adapter` is the run
-        configuration's `physics.adapter` (`physics_adapter_name`)."""
+        which ends the scoring as a run error and lands in the archive metadata (invariant 7). The physics adapter is
+        the run configuration's `physics.adapter`, set by `configure`."""
         self._subscribers = tuple(subscribers)
-        self.adapter = physics_adapter_name(adapter)
+        self.adapter: str = DEFAULT_PHYSICS_ADAPTER
         self._build: CoreBuild | None = None
         self._model: PhysicsModel | None = None
         self._config: RunConfig | None = None
@@ -330,6 +338,9 @@ class CoreDriver:
                 f"base rate {config.base_rate} Hz must equal the physics rate {config.physics_rate} Hz (milestone 1 "
                 "runs the controller at the physics rate)"
             )
+        if config.physics_adapter not in PHYSICS_ADAPTERS:
+            raise DriverError(f"physics.adapter {config.physics_adapter!r}: one of {', '.join(PHYSICS_ADAPTERS)}")
+        self.adapter = config.physics_adapter
         self._config = config
 
     def _sensed_payload(self) -> tuple[str, str] | None:
@@ -704,23 +715,6 @@ def _conjugate(q: Quat) -> Quat:
     return (q[0], -q[1], -q[2], -q[3])
 
 
-MUJOCO_ADAPTER = "mujoco"
-NATIVE_ADAPTER = "native"
-PHYSICS_ADAPTERS = (MUJOCO_ADAPTER, NATIVE_ADAPTER)
-ADAPTER_VARIABLE = "MECHSIM_PHYSICS_ADAPTER"
-
-
-def physics_adapter_name(adapter: str | None = None) -> str:
-    """The run configuration's `physics.adapter`: the argument, else `MECHSIM_PHYSICS_ADAPTER`, else `mujoco` (the
-    default until X2 switches the suite, ruling 9); anything but `mujoco` or `native` is a `DriverError`."""
-    name = adapter
-    if name is None:
-        name = os.environ.get(ADAPTER_VARIABLE, MUJOCO_ADAPTER)
-    if name not in PHYSICS_ADAPTERS:
-        raise DriverError(f"physics.adapter {name!r}: one of {', '.join(PHYSICS_ADAPTERS)}")
-    return name
-
-
 def member_frames(model: PhysicsModel) -> tuple[tuple[int, Quat], ...]:
     """Per lumped member, in neutral order: the index of its parent body (-1 for world) and its root frame's
     orientation in the parent frame (x along the member, ruling 24)."""
@@ -810,6 +804,7 @@ class RecordArchiver:
             tool_version=tool_version(),
             design_file=design_file,
             test_case_file=_case_file(metadata.case_hash, self._cases_root),
+            physics_adapter=metadata.physics_adapter,
         )
         fault: RunFault | None = None
         outcome = "end_condition_met"
@@ -845,11 +840,12 @@ class RecordArchiver:
 # ===== Services =========================================================
 
 
-def core_builder(design: Design) -> CoreBuild:
-    """The shipped catalog and chips, the shipped materials with the design's overrides (MAT-020); rigid members
-    (milestone 1 runs rigid, BLD-033)."""
+def core_builder(design: Design, adapter: str = DEFAULT_PHYSICS_ADAPTER) -> CoreBuild:
+    """The shipped catalog and chips, the shipped materials with the design's overrides (MAT-020); lumped members
+    rigid on the bridge until X2 (BLD-033, ruling 29), flexible as the design states them on the native adapter."""
+    rigid = adapter != NATIVE_ADAPTER
     try:
-        return build(design, default_registry(), design_materials(design), rigid_members=True)
+        return build(design, default_registry(), design_materials(design), rigid_members=rigid)
     except (BuildError, DesignError, MaterialError) as error:
         raise DriverError(str(error)) from error
 

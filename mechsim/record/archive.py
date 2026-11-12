@@ -82,6 +82,10 @@ _DESIGN_FILE = "inputs/design_file"
 _TEST_CASE_FILE = "inputs/test_case_file"
 
 
+DEFAULT_PHYSICS_ADAPTER = "mujoco"
+PHYSICS_ADAPTERS = ("mujoco", "native")
+
+
 # ===== Run records ==========================================================
 @dataclass(frozen=True)
 class RunIdentity:
@@ -101,6 +105,7 @@ class RunIdentity:
     tool_version: str
     design_file: bytes = b""
     test_case_file: bytes = b""
+    physics_adapter: str = DEFAULT_PHYSICS_ADAPTER
 
     def __post_init__(self) -> None:
         for what, text in (("design name", self.design_name), ("test case id", self.test_case_id)):
@@ -121,6 +126,8 @@ class RunIdentity:
             raise RecordError(f"seed {self.seed} is outside the unsigned 64-bit range (KER-012)")
         if self.controller_mode not in CONTROLLER_MODES:
             raise RecordError(f"controller mode {self.controller_mode!r} is not one of {CONTROLLER_MODES}")
+        if self.physics_adapter not in PHYSICS_ADAPTERS:
+            raise RecordError(f"physics adapter {self.physics_adapter!r} is not one of {PHYSICS_ADAPTERS}")
         check_rate(self.physics_rate, "physics rate")
         check_rate(self.control_rate, "control rate")
         check_text(self.tool_version, "tool version")
@@ -258,6 +265,7 @@ def write_archive(
         attrs["test_case_hash"] = identity.test_case_hash
         attrs["seed"] = np.uint64(identity.seed)
         attrs["controller_mode"] = identity.controller_mode
+        attrs["physics_adapter"] = identity.physics_adapter
         attrs["base_rate"] = _rate(recording.base_rate)
         attrs["physics_rate"] = _rate(identity.physics_rate)
         attrs["control_rate"] = _rate(identity.control_rate)
@@ -350,6 +358,7 @@ class RunArchive:
             tool_version=_text(attrs["tool_version"]),
             design_file=self._file[_DESIGN_FILE][...].tobytes(),
             test_case_file=self._file[_TEST_CASE_FILE][...].tobytes(),
+            physics_adapter=_text(attrs.get("physics_adapter", DEFAULT_PHYSICS_ADAPTER)),
         )
         self.end = RunEnd(_text(attrs["end_outcome"]), int(attrs["end_time"]), int(attrs["end_ticks"]), fault)
         self.base_rate = _fraction(attrs["base_rate"])

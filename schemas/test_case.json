@@ -851,6 +851,23 @@
       "title": "PayloadChange",
       "type": "object"
     },
+    "PhysicsSettings": {
+      "additionalProperties": false,
+      "description": "The run configuration's physics section (TST-040): `adapter` selects the physics adapter, `mujoco` by default\nuntil X2 (ruling 41); `--set physics.adapter=<name>` overrides it.",
+      "properties": {
+        "adapter": {
+          "default": "mujoco",
+          "enum": [
+            "mujoco",
+            "native"
+          ],
+          "title": "Adapter",
+          "type": "string"
+        }
+      },
+      "title": "PhysicsSettings",
+      "type": "object"
+    },
     "PowerLoss": {
       "additionalProperties": false,
       "properties": {
@@ -1861,6 +1878,9 @@
       "description": "Values for open parameters of the design or the case (DES-044), and instance:<name>.<parameter> or instance:<name>.part overrides (LIB-016, LIB-017); --set overrides them",
       "title": "Parameters",
       "type": "object"
+    },
+    "physics": {
+      "$ref": "#/$defs/PhysicsSettings"
     },
     "rates": {
       "anyOf": [
