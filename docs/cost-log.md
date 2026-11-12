@@ -18,3 +18,4 @@ type live in the root `CLAUDE.md` dispatch table once measured.
 | 2026-11-11 | M3-A: ADR 0016 rope model, ADR 0010 open items closed, Decisions log rows 48 to 50 (wip/05-a 81194c9) | general-purpose (opus) | 99K | 21 calls, 6 min |
 | 2026-11-11 | M3-M: material lookups, process-aware strengths, S-N, overrides file, integrity view; 11 MAT stubs converted (wip/05-m) | module-writer (opus), worktree | ~148K | 43 calls, 19 min |
 | 2026-11-11 | M3-E1: engine collision (GJK and EPA, primitives, hulls) and implicit soft contact with friction, payload attach and release; 383 ctest (wip/05-e1 2e92c0d) | module-writer (opus), worktree | est. 280K | pending usage |
+| 2026-11-11 | M3-D: structural design rows, flexible beam, hook and rope types, member list, lumped beams with calibration, fasteners, rope element (wip/05-d d3f520e) | module-writer (opus), worktree | ~251K | 104 calls, 30 min |
