@@ -23,6 +23,7 @@ using mechsim::engine::BeamEnds;
 using mechsim::engine::BeamPoint;
 using mechsim::engine::BeamSpec;
 using mechsim::engine::ConstraintType;
+using mechsim::engine::ConstraintError;
 using mechsim::engine::DynamicsTerms;
 using mechsim::engine::InvalidModelError;
 using mechsim::engine::JointType;
