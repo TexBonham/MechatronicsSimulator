@@ -45,7 +45,11 @@ proposed <value>)".
 | LIB-017 | A sweep shall be able to substitute one catalog part for another of the same component type, such as one stepper size for another. | Requirements doc, Component library requirements | M2 | unit | n/a |
 | LIB-018 | The shipped catalog shall provide the types rigid body, revolute, prismatic, fixed, planar and spherical joints, stepper (behavioral), stepper driver, belt and pulley, lead screw, limit switch, encoder, power supply and E-stop relay. | Architecture doc, Modules: inputs, Component library row; Repository starting point, milestone 1 paragraph | M1 | unit | n/a |
 | LIB-019 | The shipped catalog shall provide the types load cell, load-cell amplifier, IMU and watchdog. | Architecture doc, Modules: inputs, Component library row; Requirements doc, Instructions for the planning session, milestone plan item 2 | M2 | unit | n/a |
+<<<<<<< HEAD
 | LIB-020 | The shipped catalog shall provide the types flexible beam, hook and rope, the rope carrying EA, axial damping, mass per length and breaking tension. | Architecture doc, Modules: inputs, Component library row; Requirements doc, Instructions for the planning session, milestone plan item 3; ADR 0016 | M3 | unit | n/a |
+=======
+| LIB-020 | The shipped catalog shall provide the types flexible beam, hook and rope; a rope's breaking tension is optional (absent: never snaps, ruling 19). | Architecture doc, Modules: inputs, Component library row; Requirements doc, Instructions for the planning session, milestone plan item 3 | M3 | unit | n/a |
+>>>>>>> wip/05-d
 | LIB-021 | Every shipped component type shall have a reference test that compares it with an analytical result or a datasheet curve within a tolerance stated in this spec. | Architecture doc, How to extend, "A component type" row | M1 | invariant | n/a |
 | LIB-022 | The behavioral stepper type shall reproduce the pull-out torque of its catalog part against the published torque-speed curve. | Architecture doc, Technology recommendation, Validation paragraph; Requirements doc, Component library requirements, Actuators row | M1 | reference | not set (owed by owner) |
 | LIB-023 | Joint types shall carry range, friction, damping and backlash parameters, and revolute, prismatic, fixed, planar and spherical joints shall support travel limits. | Requirements doc, Component library requirements, Joints row | M1 | unit | n/a |
@@ -67,7 +71,8 @@ proposed <value>)".
 |---|---|---|
 | Operator link component type | `uart_link` (catalog `uart_link.yaml`, pins uart_tx and uart_rx, parameter baud) ships in milestone 1 under SIG-029; LIB-018's milestone 1 type list should name it; no LIB row yet | owner |
 | Stepper pull-out torque tolerance against the published curve (LIB-022); proposed 10% of the curve value per speed point | not set | owner |
-| Flexible beam deflection and first-mode tolerance (LIB-032) | not set | owner |
+| Flexible beam deflection and first-mode tolerance (LIB-032) | proposed 2 percent, holding for N >= 8 (ruling 20; T4, owner to confirm; -1.56 % midspan chain error at 8, -6.25 % at 4), derived as for BLD-015 to BLD-017 (`docs/spec/bld.md`): the chain's largest error at N = 8 is the midspan deflection's -1/N^2 = -1.56 % | owner |
+| Milestone 3 structural types (LIB-020, LIB-030) | `flexible_beam` (category body: area, second_moment, length, elastic_modulus, density; mass from geometry; parts `steel_bar_10mm_1m` exact, `extrusion_2020_500mm_generic` placeholder), `hook` (end_effector: mass, capacity; mounts attach and rope; `hook_5kg_generic` placeholder), `rope` (new category rope requiring axial_stiffness, damping, mass_per_length, rest_length; optional breaking_tension in its own tier `breaking`, ruling 19; `rope_3mm_steel_generic` placeholder) | gantry team (part values) |
 | Fidelity tier names per component type | set per type in `mechsim/library/catalog/*.yaml` (phase 1 C2); new types name their own | library briefs, per type |
 | Milestone 2 catalog part values (LIB-019, LIB-025, LIB-027) | `load_cell_5kg_generic`, `load_cell_amplifier_generic`, `imu_6axis_generic`, `brake_24v_generic` carry placeholder values listed in each part's `placeholders` | gantry team |
 | IMU interface | analog output per axis until the chip vocabulary has a serial peripheral mode (open ruling 2, `docs/queue.md`) | owner |

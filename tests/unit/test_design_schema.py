@@ -5,6 +5,7 @@ from __future__ import annotations
 import copy
 import functools
 import io
+import math
 import re
 import shutil
 import subprocess
@@ -23,7 +24,9 @@ from mechsim.design.schema import (
     StepGeometry,
     blob_hash,
     design_identity,
+    design_materials,
     load_design,
+    shipped_materials,
     validate_design_file,
     yaml_loader,
 )
@@ -675,7 +678,7 @@ def test_flexible_member_with_hand_calibration_accepted() -> None:
     }
     flexible = accepted(data).bodies[0].flexible
     assert flexible is not None
-    assert flexible.segments == 4
+    assert flexible.segments == 8
     assert flexible.section.area == pytest.approx(1e-4)
     assert flexible.section.second_moment == pytest.approx(1e-8)
 
@@ -2194,3 +2197,250 @@ def test_lift_and_reset_messages_are_declared() -> None:
     assert messages["lift"].fields[0].dimension == "[length]"
     assert messages["reset"].fields == []
     assert messages["reset"].destination == "controller"
+
+
+# ===== Milestone 3 structural data (DES-033, DES-034, BLD-019, BLD-032, LIB-030) =====
+
+SECTION_CALIBRATION = {"source": "hand", "load": "10 N", "deflection": "1 mm", "first_natural_frequency": "40 Hz"}
+
+
+def flexible_link(section: dict[str, Any] | None, **extra: Any) -> dict[str, Any]:
+    data = pendulum()
+    flexible: dict[str, Any] = {"supports": ["clamped", "free"], **extra}
+    if section is not None:
+        flexible["section"] = section
+    link(data)["flexible"] = flexible
+    return data
+
+
+@pytest.mark.req("DES-033")
+@pytest.mark.parametrize(
+    ("shape", "area", "moment"),
+    [
+        ({"kind": "rectangle", "width": "20 mm", "height": "40 mm"}, 0.02 * 0.04, 0.02 * 0.04**3 / 12.0),
+        ({"kind": "circle", "diameter": "10 mm"}, math.pi * 0.01**2 / 4.0, math.pi * 0.01**4 / 64.0),
+        (
+            {"kind": "tube", "outer_diameter": "20 mm", "inner_diameter": "16 mm"},
+            math.pi * (0.02**2 - 0.016**2) / 4.0,
+            math.pi * (0.02**4 - 0.016**4) / 64.0,
+        ),
+        (
+            {"kind": "tube", "outer_diameter": "20 mm", "inner_diameter": "0 mm"},
+            math.pi * 0.02**2 / 4.0,
+            math.pi * 0.02**4 / 64.0,
+        ),
+        (
+            {"kind": "rectangular_tube", "width": "20 mm", "height": "40 mm", "wall": "2 mm"},
+            0.02 * 0.04 - 0.016 * 0.036,
+            (0.02 * 0.04**3 - 0.016 * 0.036**3) / 12.0,
+        ),
+    ],
+)
+def test_section_shape_gives_closed_form_area_and_second_moment(
+    shape: dict[str, Any], area: float, moment: float
+) -> None:
+    flexible = accepted(flexible_link({"shape": shape, "length": "0.5 m"})).bodies[0].flexible
+    assert flexible is not None
+    assert flexible.section is not None
+    got_area, got_moment = flexible.section.area_and_moment()
+    assert got_area == pytest.approx(area, rel=1e-12)
+    assert got_moment == pytest.approx(moment, rel=1e-12)
+
+
+@pytest.mark.req("DES-033")
+def test_section_area_and_second_moment_pass_through() -> None:
+    section = {"area": "1 cm**2", "second_moment": "1 cm**4", "length": "0.5 m"}
+    flexible = accepted(flexible_link(section)).bodies[0].flexible
+    assert flexible is not None
+    assert flexible.section is not None
+    assert flexible.section.area_and_moment() == pytest.approx((1e-4, 1e-8), rel=1e-12)
+
+
+@pytest.mark.req("DES-033")
+@pytest.mark.parametrize(
+    ("section", "message"),
+    [
+        (
+            {"shape": {"kind": "circle", "diameter": "1 cm"}, "area": "1 cm**2", "length": "1 m"},
+            "a shape or area and second_moment, not both",
+        ),
+        ({"area": "1 cm**2", "length": "1 m"}, "needs a shape, or both area and second_moment"),
+        ({"second_moment": "1 cm**4", "length": "1 m"}, "needs a shape, or both area and second_moment"),
+        ({"length": "1 m"}, "needs a shape, or both area and second_moment"),
+        ({"shape": {"kind": "circle", "diameter": "0 m"}, "length": "1 m"}, "section diameter must be positive"),
+        ({"shape": {"kind": "rectangle", "width": "0 m", "height": "1 cm"}, "length": "1 m"}, "section width"),
+        ({"shape": {"kind": "rectangle", "width": "1 cm", "height": "-1 cm"}, "length": "1 m"}, "section height"),
+        (
+            {"shape": {"kind": "tube", "outer_diameter": "1 cm", "inner_diameter": "1 cm"}, "length": "1 m"},
+            "inner_diameter must be below outer_diameter",
+        ),
+        (
+            {"shape": {"kind": "tube", "outer_diameter": "1 cm", "inner_diameter": "-1 mm"}, "length": "1 m"},
+            "inner_diameter must not be negative",
+        ),
+        (
+            {"shape": {"kind": "rectangular_tube", "width": "2 cm", "height": "4 cm", "wall": "1 cm"}, "length": "1 m"},
+            "wall must be below half",
+        ),
+        (
+            {"shape": {"kind": "rectangular_tube", "width": "2 cm", "height": "4 cm", "wall": "0 cm"}, "length": "1 m"},
+            "section wall must be positive",
+        ),
+        ({"shape": {"kind": "hexagon", "across": "1 cm"}, "length": "1 m"}, "hexagon"),
+        ({"shape": {"kind": "circle", "diameter": "1 cm", "extra": 1}, "length": "1 m"}, "extra"),
+    ],
+)
+def test_section_shape_rules(section: dict[str, Any], message: str) -> None:
+    rejected(flexible_link(section), message)
+
+
+@pytest.mark.req("DES-033")
+@pytest.mark.req("LIB-030")
+def test_section_may_come_from_a_flexible_beam_catalog_part() -> None:
+    data = flexible_link(None)
+    link(data)["catalog_part"] = {"type": "flexible_beam", "part": "steel_bar_10mm_1m"}
+    flexible = accepted(data).bodies[0].flexible
+    assert flexible is not None
+    assert flexible.section is None
+
+
+@pytest.mark.req("DES-033")
+@pytest.mark.req("LIB-030")
+@pytest.mark.parametrize("reference", [None, {"type": "end_effector", "part": "hook_generic"}])
+def test_section_omitted_without_a_section_part_rejected(reference: dict[str, str] | None) -> None:
+    data = flexible_link(None)
+    if reference is not None:
+        link(data)["catalog_part"] = reference
+    rejected(data, "bodies[0].flexible.section: no section given")
+
+
+@pytest.mark.req("DES-034")
+@pytest.mark.req("BLD-019")
+def test_calibration_is_optional() -> None:
+    flexible = accepted(flexible_link({"area": "1 cm**2", "second_moment": "1 cm**4", "length": "0.5 m"})).bodies[0]
+    assert flexible.flexible is not None
+    assert flexible.flexible.calibration is None
+    calibrated = flexible_link(
+        {"area": "1 cm**2", "second_moment": "1 cm**4", "length": "0.5 m"}, calibration=SECTION_CALIBRATION
+    )
+    assert accepted(calibrated).bodies[0].flexible is not None
+
+
+def rope_data(**rope: Any) -> dict[str, Any]:
+    data = pendulum()
+    entry: dict[str, Any] = {
+        "name": "line",
+        "part": "rope_3mm_steel_generic",
+        "from": {"body": "link"},
+        "to": {"body": "world"},
+    }
+    entry.update(rope)
+    data["ropes"] = [entry]
+    return data
+
+
+@pytest.mark.req("DES-046")
+@pytest.mark.req("BLD-032")
+@pytest.mark.req("LIB-020")
+def test_rope_declaration_accepted_with_defaults() -> None:
+    rope = accepted(rope_data()).ropes[0]
+    assert (rope.name, rope.part, rope.segments, rope.rest_length) == ("line", "rope_3mm_steel_generic", 8, None)
+    assert rope.from_end.body == "link"
+    assert rope.from_end.point == [0.0, 0.0, 0.0]
+    assert rope.to_end.body == "world"
+
+
+@pytest.mark.req("DES-046")
+@pytest.mark.req("BLD-032")
+def test_rope_to_a_case_payload_accepted() -> None:
+    rope = accepted(rope_data(to={"payload": "payload", "point": ["0 m", "0 m", "0.05 m"]})).ropes[0]
+    assert rope.to_end.payload == "payload"
+    assert rope.to_end.body is None
+    assert rope.to_end.point == pytest.approx([0.0, 0.0, 0.05])
+
+
+@pytest.mark.req("DES-046")
+@pytest.mark.req("BLD-032")
+@pytest.mark.req("LIB-020")
+@pytest.mark.parametrize(
+    ("rope", "message"),
+    [
+        ({"part": "no_such_rope"}, "ropes[0].part: unknown catalog part 'no_such_rope'"),
+        ({"part": "hook_generic"}, "is not a rope part"),
+        ({"from": {"body": "ghost"}}, "ropes[0].from.body: unknown body 'ghost'"),
+        ({"to": {"body": "ghost"}}, "ropes[0].to.body: unknown body 'ghost'"),
+        ({"name": "link"}, "'link' is already a body, joint or component name"),
+        ({"from": {"payload": "payload"}}, "only its to end may name a case payload"),
+        ({"to": {"body": "link", "payload": "payload"}}, "exactly one of body and payload"),
+        ({"to": {"point": ["0 m", "0 m", "0 m"]}}, "exactly one of body and payload"),
+        ({"segments": 0}, "segments"),
+        ({"rest_length": "0 m"}, "rope rest_length must be positive"),
+        ({"rest_length": "1 s"}, "rest_length"),
+    ],
+)
+def test_rope_declaration_rules(rope: dict[str, Any], message: str) -> None:
+    rejected(rope_data(**rope), message)
+
+
+@pytest.mark.req("DES-046")
+@pytest.mark.req("BLD-032")
+def test_duplicate_rope_names_rejected() -> None:
+    data = rope_data()
+    data["ropes"].append(copy.deepcopy(data["ropes"][0]))
+    rejected(data, "duplicate rope name 'line'")
+
+
+@pytest.mark.req("DES-046")
+@pytest.mark.req("BLD-032")
+def test_gantry_declares_its_payload_rope_to_the_case_payload() -> None:
+    rope = accepted(gantry()).ropes[0]
+    assert (rope.name, rope.from_end.body, rope.to_end.payload) == ("payload_rope", "hook", "payload")
+
+
+OVERRIDE_YIELD = """\
+material_overrides:
+  aluminium_6063_t5_extrusion:
+    yield_strength:
+      source: coupon test
+      value: "123 MPa"
+"""
+
+
+@pytest.mark.req("MAT-016")
+@pytest.mark.req("MAT-020")
+def test_materials_overrides_path_is_checked_and_loaded_against_the_design_folder(tmp_path: Path) -> None:
+    data = pendulum()
+    data["materials"] = {"overrides": "materials.yaml"}
+    path = tmp_path / "design.yaml"
+    YAML().dump(data, path)
+    errors = validate_design_file(path)
+    assert errors == [f"{path}: materials.overrides: missing materials override file 'materials.yaml'"]
+    (tmp_path / "materials.yaml").write_text("materials: []\n", encoding="utf-8")
+    errors = validate_design_file(path)
+    assert all(f"{path}: materials.overrides: " in error for error in errors)
+    assert any("material_overrides: Field required" in error for error in errors)
+    (tmp_path / "materials.yaml").write_text(OVERRIDE_YIELD.replace("aluminium_6063_t5_extrusion", "unobtanium"))
+    errors = validate_design_file(path)
+    assert len(errors) == 1
+    assert "unobtanium" in errors[0]
+    (tmp_path / "materials.yaml").write_text(OVERRIDE_YIELD, encoding="utf-8")
+    assert validate_design_file(path) == []
+    design = load_design(path)
+    assert design_materials(design)["aluminium_6063_t5_extrusion"].yield_strength.typ == 123e6
+    assert shipped_materials()["aluminium_6063_t5_extrusion"].yield_strength.typ != 123e6
+
+
+def test_design_materials_without_a_file_folder_is_an_error() -> None:
+    data = pendulum()
+    data["materials"] = {"overrides": "materials.yaml"}
+    with pytest.raises(ValidationError, match="has no design folder to resolve against"):
+        Design.model_validate(data)
+    assert design_materials(accepted(pendulum())) == shipped_materials()
+
+
+def test_materials_without_overrides_accepted() -> None:
+    data = pendulum()
+    data["materials"] = {}
+    assert accepted(data).materials is not None
+    data["materials"] = {"other": "x"}
+    rejected(data, "other")

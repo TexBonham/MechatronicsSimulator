@@ -301,11 +301,11 @@ def test_run_configuration_defaults_follow_adr_0013() -> None:
 @pytest.mark.req("BLD-018")
 def test_segment_count_is_data_with_spec_defaults() -> None:
     data = _set(_set(_full(), (*BEAM, "segments"), _MISSING), (*BEAM, "roller_mass_fraction"), _MISSING)
-    assert _model(data).lumped_members[0].segments == 4
+    assert _model(data).lumped_members[0].segments == 8
     pinned = _set(_set(data, (*BEAM, "root"), "pinned"), (*BEAM, "end"), "roller")
     assert _model(pinned).lumped_members[0].segments == 8
     clamped_roller = _set(data, (*BEAM, "end"), "roller")
-    assert _model(clamped_roller).lumped_members[0].segments == 4
+    assert _model(clamped_roller).lumped_members[0].segments == 8
     override = _set(pinned, (*BEAM, "segments"), 12)
     assert _model(override).lumped_members[0].segments == 12
     assert _model(data).lumped_members[0].roller_mass_fraction == 1e-3

@@ -1,0 +1,77 @@
+# Flexible beam (LIB-020, LIB-030): a body type whose parts carry a member section (area, second moment of area about
+# the bending axis, span length) and the material constants of the lumped beam (E, rho) on top of the rigid body's
+# mass, which comes from the body's geometry. A design body names a part as its catalog_part and declares
+# `flexible` without a section to take the part's (DES-033); the builder lumps it (BLD-014). Part values are
+# placeholders except the steel reference bar, whose values are the exact section of a 10 mm square bar.
+types:
+  - name: flexible_beam
+    version: 1.0.0
+    category: body
+    description: Prismatic member bending about one axis, lumped as a multi-segment beam.
+    parameters:
+      - name: area
+        dimension: "[length] ** 2"
+        minimum: "0 m**2"
+        minimum_exclusive: true
+      - name: second_moment
+        dimension: "[length] ** 4"
+        minimum: "0 m**4"
+        minimum_exclusive: true
+      - name: length
+        dimension: "[length]"
+        minimum: "0 m"
+        minimum_exclusive: true
+      - name: elastic_modulus
+        dimension: "[mass] / [length] / [time] ** 2"
+        minimum: "0 Pa"
+        minimum_exclusive: true
+      - name: density
+        dimension: "[mass] / [length] ** 3"
+        minimum: "0 kg/m**3"
+        minimum_exclusive: true
+    tiers:
+      - name: ideal
+        parameters: [area, second_moment, length, elastic_modulus, density]
+    mechanical:
+      mass:
+        source: geometry
+      mounts:
+        - name: root
+          kind: bolt_pattern
+          offset: ["0 mm", "0 mm", "0 mm"]
+        - name: end
+          kind: bolt_pattern
+          offset: ["0 mm", "0 mm", "0 mm"]
+    electrical:
+      pins: []
+    ratings:
+      absolute_maximums: []
+    thermal:
+      held_constant: true
+      temperature: "298.15 K"
+    plugin:
+      python: mechsim.builder.structure:lumped_section
+parts:
+  - name: steel_bar_10mm_1m
+    type: flexible_beam
+    tier: ideal
+    description: Steel bar, 10 mm square, 1 m long; the lumped-beam reference section (LIB-032).
+    source: closed-form section of a 10 mm square bar; E and rho are nominal carbon steel
+    values:
+      area: "1e-4 m**2"
+      second_moment: "8.333333333333334e-10 m**4"
+      length: "1 m"
+      elastic_modulus: "200 GPa"
+      density: "7850 kg/m**3"
+  - name: extrusion_2020_500mm_generic
+    type: flexible_beam
+    tier: ideal
+    description: 20 x 20 mm aluminium T-slot extrusion, 0.5 m long.
+    source: placeholder values, no datasheet assigned
+    values:
+      area: "1.6e-4 m**2"
+      second_moment: "7e-9 m**4"
+      length: "0.5 m"
+      elastic_modulus: "69 GPa"
+      density: "2700 kg/m**3"
+    placeholders: [area, second_moment, length, elastic_modulus, density]
