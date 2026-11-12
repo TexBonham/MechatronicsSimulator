@@ -164,7 +164,7 @@ def test_clamped_beam_and_member_end_loads_binding() -> None:
     # Gravity -z acts out of the bending plane (root z bending), so nothing moves. The member's segments outside the
     # clamped root stub weigh (N - 1/2) l rho A g; the two supports share it in a split statics leaves open (both
     # are rigid out of plane), so the sum of their z forces is asserted.
-    spec = _steel_beam(eng.BeamEnds.Clamped, 4)
+    spec = _steel_beam(eng.BeamEnds.Clamped, 8)
     model = eng.MultibodyModel()
     beam = eng.add_lumped_beam(model, spec)
     assert not beam.pinned_root
@@ -175,10 +175,24 @@ def test_clamped_beam_and_member_end_loads_binding() -> None:
     state = _rest(provider)
     provider.step(eng.SemiImplicitEuler(), state)
     member = provider.outputs.members[0]
-    weight = 3.5 * (1.5 / 4) * 7850.0 * 1e-4 * G
+    weight = 7.5 * (1.5 / 8) * 7850.0 * 1e-4 * G
     assert member.start_force[2] + member.end_force[2] == pytest.approx(weight, rel=1e-9)
-    torque = provider.outputs.constraints[0].torque
-    assert len(torque) == 3
+    # The hinge rows' torque axes are u x axis_b with axis_b the beam x axis, so the lock's torque has no x (twist)
+    # part; with the root frame the world frame, MemberOutput.end_moment is that torque unchanged.
+    torque = np.asarray(provider.outputs.constraints[0].torque)
+    assert abs(torque[0]) <= 1e-12 * max(1.0, float(np.abs(torque).max()))
+    assert np.array_equal(np.asarray(member.end_moment), torque)
+
+
+@pytest.mark.req("ENG-022")
+def test_clamped_beam_floor_and_point_roller_torque() -> None:
+    with pytest.raises(core.InvalidModelError, match="at least 8 segments, got 7"):
+        eng.add_lumped_beam(eng.MultibodyModel(), _steel_beam(eng.BeamEnds.Clamped, 7))
+    model = eng.MultibodyModel()
+    eng.add_lumped_beam(model, _steel_beam(eng.BeamEnds.SimplySupported, 4))
+    provider = eng.MultibodyProvider(model)
+    provider.step(eng.SemiImplicitEuler(), _rest(provider))
+    assert list(provider.outputs.constraints[0].torque) == [0.0, 0.0, 0.0]
 
 
 @pytest.mark.req("ENG-030")
@@ -233,6 +247,12 @@ def test_mid_run_change_bindings_list_events() -> None:
     assert not provider.constraint_enabled(0)
     with pytest.raises(core.InvalidModelError):
         provider.disable_constraint(0)
+    for member, node, offset in ((1, 0, 0.1), (-1, 0, 0.1), (0, 4, 0.1), (0, 0, math.nan), (0, 0, math.inf)):
+        with pytest.raises(core.InvalidModelError):
+            provider.set_spring_offset(member, node, offset)
+    for member, node, stiffness in ((1, 0, 1.0), (0, -1, 1.0), (0, 0, -1.0), (0, 0, math.nan)):
+        with pytest.raises(core.InvalidModelError):
+            provider.set_spring_stiffness(member, node, stiffness)
     other = eng.MultibodyProvider(model)
     other.disable_constraint(0)
     other.step(integrator, _rest(other))
@@ -260,6 +280,24 @@ def test_contact_limits_config_and_payload_release_bindings() -> None:
     assert len(points) == 1
     assert points[0].depth == pytest.approx(0.01, rel=1e-12)
 
+    # Two unit cubes as convex hulls reach GJK and EPA; overlapping by 0.5 m along x, the penetration is 0.5 m.
+    corners = [[x, y, z] for x in (-0.5, 0.5) for y in (-0.5, 0.5) for z in (-0.5, 0.5)]
+    hull_a = eng.Geometry()
+    hull_a.kind = "convex_hull"
+    hull_a.vertices = corners
+    hull_b = eng.Geometry()
+    hull_b.kind = "convex_hull"
+    hull_b.vertices = corners
+    hull_b.position = [0.5, 0.1, 0.0]
+    deep = eng.collide(hull_a, hull_b, limits)
+    assert len(deep) == 1
+    assert deep[0].depth == pytest.approx(0.5, rel=1e-9)
+    capped = eng.CollisionLimits()
+    capped.gjk_iterations = 1
+    capped.epa_iterations = 1
+    with pytest.raises(core.SolverNonConvergenceError):
+        eng.collide(hull_a, hull_b, capped)
+
     carrier = eng.Body()
     carrier.joint.type = eng.JointType.Fixed
     carrier.joint.position = [0.0, 0.0, 1.0]
@@ -286,3 +324,13 @@ def test_contact_limits_config_and_payload_release_bindings() -> None:
     assert (events[1].target, events[1].index) == (1, 0)
     with pytest.raises(core.InvalidModelError):
         provider.set_attachment(1, 0, False, state.q)
+    for body, mass in ((1, -1.0), (1, 0.0), (5, 1.0), (-1, 1.0), (1, math.nan)):
+        with pytest.raises(core.InvalidModelError):
+            provider.set_body_mass(body, mass)
+    for body, carrier in ((5, 0), (1, 7), (1, -2), (1, 1)):
+        with pytest.raises(core.InvalidModelError):
+            provider.set_attachment(body, carrier, True, state.q)
+    provider.set_attachment(1, 0, True, state.q)
+    with pytest.raises(core.InvalidModelError):
+        provider.set_attachment(1, -1, False, state.q)
+    provider.set_attachment(1, 0, False, state.q)

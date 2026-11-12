@@ -74,7 +74,8 @@ Ruling 21: swing and belt modes go through K, so they integrate as backward Eule
 slow (1 % at 27 Hz at 1 kHz); `RopeOutput::scheme_decay` and `TransmissionOutput::scheme_decay` publish pi omega h
 for the adapter to record. Attachment friction regularised below `MultibodyConfig::friction_slip_threshold` (1e-4).
 Load releases (constraint, rope or payload weld, requested or by snap) go through one `release_load` path:
-`LoadReleased` + source.
+`LoadReleased` + source. `outputs().events` is overwritten every step: a caller running several steps per tick
+collects the events after each step.
 
 ## Section index, `src/multibody_provider.cpp`
 
@@ -96,9 +97,9 @@ Load releases (constraint, rope or payload weld, requested or by snap) go throug
 | Shapes | 16 |
 | Broad phase | 180 |
 | Closed forms | 243 |
-| GJK | 414 |
-| EPA | 582 |
-| Narrow phase | 743 |
+| GJK | 415 |
+| EPA | 583 |
+| Narrow phase | 744 |
 
 ## Collision and contact (ADR 0002, ENG-016 to ENG-021)
 
@@ -127,7 +128,8 @@ Clamped (ruling 16; clamped root, and the roller constraint becomes a Hinge abou
 rotation rows, so the far stub moves with the roller; the axial slide stays free). Clamped-clamped midspan chain value
 P L^3 / (192 E I) (1 - 4 / N^2): -6.25 % at N = 8, so the 2 % references run at N = 16 (-1.56 %); first mode
 +2.49 % at N = 8, +0.61 % at N = 16 (header derivation). `ConstraintOutput::torque` (world, on body_a) gives the
-clamped end moment in `MemberOutput::end_moment`.
+clamped end moment in `MemberOutput::end_moment`. Clamped needs N >= `BeamSpec::min_clamped_segments` (8, ruling 31),
+else InvalidModelError; twist and axial slide at the clamped end stay free until ruling 23's six-row constraint (M4).
 Euler buckling (ENG-042): N = 8 critical load (2N / L)^2 E I sin^2(pi / 2N) = 0.9872 P_Euler.
 Planar bending about root z; two-axis bending plus torsion: next tier. Derivation in the header.
 

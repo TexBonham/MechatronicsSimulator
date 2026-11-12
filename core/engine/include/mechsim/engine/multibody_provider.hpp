@@ -136,7 +136,8 @@ public:
     // Payload change (ENG-035), effective from the next step. Mass rescales the body's inertia by mass / old mass.
     void set_body_mass(Eigen::Index body, double mass);
     // Welds body to carrier (-1 the world) at their relative pose in q, or releases it (attached false) through
-    // release_load: LoadReleased with source Payload; releasing a body with no held weld throws.
+    // release_load: LoadReleased with source Payload; releasing a body with no held weld, or naming a carrier other
+    // than the weld's, throws. set_body_mass sets the body's own mass; a rope end's half-segment share stays on.
     void set_attachment(Eigen::Index body, Eigen::Index carrier, bool attached, const Eigen::VectorXd& q,
                         double frequency = WeldAttachment::default_frequency);
     [[nodiscard]] const std::vector<WeldAttachment>& attachments() const noexcept;

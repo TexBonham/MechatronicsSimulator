@@ -47,6 +47,8 @@ enum class BeamEnds : std::uint8_t { Cantilever, SimplySupported, Clamped };
 struct BeamSpec {
     static constexpr int default_segments = 4;                    // ADR 0013; docs/spec/eng.md, Open parameters
     static constexpr double default_roller_mass_fraction = 1e-3;  // docs/spec/eng.md, Open parameters
+    // Clamped far end floor (ruling 31): N <= 2 is rigid; the chain's deflection error is -4 / N^2.
+    static constexpr int min_clamped_segments = 8;
 
     double youngs_modulus = 0.0;      // E, Pa, finite and > 0
     double area_moment = 0.0;         // I about the bending axis, m^4, finite and > 0

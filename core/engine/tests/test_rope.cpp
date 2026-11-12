@@ -364,3 +364,29 @@ TEST_CASE("a rope released on request lets its load go and lists the release", "
     REQUIRE_THROWS_AS(provider.release_rope(1), InvalidModelError);
     REQUIRE_THROWS_AS(static_cast<void>(provider.rope_attached(-1)), InvalidModelError);
 }
+
+// ENG-035 with ENG-047: a payload hanging on a rope changes mass mid-run. The bob carries its own mass plus the rope's
+// end half-segment mu l / 2 = 0.025 kg (l = 0.5 m), before and after, so the load-end tension settles to (m + 0.025) g.
+// Axial damping c / l = 40 N s/m against k = EA / l = 200 N/m holds the slowest axial mode near critical at m = 2 kg
+// (decay rate about 5 / s): 10 s leaves e^-50 of each transient, so 1e-9 relative (the rope's static tolerance).
+TEST_CASE("a rope payload's mid-run mass change keeps the rope's end share", "[ENG-035][ENG-047]") {
+    MultibodyModel model;
+    const Eigen::Index bob = add_bob(model, Eigen::Vector3d(0.0, 0.0, -1.0), 1.0);
+    Rope rope = basic_rope(bob, 2);
+    rope.damping = 20.0;
+    static_cast<void>(add_rope(model, rope, Eigen::Vector3d::Zero(), Eigen::Vector3d(0.0, 0.0, -1.0)));
+    MultibodyProvider provider(model);
+    State state = rest_state(provider);
+    SemiImplicitEuler integrator{StepConfig{}};
+    for (int n = 0; n < 10000; ++n) {
+        provider.step(integrator, state);
+    }
+    const double share = 0.5 * 0.1 * 0.5;
+    CHECK(std::abs(provider.outputs().ropes[0].load_end_tension / ((1.0 + share) * gravity) - 1.0) <= 1e-9);
+    provider.set_body_mass(bob, 2.0);
+    REQUIRE(std::abs(provider.model().bodies[static_cast<std::size_t>(bob)].mass - (2.0 + share)) <= 1e-15);
+    for (int n = 0; n < 10000; ++n) {
+        provider.step(integrator, state);
+    }
+    CHECK(std::abs(provider.outputs().ropes[0].load_end_tension / ((2.0 + share) * gravity) - 1.0) <= 1e-9);
+}

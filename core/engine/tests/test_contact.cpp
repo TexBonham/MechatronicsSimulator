@@ -491,6 +491,19 @@ TEST_CASE("attach, release and mass change are listed as events in the next step
     CHECK(events[1].time == now);
 }
 
+TEST_CASE("a release names the weld's carrier or throws", "[ENG-035]") {
+    Rig rig = carrier_and_payload();
+    SemiImplicitEuler integrator{StepConfig{}};
+    rig.provider.set_attachment(1, 0, true, rig.state.q);
+    CHECK_THROWS_AS(rig.provider.set_attachment(1, -1, false, rig.state.q), InvalidModelError);
+    REQUIRE(rig.provider.attachments()[0].attached);
+    rig.provider.set_attachment(1, 0, false, rig.state.q);
+    CHECK_FALSE(rig.provider.attachments()[0].attached);
+    run(rig, integrator, 1);
+    REQUIRE(rig.provider.outputs().events.size() == 2);
+    CHECK(rig.provider.outputs().events[1].kind == ModelChange::LoadReleased);
+}
+
 TEST_CASE("releasing a payload with no held weld throws", "[ENG-034][ENG-035]") {
     Rig rig = carrier_and_payload();
     SemiImplicitEuler integrator{StepConfig{}};

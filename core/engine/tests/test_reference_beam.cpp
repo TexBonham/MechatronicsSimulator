@@ -38,7 +38,7 @@ namespace {
 
 constexpr double deflection_tolerance = 0.02;           // ENG-038, ENG-040
 constexpr double frequency_tolerance = 0.03;            // ENG-039, ENG-041
-constexpr double clamped_tolerance = 0.02;              // ENG-022 clamped far end (ruling 16), BLD-017 proposal
+constexpr double clamped_tolerance = 0.02;              // ENG-022 clamped far end (ruling 16)
 constexpr double cantilever_root = 1.8751040687119611;  // beta_1 L, first root of cos(x) cosh(x) = -1
 constexpr double cantilever_length = 1.0;               // m
 constexpr double supported_length = 1.5;                // m
@@ -272,7 +272,7 @@ ClampedMidspan clamped_midspan_deflection(int segments) {
 }
 
 TEST_CASE("clamped-clamped midspan deflection at N = 16 matches P L^3 / (192 E I)",
-          "[ENG-022][BLD-017][ENG-030][reference]") {
+          "[ENG-022][ENG-030][reference]") {
     // Chain value P L^3 / (192 E I) (1 - 4 / N^2) for even N (lumped_beam.hpp): N = 16 is -1.5625 %, inside the 2 %
     // tolerance; N = 8 is -6.25 % and is checked against the chain value only (next case). End-loads by statics:
     // each support carries P / 2 up and, from the far rotation lock sum M(x_j) = 0, the moment P L / 8, +z at the
@@ -300,7 +300,7 @@ TEST_CASE("clamped-clamped midspan deflection at N = 16 matches P L^3 / (192 E I
 }
 
 TEST_CASE("clamped-clamped midspan deflection at N = 8 equals the chain value (1 - 4 / 64) P L^3 / (192 E I)",
-          "[ENG-022][BLD-017][reference]") {
+          "[ENG-022][reference]") {
     // Consistency check only: the N = 8 chain is -6.25 % by derivation and is not held to the 2 % tolerance.
     const ClampedMidspan result = clamped_midspan_deflection(8);
     const double measured = -result.settled.deflection;
@@ -312,7 +312,7 @@ TEST_CASE("clamped-clamped midspan deflection at N = 8 equals the chain value (1
 }
 
 TEST_CASE("clamped-clamped first mode matches (22.37 / (2 pi)) sqrt(E I / (rho A L^4))",
-          "[ENG-022][BLD-017][reference]") {
+          "[ENG-022][reference]") {
     // Lumped eigenfrequency on the null space of the far end's hinge rows against the chain ratio derived in
     // lumped_beam.hpp (+2.4865 % at N = 8, +0.6091 % at N = 16, printed to 1e-6, so asserted to 2e-6); the 2 %
     // tolerance holds at N = 16. Then the simulated midspan frequency from the static midspan-load shape (symmetric:

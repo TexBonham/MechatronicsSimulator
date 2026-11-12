@@ -45,6 +45,12 @@ LumpedBeam add_lumped_beam(MultibodyModel& model, const BeamSpec& spec, Eigen::I
     if (spec.segments < 1) {
         throw InvalidModelError(0.0, "beam: segment count must be at least 1");
     }
+    if (spec.ends == BeamEnds::Clamped && spec.segments < BeamSpec::min_clamped_segments) {
+        throw InvalidModelError(0.0, "beam: a clamped far end needs at least " +
+                                         std::to_string(BeamSpec::min_clamped_segments) + " segments, got " +
+                                         std::to_string(spec.segments) +
+                                         " (midspan deflection error -4 / N^2: -6.25 % at 8, -1.56 % at 16)");
+    }
     if (!std::isfinite(spec.node_damping) || spec.node_damping < 0.0) {
         throw InvalidModelError(0.0, "beam: node damping must be finite and not negative");
     }

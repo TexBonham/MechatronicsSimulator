@@ -1526,9 +1526,21 @@ void MultibodyProvider::set_body_mass(Eigen::Index body, double mass) {
     if (!std::isfinite(mass) || !(mass > 0.0)) {
         throw InvalidModelError(0.0, body_label(body) + "mass must be finite and > 0");
     }
+    // A rope end keeps its lumped half-segment share (ADR 0016): the payload's own mass changes, the share stays.
+    double rope_share = 0.0;
+    for (const Rope& rope : model_.ropes) {
+        const double share = 0.5 * rope.mass_per_length * rope.rest_length / rope.segments;
+        if (rope.to_body == body) {
+            rope_share += share;
+        }
+        if (rope.from_body == body) {
+            rope_share += share;
+        }
+    }
     Body& b = at(model_.bodies, body);
-    b.inertia *= mass / b.mass;
-    b.mass = mass;
+    const double total = mass + rope_share;
+    b.inertia *= total / b.mass;
+    b.mass = total;
     at(inertia_, body) = spatial::inertia(b.mass, b.com, b.inertia);
     pending_events_.push_back({ModelChange::PayloadMass, body, -1, mass, 0.0, outputs_.time});
 }
@@ -1546,6 +1558,12 @@ void MultibodyProvider::set_attachment(Eigen::Index body, Eigen::Index carrier, 
         throw InvalidModelError(0.0, "attachment frequency must be finite and > 0");
     }
     if (!attached) {
+        for (const WeldAttachment& existing : attachments_) {
+            if (existing.body == body && existing.attached && existing.carrier != carrier) {
+                throw InvalidModelError(0.0, body_label(body) + "is welded to carrier " +
+                                                 std::to_string(existing.carrier) + ", not " + std::to_string(carrier));
+            }
+        }
         pending_events_.push_back(release_load(LoadSource::Payload, body, outputs_.time));
         return;
     }
