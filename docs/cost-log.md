@@ -46,3 +46,4 @@ type live in the root `CLAUDE.md` dispatch table once measured.
 | 2026-11-12 | M3-N native adapter: G3 and P1 on the own engine, reference tier on native (wip/05-n 530e55b); stopped at the cap, N2 follows | module-writer (opus) | 346K | 150 calls |
 | 2026-11-12 | M3 review: N (wip/05-n 530e55b): fix round before the stage commit, 2 high, 5 medium, 3 low; rulings 37 to 41 | Fable review (general-purpose) | 177K | 24 calls |
 | 2026-11-12 | M3-N invariant audit: one minor (adapter not in archive metadata) | invariant-auditor (sonnet) | 23K | 4 calls |
+| 2026-11-12 | M3-N2 native adapter fix round: adapter field verified, items 2 to 6 coded and unverified at the cap (wip/05-n 30c9536) | module-writer (opus) | 364K | 198 calls; cap overrun, queued behind the E4 build |
