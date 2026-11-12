@@ -15,3 +15,4 @@ type live in the root `CLAUDE.md` dispatch table once measured.
 | 2026-11-11 | M2 review: gantry answers (X6 to X8) | general-purpose (fable) | ~75K | 9 calls; pass, 3 medium (header timing wording, inputs row), 6 low |
 | 2026-11-11 | Invariant audit: gantry answers | invariant-auditor (sonnet) | 39K | 5 calls; clean, 2 minor (generic part carried a gantry value; derivation in a part note) |
 | 2026-11-11 | Round 5 plan: milestone 3 scope from 93 M3 rows and the carry list, briefs, waves, assumptions; branch cut from main | inline | ~60K | coordinator; 6 calls of spec and contract reads |
+| 2026-11-11 | M3-A: ADR 0016 rope model, ADR 0010 open items closed, Decisions log rows 48 to 50 (wip/05-a 81194c9) | general-purpose (opus) | 99K | 21 calls, 6 min |
