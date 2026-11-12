@@ -127,6 +127,9 @@ parameters (M3 housekeeping). `docs/gantry-team-inputs.md` contradicts itself on
 4. Owed from reviews (round 5, R re-review 2026-11-11): the design's explicit section form (`area` plus one
    `second_moment`) lacks `second_moment_y`, `fibre_y`, `fibre_z`, so the stress overlay refuses such members;
    acceptable while every shipped placeholder is a shape (ruling 6); X1 adds the fields.
+   FAC-013 acceptance conformance stub stays: a flexible bridge run of a pendulum with one lumped member diverges
+   (MuJoCo QACC NaN clamped-free, constraint drift pinned-roller) while the facade path works; X1 converts it on the
+   native adapter with the gantry integrity file (ruling 29).
 5. Owed from reviews: two actuators on one shaft (builder sums rotor inertias, SIG-037 then refuses); PHY-020 native
    adapter and PHY-021 differential tolerance; mypy lambda note at tests/acceptance/test_acc_stubs.py:30.
 
