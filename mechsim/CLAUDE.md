@@ -55,5 +55,6 @@ Checked by the invariant tier's import-boundary test.
 | `physics/` | `physics/CLAUDE.md` |
 | `testing/` | `testing/CLAUDE.md`; real driver `testing/core_driver.py`: `CoreDriver`, `RecordingView`, `RecordArchiver`, `RecordArchiveReader`, `core_builder`, `core_services`; core parties from a build `testing/core_wiring.py` |
 | `record/` | `record/CLAUDE.md` |
+| `integrity/` | `integrity/CLAUDE.md`; runner hook `integrity.service.IntegrityService`, config `integrity.yaml` beside the design |
 | `scoring/` | `scoring/CLAUDE.md` |
 | `facade/` | `facade/CLAUDE.md` |

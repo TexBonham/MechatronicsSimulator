@@ -19,6 +19,8 @@ from mechsim.facade.decimate import decimate
 from mechsim.facade.files import WRITABLE_KINDS, kind_of_text, validate_file
 from mechsim.facade.live import LiveWiring, RunListener, Subscription, live_factory
 from mechsim.facade.protocol import ErrorCode
+from mechsim.integrity.export import load_case
+from mechsim.integrity.plugin import IntegrityError
 from mechsim.record.archive import RunArchive
 from mechsim.schema_base import StrictModel
 from mechsim.scoring.score import (
@@ -275,6 +277,33 @@ class MemberStressResult(StrictModel):
     unit: str
     times: list[float]
     members: list[MemberStressEntry]
+
+
+class IntegrityMemberResult(StrictModel):
+    member: str
+    peak_stress: float = Field(description="Peak stress at the design load, Pa (INT-022).")
+    peak_stress_time: float
+    deflection: float = Field(description="Peak deflection, m.")
+    deflection_time: float
+    safety_factor: float = Field(description="Smallest minimum-strength safety factor over the run.")
+    safety_factor_time: float
+    flags: list[str]
+
+
+class IntegrityResultsResult(StrictModel):
+    """The per-member integrity table the run attached (INT-022, FAC-013)."""
+
+    run_id: str
+    members: list[IntegrityMemberResult]
+
+
+class LoadCaseResult(StrictModel):
+    """The load-case export (FAC-013) as file text in the requested format."""
+
+    run_id: str
+    format: str
+    design_version: str
+    text: str
 
 
 class SwingAngleResult(StrictModel):
@@ -782,6 +811,46 @@ class Facade:
                 for entry in found
             ],
         )
+
+    def integrity_results(self, run_id: str) -> IntegrityResultsResult:
+        """FAC-013: the per-member table archived with the run; `not_found` when the run carries none."""
+        replay = self._replay(run_id)
+        results = replay.metadata.integrity
+        if results is None:
+            raise FacadeError("not_found", f"run {run_id}: no integrity results", "FAC-013", "run_id")
+        return IntegrityResultsResult(
+            run_id=run_id,
+            members=[
+                IntegrityMemberResult(
+                    member=entry.member,
+                    peak_stress=entry.peak_stress,
+                    peak_stress_time=entry.peak_stress_time,
+                    deflection=entry.deflection,
+                    deflection_time=entry.deflection_time,
+                    safety_factor=entry.safety_factor,
+                    safety_factor_time=entry.safety_factor_time,
+                    flags=list(entry.flags),
+                )
+                for entry in results.members
+            ],
+        )
+
+    def load_case(self, run_id: str, file_format: str) -> LoadCaseResult:
+        """FAC-013: per member end the peak force and moment from the archived end-loads, CSV or JSON for FEA."""
+        replay = self._replay(run_id)
+        metadata = replay.metadata
+        try:
+            found = load_case(
+                replay.view, metadata.members, metadata.design_name, metadata.design_version, metadata.run_id
+            )
+        except IntegrityError as error:
+            raise FacadeError("not_found", f"run {run_id}: {error.args[0]}", "FAC-013", "run_id") from error
+        text = found.to_json()
+        if file_format == "csv":
+            text = found.to_csv()
+        elif file_format != "json":
+            raise FacadeError("invalid_message", f"unknown load-case format {file_format!r}", "FAC-013", "format")
+        return LoadCaseResult(run_id=run_id, format=file_format, design_version=metadata.design_version, text=text)
 
     def swing_angle(self, run_id: str, load: str, attachment: str) -> SwingAngleResult:
         """VIE-011 overlay: the load body's swing from the vertical (the archived design's gravity) through the

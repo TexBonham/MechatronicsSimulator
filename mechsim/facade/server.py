@@ -66,6 +66,8 @@ REQUEST_KINDS = frozenset(
         "probe",
         "member_stress",
         "swing_angle",
+        "integrity_results",
+        "load_case",
         "report",
         "diff",
         "read_file",
@@ -349,6 +351,8 @@ class FacadeServer:
             "swing_angle": lambda: self._call(
                 lambda: facade.swing_angle(payload.run_id, payload.load, payload.attachment)
             ),
+            "integrity_results": lambda: self._call(lambda: facade.integrity_results(payload.run_id)),
+            "load_case": lambda: self._call(lambda: facade.load_case(payload.run_id, payload.format)),
             "report": lambda: self._call(lambda: facade.report(payload.suite_id)),
             "diff": lambda: self._call(lambda: facade.diff(payload.suite_id)),
             "read_file": lambda: self._call(lambda: facade.read_file(Path(payload.path))),
