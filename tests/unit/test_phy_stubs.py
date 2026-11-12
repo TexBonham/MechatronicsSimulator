@@ -10,7 +10,6 @@ from mechsim import _core as core
 from mechsim.physics.native.prepare import prepare_model as prepare_native
 from mechsim.physics.neutral import PhysicsModel, from_yaml
 
-
 ORIGIN = ("0 m", "0 m", "0 m")
 PENDULUM = (Path(__file__).resolve().parents[2] / "schemas/examples/physics_model.pendulum.yaml").read_text()
 
@@ -27,18 +26,46 @@ def native_rig(friction: str = "0 N", lower: str | None = None) -> Any:
     hang = {"name": "hang", "type": "free", "position": ("2 m", "-1 m", "0 m")}
     data["bodies"] = [
         *data["bodies"],
-        {"name": "slider", "mass": "1 kg", "com": ORIGIN, "inertia": inertia, "material": "steel", "parent": "world",
-         "joint": slider},
-        {"name": "load", "mass": "1 kg", "com": ORIGIN, "inertia": inertia, "material": "steel", "parent": "world",
-         "joint": hang},
+        {
+            "name": "slider",
+            "mass": "1 kg",
+            "com": ORIGIN,
+            "inertia": inertia,
+            "material": "steel",
+            "parent": "world",
+            "joint": slider,
+        },
+        {
+            "name": "load",
+            "mass": "1 kg",
+            "com": ORIGIN,
+            "inertia": inertia,
+            "material": "steel",
+            "parent": "world",
+            "joint": hang,
+        },
     ]
     data["ropes"] = [
-        {"name": "line", "from_body": "world", "from_point": ("2 m", "0 m", "0 m"), "to_body": "load",
-         "to_point": ORIGIN, "segments": 4, "axial_stiffness": "1e5 N", "damping": "20 N*s",
-         "mass_per_length": "0.01 kg/m", "rest_length": "1 m"}
+        {
+            "name": "line",
+            "from_body": "world",
+            "from_point": ("2 m", "0 m", "0 m"),
+            "to_body": "load",
+            "to_point": ORIGIN,
+            "segments": 4,
+            "axial_stiffness": "1e5 N",
+            "damping": "20 N*s",
+            "mass_per_length": "0.01 kg/m",
+            "rest_length": "1 m",
+        }
     ]
-    section = {"elastic_modulus": "2e11 Pa", "second_moment_of_area": "1e-8 m**4", "density": "7800 kg/m**3",
-               "area": "1e-4 m**2", "length": "0.2 m"}
+    section = {
+        "elastic_modulus": "2e11 Pa",
+        "second_moment_of_area": "1e-8 m**4",
+        "density": "7800 kg/m**3",
+        "area": "1e-4 m**2",
+        "length": "0.2 m",
+    }
     data["lumped_members"] = [
         {"name": "fin", "parent": "link", "position": ORIGIN, "section": section, "root": "clamped", "end": "free"}
     ]

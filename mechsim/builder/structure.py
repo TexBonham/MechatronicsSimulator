@@ -122,6 +122,8 @@ def calibration_min_segments(root: str, end: str) -> int:
     if root == "clamped" and end == "clamped":
         return CLAMPED_CLAMPED_SEGMENTS
     return CALIBRATION_MIN_SEGMENTS
+
+
 CALIBRATION_SCALE_RANGE = (0.5, 2.0)
 
 

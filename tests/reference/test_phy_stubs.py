@@ -86,7 +86,9 @@ def test_phy_028_pendulum_period(adapter: str) -> None:
     for n in range(1, 8001):
         physics.step()
         times.append(n * 1e-3)
-        values.append(math.atan2(physics.outputs().bodies[0].orientation[3], physics.outputs().bodies[0].orientation[0]))
+        values.append(
+            math.atan2(physics.outputs().bodies[0].orientation[3], physics.outputs().bodies[0].orientation[0])
+        )
     found = crossings(times, [value + math.pi / 4.0 for value in values])
     period = (found[-1] - found[0]) / (len(found) - 1)
     print(f"{adapter}: pendulum period target 1.1596536 s measured {period:.9f} s")
@@ -128,7 +130,13 @@ def test_phy_030() -> None:
     deceleration F / m = 0.5 m/s^2 exactly per step; it stops within (v / (F / m)) + one step, and stays.
     """
     data = base(("0 m/s**2", "0 m/s**2", "0 m/s**2"))
-    joint = {"name": "rail", "type": "prismatic", "position": ORIGIN, "axis": (1, 0, 0), "linear": [{"friction": "1.5 N"}]}
+    joint = {
+        "name": "rail",
+        "type": "prismatic",
+        "position": ORIGIN,
+        "axis": (1, 0, 0),
+        "linear": [{"friction": "1.5 N"}],
+    }
     data["bodies"] = [block("slider", 3.0, joint)]
     physics = loaded(PhysicsModel.model_validate(data))
     for _ in range(10):
@@ -165,16 +173,23 @@ def test_cantilever_member_end_loads_on_the_native_adapter() -> None:
         "length": "1 m",
     }
     data["lumped_members"] = [
-        {"name": "arm", "parent": "base", "position": ORIGIN, "section": section, "root": "clamped", "end": "free",
-         "node_damping": "5 N*m*s/rad"}
+        {
+            "name": "arm",
+            "parent": "base",
+            "position": ORIGIN,
+            "section": section,
+            "root": "clamped",
+            "end": "free",
+            "node_damping": "5 N*m*s/rad",
+        }
     ]
     physics = loaded(PhysicsModel.model_validate(data))
     for _ in range(4000):
         physics.step()
     loads = physics.outputs().members[0]
-    l = 1.0 / 8.0
-    weight = 7800.0 * 1e-4 * (1.0 - l / 2.0) * G
-    moment = 7800.0 * 1e-4 * G * (1.0 - l * l / 4.0) / 2.0
+    span = 1.0 / 8.0
+    weight = 7800.0 * 1e-4 * (1.0 - span / 2.0) * G
+    moment = 7800.0 * 1e-4 * G * (1.0 - span * span / 4.0) / 2.0
     print(f"cantilever: start force target {weight:.9f} N measured {loads.start.force[2]:.9f} N")
     assert loads.start.force[2] == pytest.approx(weight, rel=1e-6)
     assert abs(loads.start.moment[1]) == pytest.approx(moment, rel=1e-6)
@@ -193,9 +208,18 @@ def test_rope_pendulum_period_at_50_microseconds() -> None:
     position = (f"{math.sin(angle)} m", "0 m", f"{-math.cos(angle)} m")
     data["bodies"] = [block("load", 1.0, {"name": "swing", "type": "free", "position": position})]
     data["ropes"] = [
-        {"name": "line", "from_body": "world", "from_point": ORIGIN, "to_body": "load", "to_point": ORIGIN,
-         "segments": 8, "axial_stiffness": "1e6 N", "damping": "0 N*s", "mass_per_length": "1e-4 kg/m",
-         "rest_length": f"{1.0 - 2.0 * G / 1e6 / 2.0} m"}
+        {
+            "name": "line",
+            "from_body": "world",
+            "from_point": ORIGIN,
+            "to_body": "load",
+            "to_point": ORIGIN,
+            "segments": 8,
+            "axial_stiffness": "1e6 N",
+            "damping": "0 N*s",
+            "mass_per_length": "1e-4 kg/m",
+            "rest_length": f"{1.0 - 2.0 * G / 1e6 / 2.0} m",
+        }
     ]
     physics = loaded(PhysicsModel.model_validate(data), hz=20000)
     times: list[float] = []

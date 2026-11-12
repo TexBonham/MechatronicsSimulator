@@ -97,7 +97,14 @@ def test_free_joint_dofs_are_in_engine_order_and_world_constraints_get_an_anchor
     data = pendulum_data()
     data["bodies"].append(free_body("ball"))
     data["constraints"] = [
-        {"type": "point", "name": "tie", "body_a": "ball", "body_b": "world", "anchor_a": ORIGIN, "anchor_b": ("0 m", "0 m", "-0.3 m")}
+        {
+            "type": "point",
+            "name": "tie",
+            "body_a": "ball",
+            "body_b": "world",
+            "anchor_a": ORIGIN,
+            "anchor_b": ("0 m", "0 m", "-0.3 m"),
+        }
     ]
     doc = translate(model_of(data)).document
     assert doc["bodies"][1]["joint"]["damping"] == [4.0, 5.0, 6.0, 1.0, 2.0, 3.0]
@@ -153,7 +160,7 @@ def test_transmission_mapping_and_its_report() -> None:
             "backlash": "0.01 rad",
         }
     ]
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="must be revolute"):
         model_of(data)
     carriage = data["bodies"][2]
     carriage["joint"] = {"name": "carriage_joint", "type": "revolute", "position": ORIGIN, "axis": (0, 0, 1)}
@@ -195,7 +202,7 @@ def test_adapter_selection(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv(ADAPTER_VARIABLE, "native")
     assert physics_adapter_name() == "native"
     assert physics_adapter_name("mujoco") == "mujoco"
-    with pytest.raises(DriverError, match="physics.adapter"):
+    with pytest.raises(DriverError, match=r"physics\.adapter"):
         physics_adapter_name("bullet")
 
 

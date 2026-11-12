@@ -383,7 +383,9 @@ def _subtree_mass(model: PhysicsModel, root: str) -> float:
     return total
 
 
-def _transmission(transmission: Any, model: PhysicsModel, joints: Mapping[str, int], h: float, report: list[str]) -> dict[str, Any]:
+def _transmission(
+    transmission: Any, model: PhysicsModel, joints: Mapping[str, int], h: float, report: list[str]
+) -> dict[str, Any]:
     ratio = 0.0
     reverses = False
     self_locking = False
