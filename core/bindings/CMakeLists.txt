@@ -22,6 +22,7 @@ set_target_properties(mechsim_engine mechsim_kernel mechsim_signals mechsim_cont
     PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
 pybind11_add_module(_core_ext MODULE
+    src/bind_contact.cpp
     src/bind_cosim.cpp
     src/bind_controller.cpp
     src/bind_engine.cpp

@@ -93,7 +93,7 @@ proposed <value>)".
 | Reference design (gantry): motion threshold for "no actuator motion" (G1, G4, G9) | not set | gantry team |
 | Pendulum period tolerance (ACC-033) | 0.1 % of the damped period, consistent with ENG-036 (owner ruling 2026-11-04) | owner |
 | Pendulum swing decay tolerance (ACC-034) | not set; proposed 2 % of the closed-form amplitude envelope over 20 periods | owner |
-| Rope pendulum tolerances (ACC-037) | not set; proposed 0.1 % of the closed-form period and 2 % of the closed-form amplitude over 20 periods (ADR 0016) | owner |
+| ACC-037 tolerances and step | Proposed (ADR 0016): period within 0.1 % of T_N, amplitude within 2 % over 20 periods; they hold at a 50 microsecond physics step, which the case states (round 5 ruling 21: backward Euler loses about pi omega h of the swing per period, 1 % at 1 ms) | owner |
 | Analytical tolerances of criteria 3 and 4 (ACC-038 to ACC-043) | not set | owner |
 | Design-load rule of the reference design | rated load plus 15 % (hoist, trolley); rated load not set | gantry team |
 

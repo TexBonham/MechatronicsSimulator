@@ -71,6 +71,9 @@ struct TransmissionOutput {
     bool slip_active = false;        // slip > 0
     double slip_offset = 0.0;        // s, m or rad at the output
     PowerFlow power_flow = PowerFlow::Static;
+    // Ruling 21 approximation value: pi omega h, the amplitude fraction backward Euler removes per period of the
+    // coupling mode (omega^2 = k b^T H^-1 a at the end state; 0 out of contact); set in step() outputs only.
+    double scheme_decay = 0.0;
 };
 
 // Coupling at one state, with the linearization the provider adds to f, K and D.

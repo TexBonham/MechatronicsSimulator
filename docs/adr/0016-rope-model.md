@@ -103,3 +103,4 @@ built.
 
 - Swing damping: the rope's top end hangs from the hook through a damped spherical joint whose damping and friction are the design's `hook_damping` and `hook_friction` parameters, so G12's settle time is a design input; the rope itself damps only along its length.
 - Snatch peaks are underestimated at 1 ms when a segment's natural frequency times the step exceeds 0.2; the adapter records an approximation line when a rope crosses it.
+- Snatch flag (ruling 22, M3-E2 fix round): the flag keeps the rope's fundamental with the load, omega_s = sqrt(EA / (L M)); its text reads "first snatch peak about 15 percent low at the 0.2 threshold".

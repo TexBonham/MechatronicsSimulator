@@ -7,6 +7,7 @@
 #include <array>
 #include <cmath>
 #include <cstddef>
+#include <numbers>
 #include <string>
 #include <utility>
 #include <vector>
@@ -60,6 +61,7 @@ Eigen::Index joint_positions(JointType type) {
         case JointType::Fixed:
             return 0;
         case JointType::Planar:
+        case JointType::Translation:
             return 3;
         case JointType::Spherical:
             return 4;
@@ -78,6 +80,7 @@ Eigen::Index joint_velocities(JointType type) {
             return 0;
         case JointType::Planar:
         case JointType::Spherical:
+        case JointType::Translation:
             return 3;
         case JointType::Free:
             return 6;
@@ -143,6 +146,7 @@ void validate_config(const MultibodyConfig& config) {
         {config.drift_threshold_m, "translational drift threshold"},
         {config.drift_threshold_rad, "rotational drift threshold"},
         {config.unit_tolerance, "unit tolerance"},
+        {config.friction_slip_threshold, "friction slip threshold"},
     };
     for (const auto& [value, name] : positive) {
         if (!std::isfinite(value) || value <= 0.0) {
@@ -306,6 +310,7 @@ MultibodyProvider::MultibodyProvider(MultibodyModel model, MultibodyConfig confi
         slip_.push_back(t.slip);
         slip_offset_.push_back(0.0);
     }
+    setup_members_and_ropes();
     clear_inputs();
 }
 
@@ -382,6 +387,11 @@ MultibodyProvider::Kinematics MultibodyProvider::kinematics(const Eigen::VectorX
                 xj.rotation = quaternion_at(q, oq + 3).toRotationMatrix().transpose();
                 xj.translation = q.segment<3>(oq);
                 s.setIdentity();
+                break;
+            }
+            case JointType::Translation: {
+                xj.translation = q.segment<3>(oq);
+                s.bottomRows<3>().setIdentity();
                 break;
             }
         }
@@ -485,10 +495,11 @@ std::vector<Vector6d> MultibodyProvider::applied_body_wrenches(const Kinematics&
         const Vector6d& w = at(wrench_, i);
         out.push_back(to_body(x, world_point(x, at(model_.bodies, i).com), w.head<3>(), w.tail<3>()));
     }
+    add_rope_wrenches(kin, out);
     return out;
 }
 
-void MultibodyProvider::evaluate(double /*t*/, const Eigen::VectorXd& q, const Eigen::VectorXd& v,
+void MultibodyProvider::evaluate(double t, const Eigen::VectorXd& q, const Eigen::VectorXd& v,
                                  DynamicsTerms& terms) const {
     const Kinematics kin = kinematics(q, v);
     terms.mass = mass_matrix(kin);
@@ -504,6 +515,133 @@ void MultibodyProvider::evaluate(double /*t*/, const Eigen::VectorXd& q, const E
     terms.stiffness = stiffness_.asDiagonal();
     terms.damping = damping_.asDiagonal();
     add_transmission_terms(q, v, terms);
+    add_rope_terms(kin, terms);
+    try {
+        contact_cache_ = add_contact_terms(kin, v, terms);
+    } catch (const SolverNonConvergenceError& error) {
+        throw SolverNonConvergenceError(t, "contact detection: " + error.cause());
+    }
+    add_attachment_terms(kin, v, terms);
+}
+
+// Linear velocity of the world point rigidly attached to body, per generalized velocity; zero for the world (-1).
+Eigen::MatrixXd MultibodyProvider::point_jacobian(const Kinematics& kin, Eigen::Index body,
+                                                  const Eigen::Vector3d& point) const {
+    if (body < 0) {
+        return Eigen::MatrixXd::Zero(3, nv_);
+    }
+    const Matrix6Xd j = world_jacobian(kin, body);
+    return j.bottomRows<3>() - spatial::skew(point) * j.topRows<3>();
+}
+
+// Soft contact per detected point (ENG-020); the derivation is in contact.hpp.
+std::vector<ContactOutput> MultibodyProvider::add_contact_terms(const Kinematics& kin, const Eigen::VectorXd& v,
+                                                                DynamicsTerms& terms) const {
+    std::vector<ContactOutput> out;
+    const std::vector<Geometry>& geometries = contact_model_.geometries;
+    if (geometries.empty()) {
+        return out;
+    }
+    std::vector<Pose> poses;
+    std::vector<Aabb> boxes;
+    for (std::size_t g = 0; g < geometries.size(); ++g) {
+        const Geometry& geometry = geometries[g];
+        Pose pose;
+        pose.rotation = geometry.orientation.toRotationMatrix();
+        pose.position = geometry.position;
+        if (geometry.body >= 0) {
+            const Transform& x = at(kin.world, geometry.body);
+            pose.rotation = x.rotation.transpose() * pose.rotation;
+            pose.position = world_point(x, geometry.position);
+        }
+        poses.push_back(pose);
+        boxes.push_back(bounds(contact_shapes_[g], pose));
+    }
+    for (const auto& [i, j] : broad_phase(boxes)) {
+        const Geometry& ga = geometries[i];
+        const Geometry& gb = geometries[j];
+        if (ga.body == gb.body || excluded(contact_model_, ga.body, gb.body)) {
+            continue;
+        }
+        const ContactParameters& parameters = contact_parameters(contact_model_, ga.material, gb.material);
+        for (const ContactPoint& c : collide(contact_shapes_[i], poses[i], contact_shapes_[j], poses[j])) {
+            const Eigen::MatrixXd g = point_jacobian(kin, gb.body, c.point) - point_jacobian(kin, ga.body, c.point);
+            const ContactForce f = contact_force(parameters, contact_model_.slip_velocity, c, g * v);
+            ContactOutput record;
+            record.body_a = ga.body;
+            record.body_b = gb.body;
+            record.point = c.point;
+            record.normal = c.normal;
+            record.depth = c.depth;
+            record.force = -f.force_on_b;
+            out.push_back(record);
+            if (f.active) {
+                terms.force += g.transpose() * f.force_on_b;
+                terms.stiffness += g.transpose() * f.stiffness * g;
+                terms.damping += g.transpose() * f.damping * g;
+            }
+        }
+    }
+    return out;
+}
+
+// Payload weld (ENG-035): implicit 6-DOF spring-damper at the payload's com; the derivation is in contact.hpp.
+void MultibodyProvider::add_attachment_terms(const Kinematics& kin, const Eigen::VectorXd& v,
+                                             DynamicsTerms& terms) const {
+    payload_cache_.clear();
+    attachment_wrench_.clear();
+    attachment_point_.clear();
+    for (const WeldAttachment& a : attachments_) {
+        const Body& payload = at(model_.bodies, a.body);
+        const Transform& xp = at(kin.world, a.body);
+        const Eigen::Matrix3d rp = xp.rotation.transpose();
+        const Eigen::Vector3d com = world_point(xp, payload.com);
+        PayloadOutput record;
+        record.body = a.body;
+        if (!a.attached) {
+            payload_cache_.push_back(record);
+            attachment_wrench_.emplace_back(Vector6d::Zero());
+            attachment_point_.push_back(com);
+            continue;
+        }
+        Eigen::Matrix3d rc = Eigen::Matrix3d::Identity();
+        Eigen::Vector3d pc = Eigen::Vector3d::Zero();
+        if (a.carrier >= 0) {
+            const Transform& xc = at(kin.world, a.carrier);
+            rc = xc.rotation.transpose();
+            pc = xc.translation;
+        }
+        const Eigen::Vector3d offset = com - (pc + rc * a.position);
+        const Eigen::AngleAxisd turn(rp * (rc * a.rotation).transpose());
+        const Eigen::Vector3d angle = turn.angle() * turn.axis();
+        Matrix6Xd g(6, nv_);
+        g.topRows<3>() = world_jacobian(kin, a.body).topRows<3>();
+        if (a.carrier >= 0) {
+            g.topRows<3>() -= world_jacobian(kin, a.carrier).topRows<3>();
+        }
+        g.bottomRows<3>() = point_jacobian(kin, a.body, com) - point_jacobian(kin, a.carrier, com);
+        const Vector6d rate = g * v;
+        const double w = angular_frequency(a);
+        const Eigen::Matrix3d inertia = rp * payload.inertia * rp.transpose();
+        Matrix6d k = Matrix6d::Zero();
+        Matrix6d d = Matrix6d::Zero();
+        k.topLeftCorner<3, 3>() = w * w * inertia;
+        k.bottomRightCorner<3, 3>() = w * w * payload.mass * Eigen::Matrix3d::Identity();
+        d.topLeftCorner<3, 3>() = 2.0 * w * inertia;
+        d.bottomRightCorner<3, 3>() = 2.0 * w * payload.mass * Eigen::Matrix3d::Identity();
+        Vector6d error;
+        error << angle, offset;
+        const Vector6d wrench = -k * error - d * rate;
+        terms.force += g.transpose() * wrench;
+        terms.stiffness += g.transpose() * k * g;
+        terms.damping += g.transpose() * d * g;
+        record.carrier = a.carrier;
+        record.attached = true;
+        record.force = wrench.tail<3>();
+        payload_cache_.push_back(record);
+        attachment_wrench_.push_back(wrench);
+        attachment_point_.push_back(com);
+    }
 }
 
 // ===== Transmissions =====================================================
@@ -585,7 +723,8 @@ Eigen::VectorXd MultibodyProvider::integrate_positions(const Eigen::VectorXd& q,
             case JointType::Fixed: {
                 break;
             }
-            case JointType::Planar: {
+            case JointType::Planar:
+            case JointType::Translation: {
                 out.segment<3>(oq) += h * v.segment<3>(ov);
                 break;
             }
@@ -658,7 +797,14 @@ MultibodyProvider::ConstraintRows MultibodyProvider::constraint_rows(const Kinem
 std::vector<MultibodyProvider::ConstraintRows> MultibodyProvider::all_rows(const Kinematics& kin) const {
     std::vector<ConstraintRows> rows;
     for (Eigen::Index c = 0; c < count(model_.constraints.size()); ++c) {
-        rows.push_back(constraint_rows(kin, c));
+        ConstraintRows r = constraint_rows(kin, c);
+        if (at(constraint_enabled_, c) == 0) {
+            r.jacobian.setZero();
+            r.error.residual.setZero();
+            r.error.translational = 0.0;
+            r.error.rotational = 0.0;
+        }
+        rows.push_back(r);
     }
     return rows;
 }
@@ -745,6 +891,435 @@ double MultibodyProvider::project_positions(double t, Eigen::VectorXd& q, Eigen:
         }
     }
     return drift;
+}
+
+// ===== Members, ropes and model changes ==================================
+
+// A rope attach point or node: world position and velocity, the holding body's angular velocity (world), and on
+// request the 3 x nv point and angular Jacobians (world_jacobian rows, as constraint_rows uses them).
+struct MultibodyProvider::RopePoint {
+    Eigen::Index body = -1;
+    Eigen::Vector3d position = Eigen::Vector3d::Zero();
+    Eigen::Vector3d velocity = Eigen::Vector3d::Zero();
+    Eigen::Vector3d angular_velocity = Eigen::Vector3d::Zero();
+    Eigen::MatrixXd jacobian;
+    Eigen::MatrixXd angular_jacobian;
+};
+
+namespace {
+
+// Ruling 14: the top attachment's spherical-joint torque coefficient and the relative swing rate omega_rel.
+struct RopeAttachment {
+    Eigen::Vector3d rate = Eigen::Vector3d::Zero();  // omega_rel, world, rad/s
+    double coefficient = 0.0;                        // N m s/rad
+    bool active = false;
+};
+
+RopeAttachment attachment(const Rope& rope, const Eigen::Vector3d& n, double d,
+                          const Eigen::Vector3d& relative_velocity, const Eigen::Vector3d& from_angular_velocity,
+                          double slip_threshold) {
+    RopeAttachment out;
+    if (d <= 0.0 || (rope.attachment_damping == 0.0 && rope.attachment_friction == 0.0)) {
+        return out;
+    }
+    const Eigen::Matrix3d across = Eigen::Matrix3d::Identity() - n * n.transpose();
+    out.rate = across * (n.cross(relative_velocity) / d - from_angular_velocity);
+    out.coefficient = rope.attachment_damping;
+    out.coefficient += rope.attachment_friction / std::max(out.rate.norm(), slip_threshold);
+    out.active = out.coefficient > 0.0;
+    return out;
+}
+
+ModelChangeEvent change_event(ModelChange kind, Eigen::Index target, Eigen::Index index, double value, double time) {
+    ModelChangeEvent event;
+    event.kind = kind;
+    event.target = target;
+    event.index = index;
+    event.value = value;
+    event.time = time;
+    return event;
+}
+
+}  // namespace
+
+MultibodyProvider::RopePoint MultibodyProvider::rope_point(const Kinematics& kin, Eigen::Index body,
+                                                           const Eigen::Vector3d& local, bool jacobian) const {
+    RopePoint point;
+    point.body = body;
+    point.position = local;
+    if (jacobian) {
+        point.jacobian = Eigen::MatrixXd::Zero(3, nv_);
+        point.angular_jacobian = Eigen::MatrixXd::Zero(3, nv_);
+    }
+    if (body < 0) {
+        return point;
+    }
+    const Transform& x = at(kin.world, body);
+    const Vector6d& velocity = at(kin.velocity, body);
+    const Eigen::Matrix3d to_world = x.rotation.transpose();
+    point.position = world_point(x, local);
+    point.angular_velocity = to_world * velocity.head<3>();
+    point.velocity = to_world * (velocity.tail<3>() + velocity.head<3>().cross(local));
+    if (jacobian) {
+        const Matrix6Xd j = world_jacobian(kin, body);
+        point.jacobian = j.bottomRows<3>() - spatial::skew(point.position) * j.topRows<3>();
+        point.angular_jacobian = j.topRows<3>();
+    }
+    return point;
+}
+
+std::vector<MultibodyProvider::RopePoint> MultibodyProvider::rope_points(const Kinematics& kin, Eigen::Index rope,
+                                                                         bool jacobian) const {
+    const Rope& r = at(model_.ropes, rope);
+    std::vector<RopePoint> points;
+    points.push_back(rope_point(kin, r.from_body, r.from_point, jacobian));
+    for (const Eigen::Index node : r.nodes) {
+        points.push_back(rope_point(kin, node, Eigen::Vector3d::Zero(), jacobian));
+    }
+    points.push_back(rope_point(kin, r.to_body, r.to_point, jacobian));
+    return points;
+}
+
+std::vector<RopeSegment> MultibodyProvider::rope_segments(const std::vector<RopePoint>& points,
+                                                          Eigen::Index rope) const {
+    const Rope& r = at(model_.ropes, rope);
+    const double l = at(rope_rest_, rope) / r.segments;
+    std::vector<RopeSegment> segments;
+    for (int s = 0; s < r.segments; ++s) {
+        const RopePoint& a = at(points, s);
+        const RopePoint& b = at(points, s + 1);
+        if (s == r.segments - 1 && at(rope_attached_, rope) == 0) {
+            segments.emplace_back();
+            continue;
+        }
+        segments.push_back(rope_segment(a.position, a.velocity, b.position, b.velocity, l, r.axial_rigidity / l,
+                                        r.damping / l));
+    }
+    return segments;
+}
+
+void MultibodyProvider::add_rope_wrenches(const Kinematics& kin, std::vector<Vector6d>& wrenches) const {
+    const auto apply = [&](const RopePoint& p, const Eigen::Vector3d& torque, const Eigen::Vector3d& force) {
+        if (p.body >= 0) {
+            at(wrenches, p.body) += to_body(at(kin.world, p.body), p.position, torque, force);
+        }
+    };
+    for (Eigen::Index r = 0; r < count(model_.ropes.size()); ++r) {
+        const std::vector<RopePoint> points = rope_points(kin, r, false);
+        const std::vector<RopeSegment> segments = rope_segments(points, r);
+        for (Eigen::Index s = 0; s < count(segments.size()); ++s) {
+            const RopeSegment& seg = at(segments, s);
+            if (!seg.taut) {
+                continue;
+            }
+            const Eigen::Vector3d force = seg.tension * seg.direction;
+            apply(at(points, s), Eigen::Vector3d::Zero(), force);
+            apply(at(points, s + 1), Eigen::Vector3d::Zero(), -force);
+        }
+        if (at(model_.ropes, r).segments == 1 && at(rope_attached_, r) == 0) {
+            continue;
+        }
+        const RopePoint& a = at(points, 0);
+        const RopePoint& b = at(points, 1);
+        const RopeSegment& top = at(segments, 0);
+        const RopeAttachment joint = attachment(at(model_.ropes, r), top.direction, top.length,
+                                                b.velocity - a.velocity, a.angular_velocity,
+                                                config_.friction_slip_threshold);
+        if (!joint.active) {
+            continue;
+        }
+        const Eigen::Vector3d torque = -joint.coefficient * joint.rate;
+        const Eigen::Vector3d end_force = torque.cross(top.direction) / top.length;
+        apply(b, Eigen::Vector3d::Zero(), end_force);
+        apply(a, -torque, -end_force);
+    }
+}
+
+void MultibodyProvider::add_rope_terms(const Kinematics& kin, DynamicsTerms& terms) const {
+    const Eigen::Matrix3d identity = Eigen::Matrix3d::Identity();
+    for (Eigen::Index r = 0; r < count(model_.ropes.size()); ++r) {
+        const Rope& rope = at(model_.ropes, r);
+        const std::vector<RopePoint> points = rope_points(kin, r, true);
+        const std::vector<RopeSegment> segments = rope_segments(points, r);
+        const double l = at(rope_rest_, r) / rope.segments;
+        for (Eigen::Index s = 0; s < count(segments.size()); ++s) {
+            const RopeSegment& seg = at(segments, s);
+            if (!seg.taut) {
+                continue;
+            }
+            const Eigen::Vector3d& n = seg.direction;
+            const Eigen::Matrix3d axial = n * n.transpose();
+            const Eigen::Matrix3d stiffness =
+                (rope.axial_rigidity / l) * axial + (seg.tension / seg.length) * (identity - axial);
+            const Eigen::MatrixXd relative = at(points, s + 1).jacobian - at(points, s).jacobian;
+            terms.stiffness += relative.transpose() * stiffness * relative;
+            terms.damping += (rope.damping / l) * relative.transpose() * axial * relative;
+        }
+        if (rope.segments == 1 && at(rope_attached_, r) == 0) {
+            continue;
+        }
+        const RopePoint& a = at(points, 0);
+        const RopePoint& b = at(points, 1);
+        const RopeSegment& top = at(segments, 0);
+        const RopeAttachment joint = attachment(rope, top.direction, top.length, b.velocity - a.velocity,
+                                                a.angular_velocity, config_.friction_slip_threshold);
+        if (!joint.active) {
+            continue;
+        }
+        const Eigen::Matrix3d across = identity - top.direction * top.direction.transpose();
+        const Eigen::MatrixXd rate = spatial::skew(top.direction) * (b.jacobian - a.jacobian) / top.length -
+                                     across * a.angular_jacobian;
+        terms.damping += joint.coefficient * rate.transpose() * rate;
+    }
+}
+
+void MultibodyProvider::setup_members_and_ropes() {
+    const Eigen::Index bodies = count(model_.bodies.size());
+    const Eigen::Index constraints = count(model_.constraints.size());
+    constraint_enabled_.assign(model_.constraints.size(), 1);
+    for (Eigen::Index m = 0; m < count(model_.members.size()); ++m) {
+        const LumpedBeam& beam = at(model_.members, m);
+        const std::string label = "member " + std::to_string(m) + ": ";
+        if (beam.bodies.empty()) {
+            throw InvalidModelError(0.0, label + "has no bodies");
+        }
+        for (const Eigen::Index b : beam.bodies) {
+            if (b < 0 || b >= bodies) {
+                throw InvalidModelError(0.0, label + "references a missing body");
+            }
+        }
+        if (beam.parent < -1 || beam.parent >= bodies || beam.roller_constraint < -1 ||
+            beam.roller_constraint >= constraints) {
+            throw InvalidModelError(0.0, label + "references a missing parent or constraint");
+        }
+    }
+    for (Eigen::Index r = 0; r < count(model_.ropes.size()); ++r) {
+        const Rope& rope = at(model_.ropes, r);
+        validate_rope_parameters(rope, r);
+        const std::string label = "rope " + std::to_string(r) + ": ";
+        if (rope.from_body < -1 || rope.from_body >= bodies || rope.to_body < -1 || rope.to_body >= bodies) {
+            throw InvalidModelError(0.0, label + "references a missing body");
+        }
+        if (count(rope.nodes.size()) != rope.segments - 1) {
+            throw InvalidModelError(0.0, label + "needs segments - 1 nodes (build it with add_rope)");
+        }
+        for (const Eigen::Index node : rope.nodes) {
+            if (node < 0 || node >= bodies || at(model_.bodies, node).joint.type != JointType::Translation) {
+                throw InvalidModelError(0.0, label + "node is not a Translation body");
+            }
+        }
+        rope_rest_.push_back(rope.rest_length);
+        rope_attached_.push_back(1);
+    }
+}
+
+void MultibodyProvider::record_members_and_ropes(const State& before, const State& after, double h) {
+    outputs_.events = pending_events_;
+    pending_events_.clear();
+    outputs_.members.clear();
+    if (!model_.members.empty()) {
+        const std::vector<BodyOutput> poses = body_states(before.q, before.v);
+        for (const LumpedBeam& beam : model_.members) {
+            outputs_.members.push_back(member_end_loads(beam, poses, outputs_.joints, outputs_.constraints));
+        }
+    }
+    outputs_.ropes = rope_states(after.q, after.v);
+    for (Eigen::Index r = 0; r < count(model_.ropes.size()); ++r) {
+        const Rope& rope = at(model_.ropes, r);
+        RopeOutput& out = at(outputs_.ropes, r);
+        if (rope.to_body >= 0) {
+            const double mass = at(model_.bodies, rope.to_body).mass;
+            out.snatch_omega_h = std::sqrt(rope.axial_rigidity / (at(rope_rest_, r) * mass)) * h;
+            out.snatch_underestimated = out.snatch_omega_h > Rope::snatch_resolution_limit;
+        }
+        if (at(rope_attached_, r) == 0 || !(out.max_tension > rope.breaking_tension)) {
+            continue;
+        }
+        Eigen::Index worst = 0;
+        for (Eigen::Index s = 0; s < count(out.tension.size()); ++s) {
+            if (at(out.tension, s) > at(out.tension, worst)) {
+                worst = s;
+            }
+        }
+        out.attached = false;
+        ModelChangeEvent event;
+        event.kind = ModelChange::RopeSnapped;
+        event.target = r;
+        event.index = worst;
+        event.value = out.max_tension;
+        event.limit = rope.breaking_tension;
+        event.time = after.t;
+        outputs_.events.push_back(event);
+        outputs_.events.push_back(release_load(LoadSource::Rope, r, after.t));
+    }
+    record_scheme_decay(after, h);
+}
+
+// Ruling 21: pi omega h per rope swing mode and per transmission coupling mode, at the end state.
+void MultibodyProvider::record_scheme_decay(const State& after, double h) {
+    const double g = model_.gravity.norm();
+    const Kinematics kin = kinematics(after.q, after.v);
+    for (Eigen::Index r = 0; r < count(outputs_.ropes.size()); ++r) {
+        RopeOutput& out = at(outputs_.ropes, r);
+        double length = 0.0;
+        for (const RopeSegment& seg : rope_segments(rope_points(kin, r, false), r)) {
+            length += seg.length;
+        }
+        if (g > 0.0 && length > 0.0) {
+            out.scheme_decay = std::numbers::pi * std::sqrt(g / length) * h;
+        }
+    }
+    if (model_.transmissions.empty()) {
+        return;
+    }
+    const Eigen::LLT<Eigen::MatrixXd> mass(mass_matrix(kin));
+    for (Eigen::Index i = 0; i < count(model_.transmissions.size()); ++i) {
+        const Transmission& t = at(model_.transmissions, i);
+        const TransmissionCoupling c = coupling(i, after.q, after.v);
+        if (!c.output.in_contact) {
+            continue;
+        }
+        Eigen::VectorXd a = Eigen::VectorXd::Zero(nv_);
+        Eigen::VectorXd b = Eigen::VectorXd::Zero(nv_);
+        a[at(v_offset_, t.input_body)] = c.gain;
+        a[at(v_offset_, t.output_body)] = -1.0;
+        b[at(v_offset_, t.input_body)] = c.n_eff;
+        b[at(v_offset_, t.output_body)] = -1.0;
+        const double omega_squared = t.stiffness * b.dot(mass.solve(a));
+        if (omega_squared > 0.0) {
+            at(outputs_.transmissions, i).scheme_decay = std::numbers::pi * std::sqrt(omega_squared) * h;
+        }
+    }
+}
+
+std::vector<RopeOutput> MultibodyProvider::rope_states(const Eigen::VectorXd& q, const Eigen::VectorXd& v) const {
+    if (q.size() != nq_ || v.size() != nv_) {
+        throw InvalidModelError(0.0, "rope state needs q and v of the model's sizes");
+    }
+    const Kinematics kin = kinematics(q, v);
+    std::vector<RopeOutput> out;
+    for (Eigen::Index r = 0; r < count(model_.ropes.size()); ++r) {
+        RopeOutput rope;
+        for (const RopeSegment& seg : rope_segments(rope_points(kin, r, false), r)) {
+            rope.tension.push_back(seg.tension);
+            rope.max_tension = std::max(rope.max_tension, seg.tension);
+        }
+        rope.load_end_tension = rope.tension.back();
+        rope.attached = at(rope_attached_, r) != 0;
+        rope.rest_length = at(rope_rest_, r);
+        out.push_back(rope);
+    }
+    return out;
+}
+
+void MultibodyProvider::set_spring_offset(Eigen::Index member, Eigen::Index node, double offset) {
+    if (member < 0 || member >= count(model_.members.size())) {
+        throw InvalidModelError(0.0, "spring offset on a missing member");
+    }
+    const std::vector<Eigen::Index> nodes = member_nodes(at(model_.members, member));
+    if (node < 0 || node >= count(nodes.size())) {
+        throw InvalidModelError(0.0, "spring offset on a missing node");
+    }
+    if (!std::isfinite(offset)) {
+        throw InvalidModelError(0.0, "spring offset is not finite");
+    }
+    const Eigen::Index body = at(nodes, node);
+    const Joint& joint = at(model_.bodies, body).joint;
+    double built = 0.0;
+    if (joint.rest.size() > 0) {
+        built = joint.rest[0];
+    }
+    rest_[at(v_offset_, body)] = built + offset;
+    pending_events_.push_back(change_event(ModelChange::SpringOffset, member, node, offset, outputs_.time));
+}
+
+void MultibodyProvider::set_spring_stiffness(Eigen::Index member, Eigen::Index node, double stiffness) {
+    if (member < 0 || member >= count(model_.members.size())) {
+        throw InvalidModelError(0.0, "spring stiffness on a missing member");
+    }
+    const std::vector<Eigen::Index> nodes = member_nodes(at(model_.members, member));
+    if (node < 0 || node >= count(nodes.size())) {
+        throw InvalidModelError(0.0, "spring stiffness on a missing node");
+    }
+    if (!std::isfinite(stiffness) || stiffness < 0.0) {
+        throw InvalidModelError(0.0, "spring stiffness must be finite and not negative");
+    }
+    stiffness_[at(v_offset_, at(nodes, node))] = stiffness;
+    pending_events_.push_back(change_event(ModelChange::SpringStiffness, member, node, stiffness, outputs_.time));
+}
+
+void MultibodyProvider::check_constraint_change(Eigen::Index constraint) const {
+    if (constraint < 0 || constraint >= count(model_.constraints.size())) {
+        throw InvalidModelError(0.0, "change on a missing constraint");
+    }
+    if (at(constraint_enabled_, constraint) == 0) {
+        throw InvalidModelError(0.0, "constraint " + std::to_string(constraint) + " is already disabled");
+    }
+}
+
+void MultibodyProvider::disable_constraint(Eigen::Index constraint) {
+    check_constraint_change(constraint);
+    at(constraint_enabled_, constraint) = 0;
+    pending_events_.push_back(change_event(ModelChange::ConstraintDisabled, constraint, -1, 0.0, outputs_.time));
+}
+
+void MultibodyProvider::release_load(Eigen::Index constraint) {
+    pending_events_.push_back(release_load(LoadSource::Constraint, constraint, outputs_.time));
+}
+
+void MultibodyProvider::release_rope(Eigen::Index rope) {
+    pending_events_.push_back(release_load(LoadSource::Rope, rope, outputs_.time));
+}
+
+// The one load-release path (ENG-034, ENG-035): a constraint holding the load is disabled, a rope's to_body end
+// removed, or a payload's weld released (index: the carrier it left).
+ModelChangeEvent MultibodyProvider::release_load(LoadSource source, Eigen::Index target, double time) {
+    Eigen::Index index = -1;
+    if (source == LoadSource::Constraint) {
+        check_constraint_change(target);
+        at(constraint_enabled_, target) = 0;
+    } else if (source == LoadSource::Payload) {
+        index = release_payload(target);
+    } else {
+        if (target < 0 || target >= count(model_.ropes.size())) {
+            throw InvalidModelError(0.0, "release of a missing rope");
+        }
+        if (at(rope_attached_, target) == 0) {
+            throw InvalidModelError(0.0, "rope " + std::to_string(target) + " is already released");
+        }
+        at(rope_attached_, target) = 0;
+    }
+    ModelChangeEvent event;
+    event.kind = ModelChange::LoadReleased;
+    event.target = target;
+    event.index = index;
+    event.source = source;
+    event.time = time;
+    return event;
+}
+
+bool MultibodyProvider::constraint_enabled(Eigen::Index constraint) const {
+    if (constraint < 0 || constraint >= count(model_.constraints.size())) {
+        throw InvalidModelError(0.0, "query of a missing constraint");
+    }
+    return at(constraint_enabled_, constraint) != 0;
+}
+
+bool MultibodyProvider::rope_attached(Eigen::Index rope) const {
+    if (rope < 0 || rope >= count(model_.ropes.size())) {
+        throw InvalidModelError(0.0, "query of a missing rope");
+    }
+    return at(rope_attached_, rope) != 0;
+}
+
+void MultibodyProvider::set_rope_rest_length(Eigen::Index rope, double length) {
+    if (rope < 0 || rope >= count(model_.ropes.size())) {
+        throw InvalidModelError(0.0, "rest length on a missing rope");
+    }
+    Rope changed = at(model_.ropes, rope);
+    changed.rest_length = length;
+    validate_rope_parameters(changed, rope);
+    at(rope_rest_, rope) = length;
 }
 
 // ===== Inputs and outputs ================================================
@@ -849,6 +1424,7 @@ StepHealth MultibodyProvider::step(Integrator& integrator, State& state) {
     }
     record_outputs(before, state, integrator.config().h);
     outputs_.transmissions = transmission_states(state.q, state.v);
+    record_members_and_ropes(before, state, integrator.config().h);
     clear_inputs();
     return health;
 }
@@ -876,9 +1452,27 @@ void MultibodyProvider::record_outputs(const State& before, const State& after, 
         for (std::size_t k = 0; k < r.torque_axes.size(); ++k) {
             torque += out.force[static_cast<Eigen::Index>(3 + k)] * r.torque_axes[k];
         }
+        out.torque = torque;
         at(external, lc.body_a) += to_body(at(kin.world, lc.body_a), r.point_a, torque, force);
         at(external, lc.body_b) += to_body(at(kin.world, lc.body_b), r.point_b, -torque, -force);
         outputs_.constraints.push_back(out);
+    }
+    for (const ContactOutput& c : contact_cache_) {
+        if (c.body_a >= 0) {
+            at(external, c.body_a) += to_body(at(kin.world, c.body_a), c.point, Eigen::Vector3d::Zero(), c.force);
+        }
+        if (c.body_b >= 0) {
+            at(external, c.body_b) += to_body(at(kin.world, c.body_b), c.point, Eigen::Vector3d::Zero(), -c.force);
+        }
+    }
+    for (std::size_t i = 0; i < payload_cache_.size(); ++i) {
+        const PayloadOutput& p = payload_cache_[i];
+        const Vector6d& w = attachment_wrench_[i];
+        at(external, p.body) += to_body(at(kin.world, p.body), attachment_point_[i], w.head<3>(), w.tail<3>());
+        if (p.carrier >= 0) {
+            at(external, p.carrier) +=
+                to_body(at(kin.world, p.carrier), attachment_point_[i], -w.head<3>(), -w.tail<3>());
+        }
     }
     Vector6d base = Vector6d::Zero();
     base.tail<3>() = -model_.gravity;
@@ -895,10 +1489,119 @@ void MultibodyProvider::record_outputs(const State& before, const State& after, 
         outputs_.joints.push_back(joint);
     }
     outputs_.bodies = body_states(after.q, after.v);
-    outputs_.contacts.clear();
+    outputs_.contacts = contact_cache_;
+    outputs_.payloads = payload_cache_;
     outputs_.time = after.t;
 }
 
 const MultibodyOutputs& MultibodyProvider::outputs() const noexcept { return outputs_; }
+
+void MultibodyProvider::set_contact_model(ContactModel contacts) {
+    validate_contact_model(contacts, count(model_.bodies.size()));
+    std::vector<Shape> shapes;
+    for (Eigen::Index i = 0; i < count(contacts.geometries.size()); ++i) {
+        shapes.push_back(to_shape(at(contacts.geometries, i), i));
+    }
+    contact_model_ = std::move(contacts);
+    contact_shapes_ = std::move(shapes);
+}
+
+const ContactModel& MultibodyProvider::contact_model() const noexcept { return contact_model_; }
+
+std::vector<ContactOutput> MultibodyProvider::contacts(const Eigen::VectorXd& q, const Eigen::VectorXd& v) const {
+    if (q.size() != nq_ || v.size() != nv_) {
+        throw InvalidModelError(0.0, "contacts need q and v of the model's sizes");
+    }
+    DynamicsTerms scratch;
+    scratch.force = Eigen::VectorXd::Zero(nv_);
+    scratch.stiffness = Eigen::MatrixXd::Zero(nv_, nv_);
+    scratch.damping = Eigen::MatrixXd::Zero(nv_, nv_);
+    return add_contact_terms(kinematics(q, v), v, scratch);
+}
+
+void MultibodyProvider::set_body_mass(Eigen::Index body, double mass) {
+    if (body < 0 || body >= count(model_.bodies.size())) {
+        throw InvalidModelError(0.0, "mass set on a missing body");
+    }
+    if (!std::isfinite(mass) || !(mass > 0.0)) {
+        throw InvalidModelError(0.0, body_label(body) + "mass must be finite and > 0");
+    }
+    // A rope end keeps its lumped half-segment share (ADR 0016): the payload's own mass changes, the share stays.
+    double rope_share = 0.0;
+    for (const Rope& rope : model_.ropes) {
+        const double share = 0.5 * rope.mass_per_length * rope.rest_length / rope.segments;
+        if (rope.to_body == body) {
+            rope_share += share;
+        }
+        if (rope.from_body == body) {
+            rope_share += share;
+        }
+    }
+    Body& b = at(model_.bodies, body);
+    const double total = mass + rope_share;
+    b.inertia *= total / b.mass;
+    b.mass = total;
+    at(inertia_, body) = spatial::inertia(b.mass, b.com, b.inertia);
+    pending_events_.push_back({ModelChange::PayloadMass, body, -1, mass, 0.0, outputs_.time});
+}
+
+void MultibodyProvider::set_attachment(Eigen::Index body, Eigen::Index carrier, bool attached,
+                                       const Eigen::VectorXd& q, double frequency) {
+    const Eigen::Index n = count(model_.bodies.size());
+    if (body < 0 || body >= n || carrier < -1 || carrier >= n || carrier == body) {
+        throw InvalidModelError(0.0, "attachment needs a payload body and a different carrier body or the world");
+    }
+    if (q.size() != nq_ || !q.allFinite()) {
+        throw InvalidModelError(0.0, "attachment needs finite q of the model's size");
+    }
+    if (!std::isfinite(frequency) || !(frequency > 0.0)) {
+        throw InvalidModelError(0.0, "attachment frequency must be finite and > 0");
+    }
+    if (!attached) {
+        for (const WeldAttachment& existing : attachments_) {
+            if (existing.body == body && existing.attached && existing.carrier != carrier) {
+                throw InvalidModelError(0.0, body_label(body) + "is welded to carrier " +
+                                                 std::to_string(existing.carrier) + ", not " + std::to_string(carrier));
+            }
+        }
+        pending_events_.push_back(release_load(LoadSource::Payload, body, outputs_.time));
+        return;
+    }
+    WeldAttachment a;
+    a.body = body;
+    a.carrier = carrier;
+    a.attached = true;
+    a.frequency = frequency;
+    const Kinematics kin = kinematics(q, Eigen::VectorXd::Zero(nv_));
+    const Transform& xp = at(kin.world, body);
+    Eigen::Matrix3d rc = Eigen::Matrix3d::Identity();
+    Eigen::Vector3d pc = Eigen::Vector3d::Zero();
+    if (carrier >= 0) {
+        rc = at(kin.world, carrier).rotation.transpose();
+        pc = at(kin.world, carrier).translation;
+    }
+    a.position = rc.transpose() * (world_point(xp, at(model_.bodies, body).com) - pc);
+    a.rotation = rc.transpose() * xp.rotation.transpose();
+    pending_events_.push_back({ModelChange::PayloadAttached, body, carrier, 0.0, 0.0, outputs_.time});
+    for (WeldAttachment& existing : attachments_) {
+        if (existing.body == body) {
+            existing = a;
+            return;
+        }
+    }
+    attachments_.push_back(a);
+}
+
+const std::vector<WeldAttachment>& MultibodyProvider::attachments() const noexcept { return attachments_; }
+
+Eigen::Index MultibodyProvider::release_payload(Eigen::Index body) {
+    for (WeldAttachment& existing : attachments_) {
+        if (existing.body == body && existing.attached) {
+            existing.attached = false;
+            return existing.carrier;
+        }
+    }
+    throw InvalidModelError(0.0, body_label(body) + "has no weld to release");
+}
 
 }  // namespace mechsim::engine
