@@ -130,13 +130,6 @@ def test_lib_018() -> None:
     raise NotImplementedError
 
 
-@pytest.mark.req("LIB-020")
-@pytest.mark.xfail(strict=True, reason="stub")
-def test_lib_020() -> None:
-    """The shipped catalog shall provide the types flexible beam, hook and rope."""
-    raise NotImplementedError
-
-
 @pytest.mark.req("LIB-023")
 @pytest.mark.xfail(strict=True, reason="stub")
 def test_lib_023() -> None:
@@ -159,15 +152,6 @@ def test_lib_028() -> None:
 @pytest.mark.xfail(strict=True, reason="stub")
 def test_lib_029() -> None:
     """The rigid body type shall carry mass, center of mass, inertia, geometry and material parameters."""
-    raise NotImplementedError
-
-
-@pytest.mark.req("LIB-030")
-@pytest.mark.xfail(strict=True, reason="stub")
-def test_lib_030() -> None:
-    """The flexible beam type shall carry cross-section and material parameters in addition to the rigid body
-    parameters.
-    """
     raise NotImplementedError
 
 

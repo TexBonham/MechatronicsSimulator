@@ -30,11 +30,11 @@ Component types and shipped catalog (LIB). Schema `schemas/component.json` from 
 
 | Section | File | Line |
 |---|---|---|
-| Parameters | schema.py | 106 |
-| Facets | schema.py | 197 |
-| ComponentType | schema.py | 270 |
-| CatalogPart | schema.py | 378 |
-| CatalogFile | schema.py | 548 |
+| Parameters | schema.py | 111 |
+| Facets | schema.py | 202 |
+| ComponentType | schema.py | 275 |
+| CatalogPart | schema.py | 383 |
+| CatalogFile | schema.py | 553 |
 
 ## Rules
 
@@ -53,3 +53,8 @@ Component types and shipped catalog (LIB). Schema `schemas/component.json` from 
   tiers ideal, nonlinear), `load_cell_amplifier` (front_end; `out` binds to an adc_input pin), `imu` (sensor; analog
   output per axis until a serial peripheral mode exists), `brake` (safety; `brake_torque` is the holding torque; the
   joint it acts on is design data, `acts_on`, owed). C++ plugins for them owed by brief A2.
+- Milestone 3 structural types (LIB-020, LIB-030): `flexible_beam` (category body; `SECTION_PARAMETERS` area,
+  second_moment, length, elastic_modulus, density; mass from geometry; a design body takes the section by naming the
+  part), `hook` (end_effector; mounts attach and rope), `rope` (category rope; `ROPE_PARAMETERS` axial_stiffness,
+  damping (strain-rate, N s), mass_per_length, breaking_tension, rest_length are required; breaking_tension in tier
+  `breaking`). Plugins point at `mechsim.builder.structure`.

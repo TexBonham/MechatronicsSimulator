@@ -15,6 +15,8 @@ SHIPPED_TYPES = [
     "brake",
     "end_effector",
     "estop_relay",
+    "flexible_beam",
+    "hook",
     "imu",
     "incremental_encoder",
     "lead_screw",
@@ -24,6 +26,7 @@ SHIPPED_TYPES = [
     "load_cell_amplifier",
     "payload",
     "power_supply",
+    "rope",
     "step_dir_driver",
     "stepper_behavioral",
     "uart_link",
@@ -41,9 +44,11 @@ def test_registry_loads_every_shipped_type_and_part() -> None:
     registry = load_registry()
     assert registry.type_names() == SHIPPED_TYPES
     assert "nema17_class_generic" in registry.part_names()
-    # One part per type, but stepper_behavioral ships two: the NEMA 17 and the NEMA 23 class (G16's sweep, ruling 31).
+    # One part per type, but stepper_behavioral ships two (the NEMA 17 and the NEMA 23 class, G16's sweep, ruling 31)
+    # and flexible_beam two (the exact steel reference bar, LIB-032, and a placeholder extrusion).
     assert "nema23_class_generic" in registry.part_names()
-    assert len(registry.part_names()) == len(SHIPPED_TYPES) + 1
+    assert "extrusion_2020_500mm_generic" in registry.part_names()
+    assert len(registry.part_names()) == len(SHIPPED_TYPES) + 2
     assert registry.part("nema17_class_generic").type == "stepper_behavioral"
     assert registry.component_type("limit_switch").category == "sensor"
 

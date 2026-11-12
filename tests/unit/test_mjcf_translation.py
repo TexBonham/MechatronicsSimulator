@@ -164,6 +164,7 @@ def _full() -> dict[str, Any]:
             "root": "clamped",
             "end": "free",
             "node_damping": "0.01 N*m*s/rad",
+            "segments": 4,
         },
         {
             "name": "span",
@@ -223,6 +224,7 @@ def _mechanism() -> dict[str, Any]:
             "root": "clamped",
             "end": "free",
             "node_damping": "1 N*m*s/rad",
+            "segments": 4,
         }
     ]
     return data
