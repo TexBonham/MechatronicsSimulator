@@ -15,7 +15,18 @@ from typing import Any, Literal
 from mechsim.design.schema import OpenValue
 from mechsim.scoring.statistics import StatisticError, compare, statistic, window_indices, within
 from mechsim.testing.baseline import Baseline, BaselineDiff, Change, Entry, RunIdentity, diff_baselines, entry_key
-from mechsim.testing.driver import FAULT_KIND, MESSAGE_KIND, RecordView, RunReport, Series
+from mechsim.testing.driver import (
+    FAULT_KIND,
+    INTEGRITY_KIND,
+    MESSAGE_KIND,
+    IntegrityCrossing,
+    IntegrityResults,
+    RecordedEvent,
+    RecordView,
+    RunReport,
+    Series,
+    StructuralError,
+)
 from mechsim.testing.schema import (
     Case,
     DesignRef,
@@ -77,6 +88,8 @@ class CaseScore:
     sweep: tuple[str, str] | None = None
     run: RunIdentity | None = None
     approximations: tuple[str, ...] = ()
+    variation: tuple[tuple[str, str], ...] | None = None
+    crossings: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -106,9 +119,12 @@ def score_run(
     limits: dict[str, str] | None = None,
     sweep: tuple[str, str] | None = None,
     run: RunIdentity | None = None,
+    integrity: IntegrityResults | None = None,
 ) -> CaseScore:
     """Score one run of a resolved case. `limits` maps criterion name to the limit text of the case as written
-    (its `${}` forms), which the baseline keeps; by default the resolved criterion's own text."""
+    (its `${}` forms), which the baseline keeps; by default the resolved criterion's own text. Structural criteria
+    read `integrity` (SCO-014); a recorded tier 1 crossing fails the case (SCO-015)."""
+    recording = _StructuralView(recording, integrity)
     results: list[CriterionResult] = []
     for criterion in case.criteria:
         limit = _limit_text(criterion, limits)
@@ -120,6 +136,9 @@ def score_run(
         except (_UnevaluableError, StatisticError, KeyError) as error:
             results.append(CriterionResult(criterion.name, "error", limit, note=_reason(error)))
     status = _case_status(results)
+    crossings = _crossings(recording)
+    if len(crossings) > 0 and status == "pass":
+        status = "fail"
     if report.errored:
         status = "error"
     return CaseScore(
@@ -136,7 +155,61 @@ def score_run(
         sweep=sweep,
         run=run,
         approximations=report.approximations + _layer_approximations(recording),
+        crossings=crossings,
     )
+
+
+STRUCTURAL_KINDS = ("safety_factor", "deflection")
+
+
+class _StructuralView:
+    """The run's record view plus the integrity results it carries (SCO-014): `safety_factor:<member>` (the minimum
+    over the run, dimensionless) and `deflection:<member>` (the peak, m) read from the per-member table as one sample
+    at the time integrity reports for it; never recomputed from the recording. Other refs go to the recording."""
+
+    def __init__(self, recording: RecordView, integrity: IntegrityResults | None) -> None:
+        self._recording = recording
+        self._integrity = integrity
+
+    def times(self) -> Sequence[float]:
+        return self._recording.times()
+
+    def controller_states(self) -> Sequence[str]:
+        return self._recording.controller_states()
+
+    def events(self) -> Sequence[RecordedEvent]:
+        return self._recording.events()
+
+    def series(self, reference: str) -> Series:
+        kind, _, member = reference.partition(":")
+        if kind not in STRUCTURAL_KINDS:
+            return self._recording.series(reference)
+        if self._integrity is None:
+            raise _UnevaluableError(f"{reference}: the run has no integrity results")
+        try:
+            entry = self._integrity.member(member)
+        except KeyError as error:
+            raise _UnevaluableError(f"{reference}: integrity reports no member {member!r}") from error
+        if kind == "safety_factor":
+            return Series((entry.safety_factor_time,), (entry.safety_factor,), "")
+        return Series((entry.deflection_time,), (entry.deflection,), "m")
+
+
+def _crossings(recording: RecordView) -> tuple[str, ...]:
+    """Each recorded tier 1 integrity crossing (an `integrity` event, INT-024) as one report line, in record order."""
+    lines: list[str] = []
+    for event in recording.events():
+        if event.kind != INTEGRITY_KIND:
+            continue
+        try:
+            crossing = IntegrityCrossing.parse(event.detail)
+            lines.append(
+                f"{crossing.member} {crossing.quantity} {crossing.value:.12g} crossed limit {crossing.limit:.12g} "
+                f"at {event.time:.12g} s (tier {crossing.tier})"
+            )
+        except StructuralError as error:
+            lines.append(f"unreadable crossing at {event.time:.12g} s: {error}")
+    return tuple(lines)
 
 
 def _layer_approximations(recording: RecordView) -> tuple[str, ...]:
@@ -475,7 +548,7 @@ def suite_baseline(suite: SuiteScore) -> Baseline:
     side by side, not baselined)."""
     entries: list[Entry] = []
     for case in suite.cases:
-        if case.sweep is not None:
+        if case.sweep is not None or case.variation is not None:
             continue
         for result in case.criteria:
             entries.append(_entry(case, result))
@@ -568,9 +641,7 @@ def _case_markdown(case: CaseScore) -> list[str]:
     mode = "none"
     if case.controller_mode is not None:
         mode = case.controller_mode
-    title = f"## Case {case.case_id}"
-    if case.sweep is not None:
-        title = f"{title} [{case.sweep[0]} = {case.sweep[1]}]"
+    title = _title(f"## Case {case.case_id}", case)
     lines = [
         f"{title}: {case.status.upper()}",
         "",
@@ -593,6 +664,8 @@ def _case_markdown(case: CaseScore) -> list[str]:
         lines.append(f"- Error: {_cell_text(case.error)}")
     for line in case.approximations:
         lines.append(f"- Approximation: {line}")
+    for line in case.crossings:
+        lines.append(f"- Integrity crossing: {line}")
     if len(case.criteria) == 0:
         return lines
     lines.extend(["", "| Criterion | Status | Measured | Limit | Worst at | Note |", "|---|---|---|---|---|---|"])
@@ -625,6 +698,7 @@ def report_text(suite: SuiteScore) -> str:
         lines.append("")
         lines.extend(_case_lines(case))
     lines.extend(_sweep_tables(suite.cases))
+    lines.extend(_variation_tables(suite.cases))
     return "\n".join(lines) + "\n"
 
 
@@ -632,9 +706,7 @@ def _case_lines(case: CaseScore) -> list[str]:
     mode = "none"
     if case.controller_mode is not None:
         mode = case.controller_mode
-    title = f"Case {case.case_id}"
-    if case.sweep is not None:
-        title = f"{title} [{case.sweep[0]} = {case.sweep[1]}]"
+    title = _title(f"Case {case.case_id}", case)
     lines = [
         f"{title}: {case.status.upper()}",
         f"  seed {case.seed}, design {case.design.name} {case.design.version}, controller mode {mode}",
@@ -649,6 +721,8 @@ def _case_lines(case: CaseScore) -> list[str]:
         lines.append(f"  error: {case.error}")
     for line in case.approximations:
         lines.append(f"  approximation: {line}")
+    for line in case.crossings:
+        lines.append(f"  integrity crossing: {line}")
     for result in case.criteria:
         measured = result.measured_text()
         if measured is None:
@@ -690,3 +764,37 @@ def _cell(run: CaseScore, name: str) -> str:
                 return result.status
             return f"{measured} ({result.status})"
     return "n/a"
+
+
+def _title(title: str, case: CaseScore) -> str:
+    if case.sweep is not None:
+        return f"{title} [{case.sweep[0]} = {case.sweep[1]}]"
+    if case.variation is not None:
+        drawn = ", ".join(f"{parameter} = {value}" for parameter, value in case.variation)
+        return f"{title} [variation seed {case.seed}: {drawn}]"
+    return title
+
+
+def _variation_tables(cases: Sequence[CaseScore]) -> list[str]:
+    """Seeded variation runs of a case side by side, one column per variation seed (SCO-019)."""
+    groups: dict[str, list[CaseScore]] = {}
+    for case in cases:
+        if case.variation is not None:
+            groups.setdefault(case.case_id, []).append(case)
+    lines: list[str] = []
+    for case_id, runs in groups.items():
+        lines.append("")
+        lines.append(f"Variations of {case_id}")
+        lines.append("| criterion | " + " | ".join(f"seed {run.seed}" for run in runs) + " |")
+        lines.append("|---" * (len(runs) + 1) + "|")
+        parameters: list[str] = []
+        for run in runs:
+            for parameter, _ in run.variation or ():
+                if parameter not in parameters:
+                    parameters.append(parameter)
+        for parameter in parameters:
+            cells = [dict(run.variation or ()).get(parameter, "n/a") for run in runs]
+            lines.append(f"| {parameter} | " + " | ".join(cells) + " |")
+        for name in [result.name for result in runs[0].criteria]:
+            lines.append(f"| {name} | " + " | ".join(_cell(run, name) for run in runs) + " |")
+    return lines

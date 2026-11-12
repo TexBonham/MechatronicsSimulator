@@ -108,8 +108,8 @@ def test_validate_an_invalid_physics_model_fails(tmp_path: Path) -> None:
 def test_validate_a_folder_runs_nothing() -> None:
     code, out, _ = call(["validate", str(ROOT / "test_cases")])
     assert code == EXIT_PASS
-    # G1 to G11, G13, G14, P1, the gantry baseline and suite: 16 files.
-    assert out.count(": valid ") == 16
+    # G1 to G11, G13, G14, P1, P2, the gantry baseline and suite: 17 files.
+    assert out.count(": valid ") == 17
 
 
 @pytest.mark.req("TST-030")

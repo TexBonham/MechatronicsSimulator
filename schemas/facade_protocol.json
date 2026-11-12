@@ -353,6 +353,38 @@
       "title": "ListRunsRequest",
       "type": "object"
     },
+    "MemberStressRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "version": {
+          "const": 1,
+          "description": "Protocol version; the service accepts only its own version.",
+          "title": "Version",
+          "type": "integer"
+        },
+        "message_id": {
+          "minLength": 1,
+          "title": "Message Id",
+          "type": "string"
+        },
+        "kind": {
+          "const": "member_stress",
+          "title": "Kind",
+          "type": "string"
+        },
+        "payload": {
+          "$ref": "#/$defs/ReplayRefPayload"
+        }
+      },
+      "required": [
+        "version",
+        "message_id",
+        "kind",
+        "payload"
+      ],
+      "title": "MemberStressRequest",
+      "type": "object"
+    },
     "OkPayload": {
       "additionalProperties": false,
       "properties": {
@@ -1154,6 +1186,68 @@
       "title": "SuiteRefPayload",
       "type": "object"
     },
+    "SwingAnglePayload": {
+      "additionalProperties": false,
+      "properties": {
+        "run_id": {
+          "description": "Run identifier assigned by the service.",
+          "minLength": 1,
+          "title": "Run Id",
+          "type": "string"
+        },
+        "load": {
+          "description": "The suspended load's body.",
+          "minLength": 1,
+          "title": "Load",
+          "type": "string"
+        },
+        "attachment": {
+          "description": "The body it hangs from, or world.",
+          "minLength": 1,
+          "title": "Attachment",
+          "type": "string"
+        }
+      },
+      "required": [
+        "run_id",
+        "load",
+        "attachment"
+      ],
+      "title": "SwingAnglePayload",
+      "type": "object"
+    },
+    "SwingAngleRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "version": {
+          "const": 1,
+          "description": "Protocol version; the service accepts only its own version.",
+          "title": "Version",
+          "type": "integer"
+        },
+        "message_id": {
+          "minLength": 1,
+          "title": "Message Id",
+          "type": "string"
+        },
+        "kind": {
+          "const": "swing_angle",
+          "title": "Kind",
+          "type": "string"
+        },
+        "payload": {
+          "$ref": "#/$defs/SwingAnglePayload"
+        }
+      },
+      "required": [
+        "version",
+        "message_id",
+        "kind",
+        "payload"
+      ],
+      "title": "SwingAngleRequest",
+      "type": "object"
+    },
     "TickBatchEvent": {
       "additionalProperties": false,
       "properties": {
@@ -1537,6 +1631,7 @@
       "geometry": "#/$defs/GeometryRequest",
       "list_designs": "#/$defs/ListDesignsRequest",
       "list_runs": "#/$defs/ListRunsRequest",
+      "member_stress": "#/$defs/MemberStressRequest",
       "ok": "#/$defs/OkResponse",
       "pause": "#/$defs/PauseRequest",
       "probe": "#/$defs/ProbeRequest",
@@ -1550,6 +1645,7 @@
       "scrub": "#/$defs/ScrubRequest",
       "step": "#/$defs/StepRequest",
       "subscribe_series": "#/$defs/SubscribeSeriesRequest",
+      "swing_angle": "#/$defs/SwingAngleRequest",
       "tick_batch": "#/$defs/TickBatchEvent",
       "timeline": "#/$defs/TimelineRequest",
       "timeline_event": "#/$defs/TimelineEventMessage",
@@ -1607,6 +1703,12 @@
     },
     {
       "$ref": "#/$defs/ProbeRequest"
+    },
+    {
+      "$ref": "#/$defs/MemberStressRequest"
+    },
+    {
+      "$ref": "#/$defs/SwingAngleRequest"
     },
     {
       "$ref": "#/$defs/ReportRequest"

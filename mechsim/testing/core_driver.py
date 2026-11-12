@@ -30,7 +30,7 @@ from mechsim.physics.mujoco.translate import UnmappableElementError
 from mechsim.physics.neutral import PhysicsModel
 from mechsim.record.archive import RunEnd, RunFault, RunIdentity, repository_commit, tool_version
 from mechsim.record.archive import write_archive as write_record_archive
-from mechsim.record.layout import DRIVE_DRIVEN, DRIVE_TORQUE, JOINT_POSITIONS, Columns
+from mechsim.record.layout import DRIVE_DRIVEN, DRIVE_TORQUE, JOINT_POSITIONS, MEMBER_SERIES, ROPE_SERIES, Columns
 from mechsim.record.reader import DriverError as DriverError
 from mechsim.record.reader import JointKinematics as JointKinematics
 from mechsim.record.reader import Kinematics as Kinematics
@@ -69,6 +69,7 @@ from mechsim.testing.core_wiring import (
     work_directory,
 )
 from mechsim.testing.driver import (
+    MATERIAL_OVERRIDES_KEY,
     BuildResult,
     EndReason,
     EndSpec,
@@ -77,6 +78,7 @@ from mechsim.testing.driver import (
     RunReport,
     ScheduledCommand,
     ScheduledFault,
+    members_json,
 )
 from mechsim.testing.runner import Services
 from mechsim.testing.schema import DESIGNS_ROOT, ROOT, Case, InitialState, Quantity
@@ -181,7 +183,10 @@ def tick_record(row: Any, events: Mapping[int, Sequence[RowEvent]] | None = None
         )
         for m in physics["members"]
     )
-    ropes = tuple(RopeTension(float(r["tension"]), bool(r["slack"])) for r in physics["ropes"])
+    ropes = tuple(
+        RopeTension(float(r["tension"]), bool(r["slack"]), float(r.get("max_tension", r["tension"])))
+        for r in physics["ropes"]
+    )
     transmissions = tuple(
         TransmissionState(
             float(t["slip"]),
@@ -634,10 +639,24 @@ def model_columns(model: PhysicsModel, payloads: Sequence[str] = ()) -> dict[str
     if len(payloads) > 0:
         for field in ("body", "carrier", "attached", "force"):
             columns[f"physics/payloads/{field}"] = Columns(tuple(payloads))
+    members = tuple(member.structural_member or member.name for member in model.lumped_members)
+    if len(members) > 0:
+        for path in MEMBER_SERIES:
+            columns[path] = Columns(members)
+    ropes = tuple(str(rope.name) for rope in getattr(model, "ropes", ()))
+    if len(ropes) > 0:
+        for path in ROPE_SERIES:
+            columns[path] = Columns(ropes)
     return columns
 
 
 # ===== Archives =========================================================
+
+
+def _pairs(pairs: tuple[tuple[str, str], ...] | None) -> list[list[str]] | None:
+    if pairs is None:
+        return None
+    return [list(item) for item in pairs]
 
 
 def _case_file(case_hash: str, root: Path) -> bytes:
@@ -700,7 +719,14 @@ class RecordArchiver:
             "states": json.dumps(recording.states, sort_keys=True),
             "sink_errors": json.dumps(list(report.sink_errors)),
             "hook_errors": json.dumps(list(report.hook_errors)),
+            "members": members_json(metadata.members),
+            "variation": json.dumps(_pairs(metadata.variation)),
         }
+        if metadata.material_overrides is not None:
+            extra[MATERIAL_OVERRIDES_KEY] = metadata.material_overrides.text
+            extra[f"{MATERIAL_OVERRIDES_KEY}_sha256"] = metadata.material_overrides.sha256
+        if metadata.integrity is not None:
+            extra["integrity"] = metadata.integrity.to_json()
         write_record_archive(path, identity, end, recording.recording, extra)
         return hashlib.sha256(path.read_bytes()).hexdigest()
 

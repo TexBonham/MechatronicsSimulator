@@ -34,6 +34,7 @@ from mechsim.record.layout import (
     JOINT_FORCE,
     JOINT_POSITIONS,
     NAMED_GROUPS,
+    ROPE_MAX_TENSION,
     Columns,
     Recording,
     Series,
@@ -528,9 +529,13 @@ class RunArchive:
                 strict=True,
             )
         )
+        tensions = at("physics/ropes/tension")
+        maxima = at(ROPE_MAX_TENSION)
+        if len(maxima) != len(tensions):
+            maxima = tensions
         ropes = tuple(
-            RopeTension(tension, slack)
-            for tension, slack in zip(at("physics/ropes/tension"), at("physics/ropes/slack"), strict=True)
+            RopeTension(tension, slack, maximum)
+            for tension, slack, maximum in zip(tensions, at("physics/ropes/slack"), maxima, strict=True)
         )
         transmissions = tuple(
             TransmissionState(slip, slipping, load, force, stretch, flow)

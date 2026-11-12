@@ -50,6 +50,7 @@ def test_reference_cases_ship() -> None:
         "test_cases/gantry/G8.yaml",
         "test_cases/gantry/G9.yaml",
         "test_cases/pendulum/P1_period.yaml",
+        "test_cases/pendulum/P2_damping_sweep.yaml",
     ]
 
 

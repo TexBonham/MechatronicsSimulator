@@ -64,8 +64,12 @@ class MemberEndLoads:
 
 @dataclass(frozen=True, slots=True)
 class RopeTension:
+    """`tension` is the load-end segment's tension, `max_tension` the largest segment tension, N (ADR 0016,
+    PHY-004); the kernel's struct carries one value, which the driver maps to both until it publishes the maximum."""
+
     tension: float = 0.0
     slack: bool = False
+    max_tension: float = 0.0
 
 
 @dataclass(frozen=True, slots=True)

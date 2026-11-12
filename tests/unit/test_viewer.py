@@ -1,4 +1,4 @@
-"""The viewer module (VIE-002 to VIE-009, VIE-014 to VIE-017): probes, timeline, geometry, replay cursor."""
+"""The viewer module (VIE-002 to VIE-011, VIE-014 to VIE-017): probes, timeline, geometry, overlays, replay cursor."""
 
 from __future__ import annotations
 
@@ -16,8 +16,20 @@ import pytest
 from mechsim.design.schema import DesignError
 from mechsim.record.stream import Recorder
 from mechsim.scoring.score import CriterionResult
-from mechsim.testing.driver import RecordedEvent
-from mechsim.viewer import ProbeError, ReplayCursor, ReplayError, body_geometry, category_of, probe, timeline
+from mechsim.testing.driver import MemberSection, RecordedEvent
+from mechsim.viewer import (
+    OverlayError,
+    ProbeError,
+    ReplayCursor,
+    ReplayError,
+    body_geometry,
+    category_of,
+    down_from_design,
+    member_stress,
+    probe,
+    swing_angle,
+    timeline,
+)
 from tests.unit.test_record_support import synthetic_rows
 from tests.unit.test_runner_fakes import FakeRecording, recording_from
 
@@ -337,3 +349,132 @@ def test_the_viewer_writes_no_files(tmp_path: Path, monkeypatch: pytest.MonkeyPa
     body_geometry((ROOT / "designs" / "pendulum" / "design.yaml").read_bytes())
     ReplayCursor(TIMES).scrub(0.001)
     assert list(tmp_path.iterdir()) == []
+
+
+# ===== Fractional play time (VIE-009), overlays (VIE-010, VIE-011) =======
+
+
+@pytest.mark.req("VIE-009")
+def test_advance_carries_the_time_left_over_past_the_shown_sample() -> None:
+    # Binary-exact times so the carried sums are exact: two advances of 0.125 s reach the 0.25 s sample (dropping the
+    # leftover would leave the cursor on 0 s forever).
+    cursor = ReplayCursor([0.0, 0.25, 0.5, 0.75])
+    cursor.pause(False)
+    assert cursor.advance(0.125).index == 0
+    assert cursor.advance(0.125).index == 1
+    assert cursor.step("forward").t == 0.5
+    assert cursor.advance(0.125).index == 2
+    assert cursor.advance(0.125).index == 3
+    assert cursor.advance(10.0).index == 3
+    assert cursor.step("backward").t == 0.5
+    assert cursor.advance(0.125).index == 2
+    assert cursor.scrub(0.3).index == 1
+    assert cursor.advance(0.2).index == 2
+    assert cursor.scrub(-0.0).index == 0
+    assert cursor.advance(0.25).index == 1
+
+
+def _structural_view() -> object:
+    from tests.unit.test_record_structural import TICKS, _columns, _row
+
+    recorder = Recorder(Fraction(1000), _columns())
+    for tick in range(TICKS):
+        recorder.write_row(_row(tick))
+
+    class _View:
+        recording = recorder.recording()
+
+        def times(self) -> list[float]:
+            return [tick / 1000.0 for tick in range(TICKS)]
+
+        def series(self, reference: str) -> object:
+            raise KeyError(reference)
+
+    return _View()
+
+
+# Rectangle b = 0.02 m, h = 0.04 m: A = 8e-4 m^2, I = b h^3 / 12, c = h / 2 = 0.02 m; rail_y states c = 0.015 m.
+SECTIONS = (
+    MemberSection("rail_x", "petg_printed", 8e-4, 0.02 * 0.04**3 / 12.0, 0.5),
+    MemberSection("rail_y", "petg_printed", 8e-4, 0.02 * 0.04**3 / 12.0, 0.5, 0.015),
+)
+
+
+@pytest.mark.req("VIE-010")
+def test_member_stress_is_m_c_over_i_at_each_end_per_sample() -> None:
+    # The synthetic rows put member k's start moment at (t + 0.1 k, 2 t, -1 - k) and its end moment at
+    # (-t, 3 + k, 4 t) for tick t; the bending moment is the part normal to the member's x axis, so
+    # sigma_start = sqrt((2 t)^2 + (1 + k)^2) c / I and sigma_end = sqrt((3 + k)^2 + (4 t)^2) c / I.
+    found = member_stress(_structural_view(), SECTIONS)
+    assert [entry.member for entry in found] == ["rail_x", "rail_y"]
+    for k, entry in enumerate(found):
+        c = (0.02, 0.015)[k]
+        second = 0.02 * 0.04**3 / 12.0
+        assert (entry.fibre, entry.second_moment) == (pytest.approx(c, rel=1e-12), second)
+        start = [math.hypot(2.0 * t, 1.0 + k) * c / second for t in range(6)]
+        end = [math.hypot(3.0 + k, 4.0 * t) * c / second for t in range(6)]
+        assert entry.start == pytest.approx(start, rel=1e-12)
+        assert entry.end == pytest.approx(end, rel=1e-12)
+
+
+@pytest.mark.req("VIE-010")
+def test_member_stress_needs_the_recording_named_columns_and_every_section() -> None:
+    with pytest.raises(OverlayError, match="needs the archived recording"):
+        member_stress(recording_from(TIMES, {}), SECTIONS)
+    with pytest.raises(OverlayError, match="'rail_y' is not in the run's member list"):
+        member_stress(_structural_view(), SECTIONS[:1])
+    view = _structural_view()
+    unnamed = Recorder(Fraction(1000))
+    from tests.unit.test_record_structural import _row
+
+    unnamed.write_row(_row(0))
+    view.recording = unnamed.recording()  # type: ignore[attr-defined]
+    with pytest.raises(OverlayError, match="carry no names"):
+        member_stress(view, SECTIONS)
+    empty = Recorder(Fraction(1000))
+    empty.write_row(synthetic_rows(1, 1)[0].__class__(time=0))
+    view.recording = empty.recording()  # type: ignore[attr-defined]
+    assert member_stress(view, SECTIONS) == ()
+
+
+def _hanging(angles: list[float], length: float = 1.5) -> FakeRecording:
+    # Trolley at (0.1 t, 0.2, 2) moving along x; the load hangs `length` below it, swung by theta in the x-z plane.
+    times = [float(n) for n in range(len(angles))]
+    trolley = [(0.1 * t, 0.2, 2.0) for t in times]
+    load = [
+        (x + length * math.sin(a), y, z - length * math.cos(a)) for (x, y, z), a in zip(trolley, angles, strict=True)
+    ]
+    series: dict[str, list[float]] = {}
+    for body, points in (("trolley", trolley), ("hook_load", load)):
+        for axis, column in zip("xyz", zip(*points, strict=True), strict=True):
+            series[f"pose:{body}.{axis}"] = list(column)
+    return recording_from(times, series, "m")
+
+
+@pytest.mark.req("VIE-011")
+def test_swing_angle_from_the_vertical_through_the_attachment() -> None:
+    angles = [0.0, 0.1, -0.2, 0.05, 1.2, math.pi / 2, 2.0]
+    found = swing_angle(_hanging(angles), "hook_load", "trolley")
+    # The angle is unsigned (distance from the vertical): |theta| for |theta| <= pi.
+    assert found.values == pytest.approx([abs(a) for a in angles], abs=1e-12)
+    assert (found.load, found.attachment) == ("hook_load", "trolley")
+    fixed = swing_angle(_hanging([0.3, 0.3]), "trolley", "world", (0.0, 0.2, 3.0))
+    # The trolley 1 m below a world point straight above its start, then 0.1 m along x: atan2(0.1, 1).
+    assert fixed.values == pytest.approx([0.0, math.atan2(0.1, 1.0)], abs=1e-12)
+    with pytest.raises(OverlayError, match="no body 'crane'"):
+        swing_angle(_hanging([0.0]), "hook_load", "crane")
+
+
+@pytest.mark.req("VIE-011")
+def test_the_vertical_comes_from_the_design_gravity() -> None:
+    pendulum = (Path(__file__).resolve().parents[2] / "designs" / "pendulum" / "design.yaml").read_bytes()
+    assert down_from_design(pendulum) == (0.0, -1.0, 0.0)
+    assert down_from_design(b"") == (0.0, 0.0, -1.0)
+    assert down_from_design(b"\xff\xfe") == (0.0, 0.0, -1.0)
+    weightless = b"environment:\n  gravity: [0 m/s**2, 0 m/s**2, 0 m/s**2]\n"
+    assert down_from_design(weightless) == (0.0, 0.0, -1.0)
+    # A load 1 m from a world attachment at the origin, swung by 0.2 rad from -y in the x-y plane (the pendulum's
+    # gravity): r = (sin 0.2, -cos 0.2, 0), so the angle from down = (0, -1, 0) is 0.2 rad.
+    series = {"pose:bob.x": [math.sin(0.2)], "pose:bob.y": [-math.cos(0.2)], "pose:bob.z": [0.0]}
+    found = swing_angle(recording_from([0.0], series, "m"), "bob", "world", down=(0.0, -1.0, 0.0))
+    assert found.values == pytest.approx((0.2,), abs=1e-12)

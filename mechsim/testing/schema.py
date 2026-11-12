@@ -70,7 +70,8 @@ CASE_ID_PATTERN = r"^[A-Z][A-Z0-9_]*[0-9]+$"
 _N = r"[a-z][a-z0-9_]*"
 QUANTITY_REF_PATTERN = (
     rf"^(signal:{_N}\.{_N}|pose:{_N}\.(x|y|z|roll|pitch|yaw)|joint:{_N}\.(position|velocity)"
-    rf"|rail:{_N}(\.voltage)?|state:{_N}|fault:{_N}|count:(message|state|fault)\.{_N})$"
+    rf"|rail:{_N}(\.voltage)?|state:{_N}|fault:{_N}|count:(message|state|fault)\.{_N}"
+    rf"|safety_factor:{_N}|deflection:{_N})$"
 )
 EVENT_REF_PATTERN = rf"^(message|state|fault|event):{_N}$"
 INSTANCE_PREFIX = "instance:"
@@ -150,6 +151,12 @@ def parse_any_quantity(text: Any) -> Quantity:
     if base.dimensionless:
         dimension = ANGLE
     return Quantity(text, value, dimension)
+
+
+def si_unit(text: str) -> str:
+    """The SI base unit of a quantity's text, abbreviated as pint writes it ("kg * m ** 2 / s"); empty when the
+    quantity is a plain number."""
+    return format(_UNITS.Quantity(text.strip()).to_base_units().units, "~")
 
 
 def _amount(value: Any) -> Any:
@@ -483,8 +490,10 @@ def reference_dimension(reference: str) -> str | None:
         if component in ("x", "y", "z"):
             return LENGTH
         return ANGLE
-    if kind in ("state", "fault", "count"):
+    if kind in ("state", "fault", "count", "safety_factor"):
         return ANGLE
+    if kind == "deflection":
+        return LENGTH
     if kind == "rail":
         if rest.endswith(".voltage"):
             return "[mass] * [length] ** 2 / [time] ** 3 / [current]"
@@ -747,7 +756,8 @@ class Variation(StrictModel):
 
 
 class Variations(StrictModel):
-    """Stored only: v1 runs use nominal values (Architecture doc, Seams reserved for the roadmap)."""
+    """`count` seeded variations (TST-026): variation k runs with its own integer seed, derived from the case seed
+    and k, which also draws each parameter's value about its nominal; rerun alone from that seed."""
 
     count: int = Field(ge=1)
     parameters: list[Variation] = Field(min_length=1)
@@ -1018,6 +1028,10 @@ def _check_reference(
         errors.append(f"{path}: unknown body {rest.partition('.')[0]!r}")
     if kind == "joint" and rest.partition(".")[0] not in joints:
         errors.append(f"{path}: unknown joint {rest.partition('.')[0]!r}")
+    if kind in ("safety_factor", "deflection"):
+        members = {body.name for body in design.bodies if body.flexible is not None}
+        if rest not in members:
+            errors.append(f"{path}: {rest!r} is not a structural member (a body with flexible)")
     if kind == "message" and rest not in messages:
         errors.append(f"{path}: unknown operator message {rest!r}")
     if kind == "event" and design.firmware is None:
@@ -1123,6 +1137,8 @@ def _check_parameter(
         return
     current: Any = items[item_name]
     for field in fields:
+        if isinstance(current, (list, tuple)) and len(current) > 0:
+            current = current[0]
         if not isinstance(current, BaseModel) or field not in type(current).model_fields:
             errors.append(f"{path}: {parameter!r} does not name a design field")
             return
@@ -1147,11 +1163,18 @@ class SuiteFile(StrictModel):
     cases: list[RepoPath] = Field(min_length=1, description="test case files, relative to the suite file")
     baseline: RepoPath = Field(description="the regression baseline the suite is diffed against (TST-008)")
     note: str | None = Field(default=None, min_length=1)
+    sweeps: list[Sweep] = Field(
+        default_factory=list, description="sweeps run for every case of the suite, after the case's own (TST-007)"
+    )
+    variations: Variations | None = Field(
+        default=None, description="seeded variations for every case that defines none of its own (TST-007)"
+    )
 
     @model_validator(mode="after")
     def _unique(self) -> SuiteFile:
         errors: list[str] = []
         _duplicates(self.cases, "case file", errors)
+        _duplicates([sweep.parameter for sweep in self.sweeps], "sweep parameter", errors)
         _raise_if(errors)
         return self
 

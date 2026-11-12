@@ -12,7 +12,7 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, Literal
 
-from pydantic import JsonValue
+from pydantic import Field, JsonValue
 
 from mechsim.design.schema import DesignError, validate_design_file, yaml_loader
 from mechsim.facade.decimate import decimate
@@ -33,7 +33,20 @@ from mechsim.testing.baseline import BaselineDiff, baseline_text
 from mechsim.testing.driver import ArchiveReader, RecordView, RunMetadata
 from mechsim.testing.runner import RunResult, Services, run_case, run_id, run_suite
 from mechsim.testing.schema import DESIGNS_ROOT, ROOT, CaseError, load_test_case
-from mechsim.viewer import ProbeError, ReplayCursor, ReplayError, body_geometry, probe, timeline
+from mechsim.viewer import (
+    ANGLE_UNIT,
+    STRESS_UNIT,
+    OverlayError,
+    ProbeError,
+    ReplayCursor,
+    ReplayError,
+    body_geometry,
+    down_from_design,
+    member_stress,
+    probe,
+    swing_angle,
+    timeline,
+)
 
 RUN_ERROR_REQUIREMENT = "INV-007"
 CORE_MODULE = "mechsim._core"
@@ -245,6 +258,34 @@ class TimelineEntryResult(StrictModel):
 class TimelineResult(StrictModel):
     run_id: str
     entries: list[TimelineEntryResult]
+
+
+class MemberStressEntry(StrictModel):
+    member: str
+    fibre: float = Field(description="Extreme-fibre distance c, m (the member list's section).")
+    second_moment: float = Field(description="Second moment of area I, m^4 (the member list's section).")
+    start: list[float]
+    end: list[float]
+
+
+class MemberStressResult(StrictModel):
+    """Bending stress M c / I at each member end per recorded sample, Pa (VIE-010)."""
+
+    run_id: str
+    unit: str
+    times: list[float]
+    members: list[MemberStressEntry]
+
+
+class SwingAngleResult(StrictModel):
+    """Swing angle of a suspended load from the vertical through its attachment per recorded sample, rad (VIE-011)."""
+
+    run_id: str
+    load: str
+    attachment: str
+    unit: str
+    times: list[float]
+    values: list[float]
 
 
 class GeometryResult(StrictModel):
@@ -717,6 +758,52 @@ class Facade:
                 ProbeColumnResult(name=column.name, unit=column.unit, values=list(column.values))
                 for column in found.columns
             ],
+        )
+
+    def member_stress(self, run_id: str) -> MemberStressResult:
+        """VIE-010 overlay, computed in `mechsim.viewer` from the recorded end-loads and the archived member list."""
+        replay = self._replay(run_id)
+        try:
+            found = member_stress(replay.view, replay.metadata.members)
+        except OverlayError as error:
+            raise FacadeError("not_found", f"run {run_id}: {error.args[0]}", "VIE-010", "run_id") from error
+        return MemberStressResult(
+            run_id=run_id,
+            unit=STRESS_UNIT,
+            times=[float(t) for t in replay.view.times()],
+            members=[
+                MemberStressEntry(
+                    member=entry.member,
+                    fibre=entry.fibre,
+                    second_moment=entry.second_moment,
+                    start=list(entry.start),
+                    end=list(entry.end),
+                )
+                for entry in found
+            ],
+        )
+
+    def swing_angle(self, run_id: str, load: str, attachment: str) -> SwingAngleResult:
+        """VIE-011 overlay: the load body's swing from the vertical (the archived design's gravity) through the
+        attachment body's origin, or through the world origin for `world`."""
+        replay = self._replay(run_id)
+        design_file = b""
+        try:
+            with RunArchive(replay.archive) as archive:
+                design_file = archive.identity.design_file
+        except (OSError, ValueError, KeyError):
+            design_file = b""
+        try:
+            found = swing_angle(replay.view, load, attachment, down=down_from_design(design_file))
+        except OverlayError as error:
+            raise FacadeError("not_found", f"run {run_id}: {error.args[0]}", "VIE-011", "load") from error
+        return SwingAngleResult(
+            run_id=run_id,
+            load=load,
+            attachment=attachment,
+            unit=ANGLE_UNIT,
+            times=[float(t) for t in replay.view.times()],
+            values=list(found.values),
         )
 
     def geometry(self, run_id: str) -> GeometryResult:

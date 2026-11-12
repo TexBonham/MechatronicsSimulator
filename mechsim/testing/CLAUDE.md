@@ -4,17 +4,17 @@ Test case files (TST) and regression baselines (SCO, D4). Schemas `schemas/test_
 `schemas/baseline.json` from `Baseline`, `schemas/suite.json` from `SuiteFile`; regenerate with
 `uv run python -m mechsim.testing.schema --write-schema --write-suite-schema` and
 `uv run python -m mechsim.testing.baseline --write-schema`, never hand-edit. `__init__.py` exports nothing.
-Examples: `test_cases/gantry/G1.yaml` to `G11.yaml`, `G13.yaml`, `G14.yaml` (draft design), `test_cases/pendulum/P1_period.yaml` (release),
+Examples: `test_cases/gantry/G1.yaml` to `G11.yaml`, `G13.yaml`, `G14.yaml` (draft design), `test_cases/pendulum/P1_period.yaml` (release), `P2_damping_sweep.yaml` (sweep example),
 `test_cases/gantry/baseline.yaml`, `test_cases/gantry/suite.yaml` (suite file).
 
 | File | Holds |
 |---|---|
 | `schema.py` | `Case` and parts, `Quantity` (any dimension), `cross_check(case, design)`, `validate_test_case_file`, `load_test_case`, `SuiteFile`, `load_suite_file`/`validate_suite_file` (`SuiteError`), `INSTANCE_PREFIX`, CLI |
 | `baseline.py` | `Baseline`, `entry_key`, `baseline_text`, `diff_baselines`, `check_against_cases`, `load_baseline`, CLI |
-| `driver.py` | Protocols the runner drives: `SimulationDriver`, `BuildResult`/`Builder`, `RecordView`, `Archiver`, `ArchiveReader`; value types `RunConfig`, `ScheduledCommand`, `ScheduledFault`, `EndSpec`, `RunReport`, `Series`, `RecordedEvent`, `RunMetadata` |
+| `driver.py` | Protocols the runner drives: `SimulationDriver`, `BuildResult`/`Builder`, `RecordView`, `Archiver`, `ArchiveReader`, `IntegrityCheck` (`(build, case, recording) -> IntegrityResults`, brief I1); value types `RunConfig`, `ScheduledCommand`, `ScheduledFault`, `EndSpec`, `RunReport`, `Series`, `RecordedEvent`, `RunMetadata` (+ `members`, `material_overrides`, `variation`, `integrity`); structural: `INTEGRITY_KIND`/`INTEGRITY_SOURCE` = `integrity`, `IntegrityCrossing(member, quantity, value, limit, tier=1)` (`detail()`, `parse`; brief I2 emits it), `MemberIntegrity(member, peak_stress, peak_stress_time, deflection, deflection_time, safety_factor, safety_factor_time, flags)`, `IntegrityResults(members)` (`member(name)`, JSON), `MemberSection(name, material, area, second_moment, length, extreme_fibre)` (`fibre()`), `MaterialOverridesRecord(text, sha256)`, `MATERIAL_OVERRIDES_KEY` |
 | `core_driver.py` | `CoreDriver` (physics-only or signal layer + native controller; payload body from the case (none when the case attaches none: no stand-in, the load cell has no target and reads 0 N, BLD-036), a fixed child of its carrier when attached at t = 0 and never released (ruling 24), else welded, slip and payload changes on `PhysicsParty`, freeze on `ControllerParty`, `model_columns` labels, firmware `event_codes` events from the runner party, argument decoded by kind (ruling 28), `controller_fault` events on each change of the reported fault code from none (`FAULT_KIND`, ruling 30; none at the first sample is no event), firmware events attached to the first row at or after their tick), `RecordArchiver` (extra: kinematics, labels, actuators, sink_errors, hook_errors), `core_services`; re-exports `DriverError`, `Kinematics`, `JointKinematics`, `RecordingView` (`actuator:<name>.position` = its shaft joint; operator events -> `operator_message` by the label table) and `RecordArchiveReader` from `record/reader.py` (engine-free, ruling 17) |
 | `core_wiring.py` | `signal_layer` (M2: each instance built as `core_type(instance)` = its catalog `plugin.cpp`; an encoder whose `resolution` is a length gets `linear: true` (ruling 32); a load cell target that does not resolve is a `WiringError` unless the run has no payload (then 0 N); a brake off a revolute shaft joint is a `WiringError` (ruling 29); signal wires as connections, brake at the actuator stage with `brake_parameters`, load cell payload index, amplifier ADC from `design_chip`, power_loss on the rail's supply, `undrivable_brake` is a `WiringError` naming brake and joint (ruling 29); slots from bindings, driver-to-motor connections from coil wires, rails, actuator DOFs, sensors on joints, faults injected), `controller_party` (native runtime, app target `mechsim_fw_<design name>`, host library built once per process under `$TMP/mechsim-native-build/<target>-<hz>-<tree hash>`, `host_build_dir`), `RunnerParty` (commands and E-stop presses at its first step at or after their tick, KER-023), `joint_places`, `component_parameters` (steppers also get `shaft_body` and `shaft_axial_inertia` = a^T I a, SIG-037), `axial_inertia` |
-| `runner.py` | `prepare`, `run_case`, `sweep_runs`, `run_suite`, `suite_cases`, `case_files`, `split_instance_values`, `apply_instance_overrides`, timing (`next_tick`, `exact_tick`, `rational_lcm`), `command_timeline`, `fault_timeline` (`FAULT_OWNERS`), `end_spec`, `check_precondition`, `module_seeds`, `Services`, `RunnerError` |
+| `runner.py` | `prepare`, `run_case` (`variant: Variant(sweep, sweep_index, seed, variation)`), `sweep_runs`, `variation_runs`, `run_variation` (one alone from its seed), `variation_seed`, `draw_variation`, `nominal_values`, `member_sections`, `material_overrides`, `get_design_path`/`set_design_path` (per-DOF lists: every entry), `run_suite`, `suite_cases`, `case_files`, `split_instance_values`, `apply_instance_overrides`, timing (`next_tick`, `exact_tick`, `rational_lcm`), `command_timeline`, `fault_timeline` (`FAULT_OWNERS`), `end_spec`, `check_precondition`, `module_seeds`, `Services`, `RunnerError` |
 
 ## Runner (`runner.py`, `driver.py`)
 
@@ -25,7 +25,8 @@ Examples: `test_cases/gantry/G1.yaml` to `G11.yaml`, `G13.yaml`, `G14.yaml` (dra
 | timing | times to 12 significant digits, then the next base tick; base = lcm(physics, control); fault active start <= n < end; `end.at`, `max_duration` on a tick |
 | seeds | `SeedSequence(seed).spawn` over `BuildResult.module_instances` in registration order (D1) |
 | faults | sensor_*, motor_stall, power_loss (target = rail), estop_press -> signals; slip, payload_change -> physics; controller_freeze -> controller |
-| results | every run scored (`CaseScore`); pre-t0 errors `ran=False`; a `RunnerError`/`DriverError` from `driver.run` -> `run_failed` (TST-023; `CoreDriver.run` types every binding, translation and wiring error as `DriverError`, cause kept); `RunReport.approximations` = the bridge report (SCO-013); `RunMetadata.control_rate` = the run config's, archived (base rate without a controller); archive `<out>/<run_id>.h5` when an `Archiver` and `out_dir` are given |
+| variations | variation k: seed `variation_seed(case seed, k)` (SeedSequence child, 64 bits) is the run seed and draws each parameter from `default_rng(seed)` about its nominal; run id `<case>-variation-seed<seed>`; `RunMetadata.variation`, `CaseScore.variation`; suite file `sweeps` run after each case's, suite `variations` for a case without its own |
+| results | every run scored (`CaseScore`); `Services.integrity` (none until I1) attaches `IntegrityResults` to metadata and scoring; metadata `members` from `BuildResult.members`, `material_overrides` from the design's `materials.overrides`; pre-t0 errors `ran=False`; a `RunnerError`/`DriverError` from `driver.run` -> `run_failed` (TST-023; `CoreDriver.run` types every binding, translation and wiring error as `DriverError`, cause kept); `RunReport.approximations` = the bridge report (SCO-013); `RunMetadata.control_rate` = the run config's, archived (base rate without a controller); archive `<out>/<run_id>.h5` when an `Archiver` and `out_dir` are given |
 | suites | `run_suite(path)`: a `suite.yaml` (or a folder holding one) gives name, cases in its order, design (each case must match) and baseline (a case naming another is an error, TST-008); a folder without one: `case_files` (YAML with `criteria`, natural order), the baseline the cases name, else the folder's `baseline.yaml`. Nominal run plus each sweep value (`instance:` sweeps bind as overrides); `SuiteRun.baseline` = next baseline, `.diff` = `regression_diff` (TST-027); a baseline that fails to load or names another suite is a `SuiteRun.errors` line |
 
 `RecordView.series(ref)` takes case refs plus `actuator:<name>.position`; operator messages are events of kind
@@ -41,7 +42,7 @@ Examples: `test_cases/gantry/G1.yaml` to `G11.yaml`, `G13.yaml`, `G14.yaml` (dra
 | `faults` | `kind` discriminated: sensor_stuck/noisy/dropped/forced, slip, motor_stall, power_loss (`rail`), controller_freeze, estop_press: window `end` xor `duration`; payload_change instantaneous |
 | `end` | one of at/message/controller_state, required `max_duration` |
 | `criteria` | `check` discriminated: value, interval, event, no_motion, hold_band (joints within band of their first sample, SCO-026), no_overlap (`actuator`, `start_event`, `end_event` both `event:` refs and different, `closed` default false), settle_time; below/at_most/above/at_least/within; quantity refs `signal:`, `pose:`, `joint:`, `rail:<name>` (1 on, 0 off; `.voltage`; ruling 27, scored from the rails group), `state:`, `fault:<name>` (1 while the controller reports that fault, ruling 30), `count:` (message, state, fault); event refs `message:`, `state:`, `fault:` (each change to that fault), `event:` (needs firmware); `limit_text()` feeds baselines |
-| others | sweeps, variations (stored only; parameter `${name}`, `<section>.<item>.<field>` or `instance:<name>.<field>`), `baseline` path relative to the case |
+| others | sweeps, variations (count, parameters: `${name}`, `<section>.<item>.<field>` or `instance:<name>.<field>`, normal or uniform, spread; run by the runner, TST-026), `baseline` path relative to the case; quantity refs also `safety_factor:<member>`, `deflection:<member>` (a body with `flexible`) |
 
 ## Criteria on recorded events (SCO-021, SCO-025)
 
@@ -61,10 +62,10 @@ Examples: `test_cases/gantry/G1.yaml` to `G11.yaml`, `G13.yaml`, `G14.yaml` (dra
 
 | Section | File | Line |
 |---|---|---|
-| Rows | core_driver.py | 91 |
-| Driver | core_driver.py | 234 |
-| Archives | core_driver.py | 640 |
-| Services | core_driver.py | 708 |
+| Rows | core_driver.py | 93 |
+| Driver | core_driver.py | 239 |
+| Archives | core_driver.py | 653 |
+| Services | core_driver.py | 734 |
 | Errors and runner state | core_wiring.py | 105 |
 | Runner party | core_wiring.py | 159 |
 | Joint places and inertia | core_wiring.py | 249 |
@@ -74,21 +75,22 @@ Examples: `test_cases/gantry/G1.yaml` to `G11.yaml`, `G13.yaml`, `G14.yaml` (dra
 | Controller build | core_wiring.py | 580 |
 | Signal layer | core_wiring.py | 700 |
 | Event and operator wiring | core_wiring.py | 808 |
-| Timing | runner.py | 98 |
-| Loading and resolution | runner.py | 126 |
-| Timelines | runner.py | 358 |
-| Runs | runner.py | 485 |
-| Suites | runner.py | 638 |
-| Quantities of any dimension | schema.py | 96 |
-| Header | schema.py | 187 |
-| Initial state | schema.py | 211 |
-| Commands and faults | schema.py | 285 |
-| End condition | schema.py | 422 |
-| Pass criteria | schema.py | 454 |
-| Sweeps and variations | schema.py | 717 |
-| Test case | schema.py | 763 |
-| Cross-check against the design | schema.py | 829 |
-| Suite file | schema.py | 1132 |
-| Files and schema | schema.py | 1201 |
+| Timing | runner.py | 108 |
+| Loading and resolution | runner.py | 136 |
+| Timelines | runner.py | 391 |
+| Runs | runner.py | 518 |
+| Variations | runner.py | 773 |
+| Suites | runner.py | 903 |
+| Quantities of any dimension | schema.py | 97 |
+| Header | schema.py | 194 |
+| Initial state | schema.py | 218 |
+| Commands and faults | schema.py | 292 |
+| End condition | schema.py | 429 |
+| Pass criteria | schema.py | 461 |
+| Sweeps and variations | schema.py | 726 |
+| Test case | schema.py | 773 |
+| Cross-check against the design | schema.py | 839 |
+| Suite file | schema.py | 1148 |
+| Files and schema | schema.py | 1224 |
 | Diff | baseline.py | 130 |
 | Files and schema | baseline.py | 182 |

@@ -146,6 +146,12 @@ class ValueAtPayload(StrictModel):
     t: SimTime
 
 
+class SwingAnglePayload(StrictModel):
+    run_id: RunId
+    load: NonEmptyText = Field(description="The suspended load's body.")
+    attachment: NonEmptyText = Field(description="The body it hangs from, or world.")
+
+
 class ProbePayload(StrictModel):
     run_id: RunId
     probe: Literal["body", "joint", "pin", "signal"]
@@ -325,6 +331,16 @@ class ProbeRequest(_Envelope):
     payload: ProbePayload
 
 
+class MemberStressRequest(_Envelope):
+    kind: Literal["member_stress"]
+    payload: ReplayRefPayload
+
+
+class SwingAngleRequest(_Envelope):
+    kind: Literal["swing_angle"]
+    payload: SwingAnglePayload
+
+
 class ReportRequest(_Envelope):
     kind: Literal["report"]
     payload: SuiteRefPayload
@@ -392,6 +408,8 @@ Message = Annotated[
     | GeometryRequest
     | ValueAtRequest
     | ProbeRequest
+    | MemberStressRequest
+    | SwingAngleRequest
     | ReportRequest
     | DiffRequest
     | ReadFileRequest

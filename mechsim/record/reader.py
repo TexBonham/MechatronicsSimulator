@@ -18,7 +18,17 @@ from numpy.typing import NDArray
 from mechsim.physics.neutral import PhysicsModel
 from mechsim.record.archive import RunArchive
 from mechsim.record.layout import CONTROLLER_STATE, NAMED_GROUPS, Recording
-from mechsim.testing.driver import MESSAGE_KIND, RecordedEvent, RunMetadata, RunReport, Series
+from mechsim.testing.driver import (
+    MATERIAL_OVERRIDES_KEY,
+    MESSAGE_KIND,
+    IntegrityResults,
+    MaterialOverridesRecord,
+    RecordedEvent,
+    RunMetadata,
+    RunReport,
+    Series,
+    members_from_json,
+)
 from mechsim.testing.runner import RunnerError
 
 OPERATOR_EVENT_KINDS = ("operator_status", "operator_command")
@@ -382,6 +392,10 @@ class RecordArchiveReader:
             ),
             bindings=tuple((item[0], item[1]) for item in json.loads(extra["bindings"])),
             control_rate=control_rate,
+            members=members_from_json(extra.get("members", "[]")),
+            material_overrides=_overrides(extra),
+            variation=_variation(extra.get("variation", "null")),
+            integrity=_integrity(extra),
         )
         labels = json.loads(extra.get("labels", "{}"))
         actuators = json.loads(extra.get("actuators", "{}"))
@@ -389,3 +403,22 @@ class RecordArchiveReader:
         return metadata, RecordingView(
             recording, Kinematics.from_json(extra["kinematics"]), approximations, labels, actuators, states
         )
+
+
+def _overrides(extra: dict[str, str]) -> MaterialOverridesRecord | None:
+    if MATERIAL_OVERRIDES_KEY not in extra:
+        return None
+    return MaterialOverridesRecord(extra[MATERIAL_OVERRIDES_KEY], extra[f"{MATERIAL_OVERRIDES_KEY}_sha256"])
+
+
+def _variation(text: str) -> tuple[tuple[str, str], ...] | None:
+    data = json.loads(text)
+    if data is None:
+        return None
+    return tuple((str(item[0]), str(item[1])) for item in data)
+
+
+def _integrity(extra: dict[str, str]) -> IntegrityResults | None:
+    if "integrity" not in extra:
+        return None
+    return IntegrityResults.from_json(extra["integrity"])
