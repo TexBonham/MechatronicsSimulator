@@ -53,3 +53,4 @@ type live in the root `CLAUDE.md` dispatch table once measured.
 | 2026-11-12 | M3-N2b verify and finish the adapter fix round (wip/05-n 0984229): beams within 2 percent, G3 and P1 on native with flexible rails | module-writer (opus) | 119K | 73 calls; ctest debug-sanitize 454 |
 | 2026-11-12 | M3-N re-review after N2 and N2b: accept as a stage commit; rulings 45 and 46; findings carried to N3 | Fable review (general-purpose), resumed | ~76K | 12 calls |
 | 2026-11-12 | M3-N2 and N2b invariant audit: clean, kernel spec row owed | invariant-auditor (sonnet) | 23K | 4 calls |
+| 2026-11-12 | M3-E4 fix round: additive drive, anticipatory limit row, driven-only decay with the two-DOF root (wip/05-e4 0f38738) | module-writer (opus), resumed | ~60K | 26 calls; ctest debug-sanitize 478 |
