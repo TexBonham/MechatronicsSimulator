@@ -74,6 +74,13 @@ core_driver.py` and `core_wiring.py` only for the adapter selection (run configu
   per tick, and delivers each once.
 - A payload release is `release_load(Payload)` emitting `LoadReleased` with source Payload; there is no
   `PayloadReleased`; a second release is an engine error and ends the run (invariant 7).
+- Three lows carried from the E3 re-review, the only edits you make under `core/engine/`: (a)
+  `core/engine/tests/test_lumped_beam.cpp:191`, the rotated-parent Clamped case also asserts `constraint_errors` at
+  neutral (rotational part zero), so the hinge axis under orientation is checked; (b)
+  `tests/unit/test_engine_bindings.py:184`, use in-plane gravity so the torque and `end_moment` are non-zero and
+  asserted by value; (c) `docs/spec/eng.md:110` and `core/engine/include/mechsim/engine/lumped_beam.hpp:42` still
+  say "N = 16 or calibrate": reword to ruling 32 (sixteen for clamped-clamped; a calibrated clamped member below
+  sixteen is a build error).
 - Builds and test runs: prefer the foreground with a 600000 ms timeout, split into build and ctest calls when one
   would exceed it. E3 lost 45 minutes waiting on background tasks whose completion never arrived: if you do start a
   background build, confirm its process is alive (`ps`) before waiting and never wait on an output file alone.
