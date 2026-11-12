@@ -114,7 +114,7 @@ Run run(integrity::Limits limits, std::function<kernel::PhysicsOutputs(double)> 
         k.set_end_triggers(kernel::EndTriggers{std::nullopt, "", "integrity"});
     }
     kernel::InMemoryRecorderSink sink;
-    out.report = k.run(kernel::EndCondition{kernel::Seconds(ticks, 1000)}, sink);
+    out.report = k.run(kernel::EndCondition{kernel::Seconds(ticks, 1000), {}}, sink);
     out.rows = sink.drain();
     out.crossings = out.trace->crossings;
     return out;

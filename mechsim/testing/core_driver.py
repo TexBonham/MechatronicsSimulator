@@ -16,8 +16,8 @@ import hashlib
 import json
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import replace
-from functools import partial
 from fractions import Fraction
+from functools import partial
 from pathlib import Path
 from typing import Any
 

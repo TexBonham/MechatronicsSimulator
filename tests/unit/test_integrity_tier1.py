@@ -192,7 +192,8 @@ def test_the_service_needs_the_file_and_a_tier_1_check(tmp_path: Path) -> None:
     )
     setup = service(build, model)
     assert setup is not None
-    assert setup.yield_offset and setup.halt_on_crossing
+    assert setup.yield_offset
+    assert setup.halt_on_crossing
     assert setup.approximations == (YIELD_RULE,)
     assert json.loads(setup.limits)["checks"]["yield_offset"] is True
 
@@ -324,9 +325,7 @@ def mount_config(rating: str = "1e-9 N") -> IntegrityConfig:
     return config({"check": "fastener", "parameters": {"ratings": {"rail_x_mount": rating}}})
 
 
-def gantry_run(
-    tmp_path: Path, adapter: str, tier1: IntegrityConfig | None, extra: str = ""
-) -> tuple[Any, CoreDriver]:
+def gantry_run(tmp_path: Path, adapter: str, tier1: IntegrityConfig | None, extra: str = "") -> tuple[Any, CoreDriver]:
     path = G1
     if extra:
         path = tmp_path / G1.name
@@ -378,7 +377,9 @@ def test_a_native_crossing_is_one_integrity_event_and_fails_the_case(tmp_path: P
     assert len(events) == 1
     (event,) = events
     crossing = IntegrityCrossing.parse(event.detail)
-    assert (crossing.member, crossing.quantity, crossing.limit, crossing.tier) == ("rail_x_mount", "fastener_load", 1e-9, 1)
+    # The limit is the rating over the gantry's minimum safety factor 1.5 (the fastener check's margin rule).
+    assert (crossing.member, crossing.quantity, crossing.tier) == ("rail_x_mount", "fastener_load", 1)
+    assert crossing.limit == pytest.approx(1e-9 / 1.5, rel=1e-15)
     assert event.detail == crossing.detail()
     assert event.source == "integrity"
     # The first row is stamped at the end of the first step (1 ms): the mount carries the rail from the start.
@@ -390,8 +391,10 @@ def test_a_native_crossing_is_one_integrity_event_and_fails_the_case(tmp_path: P
 
 
 @pytest.mark.req("INT-026", "TST-041", "KER-017")
-@pytest.mark.parametrize(("extra", "halts"), [("", False), ("integrity:\n  halt_on_crossing: false", False),
-                                              ("integrity:\n  halt_on_crossing: true", True)])
+@pytest.mark.parametrize(
+    ("extra", "halts"),
+    [("", False), ("integrity:\n  halt_on_crossing: false", False), ("integrity:\n  halt_on_crossing: true", True)],
+)
 def test_halting_ends_the_run_at_the_crossing(tmp_path: Path, extra: str, halts: bool) -> None:
     result, driver = gantry_run(tmp_path, "native", mount_config(), extra)
     assert len(integrity_events(driver)) == 1

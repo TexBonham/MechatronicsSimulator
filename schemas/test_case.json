@@ -416,6 +416,20 @@
       "title": "InitialState",
       "type": "object"
     },
+    "IntegritySettings": {
+      "additionalProperties": false,
+      "description": "The case's integrity section (INT-026, ADR 0010 amendment, round 5 ruling 4): `halt_on_crossing` true ends\nthe run at the first tier 1 limit crossing, false lets it run to its end; the case fails on a crossing either\nway (INT-025). Absent, the design's `integrity.yaml` value applies (default false).",
+      "properties": {
+        "halt_on_crossing": {
+          "default": false,
+          "description": "End the run at the first tier 1 crossing (INT-026).",
+          "title": "Halt On Crossing",
+          "type": "boolean"
+        }
+      },
+      "title": "IntegritySettings",
+      "type": "object"
+    },
     "IntervalCriterion": {
       "additionalProperties": false,
       "description": "The simulated time from one recorded event to the next (SCO-021).",
@@ -1863,6 +1877,17 @@
     },
     "initial_state": {
       "$ref": "#/$defs/InitialState"
+    },
+    "integrity": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/IntegritySettings"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
     },
     "open_parameters": {
       "items": {

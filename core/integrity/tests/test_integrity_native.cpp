@@ -142,7 +142,7 @@ Result run(bool stress, bool yield) {
         std::make_unique<integrity::IntegrityParty>(limits(stress, yield), integrity::IntegrityPartyConfig{}, out.trace));
     k.register_party(std::make_unique<TipLoad>());
     kernel::InMemoryRecorderSink sink;
-    out.report = k.run(kernel::EndCondition{kernel::Seconds(ticks, 1000)}, sink);
+    out.report = k.run(kernel::EndCondition{kernel::Seconds(ticks, 1000), {}}, sink);
     const std::vector<kernel::TickRecord> rows = sink.drain();
     for (const kernel::TickRecord& row : rows) {
         for (const kernel::RecordedEvent& event : row.events) {

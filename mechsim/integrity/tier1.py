@@ -253,6 +253,8 @@ class Tier1Service:
         if table["checks"]["yield_offset"]:
             approximations = (YIELD_RULE,)
         return Tier1Setup(
-            json.dumps(table, sort_keys=True), bool(table["checks"]["yield_offset"]), config.halt_on_crossing,
-            approximations
+            json.dumps(table, sort_keys=True),
+            bool(table["checks"]["yield_offset"]),
+            config.halt_on_crossing,
+            approximations,
         )

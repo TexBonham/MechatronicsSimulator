@@ -19,5 +19,7 @@ def test_a_gantry_run_with_tier_1_raises_the_same_events_twice(tmp_path: Path) -
     b = [(event.time.hex(), event.source, event.kind, event.detail) for event in two.recording().events()]
     assert any(kind == "integrity" for _, _, kind, _ in a)
     assert a == b
-    assert [c.value.hex() for c in one.integrity_trace.crossings] == [c.value.hex() for c in two.integrity_trace.crossings]
+    assert [c.value.hex() for c in one.integrity_trace.crossings] == [
+        c.value.hex() for c in two.integrity_trace.crossings
+    ]
     assert first.report == second.report
