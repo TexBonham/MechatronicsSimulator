@@ -4,14 +4,12 @@ State for the coordinating session. A new session reads this, then `docs/rulings
 
 ## Current checkpoint
 
-Round 4 (milestone 2) complete on `round/04-milestone-2` pending the owner's gate review (W-02: the final pre-gate
-commit comes back for review; it is prepared, uncommitted, in the working tree of the main checkout, message in the
-session's last report). Stage commits: prep 8aa11f3, G b99aba9, D 7b98dda, C and A1 fea1b9c, W e0d817e, F1 76e5738,
-A2 and B 66f6127, F2 ee5448b, integration wave 5d553cc, reference label f01c3a7, F3 2a17003, docs stage (head).
-Gate review: pass with owner confirmations (gate report below). Blocking until done, owner action: push the branch
-and get one green CI run (the session cannot push), then review the gate commit, confirm the rulings listed in the
-gate report, and merge to main with a merge commit. Round 5 (milestone 3) is planned after that; the M3 carry list
-is in the gate report. Worktrees of the round were removed; their `wip/04-*` branches remain for the record.
+Round 4 (milestone 2) complete on `round/04-milestone-2` at debbd1d (pushed; CI green on all three workflows, both
+runners). Gate commit 4a606ea, then Windows-only facade fixes, then the gantry team's answers (PR #5) landed as a data
+stage with the suite 13 of 13 and the baseline re-recorded. Waiting on the owner: the round PR to main (text shown in
+the session; merge with a merge commit), and the gantry team's open rows in `docs/gantry-team-inputs.md` (overload
+sensor, motor datasheet, belt ratings, heartbeat and watchdog timing, encoder mismatch threshold). Round 5
+(milestone 3) is planned after the merge; its carry list is in the gate report below.
 
 ## Round 4 rulings (owner 2026-11-11: every ruling confirmed at its planned default; ruling 2 stays a placeholder with I2C and SPI peripheral modes added to the milestone 4 scope)
 
