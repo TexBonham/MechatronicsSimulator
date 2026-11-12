@@ -84,21 +84,21 @@ Load releases (constraint, rope or payload weld, requested or by snap) go throug
 | Construction | 266 |
 | Kinematics | 343 |
 | Dynamics | 415 |
-| Transmissions | 521 |
-| Constraints | 620 |
-| Members, ropes and model changes | 770 |
-| Inputs and outputs | 1194 |
+| Transmissions | 647 |
+| Constraints | 746 |
+| Members, ropes and model changes | 896 |
+| Inputs and outputs | 1325 |
 
 ## Section index, `src/collision.cpp`
 
 | Section | Line |
 |---|---|
 | Shapes | 16 |
-| Broad phase | 183 |
-| Closed forms | 246 |
-| GJK | 417 |
+| Broad phase | 180 |
+| Closed forms | 243 |
+| GJK | 414 |
 | EPA | 582 |
-| Narrow phase | 734 |
+| Narrow phase | 743 |
 
 ## Collision and contact (ADR 0002, ENG-016 to ENG-021)
 

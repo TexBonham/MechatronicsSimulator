@@ -327,7 +327,7 @@ TEST_CASE("contact enters evaluate as force, K and D blocks", "[ENG-020]") {
     // Ball r 0.05 at z = 0.04 (depth 0.01) on the floor. Free joint v = [w; v_lin] (body = world axes here); the
     // contact point (0, 0, -0.01) lies under the origin, so its z velocity is v_z alone: G's z row is e_5. Hence
     // K = K_n e5 e5^T and f_5 = K_n d = 1000 N.
-    MultibodyProvider provider = resting_ball(1e5);
+    const MultibodyProvider provider = resting_ball(1e5);
     Eigen::VectorXd q = provider.neutral_positions();
     q[2] = 0.04;
     const Eigen::VectorXd v = Eigen::VectorXd::Zero(6);
@@ -373,7 +373,7 @@ TEST_CASE("exclusions, material pairs and same-body geometry", "[ENG-020]") {
     Geometry ball = geometry("sphere", 0);
     ball.radius = 0.05;
     ball.material = "rubber";
-    Geometry twin = ball;
+    const Geometry twin = ball;
     ContactModel contacts;
     contacts.geometries = {floor_plane(), ball, twin};
     contacts.pairs.push_back({"rubber", "steel", {2e5, 0.0, 0.0}});
@@ -383,7 +383,7 @@ TEST_CASE("exclusions, material pairs and same-body geometry", "[ENG-020]") {
     const Eigen::VectorXd v = Eigen::VectorXd::Zero(6);
     // Two floor contacts (ball and twin), none between the two spheres of one body; the pair's K_n = 2e5 gives
     // 2e5 * 0.01 = 2000 N each.
-    std::vector<ContactOutput> found = provider.contacts(q, v);
+    const std::vector<ContactOutput> found = provider.contacts(q, v);
     REQUIRE(found.size() == 2);
     for (const ContactOutput& c : found) {
         CHECK(std::abs(c.force.z() + 2000.0) <= 1e-6);

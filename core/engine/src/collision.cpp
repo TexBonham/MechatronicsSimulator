@@ -365,6 +365,7 @@ std::vector<Eigen::Vector3d> plane_features(const Shape& shape, const Pose& pose
         }
         case ShapeKind::ConvexHull: {
             std::vector<Eigen::Vector3d> points;
+            points.reserve(shape.vertices.size());
             for (const Eigen::Vector3d& v : shape.vertices) {
                 points.emplace_back(pose.position + pose.rotation * v);
             }

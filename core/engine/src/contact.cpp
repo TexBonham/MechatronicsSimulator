@@ -1,5 +1,6 @@
 #include "mechsim/engine/contact.hpp"
 
+#include <algorithm>
 #include <cmath>
 #include <numbers>
 #include <string>
@@ -84,12 +85,9 @@ const ContactParameters& contact_parameters(const ContactModel& model, const std
 }
 
 bool excluded(const ContactModel& model, Eigen::Index body_a, Eigen::Index body_b) {
-    for (const auto& [a, b] : model.exclusions) {
-        if ((a == body_a && b == body_b) || (a == body_b && b == body_a)) {
-            return true;
-        }
-    }
-    return false;
+    return std::ranges::any_of(model.exclusions, [body_a, body_b](const auto& pair) {
+        return (pair.first == body_a && pair.second == body_b) || (pair.first == body_b && pair.second == body_a);
+    });
 }
 
 ContactForce contact_force(const ContactParameters& parameters, double slip_velocity, const ContactPoint& contact,

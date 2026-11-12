@@ -78,7 +78,7 @@ void settle(MultibodyProvider& provider, SemiImplicitEuler& integrator, State& s
 // x_tip = L (1 - O((delta / L)^2)), so M_z = P L within 1e-10 relative. The remaining components vanish.
 TEST_CASE("cantilever root end-load is the tip load's shear and moment", "[ENG-030][reference]") {
     const BeamSpec spec = steel_bar(1.0, BeamEnds::Cantilever, 4);
-    Rig r = rig(spec, cantilever_omega(spec));
+    const Rig r = rig(spec, cantilever_omega(spec));
     MultibodyProvider provider(r.model);
     SemiImplicitEuler integrator(StepConfig{});
     State state{provider.neutral_positions(), Eigen::VectorXd::Zero(provider.velocity_size()), 0.0};
@@ -109,7 +109,7 @@ TEST_CASE("cantilever root end-load is the tip load's shear and moment", "[ENG-0
 // carries no moment (no node spring at x = 0) and the roller point constraint none.
 TEST_CASE("simply supported end-loads are half the midspan load with zero end moments", "[ENG-030][reference]") {
     const BeamSpec spec = steel_bar(1.5, BeamEnds::SimplySupported, 4);
-    Rig r = rig(spec, std::numbers::pi * std::numbers::pi * frequency_scale(spec));
+    const Rig r = rig(spec, std::numbers::pi * std::numbers::pi * frequency_scale(spec));
     MultibodyProvider provider(r.model);
     SemiImplicitEuler integrator(StepConfig{});
     State state{provider.neutral_positions(), Eigen::VectorXd::Zero(provider.velocity_size()), 0.0};
@@ -139,7 +139,7 @@ TEST_CASE("a root spring offset rotates the cantilever about its node", "[ENG-03
     const BeamSpec spec = steel_bar(1.0, BeamEnds::Cantilever, 4);
     const double length = spec.length;
     const double lever = length - 0.5 * length / spec.segments;
-    Rig r = rig(spec, cantilever_omega(spec));
+    const Rig r = rig(spec, cantilever_omega(spec));
     const BeamPoint tip = beam_point(r.beam, length);
 
     SECTION("unloaded: exact rigid rotation") {
@@ -180,7 +180,7 @@ TEST_CASE("halving one node's stiffness adds that node's share of the deflection
     const double length = spec.length;
     const double l = length / spec.segments;
     const auto node = GENERATE(0, 1, 2);
-    Rig r = rig(spec, cantilever_omega(spec));
+    const Rig r = rig(spec, cantilever_omega(spec));
     MultibodyProvider provider(r.model);
     SemiImplicitEuler integrator(StepConfig{});
     State state{provider.neutral_positions(), Eigen::VectorXd::Zero(provider.velocity_size()), 0.0};

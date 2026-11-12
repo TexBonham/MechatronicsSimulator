@@ -104,7 +104,7 @@ double chain_omega(const RopePendulum& p) {
 // Brief: negligible rope mass (m_r / M = 1e-4), N = 4, the 1 ms default: period 2 pi sqrt(L / g) within 0.5 %.
 // Budget: added mass ~ m_r / (6 M) = 2e-5, scheme (omega h)^2 / 3 = 3e-6, amplitude 2.5e-5.
 TEST_CASE("rope pendulum with negligible rope mass has the point-mass period", "[ENG-047][reference]") {
-    RopePendulum p = rope_pendulum(4, 1.0, 1e-4, theta0, 0.0);
+    const RopePendulum p = rope_pendulum(4, 1.0, 1e-4, theta0, 0.0);
     MultibodyProvider provider(p.model);
     SemiImplicitEuler integrator(StepConfig{});
     State state = start(provider);
@@ -124,7 +124,7 @@ TEST_CASE("rope pendulum with negligible rope mass has the point-mass period", "
 // the chain's exact linearized eigenvalue at the same 0.1 % (Rayleigh error second order in m_r / M).
 TEST_CASE("rope pendulum with rope mass keeps the chain period and amplitude over 20 periods",
           "[ENG-047][reference]") {
-    RopePendulum p = rope_pendulum(4, 1.0, 0.05, theta0, 0.0);
+    const RopePendulum p = rope_pendulum(4, 1.0, 0.05, theta0, 0.0);
     MultibodyProvider provider(p.model);
     StepConfig config;
     config.h = 5e-5;
@@ -153,7 +153,7 @@ TEST_CASE("rope pendulum with rope mass keeps the chain period and amplitude ove
 // predicts, A(t) / A0 = (1 + omega^2 h^2)^(-t / (2 h)); asserted within 10 % of the predicted loss over 10 periods
 // (the chain's other modes and the start-up axial transient are not in the single-mode prediction).
 TEST_CASE("rope pendulum numerical swing decay at 1 ms is the implicit scheme's", "[ENG-047][reference]") {
-    RopePendulum p = rope_pendulum(4, 1.0, 1e-3, theta0, 0.0);
+    const RopePendulum p = rope_pendulum(4, 1.0, 1e-3, theta0, 0.0);
     MultibodyProvider provider(p.model);
     SemiImplicitEuler integrator(StepConfig{});
     State state = start(provider);
@@ -177,9 +177,9 @@ TEST_CASE("rope pendulum numerical swing decay at 1 ms is the implicit scheme's"
 TEST_CASE("rope pendulum on a damped attachment decays with the joint's logarithmic decrement",
           "[ENG-047][reference]") {
     const double zeta = 0.02;
-    RopePendulum shape = rope_pendulum(4, 1.0, 1e-3, theta0, 0.0);
+    const RopePendulum shape = rope_pendulum(4, 1.0, 1e-3, theta0, 0.0);
     const double damping = 2.0 * zeta * std::sqrt(pendulum_inertia(shape) * gravity * pendulum_moment(shape));
-    RopePendulum p = rope_pendulum(4, 1.0, 1e-3, theta0, damping);
+    const RopePendulum p = rope_pendulum(4, 1.0, 1e-3, theta0, damping);
     MultibodyProvider provider(p.model);
     StepConfig config;
     config.h = 1e-4;

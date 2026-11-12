@@ -79,7 +79,7 @@ TEST_CASE("add_rope builds N - 1 nodes and conserves the rope mass", "[ENG-047]"
     REQUIRE(std::abs(model.bodies[0].mass - (3.0 + 0.05 * l)) <= 1e-15);
     REQUIRE(std::abs(model.bodies[static_cast<std::size_t>(bob)].mass - (1.0 + 0.05 * l)) <= 1e-15);
     REQUIRE(std::abs(nodes + 0.1 * l - 0.1) <= 1e-15);
-    MultibodyProvider provider(model);
+    const MultibodyProvider provider(model);
     REQUIRE(provider.velocity_size() == 3 + 3 + 3 * 3);
 }
 
@@ -167,7 +167,7 @@ TEST_CASE("a taut segment adds axial and geometric stiffness", "[ENG-047]") {
     rope.rest_length = 0.9;
     rope.damping = 3.0;
     static_cast<void>(add_rope(model, rope, Eigen::Vector3d::Zero(), at));
-    MultibodyProvider provider(model);
+    const MultibodyProvider provider(model);
     DynamicsTerms terms;
     const State state = rest_state(provider);
     provider.evaluate(0.0, state.q, state.v, terms);
@@ -197,7 +197,7 @@ TEST_CASE("the top attachment damps and rubs the swing", "[ENG-047]") {
     rope.attachment_damping = 0.2;
     rope.attachment_friction = 0.05;
     static_cast<void>(add_rope(model, rope, Eigen::Vector3d::Zero(), at));
-    MultibodyProvider provider(model);
+    const MultibodyProvider provider(model);
     const double u = -0.3;
     Eigen::VectorXd v = Eigen::VectorXd::Zero(provider.velocity_size());
     v[0] = u;
@@ -227,7 +227,7 @@ TEST_CASE("the top attachment damps and rubs the swing", "[ENG-047]") {
 }
 
 TEST_CASE("a non-positive friction slip threshold is rejected", "[ENG-047]") {
-    MultibodyModel model;
+    const MultibodyModel model{};
     mechsim::engine::MultibodyConfig config;
     config.friction_slip_threshold = 0.0;
     REQUIRE_THROWS(MultibodyProvider(model, config));
