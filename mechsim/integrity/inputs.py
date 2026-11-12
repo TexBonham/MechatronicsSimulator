@@ -85,6 +85,24 @@ def _series_reader(recording: RecordView) -> Any:
     return read
 
 
+def member_axes(build: Any) -> dict[str, tuple[float, float, float]]:
+    """Member x axis (start to end) in its parent body's frame, from the lumped member's placement, the rotation the
+    recorder's member frame uses (ruling 24); keyed by structural member name. A member without a lumped record
+    (a rigid build) is absent and keeps the body x axis."""
+    physics = getattr(build, "physics", None)
+    out: dict[str, tuple[float, float, float]] = {}
+    if physics is None:
+        return out
+    for lumped in getattr(physics, "lumped_members", ()):
+        w, x, y, z = (float(value) for value in lumped.orientation)
+        axis = (1.0 - 2.0 * (y * y + z * z), 2.0 * (x * y + w * z), 2.0 * (x * z - w * y))
+        name = lumped.structural_member
+        if name is None:
+            name = lumped.name
+        out[str(name)] = axis
+    return out
+
+
 def run_inputs(build: Any, recording: RecordView, materials: Mapping[str, MaterialView]) -> RunInputs:
     """`build` is the builder's `BuildResult`; `recording` the run's `RecordView` (a `RecordingView` carries the raw
     recording the end-loads come from)."""
@@ -101,6 +119,7 @@ def run_inputs(build: Any, recording: RecordView, materials: Mapping[str, Materi
     for record in getattr(build, "lumped", ()):
         if getattr(record, "calibrated", False) and record.calibration_frequency is not None:
             calibrated[str(record.member)] = float(record.calibration_frequency)
+    placements = member_axes(build)
     members: list[MemberInputs] = []
     holder: dict[str, str] = {}
     for member in members_list:
@@ -118,6 +137,7 @@ def run_inputs(build: Any, recording: RecordView, materials: Mapping[str, Materi
                 supports=supports,
                 loads=loads,
                 natural_frequency=calibrated.get(name),
+                axis_body=placements.get(name, (1.0, 0.0, 0.0)),
                 mounts=mounts,
             )
         )

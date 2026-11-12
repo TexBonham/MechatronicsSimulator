@@ -9,7 +9,6 @@ import numpy as np
 from pydantic import Field
 
 from mechsim.integrity.beam import mount_stress, normal_stress, peak
-from mechsim.integrity.checks.strength import judged
 from mechsim.integrity.plugin import (
     CheckResult,
     CheckRow,
@@ -22,6 +21,14 @@ from mechsim.integrity.plugin import (
     TimeQuantity,
 )
 from mechsim.schema_base import StrictModel
+
+FLAG = "impact_margin_below_minimum"
+
+
+def judged(inputs: RunInputs, margin: Spread) -> tuple[str, ...]:
+    if inputs.minimum_safety_factor is not None and margin.min < inputs.minimum_safety_factor:
+        return (FLAG,)
+    return ()
 
 
 class ImpactParameters(StrictModel):

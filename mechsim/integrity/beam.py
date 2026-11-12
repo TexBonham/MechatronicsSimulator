@@ -162,7 +162,10 @@ def deflection(member: MemberInputs, loads: Wrenches) -> FloatArray:
     """Peak transverse deflection magnitude (rows,) along the member per sample, quasi-static from the end-loads:
     E I v'' equals the internal moment from the start wrench and the interior load resolved to one point load at its
     statically equivalent position, with the support conditions fixing the rigid-body terms. Exact for end loads and
-    one interior point load; for a uniform load it reads high (simply supported: 1/48 against 5/384 of W L^3 / E I)."""
+    one interior point load. For a distributed load it reads high on a member supported at both ends (simply supported:
+    1/48 against 5/384 of W L^3 / E I) and low on a cantilever (tip: 5/48 against 1/8 of w L^4 / E I, 17 percent
+    under). With more support conditions than rigid terms (clamped-clamped: four for two) the terms are a least-squares
+    fit, exact when the recorded end-loads are in equilibrium with the resolved interior load (ruling 28)."""
     section = member.section
     length = section.length
     points = [length * index / (GRID_POINTS - 1) for index in range(GRID_POINTS)]

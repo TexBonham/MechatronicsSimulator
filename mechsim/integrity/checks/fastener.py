@@ -1,5 +1,5 @@
 """Fastener (INT-010): each fastener set's peak load from its joint's recorded reaction force, against the grade's
-rating (the configuration's `ratings`, else the build's), margin = rating / peak."""
+rating from the configuration's `ratings` (catalog grade ratings are owed, ruling 27), margin = rating / peak."""
 
 from __future__ import annotations
 
@@ -36,7 +36,7 @@ class Fastener(IntegrityCheck):
         for joint in inputs.joints:
             if joint.kind != "fastener":
                 continue
-            rating = parameters.ratings.get(joint.name, joint.rating)
+            rating = parameters.ratings.get(joint.name)
             if rating is None or rating <= 0.0:
                 raise IntegrityError(f"fastener {joint.name!r}: no load rating")
             value, time = peak(np.linalg.norm(joint.force * inputs.load_factor, axis=1), inputs.times)

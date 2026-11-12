@@ -25,7 +25,7 @@ from mechsim.integrity.checks.resonance import Resonance, ResonanceParameters
 from mechsim.integrity.checks.strength import Strength
 from mechsim.integrity.config import IntegrityConfig, config_for, load_config, parse_config
 from mechsim.integrity.export import load_case, write_beside
-from mechsim.integrity.inputs import run_inputs, section_properties
+from mechsim.integrity.inputs import member_axes, run_inputs, section_properties
 from mechsim.integrity.plugin import (
     CheckResult,
     IntegrityCheck,
@@ -58,6 +58,7 @@ from tests.reference.test_integrity_checks import (
 )
 
 EXAMPLE = Path(__file__).resolve().parents[2] / "schemas" / "examples" / "integrity.yaml"
+STATIC = "approximation: static deflection from end loads"
 SHIPPED = ("buckling", "deflection", "fastener", "fatigue", "impact", "resonance", "strength")
 
 
@@ -337,6 +338,7 @@ def test_a_design_without_a_structural_section_applies_no_rule() -> None:
     assert (run.load_factor, run.minimum_safety_factor, run.deflection_limit) == (1.0, None, None)
     assert evaluate(IntegrityConfig(schema_version=1), run).member("rail").flags == (
         "approximation: single-axis section",
+        STATIC,
     )
 
 
@@ -426,12 +428,12 @@ def test_members_and_mounts_below_the_minimum_safety_factor_are_flagged() -> Non
     run = inputs([member(cantilever(flagged_load))], 3, joints=(weak,), minimum_safety_factor=1.5)
     table = evaluate(IntegrityConfig(schema_version=1), run)
     assert table.member("rail").safety_factor == pytest.approx(1.0)
-    assert table.member("rail").flags == ("safety_factor_below_minimum",)
+    assert table.member("rail").flags == (STATIC, "safety_factor_below_minimum")
     assert table.member("mount").flags == ("safety_factor_below_minimum",)
     safe = inputs([member(cantilever(flagged_load / 2.0))], 3, minimum_safety_factor=1.5)
-    assert evaluate(IntegrityConfig(schema_version=1), safe).member("rail").flags == ()
+    assert evaluate(IntegrityConfig(schema_version=1), safe).member("rail").flags == (STATIC,)
     unset = inputs([member(cantilever(flagged_load))], 3)
-    assert evaluate(IntegrityConfig(schema_version=1), unset).member("rail").flags == ()
+    assert evaluate(IntegrityConfig(schema_version=1), unset).member("rail").flags == (STATIC,)
 
 
 @pytest.mark.req("INT-021")
@@ -441,11 +443,11 @@ def test_members_over_the_deflection_target_are_flagged() -> None:
     over = evaluate(
         IntegrityConfig(schema_version=1), inputs([member(cantilever(load))], 2, deflection_limit=tip * 0.99)
     )
-    assert over.member("rail").flags == ("deflection_over_target",)
+    assert over.member("rail").flags == (STATIC, "deflection_over_target")
     under = evaluate(
         IntegrityConfig(schema_version=1), inputs([member(cantilever(load))], 2, deflection_limit=tip * 1.01)
     )
-    assert under.member("rail").flags == ()
+    assert under.member("rail").flags == (STATIC,)
 
 
 # ===== Per-member table (INT-022) =======================================
@@ -623,7 +625,7 @@ def test_fatigue_flags_damage_at_the_limit() -> None:
     report = evaluate(config, inputs([member(loads)], rows))
     assert "fatigue_damage_over_limit" in report.member("rail").flags
     quiet = evaluate(config, inputs([member(constant(rows))], rows))
-    assert quiet.member("rail").flags == ()
+    assert quiet.member("rail").flags == (STATIC,)
 
 
 @pytest.mark.req("INT-006")
@@ -661,16 +663,23 @@ def test_buckling_skips_tension_members_and_honours_an_override() -> None:
 def test_fastener_edges() -> None:
     rows = 2
     force = np.tile([0.0, 0.0, 300.0], (rows, 1))
-    over = JointLoads("bolts", "fastener", "j", force, np.zeros((rows, 3)), rating=200.0)
-    (row,) = Fastener().evaluate(inputs([], rows, joints=(over,)), FastenerParameters(), 1).rows
+    over = JointLoads("bolts", "fastener", "j", force, np.zeros((rows, 3)))
+    rated = FastenerParameters.model_validate({"ratings": {"bolts": "200 N", "idle": "200 N"}})
+    (row,) = Fastener().evaluate(inputs([], rows, joints=(over,)), rated, 1).rows
     assert row.flags == ("fastener_margin_below_minimum",)
-    idle = JointLoads("idle", "fastener", "j", np.zeros((rows, 3)), np.zeros((rows, 3)), rating=200.0)
-    (row,) = Fastener().evaluate(inputs([], rows, joints=(idle,)), FastenerParameters(), 1).rows
+    idle = JointLoads("idle", "fastener", "j", np.zeros((rows, 3)), np.zeros((rows, 3)))
+    (row,) = Fastener().evaluate(inputs([], rows, joints=(idle,)), rated, 1).rows
     assert row.margin is not None
     assert row.margin.typ == math.inf
-    within = JointLoads("bolts", "fastener", "j", force, np.zeros((rows, 3)), rating=500.0)
+    within = JointLoads("bolts", "fastener", "j", force, np.zeros((rows, 3)))
     (row,) = (
-        Fastener().evaluate(inputs([], rows, joints=(within,), minimum_safety_factor=2.0), FastenerParameters(), 1).rows
+        Fastener()
+        .evaluate(
+            inputs([], rows, joints=(within,), minimum_safety_factor=2.0),
+            FastenerParameters.model_validate({"ratings": {"bolts": "500 N"}}),
+            1,
+        )
+        .rows
     )
     assert row.flags == ("fastener_margin_below_minimum",)
     bare = JointLoads("bare", "fastener", "j", force, np.zeros((rows, 3)))
@@ -719,3 +728,42 @@ def test_peak_of_an_empty_run() -> None:
     assert peak(np.zeros(0), np.asarray([2.0])) == (0.0, 2.0)
     assert Wrenches(*(np.zeros((0, 3)) for _ in range(4))).scaled(2.0).start_force.shape == (0, 3)
     assert SECTION.i_min() == SECTION.i_y
+
+
+@pytest.mark.req("INT-011", "INT-020")
+def test_impact_rows_carry_their_own_margin_flag() -> None:
+    rows = 4
+    loads = cantilever(40e6 * I_Z / (LENGTH * C_Y), rows)
+    for array in (loads.start_force, loads.start_moment, loads.end_force):
+        array[:2] = 0.0
+    parameters = ImpactParameters.model_validate({"impact_factor": 1.0, "step_threshold": "1 N", "window": "1 s"})
+    (row,) = Impact().evaluate(inputs([member(loads)], rows, minimum_safety_factor=2.0), parameters, 1).rows
+    assert row.flags == ("impact_margin_below_minimum",)
+    (row,) = Impact().evaluate(inputs([member(loads)], rows), parameters, 1).rows
+    assert row.flags == ()
+
+
+@pytest.mark.req("INT-005")
+def test_the_member_axis_comes_from_the_lumped_placement() -> None:
+    # Placement turned +90 deg about z: q = (cos 45, 0, 0, sin 45) maps x to y.
+    half = math.sqrt(0.5)
+    lumped = (
+        SimpleNamespace(name="rail_chain", structural_member="rail", orientation=(half, 0.0, 0.0, half)),
+        SimpleNamespace(name="other", structural_member=None, orientation=(1.0, 0.0, 0.0, 0.0)),
+    )
+    axes = member_axes(SimpleNamespace(physics=SimpleNamespace(lumped_members=lumped)))
+    assert axes["rail"] == pytest.approx((0.0, 1.0, 0.0), abs=1e-15)
+    assert axes["other"] == (1.0, 0.0, 0.0)
+    assert member_axes(SimpleNamespace(physics=None)) == {}
+    build = SimpleNamespace(
+        design=_design("0"),
+        members=(_member(),),
+        physics=SimpleNamespace(lumped_members=lumped, bodies=(), fastenings=()),
+    )
+    assert run_inputs(build, _recorded(_cantilever_rows(1.0)), _views()).members[0].axis_body == pytest.approx(
+        (0.0, 1.0, 0.0), abs=1e-15
+    )
+    rigid = run_inputs(
+        SimpleNamespace(design=_design("0"), members=(_member(),)), _recorded(_cantilever_rows(1.0)), _views()
+    )
+    assert rigid.members[0].axis_body == (1.0, 0.0, 0.0)

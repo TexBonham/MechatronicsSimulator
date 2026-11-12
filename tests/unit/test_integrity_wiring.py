@@ -79,7 +79,10 @@ def test_a_single_axis_section_is_evaluated_and_flagged_never_refused() -> None:
     view = _recorded([(Wrench((0.0, 1.0, 1.0), (0.0, 0.0, 0.0)), Wrench())])
     build = SimpleNamespace(design=hanging([1.0], allowance=None).build.design, members=(_member(),))
     table = evaluate(IntegrityConfig(schema_version=1), run_inputs(build, view, _views()))
-    assert table.member("rail").flags == ("approximation: single-axis section",)
+    assert table.member("rail").flags == (
+        "approximation: single-axis section",
+        "approximation: static deflection from end loads",
+    )
     assert table.member("rail").peak_stress > 0.0
 
 

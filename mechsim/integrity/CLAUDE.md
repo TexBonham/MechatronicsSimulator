@@ -19,6 +19,9 @@ regenerate with `uv run python -m mechsim.integrity.config --write-schema`, neve
 ## Conventions
 
 - End-loads in the member frame (ruling 24); internal axial force -F_start.x, +F_end.x.
+- Member axis for direction-dependent strength: the lumped member's placement x in its parent frame (`inputs.member_axes`, ruling 24); body x when the build has no lumped record (rigid build).
+- Deflection rows always carry `approximation: static deflection from end loads` (ruling 28); impact rows flag `impact_margin_below_minimum`.
+- Fastener ratings from configuration only in milestone 3 (catalog grade ratings owed, ruling 27).
 - Table values at the design load (recorded loads times 1 + allowance from the design file, INT-019).
 - Safety factors use the minimum strength spread for flags and the table; spreads kept in `CheckRow.margin`.
 - Integrity never emits `integrity` events (ruling 26: tier 1 only).

@@ -10,6 +10,7 @@ from mechsim.integrity.plugin import CheckResult, CheckRow, IntegrityCheck, RunI
 from mechsim.schema_base import StrictModel
 
 FLAG = "deflection_over_target"
+APPROXIMATION = "approximation: static deflection from end loads"
 
 
 class Deflection(IntegrityCheck):
@@ -20,9 +21,9 @@ class Deflection(IntegrityCheck):
         rows: list[CheckRow] = []
         for member in inputs.members:
             value, time = peak(deflection(member, member.loads.scaled(inputs.load_factor)), inputs.times)
-            flags: tuple[str, ...] = ()
+            flags: tuple[str, ...] = (APPROXIMATION,)
             if inputs.deflection_limit is not None and value > inputs.deflection_limit:
-                flags = (FLAG,)
+                flags = (APPROXIMATION, FLAG)
             rows.append(CheckRow(member.name, "deflection", value, time, 1, inputs.deflection_limit, None, flags))
         return CheckResult(self.name, tier, tuple(rows))
 

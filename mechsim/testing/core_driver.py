@@ -16,7 +16,7 @@ from collections.abc import Callable, Mapping, Sequence
 from dataclasses import replace
 from fractions import Fraction
 from pathlib import Path
-from typing import Any, cast
+from typing import Any
 
 import numpy as np
 
@@ -76,7 +76,6 @@ from mechsim.testing.driver import (
     BuildResult,
     EndReason,
     EndSpec,
-    IntegrityCheck,
     RunConfig,
     RunMetadata,
     RunReport,
@@ -825,5 +824,5 @@ def core_services(designs_root: Path = DESIGNS_ROOT) -> Services:
         builder=core_builder,
         archiver=RecordArchiver(designs_root),
         designs_root=designs_root,
-        integrity=cast(IntegrityCheck, IntegrityService(designs_root)),
+        integrity=IntegrityService(designs_root),
     )

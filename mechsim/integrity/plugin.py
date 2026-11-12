@@ -171,7 +171,7 @@ class RopeLoads:
 @dataclass(frozen=True)
 class JointLoads:
     """A mount or fastener set (BLD-031) with its joint's recorded reaction, world-aligned, arrays (rows, 3).
-    `member` is the structural member a mount holds; `rating` the fastener's load limit (N) when known."""
+    `member` is the structural member a mount holds."""
 
     name: str
     kind: Literal["mount", "fastener"]
@@ -179,7 +179,6 @@ class JointLoads:
     force: FloatArray
     moment: FloatArray
     member: str | None = None
-    rating: float | None = None
 
 
 Excitation = Callable[[str], tuple[FloatArray, FloatArray]]
