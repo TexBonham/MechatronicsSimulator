@@ -31,6 +31,7 @@ add_executable(mechsim_engine_tests
     tests/test_constraints.cpp
     tests/test_contact.cpp
     tests/test_errors.cpp
+    tests/test_joint_limits.cpp
     tests/test_joint_springs.cpp
     tests/test_joints.cpp
     tests/test_lumped_beam.cpp

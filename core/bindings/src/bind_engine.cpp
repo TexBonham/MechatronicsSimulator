@@ -52,7 +52,8 @@ void bind_model(py::module_& m) {
         .value("Free", engine::JointType::Free)
         .value("Translation", engine::JointType::Translation);
 
-    py::class_<Joint>(m, "Joint", "Joint frame in the parent frame; springs and dampers per DOF (ENG-051).")
+    py::class_<Joint>(m, "Joint",
+                      "Joint frame in the parent frame; springs (ENG-051), limits (ENG-013), friction (ENG-014).")
         .def(py::init<>())
         .def_readwrite("type", &Joint::type)
         .def_readwrite("position", &Joint::position)
@@ -62,7 +63,10 @@ void bind_model(py::module_& m) {
         .def_readwrite("axis", &Joint::axis)
         .def_readwrite("stiffness", &Joint::stiffness)
         .def_readwrite("damping", &Joint::damping)
-        .def_readwrite("rest", &Joint::rest);
+        .def_readwrite("rest", &Joint::rest)
+        .def_readwrite("lower", &Joint::lower)
+        .def_readwrite("upper", &Joint::upper)
+        .def_readwrite("friction", &Joint::friction);
 
     py::class_<Body>(m, "Body")
         .def(py::init<>())
@@ -175,7 +179,11 @@ void bind_outputs(py::module_& m) {
         .def_readonly("origin_velocity", &engine::BodyOutput::origin_velocity);
     py::class_<engine::JointOutput>(m, "JointOutput")
         .def_readonly("generalized_force", &engine::JointOutput::generalized_force)
-        .def_readonly("reaction_wrench", &engine::JointOutput::reaction_wrench);
+        .def_readonly("reaction_wrench", &engine::JointOutput::reaction_wrench)
+        .def_readonly("limit_force", &engine::JointOutput::limit_force)
+        .def_readonly("limit_overshoot", &engine::JointOutput::limit_overshoot)
+        .def_readonly("friction_creep", &engine::JointOutput::friction_creep)
+        .def_readonly("scheme_decay", &engine::JointOutput::scheme_decay);
     py::class_<engine::ConstraintOutput>(m, "ConstraintOutput")
         .def_readonly("impulse", &engine::ConstraintOutput::impulse)
         .def_readonly("force", &engine::ConstraintOutput::force)
@@ -279,6 +287,8 @@ void bind_stepping(py::module_& m) {
         .def("position_offset", &MultibodyProvider::position_offset, py::arg("body"))
         .def("velocity_offset", &MultibodyProvider::velocity_offset, py::arg("body"))
         .def("neutral_positions", &MultibodyProvider::neutral_positions)
+        .def("set_joint_drive", &MultibodyProvider::set_joint_drive, py::arg("joint"), py::arg("dof"),
+             py::arg("rest"), py::arg("stiffness"), py::arg("damping"))
         .def("set_shaft_torque", &MultibodyProvider::set_shaft_torque, py::arg("transmission"), py::arg("torque"))
         .def("set_slip", &MultibodyProvider::set_slip, py::arg("transmission"), py::arg("slip"))
         .def("slip", &MultibodyProvider::slip, py::arg("transmission"))

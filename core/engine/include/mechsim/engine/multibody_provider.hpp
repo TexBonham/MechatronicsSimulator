@@ -27,6 +27,13 @@ struct JointOutput {
     Eigen::VectorXd generalized_force;                                 // S^T f per joint DOF, N or N m
     spatial::Vector6d reaction_wrench = spatial::Vector6d::Zero();     // parent on child: [moment about child
                                                                        // origin; force], world-aligned, N m; N
+    // Per joint DOF (ENG-013, ENG-014, ENG-051):
+    Eigen::VectorXd limit_force;      // travel-limit rows' impulse / h along +coordinate, N or N m
+    Eigen::VectorXd limit_overshoot;  // pass of a bound the position projection removed at the step's end, m or rad
+    Eigen::VectorXd friction_creep;   // end speed while the start rate was below the slip threshold (regularised
+                                      // friction holding a load L < F creeps at v_s L / F), else 0; m/s or rad/s
+    Eigen::VectorXd scheme_decay;     // ruling 21: pi omega h for a sprung DOF, omega^2 = K (H^-1)_kk at the end
+                                      // state; 0 without stiffness
 };
 
 struct ConstraintOutput {
@@ -119,6 +126,10 @@ public:
     void set_generalized_forces(const Eigen::VectorXd& tau);  // size nv, N or N m
     void apply_body_wrench(Eigen::Index body, const Eigen::Vector3d& torque, const Eigen::Vector3d& force);
     void clear_inputs();
+    // Joint drive (ENG-051): replaces the spring of DOF dof of joint (the body's joint to its parent) with
+    // -stiffness (q - rest) - damping v from the next step on, persistent until set again; an input, not a model
+    // change, so no event. Revolute, Prismatic, Planar; stiffness and damping finite and >= 0, rest finite.
+    void set_joint_drive(Eigen::Index joint, Eigen::Index dof, double rest, double stiffness, double damping);
     // Motor shaft torque on a transmission's input shaft for the next step, N m (ENG-048); adds to the shaft DOF.
     void set_shaft_torque(Eigen::Index transmission, double torque);
     // Persistent until changed; takes effect at the next step (ENG-046). Range [0, 1].
@@ -195,6 +206,16 @@ private:
     ModelChangeEvent release_load(LoadSource source, Eigen::Index target, double time);
     Eigen::Index release_payload(Eigen::Index body);
     void record_scheme_decay(const State& after, double h);
+    void add_joint_friction(const Eigen::VectorXd& v, DynamicsTerms& terms) const;
+    void clamp_limits(Eigen::VectorXd& q) const;
+
+    struct LimitRow {
+        Eigen::Index body = 0;
+        Eigen::Index dof = 0;  // velocity index; the coordinate is the joint's single position
+        Eigen::Index position = 0;
+        double bound = 0.0;
+        double sign = 1.0;  // +1 lower (q >= bound), -1 upper (q <= bound)
+    };
 
     MultibodyModel model_;
     MultibodyConfig config_;
@@ -205,6 +226,9 @@ private:
     Eigen::VectorXd stiffness_;  // joint springs per velocity DOF (ENG-051)
     Eigen::VectorXd damping_;
     Eigen::VectorXd rest_;
+    std::vector<std::uint8_t> sprung_;  // per body: model springs or a drive on an aligned joint
+    Eigen::VectorXd friction_;          // Coulomb magnitude per velocity DOF (ENG-014)
+    std::vector<LimitRow> limits_;      // in joint order, lower before upper (ENG-013)
     Eigen::Index nq_ = 0;
     Eigen::Index nv_ = 0;
     Eigen::VectorXd tau_;
@@ -220,6 +244,8 @@ private:
     // Written by the const step hooks for step(); single-threaded by ENG-023.
     mutable std::vector<Eigen::VectorXd> impulse_;
     mutable std::vector<ConstraintError> error_;
+    mutable std::vector<double> limit_impulse_;    // per limits_ row, >= 0
+    mutable Eigen::VectorXd limit_overshoot_;      // per velocity DOF
     ContactModel contact_model_;
     std::vector<Shape> contact_shapes_;
     std::vector<WeldAttachment> attachments_;

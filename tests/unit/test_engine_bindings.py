@@ -347,3 +347,106 @@ def test_contact_limits_config_and_payload_release_bindings() -> None:
     with pytest.raises(core.InvalidModelError):
         provider.set_attachment(1, -1, False, state.q)
     provider.set_attachment(1, 0, False, state.q)
+
+
+def _prismatic(axis: tuple[float, float, float], mass: float) -> Any:
+    body = eng.Body()
+    body.name = "slider"
+    body.joint.type = eng.JointType.Prismatic
+    body.joint.axis = list(axis)
+    body.mass = mass
+    return body
+
+
+def _provider(*bodies: Any) -> Any:
+    model = eng.MultibodyModel()
+    model.bodies = list(bodies)
+    return eng.MultibodyProvider(model)
+
+
+@pytest.mark.req("ENG-013")
+@pytest.mark.req("ENG-021")
+def test_joint_limit_binding_stops_and_rejects_bad_limits() -> None:
+    # Horizontal slider at 0.3 m/s toward a lower stop at 0, 0.05 m away: the passing step overshoots by
+    # h V - gap <= h V (removed by the projection), the next one stops it with impulse m V, then v stays zero.
+    body = _prismatic((1.0, 0.0, 0.0), 1.5)
+    body.joint.lower = [0.0]
+    body.joint.upper = [math.inf]
+    assert list(body.joint.lower) == [0.0]
+    provider = _provider(body)
+    state = eng.State([0.05], [-0.3])
+    integrator = eng.SemiImplicitEuler()
+    overshoot = 0.0
+    for _ in range(400):
+        provider.step(integrator, state)
+        overshoot = max(overshoot, provider.outputs.joints[0].limit_overshoot[0])
+    assert 0.0 < overshoot <= H * 0.3
+    assert state.q[0] == 0.0
+    assert state.v[0] == 0.0
+    for lower, upper in (([0.2], [0.1]), ([math.nan], []), ([math.inf], []), ([], [-math.inf]), ([0.0, 1.0], [])):
+        bad = _prismatic((1.0, 0.0, 0.0), 1.0)
+        bad.joint.lower = lower
+        bad.joint.upper = upper
+        with pytest.raises(core.InvalidModelError, match="body 0"):
+            _provider(bad)
+    ball = eng.Body()
+    ball.joint.type = eng.JointType.Spherical
+    ball.joint.lower = [0.0]
+    with pytest.raises(core.InvalidModelError, match="body 0: joint travel limits need a Revolute or Prismatic"):
+        _provider(ball)
+
+
+@pytest.mark.req("ENG-014")
+def test_joint_friction_binding_slides_to_rest_and_rejects_bad_values() -> None:
+    # 2 kg at 1 m/s against F = 4 N: the frozen-rate scheme reaches v_s after t* = (v0 - v_s) / a, a = 2 m/s^2,
+    # within h (1 + ln(v0 (v_s + a h) / v_s^2)) (spec row), and the joint output reports no creep while sliding.
+    body = _prismatic((1.0, 0.0, 0.0), 2.0)
+    body.joint.friction = [4.0]
+    provider = _provider(body)
+    state = eng.State([0.0], [1.0])
+    integrator = eng.SemiImplicitEuler()
+    vs = eng.MultibodyConfig().friction_slip_threshold
+    steps = 0
+    while state.v[0] > vs:
+        provider.step(integrator, state)
+        steps += 1
+        assert steps < 10000
+    t_star = (1.0 - vs) / 2.0
+    assert t_star <= steps * H <= t_star + H * (1.0 + math.log((vs + 2.0 * H) / (vs * vs)))
+    for friction in ([-1.0], [math.nan], [math.inf], [1.0, 1.0]):
+        bad = _prismatic((1.0, 0.0, 0.0), 1.0)
+        bad.joint.friction = friction
+        with pytest.raises(core.InvalidModelError, match="body 0: joint friction"):
+            _provider(bad)
+
+
+@pytest.mark.req("ENG-051")
+def test_joint_drive_binding_sags_tau_over_k_and_rejects_bad_arguments() -> None:
+    # Drive K = 400 N/m, D = 40 N s/m (critical at omega 20) under 2 N: sag tau / K = 5 mm (1e-9 after 3 s,
+    # e^-60 (1 + 60) of the start error); no event (an input, not a model change); scheme decay pi omega h.
+    provider = _provider(_prismatic((1.0, 0.0, 0.0), 1.0))
+    provider.set_joint_drive(0, 0, 0.1, 400.0, 40.0)
+    state = eng.State([0.0], [0.0])
+    integrator = eng.SemiImplicitEuler()
+    for _ in range(3000):
+        provider.set_generalized_forces([2.0])
+        provider.step(integrator, state)
+    assert state.q[0] - 0.1 == pytest.approx(2.0 / 400.0, rel=1e-9)
+    assert provider.outputs.events == []
+    assert provider.outputs.joints[0].scheme_decay[0] == pytest.approx(math.pi * 20.0 * H, rel=1e-12)
+    for joint, dof, rest, stiffness, damping in (
+        (1, 0, 0.0, 1.0, 1.0),
+        (-1, 0, 0.0, 1.0, 1.0),
+        (0, 1, 0.0, 1.0, 1.0),
+        (0, 0, math.nan, 1.0, 1.0),
+        (0, 0, 0.0, -1.0, 1.0),
+        (0, 0, 0.0, math.inf, 1.0),
+        (0, 0, 0.0, 1.0, -1.0),
+        (0, 0, 0.0, 1.0, math.nan),
+    ):
+        with pytest.raises(core.InvalidModelError):
+            provider.set_joint_drive(joint, dof, rest, stiffness, damping)
+    ball = eng.Body()
+    ball.joint.type = eng.JointType.Spherical
+    with pytest.raises(core.InvalidModelError, match="needs a Revolute, Prismatic or Planar joint"):
+        _provider(ball).set_joint_drive(0, 0, 0.0, 1.0, 1.0)

@@ -7,6 +7,7 @@
 #include <array>
 #include <cmath>
 #include <cstddef>
+#include <limits>
 #include <numbers>
 #include <string>
 #include <utility>
@@ -171,6 +172,36 @@ void validate_joint_vector(const Eigen::VectorXd& values, Eigen::Index dofs, boo
     }
 }
 
+void validate_limits(const Joint& joint, const std::string& label) {
+    const bool has_limit = joint.lower.size() > 0 || joint.upper.size() > 0;
+    if (!has_limit) {
+        return;
+    }
+    if (joint.type != JointType::Revolute && joint.type != JointType::Prismatic) {
+        throw InvalidModelError(0.0, label + "joint travel limits need a Revolute or Prismatic joint");
+    }
+    if (joint.lower.size() > 1 || joint.upper.size() > 1) {
+        throw InvalidModelError(0.0, label + "joint limit must be empty or have one entry per joint velocity");
+    }
+    double lower = -std::numeric_limits<double>::infinity();
+    double upper = std::numeric_limits<double>::infinity();
+    if (joint.lower.size() == 1) {
+        lower = joint.lower[0];
+        if (std::isnan(lower) || lower == std::numeric_limits<double>::infinity()) {
+            throw InvalidModelError(0.0, label + "joint lower limit must be a number below +infinity");
+        }
+    }
+    if (joint.upper.size() == 1) {
+        upper = joint.upper[0];
+        if (std::isnan(upper) || upper == -std::numeric_limits<double>::infinity()) {
+            throw InvalidModelError(0.0, label + "joint upper limit must be a number above -infinity");
+        }
+    }
+    if (lower > upper) {
+        throw InvalidModelError(0.0, label + "joint lower limit is above the upper limit");
+    }
+}
+
 void validate_body(const Body& body, Eigen::Index i, double tolerance) {
     const std::string label = body_label(i);
     if (body.parent < -1 || body.parent >= i) {
@@ -207,6 +238,11 @@ void validate_body(const Body& body, Eigen::Index i, double tolerance) {
         throw InvalidModelError(0.0, label + "joint stiffness and rest position need a Revolute, Prismatic or "
                                              "Planar joint");
     }
+    validate_joint_vector(body.joint.friction, dofs, true, label + "joint friction");
+    if (!uses_axis && body.joint.friction.size() > 0) {
+        throw InvalidModelError(0.0, label + "joint friction needs a Revolute, Prismatic or Planar joint");
+    }
+    validate_limits(body.joint, label);
 }
 
 void validate_constraint(const LoopConstraint& c, Eigen::Index i, Eigen::Index bodies, double tolerance) {
@@ -288,11 +324,25 @@ MultibodyProvider::MultibodyProvider(MultibodyModel model, MultibodyConfig confi
     stiffness_ = Eigen::VectorXd::Zero(nv_);
     damping_ = Eigen::VectorXd::Zero(nv_);
     rest_ = Eigen::VectorXd::Zero(nv_);
+    friction_ = Eigen::VectorXd::Zero(nv_);
+    limit_overshoot_ = Eigen::VectorXd::Zero(nv_);
     for (Eigen::Index i = 0; i < n; ++i) {
         const Joint& joint = at(model_.bodies, i).joint;
         const Eigen::Index ov = at(v_offset_, i);
+        std::uint8_t sprung = 0;
         if (joint.stiffness.size() > 0) {
             stiffness_.segment(ov, joint.stiffness.size()) = joint.stiffness;
+            sprung = 1;
+        }
+        sprung_.push_back(sprung);
+        if (joint.friction.size() > 0) {
+            friction_.segment(ov, joint.friction.size()) = joint.friction;
+        }
+        if (joint.lower.size() == 1 && std::isfinite(joint.lower[0])) {
+            limits_.push_back(LimitRow{i, ov, at(q_offset_, i), joint.lower[0], 1.0});
+        }
+        if (joint.upper.size() == 1 && std::isfinite(joint.upper[0])) {
+            limits_.push_back(LimitRow{i, ov, at(q_offset_, i), joint.upper[0], -1.0});
         }
         if (joint.damping.size() > 0) {
             damping_.segment(ov, joint.damping.size()) = joint.damping;
@@ -514,6 +564,7 @@ void MultibodyProvider::evaluate(double t, const Eigen::VectorXd& q, const Eigen
     terms.force = tau_ - external + joint_spring_forces(q, v);
     terms.stiffness = stiffness_.asDiagonal();
     terms.damping = damping_.asDiagonal();
+    add_joint_friction(v, terms);
     add_transmission_terms(q, v, terms);
     add_rope_terms(kin, terms);
     try {
@@ -696,16 +747,30 @@ void MultibodyProvider::add_transmission_terms(const Eigen::VectorXd& q, const E
 Eigen::VectorXd MultibodyProvider::joint_spring_forces(const Eigen::VectorXd& q, const Eigen::VectorXd& v) const {
     Eigen::VectorXd out = -damping_.cwiseProduct(v);
     for (Eigen::Index i = 0; i < count(model_.bodies.size()); ++i) {
-        const Eigen::Index dofs = at(model_.bodies, i).joint.stiffness.size();
-        if (dofs == 0) {
+        if (at(sprung_, i) == 0) {
             continue;
         }
+        const Eigen::Index dofs = joint_velocities(at(model_.bodies, i).joint.type);
         const Eigen::Index oq = at(q_offset_, i);
         const Eigen::Index ov = at(v_offset_, i);
         out.segment(ov, dofs) -=
             stiffness_.segment(ov, dofs).cwiseProduct(q.segment(oq, dofs) - rest_.segment(ov, dofs));
     }
     return out;
+}
+
+// Joint friction (ENG-014, ruling 38), the rope attachment's law: c = F / max(|v|, v_s) frozen at the step's start
+// rate, f -= c v and D += c, so the full Coulomb force acts at and above v_s and a load L < F creeps at v_s L / F.
+void MultibodyProvider::add_joint_friction(const Eigen::VectorXd& v, DynamicsTerms& terms) const {
+    for (Eigen::Index k = 0; k < nv_; ++k) {
+        const double magnitude = friction_[k];
+        if (magnitude <= 0.0) {
+            continue;
+        }
+        const double c = magnitude / std::max(std::abs(v[k]), config_.friction_slip_threshold);
+        terms.force[k] -= c * v[k];
+        terms.damping(k, k) += c;
+    }
 }
 
 Eigen::VectorXd MultibodyProvider::integrate_positions(const Eigen::VectorXd& q, const Eigen::VectorXd& v,
@@ -819,16 +884,32 @@ std::vector<ConstraintError> MultibodyProvider::constraint_errors(const Eigen::V
 }
 
 // Block Gauss-Seidel over constraint impulses: each sweep solves every constraint's block of
-// J A^-1 J^T lambda = -J v exactly (pseudo-inverse, so rows with no reachable motion stay at zero).
-int MultibodyProvider::solve_constraints(double t, double /*h*/, const Eigen::VectorXd& q,
+// J A^-1 J^T lambda = -J v exactly (pseudo-inverse, so rows with no reachable motion stay at zero), then each
+// active travel-limit row (ENG-013) as a projected scalar row: J = s e_k, lambda >= 0, J v >= 0. A limit row is
+// active once the coordinate is within h * velocity_tolerance of its bound at the step start (the most a converged
+// pass can move it), so a resting coordinate stays within that of the bound. A binding row's v_k is set to exactly
+// zero after each update and once more on convergence (a change of at most velocity_tolerance), so a coordinate
+// at rest on a limit does not creep.
+int MultibodyProvider::solve_constraints(double t, double h, const Eigen::VectorXd& q,
                                          const Eigen::MatrixXd& system, Eigen::VectorXd& v) const {
     const Eigen::Index constraints = count(model_.constraints.size());
     impulse_.clear();
-    if (constraints == 0) {
+    limit_impulse_.assign(limits_.size(), 0.0);
+    std::vector<Eigen::Index> active;
+    for (Eigen::Index r = 0; r < count(limits_.size()); ++r) {
+        const LimitRow& row = at(limits_, r);
+        if (row.sign * (q[row.position] - row.bound) <= h * config_.velocity_tolerance) {
+            active.push_back(r);
+        }
+    }
+    if (constraints == 0 && active.empty()) {
         return 0;
     }
-    const std::vector<ConstraintRows> rows = all_rows(kinematics(q, v));
     const Eigen::PartialPivLU<Eigen::MatrixXd> lu(system);
+    std::vector<ConstraintRows> rows;
+    if (constraints > 0) {
+        rows = all_rows(kinematics(q, v));
+    }
     std::vector<Eigen::MatrixXd> response;
     std::vector<Eigen::CompleteOrthogonalDecomposition<Eigen::MatrixXd>> block;
     for (const ConstraintRows& r : rows) {
@@ -837,17 +918,49 @@ int MultibodyProvider::solve_constraints(double t, double /*h*/, const Eigen::Ve
         block.emplace_back(r.jacobian * m);
         impulse_.emplace_back(Eigen::VectorXd::Zero(r.jacobian.rows()));
     }
+    std::vector<Eigen::VectorXd> limit_response;
+    std::vector<double> limit_compliance;
+    for (const Eigen::Index r : active) {
+        const LimitRow& row = at(limits_, r);
+        const Eigen::VectorXd m = row.sign * lu.solve(Eigen::VectorXd::Unit(nv_, row.dof));
+        limit_compliance.push_back(row.sign * m[row.dof]);
+        limit_response.push_back(m);
+    }
     for (int iteration = 1; iteration <= config_.iteration_cap; ++iteration) {
         for (Eigen::Index c = 0; c < constraints; ++c) {
             const Eigen::VectorXd delta = -at(block, c).solve(at(rows, c).jacobian * v);
             at(impulse_, c) += delta;
             v += at(response, c) * delta;
         }
+        for (Eigen::Index a = 0; a < count(active.size()); ++a) {
+            const LimitRow& row = at(limits_, at(active, a));
+            double& lambda = at(limit_impulse_, at(active, a));
+            const double updated = std::max(0.0, lambda - row.sign * v[row.dof] / at(limit_compliance, a));
+            v += at(limit_response, a) * (updated - lambda);
+            lambda = updated;
+            if (lambda > 0.0) {
+                v[row.dof] = 0.0;
+            }
+        }
         double residual = 0.0;
         for (const ConstraintRows& r : rows) {
             residual = std::max(residual, (r.jacobian * v).cwiseAbs().maxCoeff());
         }
+        for (const Eigen::Index r : active) {
+            const LimitRow& row = at(limits_, r);
+            const double rate = row.sign * v[row.dof];
+            if (at(limit_impulse_, r) > 0.0) {
+                residual = std::max(residual, std::abs(rate));
+            } else {
+                residual = std::max(residual, -rate);
+            }
+        }
         if (residual <= config_.velocity_tolerance) {
+            for (const Eigen::Index r : active) {
+                if (at(limit_impulse_, r) > 0.0) {
+                    v[at(limits_, r).dof] = 0.0;
+                }
+            }
             return iteration;
         }
     }
@@ -856,20 +969,36 @@ int MultibodyProvider::solve_constraints(double t, double /*h*/, const Eigen::Ve
 }
 
 // Gauss-Newton on the stacked position residual (minimum-norm step), then the ENG-024 drift check.
+// A travel limit passed during the step (ENG-013) joins the stack as the row e_k with residual q_k - bound; the
+// clamp afterwards puts the coordinate on the bound exactly (one Gauss-Newton step is exact for a unit row).
 double MultibodyProvider::project_positions(double t, Eigen::VectorXd& q, Eigen::VectorXd& /*v*/) const {
     const Eigen::Index constraints = count(model_.constraints.size());
     error_.clear();
+    limit_overshoot_.setZero();
+    for (const LimitRow& row : limits_) {
+        const double pass = row.sign * (row.bound - q[row.position]);
+        if (pass > 0.0) {
+            limit_overshoot_[row.dof] = std::max(limit_overshoot_[row.dof], pass);
+        }
+    }
     if (constraints == 0) {
+        clamp_limits(q);
         return 0.0;
     }
     const Eigen::VectorXd zero = Eigen::VectorXd::Zero(nv_);
     for (int iteration = 0; iteration < config_.projection_iterations; ++iteration) {
         const std::vector<ConstraintRows> rows = all_rows(kinematics(q, zero));
-        Eigen::Index total = 0;
+        std::vector<const LimitRow*> passed;
+        for (const LimitRow& limit : limits_) {
+            if (limit.sign * (q[limit.position] - limit.bound) < 0.0) {
+                passed.push_back(&limit);
+            }
+        }
+        Eigen::Index total = count(passed.size());
         for (const ConstraintRows& r : rows) {
             total += r.jacobian.rows();
         }
-        Eigen::MatrixXd jacobian(total, nv_);
+        Eigen::MatrixXd jacobian = Eigen::MatrixXd::Zero(total, nv_);
         Eigen::VectorXd residual(total);
         Eigen::Index row = 0;
         for (const ConstraintRows& r : rows) {
@@ -877,10 +1006,16 @@ double MultibodyProvider::project_positions(double t, Eigen::VectorXd& q, Eigen:
             residual.segment(row, r.jacobian.rows()) = r.error.residual;
             row += r.jacobian.rows();
         }
+        for (const LimitRow* limit : passed) {
+            jacobian(row, limit->dof) = 1.0;
+            residual[row] = q[limit->position] - limit->bound;
+            ++row;
+        }
         const Eigen::VectorXd correction = -Eigen::CompleteOrthogonalDecomposition<Eigen::MatrixXd>(jacobian).solve(
             residual);
         q = integrate_positions(q, correction, 1.0);
     }
+    clamp_limits(q);
     error_ = constraint_errors(q);
     double drift = 0.0;
     for (Eigen::Index c = 0; c < constraints; ++c) {
@@ -891,6 +1026,14 @@ double MultibodyProvider::project_positions(double t, Eigen::VectorXd& q, Eigen:
         }
     }
     return drift;
+}
+
+void MultibodyProvider::clamp_limits(Eigen::VectorXd& q) const {
+    for (const LimitRow& row : limits_) {
+        if (row.sign * (q[row.position] - row.bound) < 0.0) {
+            q[row.position] = row.bound;
+        }
+    }
 }
 
 // ===== Members, ropes and model changes ==================================
@@ -1155,7 +1298,8 @@ void MultibodyProvider::record_members_and_ropes(const State& before, const Stat
     record_scheme_decay(after, h);
 }
 
-// Ruling 21: pi omega h per rope swing mode and per transmission coupling mode, at the end state.
+// Ruling 21: pi omega h per rope swing mode, per transmission coupling mode and per sprung joint DOF
+// (omega^2 = K (H^-1)_kk, ENG-051), at the end state.
 void MultibodyProvider::record_scheme_decay(const State& after, double h) {
     const double g = model_.gravity.norm();
     const Kinematics kin = kinematics(after.q, after.v);
@@ -1169,10 +1313,22 @@ void MultibodyProvider::record_scheme_decay(const State& after, double h) {
             out.scheme_decay = std::numbers::pi * std::sqrt(g / length) * h;
         }
     }
-    if (model_.transmissions.empty()) {
+    const bool sprung = nv_ > 0 && stiffness_.maxCoeff() > 0.0;
+    if (model_.transmissions.empty() && !sprung) {
         return;
     }
     const Eigen::LLT<Eigen::MatrixXd> mass(mass_matrix(kin));
+    for (Eigen::Index i = 0; i < count(model_.bodies.size()) && sprung; ++i) {
+        JointOutput& joint = at(outputs_.joints, i);
+        const Eigen::Index ov = at(v_offset_, i);
+        for (Eigen::Index k = 0; k < joint.scheme_decay.size(); ++k) {
+            const double stiffness = stiffness_[ov + k];
+            if (stiffness > 0.0) {
+                const double compliance = mass.solve(Eigen::VectorXd::Unit(nv_, ov + k))[ov + k];
+                joint.scheme_decay[k] = std::numbers::pi * std::sqrt(stiffness * compliance) * h;
+            }
+        }
+    }
     for (Eigen::Index i = 0; i < count(model_.transmissions.size()); ++i) {
         const Transmission& t = at(model_.transmissions, i);
         const TransmissionCoupling c = coupling(i, after.q, after.v);
@@ -1245,6 +1401,7 @@ void MultibodyProvider::set_spring_stiffness(Eigen::Index member, Eigen::Index n
         throw InvalidModelError(0.0, "spring stiffness must be finite and not negative");
     }
     stiffness_[at(v_offset_, at(nodes, node))] = stiffness;
+    at(sprung_, at(nodes, node)) = 1;
     pending_events_.push_back(change_event(ModelChange::SpringStiffness, member, node, stiffness, outputs_.time));
 }
 
@@ -1350,6 +1507,34 @@ void MultibodyProvider::clear_inputs() {
     tau_ = Eigen::VectorXd::Zero(nv_);
     wrench_.assign(model_.bodies.size(), Vector6d::Zero());
     shaft_torque_.assign(model_.transmissions.size(), 0.0);
+}
+
+void MultibodyProvider::set_joint_drive(Eigen::Index joint, Eigen::Index dof, double rest, double stiffness,
+                                        double damping) {
+    if (joint < 0 || joint >= count(model_.bodies.size())) {
+        throw InvalidModelError(0.0, "joint drive on a missing joint " + std::to_string(joint));
+    }
+    const JointType type = at(model_.bodies, joint).joint.type;
+    if (type != JointType::Revolute && type != JointType::Prismatic && type != JointType::Planar) {
+        throw InvalidModelError(0.0, "joint drive on joint " + std::to_string(joint) +
+                                         ": needs a Revolute, Prismatic or Planar joint");
+    }
+    if (dof < 0 || dof >= joint_velocities(type)) {
+        throw InvalidModelError(0.0, "joint drive on joint " + std::to_string(joint) + ": no DOF " +
+                                         std::to_string(dof));
+    }
+    if (!std::isfinite(rest)) {
+        throw InvalidModelError(0.0, "joint drive on joint " + std::to_string(joint) + ": rest is not finite");
+    }
+    if (!std::isfinite(stiffness) || stiffness < 0.0 || !std::isfinite(damping) || damping < 0.0) {
+        throw InvalidModelError(0.0, "joint drive on joint " + std::to_string(joint) +
+                                         ": stiffness and damping must be finite and not negative");
+    }
+    const Eigen::Index k = at(v_offset_, joint) + dof;
+    rest_[k] = rest;
+    stiffness_[k] = stiffness;
+    damping_[k] = damping;
+    at(sprung_, joint) = 1;
 }
 
 void MultibodyProvider::set_shaft_torque(Eigen::Index transmission, double torque) {
@@ -1486,7 +1671,22 @@ void MultibodyProvider::record_outputs(const State& before, const State& after, 
         joint.generalized_force = at(kin.subspace, i).transpose() * at(forces, i);
         joint.reaction_wrench.head<3>() = x.rotation.transpose() * at(forces, i).head<3>();
         joint.reaction_wrench.tail<3>() = x.rotation.transpose() * at(forces, i).tail<3>();
+        const Eigen::Index ov = at(v_offset_, i);
+        const Eigen::Index dofs = joint.generalized_force.size();
+        joint.limit_force = Eigen::VectorXd::Zero(dofs);
+        joint.limit_overshoot = limit_overshoot_.segment(ov, dofs);
+        joint.friction_creep = Eigen::VectorXd::Zero(dofs);
+        joint.scheme_decay = Eigen::VectorXd::Zero(dofs);
+        for (Eigen::Index k = 0; k < dofs; ++k) {
+            if (friction_[ov + k] > 0.0 && std::abs(before.v[ov + k]) < config_.friction_slip_threshold) {
+                joint.friction_creep[k] = std::abs(after.v[ov + k]);
+            }
+        }
         outputs_.joints.push_back(joint);
+    }
+    for (Eigen::Index r = 0; r < count(limit_impulse_.size()); ++r) {
+        const LimitRow& row = at(limits_, r);
+        at(outputs_.joints, row.body).limit_force[0] += row.sign * at(limit_impulse_, r) / h;
     }
     outputs_.bodies = body_states(after.q, after.v);
     outputs_.contacts = contact_cache_;

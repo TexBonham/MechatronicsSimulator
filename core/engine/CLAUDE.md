@@ -44,6 +44,17 @@ Joint springs (ENG-051): `Joint.stiffness/damping/rest` per v DOF (empty = none)
 Joints: Revolute 1/1, Prismatic 1/1, Fixed 0/0, Planar 3/3 [x, y, theta], Spherical 4/3, Free 7/6 [p, quat w-first],
 Translation 3/3 [p] (rope nodes);
 spherical/free v in child coordinates; quaternions renormalized in `integrate_positions`.
+Joint limits (ENG-013): `Joint.lower/upper` (empty or 1 entry; Revolute, Prismatic only; -inf/+inf open; lower ==
+upper locks; else InvalidModelError naming the body). Row J = s e_k (s +1 lower, -1 upper), impulse >= 0, appended in
+joint order after the loop rows in each Gauss-Seidel sweep; active when s (q - bound) <= h `velocity_tolerance` at the
+step start; a binding row sets v_k = 0 exactly; `project_positions` stacks passed bounds as unit rows and then clamps
+(`clamp_limits`). Zero restitution: the passing step overshoots by <= h |v| (published `limit_overshoot`), the
+next step stops it. `JointOutput.limit_force` = s lambda / h.
+Joint friction (ENG-014, ruling 38): `Joint.friction` per DOF (Revolute, Prismatic, Planar), `add_joint_friction`:
+c = F / max(|v_start|, `friction_slip_threshold`), f -= c v, D += c; creep v_s L / F published as `friction_creep`.
+Drive (ENG-051): `set_joint_drive(joint, dof, rest, stiffness, damping)` overwrites `stiffness_/damping_/rest_` at
+that DOF, persistent, no event; `sprung_` per body gates `joint_spring_forces`. `JointOutput.scheme_decay` = pi
+sqrt(K (H^-1)_kk) h per sprung DOF.
 Constraints: block Gauss-Seidel (per-constraint pseudo-inverse of J A^-1 J^T) until `max|J v| <= velocity_tolerance`,
 cap `iteration_cap` (50) else `SolverNonConvergenceError`; then `projection_iterations` (3) Gauss-Newton
 min-norm steps; drift > `drift_threshold_m/_rad` (1e-6) throws `DriftError(t, cause, index)`.
@@ -81,14 +92,14 @@ collects the events after each step.
 
 | Section | Line |
 |---|---|
-| Helpers | 40 |
-| Construction | 266 |
-| Kinematics | 343 |
-| Dynamics | 415 |
-| Transmissions | 647 |
-| Constraints | 746 |
-| Members, ropes and model changes | 896 |
-| Inputs and outputs | 1325 |
+| Helpers | 41 |
+| Construction | 302 |
+| Kinematics | 393 |
+| Dynamics | 465 |
+| Transmissions | 698 |
+| Constraints | 811 |
+| Members, ropes and model changes | 1039 |
+| Inputs and outputs | 1482 |
 
 ## Section index, `src/collision.cpp`
 
