@@ -38,7 +38,7 @@ public:
     NativeAdapter& operator=(NativeAdapter&&) = delete;
 
     [[nodiscard]] std::span<const std::string> supported_elements() const override;
-    void load(const kernel::PreparedModel& model, const kernel::Rate& physics_rate) override;
+    void load(const kernel::PreparedModel& prepared, const kernel::Rate& physics_rate) override;
     void reset() override;
     void step() override;
 

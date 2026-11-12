@@ -949,8 +949,8 @@ void NativeAdapter::step() {
                 f.generalized_force.push_back(joint.generalized_force[k]);
             }
         } else {
-            for (Eigen::Index k = 0; k < joint.generalized_force.size(); ++k) {
-                f.generalized_force.push_back(joint.generalized_force[k]);
+            for (const double value : joint.generalized_force) {
+                f.generalized_force.push_back(value);
             }
         }
         const Eigen::Index shaft = e.shaft_of[b];
@@ -970,8 +970,8 @@ void NativeAdapter::step() {
     for (std::size_t c = 0; c < e.neutral_constraints; ++c) {
         const eng::ConstraintOutput& constraint = out.constraints[c];
         kernel::ConstraintForce f;
-        for (Eigen::Index k = 0; k < constraint.force.size(); ++k) {
-            f.force.push_back(constraint.force[k]);
+        for (const double value : constraint.force) {
+            f.force.push_back(value);
         }
         f.translational_error = constraint.translational_error;
         f.rotational_error = constraint.rotational_error;

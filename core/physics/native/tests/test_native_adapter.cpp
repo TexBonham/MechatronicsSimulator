@@ -38,18 +38,18 @@ std::string body(const std::string& name, int parent, const std::string& type, c
                  const std::string& stiffness = "[]", const std::string& damping = "[]", const DofSpec& dof = {},
                  const std::string& position = "[0, 0, 0]", const std::string& com = "[0, 0, 0]",
                  const std::string& inertia = "[0.01, 0, 0, 0, 0.01, 0, 0, 0, 0.01]") {
-    std::string extras = "\"friction\": [], \"lower\": [], \"upper\": []";
+    std::string extras = R"("friction": [], "lower": [], "upper": [])";
     if (type == "revolute" || type == "prismatic") {
-        extras = "\"friction\": [" + dof.friction + "], \"lower\": [" + dof.lower + "], \"upper\": [" + dof.upper + "]";
+        extras = R"("friction": [)" + dof.friction + R"(], "lower": [)" + dof.lower + R"(], "upper": [)" + dof.upper + "]";
     }
-    return "{\"name\": \"" + name + "\", \"parent\": " + std::to_string(parent) + ", \"mass\": " + std::to_string(mass) +
-           ", \"com\": " + com + ", \"inertia\": " + inertia + ", \"joint\": {\"type\": \"" + type +
-           "\", \"position\": " + position + ", \"orientation\": [1, 0, 0, 0], \"axis\": " + axis +
-           ", \"stiffness\": " + stiffness + ", \"damping\": " + damping + ", \"rest\": [], " + extras + "}}";
+    return R"({"name": ")" + name + R"(", "parent": )" + std::to_string(parent) + R"(, "mass": )" + std::to_string(mass) +
+           R"(, "com": )" + com + R"(, "inertia": )" + inertia + R"(, "joint": {"type": ")" + type +
+           R"(", "position": )" + position + R"(, "orientation": [1, 0, 0, 0], "axis": )" + axis +
+           R"(, "stiffness": )" + stiffness + R"(, "damping": )" + damping + R"(, "rest": [], )" + extras + "}}";
 }
 
 struct Doc {
-    std::string elements = "[\"body\", \"joint.prismatic\"]";
+    std::string elements = R"(["body", "joint.prismatic"])";
     std::string gravity = "[0, 0, -9.81]";
     std::vector<std::string> bodies;
     int neutral_bodies = -1;
@@ -73,13 +73,13 @@ struct Doc {
         if (neutral < 0) {
             neutral = static_cast<int>(bodies.size());
         }
-        return "{\"format\": \"mechsim-native-1\", \"elements\": " + elements + ", \"gravity\": " + gravity +
-               ", \"config\": {\"iteration_cap\": 50, \"velocity_tolerance\": 1e-9, \"projection_iterations\": 3, "
-               "\"drift_threshold_m\": 1e-6, \"drift_threshold_rad\": 1e-6, \"unit_tolerance\": 1e-12, "
-               "\"symmetry_tolerance\": 1e-12}, \"bodies\": [" +
-               list + "], \"neutral_bodies\": " + std::to_string(neutral) + ", \"constraints\": " + constraints +
-               ", \"members\": " + members + ", \"transmissions\": " + transmissions + ", \"ropes\": " + ropes +
-               ", \"contact\": " + contact + ", \"payloads\": " + payloads + ", \"starts\": " + starts + "}";
+        return R"({"format": "mechsim-native-1", "elements": )" + elements + R"(, "gravity": )" + gravity +
+               R"(, "config": {"iteration_cap": 50, "velocity_tolerance": 1e-9, "projection_iterations": 3, )"
+               R"("drift_threshold_m": 1e-6, "drift_threshold_rad": 1e-6, "unit_tolerance": 1e-12, )"
+               R"("symmetry_tolerance": 1e-12}, "bodies": [)" +
+               list + R"(], "neutral_bodies": )" + std::to_string(neutral) + R"(, "constraints": )" + constraints +
+               R"(, "members": )" + members + R"(, "transmissions": )" + transmissions + R"(, "ropes": )" + ropes +
+               R"(, "contact": )" + contact + R"(, "payloads": )" + payloads + R"(, "starts": )" + starts + "}";
     }
 };
 
@@ -108,7 +108,7 @@ TEST_CASE("native adapter: load refuses an artifact, a second load and unknown e
     const Doc doc = slider(1.0);
     CHECK_THROWS_AS(adapter.load(PreparedModel{doc.text(), "<mujoco/>", "1.0.0"}, Rate(1000)), AdapterError);
     Doc unknown = slider(1.0);
-    unknown.elements = "[\"body\", \"joint.prismatic\", \"tendon\"]";
+    unknown.elements = R"(["body", "joint.prismatic", "tendon"])";
     CHECK_THROWS_AS(load(adapter, unknown), AdapterError);
     Doc malformed = slider(1.0);
     malformed.gravity = "[0, 0]";
@@ -155,10 +155,10 @@ TEST_CASE("native adapter: two runs are bitwise identical", "[PHY-010]") {
     for (std::vector<double>* out : {&first, &second}) {
         NativeAdapter adapter;
         Doc doc;
-        doc.elements = "[\"body\", \"joint.revolute\"]";
+        doc.elements = R"(["body", "joint.revolute"])";
         doc.bodies.push_back(body("arm", -1, "revolute", "[1, 0, 0]", 1.0, "[]", "[]", {}, "[0, 0, 0]",
                                   "[0, 0, -0.5]"));
-        doc.starts = "[{\"body\": 0, \"value\": 0.3}]";
+        doc.starts = R"([{"body": 0, "value": 0.3}])";
         load(adapter, doc);
         for (int n = 0; n < 200; ++n) {
             adapter.step();
@@ -247,7 +247,7 @@ TEST_CASE("native adapter: Coulomb joint friction decelerates at F / m", "[PHY-0
     const double m = 3.0;
     const double f = 1.5;
     Doc doc;
-    doc.elements = "[\"body\", \"joint.prismatic\"]";
+    doc.elements = R"(["body", "joint.prismatic"])";
     doc.bodies.push_back(body("slider", -1, "prismatic", "[1, 0, 0]", m, "[]", "[]", DofSpec{"1.5", "null", "null"}));
     load(adapter, doc);
     PhysicsInputs push;
@@ -284,14 +284,14 @@ namespace {
 Doc belt(const std::string& slip = "0.0", const std::string& efficiency = "0.8") {
     // Shaft (revolute about z, J = 1e-4) drives a carriage on a vertical prismatic through a belt of radius r.
     Doc doc;
-    doc.elements = "[\"body\", \"joint.revolute\", \"joint.prismatic\", \"transmission.belt_pulley\"]";
+    doc.elements = R"(["body", "joint.revolute", "joint.prismatic", "transmission.belt_pulley"])";
     doc.bodies.push_back(body("shaft", -1, "revolute", "[0, 0, 1]", 0.1, "[]", "[]", {}, "[0, 0, 0]", "[0, 0, 0]",
                               "[1e-4, 0, 0, 0, 1e-4, 0, 0, 0, 1e-4]"));
     doc.bodies.push_back(body("carriage", -1, "prismatic", "[0, 0, 1]", 2.0, "[]", "[]", {}, "[0.5, 0, 0]"));
-    doc.transmissions = "[{\"type\": \"belt_pulley\", \"input_body\": 0, \"output_body\": 1, \"ratio\": 0.01, "
-                        "\"reverses\": false, \"efficiency\": " + efficiency + ", \"back_efficiency\": " + efficiency +
-                        ", \"self_locking\": false, \"stiffness\": 1e5, \"damping\": 50.0, \"backlash\": 0.0, "
-                        "\"slip\": " + slip + "}]";
+    doc.transmissions = R"([{"type": "belt_pulley", "input_body": 0, "output_body": 1, "ratio": 0.01, )"
+                        R"("reverses": false, "efficiency": )" + efficiency + R"(, "back_efficiency": )" + efficiency +
+                        R"(, "self_locking": false, "stiffness": 1e5, "damping": 50.0, "backlash": 0.0, )"
+                        R"("slip": )" + slip + "}]";
     return doc;
 }
 
@@ -348,10 +348,10 @@ TEST_CASE("native adapter: scheduled slip loses the fraction of the shaft travel
 TEST_CASE("native adapter: payload mass change, release and a second release", "[PHY-006][PHY-008]") {
     NativeAdapter adapter;
     Doc doc;
-    doc.elements = "[\"body\", \"joint.prismatic\", \"joint.free\"]";
+    doc.elements = R"(["body", "joint.prismatic", "joint.free"])";
     doc.bodies.push_back(body("carrier", -1, "prismatic", "[1, 0, 0]", 5.0));
     doc.bodies.push_back(body("payload", -1, "free", "[0, 0, 1]", 1.0, "[]", "[]", {}, "[0, 0, -0.2]"));
-    doc.payloads = "[{\"body\": 1, \"carrier\": 0}]";
+    doc.payloads = R"([{"body": 1, "carrier": 0}])";
     load(adapter, doc);
     REQUIRE(adapter.outputs().payloads.size() == 1);
     CHECK(adapter.outputs().payloads[0].attached);
@@ -381,7 +381,7 @@ TEST_CASE("native adapter: a joint spring offset and stiffness change move the r
     // set_spring_offset(0, 0.2) the static rest is 0.2 (the force -K1 (q - 0.2) vanishes there).
     NativeAdapter adapter;
     Doc doc;
-    doc.elements = "[\"body\", \"joint.revolute\"]";
+    doc.elements = R"(["body", "joint.revolute"])";
     doc.gravity = "[0, 0, 0]";
     doc.bodies.push_back(body("arm", -1, "revolute", "[0, 0, 1]", 1.0, "[10.0]", "[1.0]"));
     load(adapter, doc);
@@ -398,12 +398,12 @@ TEST_CASE("native adapter: a joint spring offset and stiffness change move the r
 TEST_CASE("native adapter: constraint disable and its index check", "[PHY-008]") {
     NativeAdapter adapter;
     Doc doc;
-    doc.elements = "[\"body\", \"joint.free\", \"joint.fixed\", \"constraint.point\"]";
+    doc.elements = R"(["body", "joint.free", "joint.fixed", "constraint.point"])";
     doc.bodies.push_back(body("ball", -1, "free", "[0, 0, 1]", 1.0));
     doc.bodies.push_back(body("world_anchor", -1, "fixed", "[0, 0, 1]", 1.0));
     doc.neutral_bodies = 1;
-    doc.constraints = "[{\"type\": \"point\", \"body_a\": 0, \"body_b\": 1, \"point_a\": [0, 0, 0], "
-                      "\"point_b\": [0, 0, 0]}]";
+    doc.constraints = R"([{"type": "point", "body_a": 0, "body_b": 1, "point_a": [0, 0, 0], )"
+                      R"("point_b": [0, 0, 0]}])";
     load(adapter, doc);
     adapter.step();
     REQUIRE(adapter.outputs().constraints.size() == 1);
@@ -420,14 +420,14 @@ TEST_CASE("native adapter: constraint disable and its index check", "[PHY-008]")
 TEST_CASE("native adapter: a clamped member below eight segments is refused", "[PHY-007][PHY-018]") {
     NativeAdapter adapter;
     Doc doc;
-    doc.elements = "[\"body\", \"joint.fixed\", \"lumped_member\"]";
+    doc.elements = R"(["body", "joint.fixed", "lumped_member"])";
     doc.bodies.push_back(body("base", -1, "fixed", "[0, 0, 1]", 1.0));
-    const std::string member = "{\"parent\": 0, \"position\": [0, 0, 0], \"orientation\": [1, 0, 0, 0], "
-                               "\"youngs_modulus\": 2e11, \"area_moment\": 1e-8, \"density\": 7800, \"area\": 1e-4, "
-                               "\"length\": 1.0, \"node_damping\": 0.0, \"roller_mass_fraction\": 0.001, ";
-    doc.members = "[" + member + "\"segments\": 4, \"ends\": \"clamped\"}]";
+    const std::string member = R"({"parent": 0, "position": [0, 0, 0], "orientation": [1, 0, 0, 0], )"
+                               R"("youngs_modulus": 2e11, "area_moment": 1e-8, "density": 7800, "area": 1e-4, )"
+                               R"("length": 1.0, "node_damping": 0.0, "roller_mass_fraction": 0.001, )";
+    doc.members = "[" + member + R"("segments": 4, "ends": "clamped"}])";
     CHECK_THROWS_AS(load(adapter, doc), AdapterError);
-    doc.members = "[" + member + "\"segments\": 8, \"ends\": \"cantilever\"}]";
+    doc.members = "[" + member + R"("segments": 8, "ends": "cantilever"}])";
     load(adapter, doc);
     adapter.step();
     CHECK(adapter.outputs().members.size() == 1);
@@ -438,12 +438,12 @@ TEST_CASE("native adapter: a rope holding a load publishes its tensions", "[PHY-
     // A 1 kg load on a 4-segment rope from the world; at rest every segment carries the load plus the rope below it.
     NativeAdapter adapter;
     Doc doc;
-    doc.elements = "[\"body\", \"joint.free\", \"rope\"]";
+    doc.elements = R"(["body", "joint.free", "rope"])";
     doc.bodies.push_back(body("load", -1, "free", "[0, 0, 1]", 1.0, "[]", "[]", {}, "[0, 0, -1]"));
-    doc.ropes = "[{\"from_body\": -1, \"from_point\": [0, 0, 0], \"to_body\": 0, \"to_point\": [0, 0, 0], "
-                "\"segments\": 4, \"axial_rigidity\": 1e5, \"damping\": 50.0, \"mass_per_length\": 0.01, "
-                "\"rest_length\": 1.0, \"breaking_tension\": null, \"attachment_damping\": 0.0, "
-                "\"attachment_friction\": 0.0}]";
+    doc.ropes = R"([{"from_body": -1, "from_point": [0, 0, 0], "to_body": 0, "to_point": [0, 0, 0], )"
+                R"("segments": 4, "axial_rigidity": 1e5, "damping": 50.0, "mass_per_length": 0.01, )"
+                R"("rest_length": 1.0, "breaking_tension": null, "attachment_damping": 0.0, )"
+                R"("attachment_friction": 0.0}])";
     load(adapter, doc);
     for (int n = 0; n < 3000; ++n) {
         adapter.step();
@@ -466,10 +466,10 @@ TEST_CASE("native adapter: a rope holding a load publishes its tensions", "[PHY-
 TEST_CASE("native adapter: the JSON reader takes the translation's subset and refuses the rest", "[PHY-001]") {
     using mechsim::physics::native::json::ParseError;
     using mechsim::physics::native::json::Value;
-    const Value v = Value::parse(R"({"a": [1, -2.5e-3, true, false, null], "b": "x\"A"})");
+    const Value v = Value::parse(R"({"a": [1, -2.5e-3, true, false, null], "b": "x\"\u0041"})");
     CHECK(v.at("a").array("a").size() == 5);
     CHECK(v.at("a").array("a")[1].number("n") == -2.5e-3);
-    CHECK(v.at("b").string("b") == "x\"A");
+    CHECK(v.at("b").string("b") == R"(x"A)");
     CHECK(v.at("a").array("a")[4].is_null());
     CHECK_THROWS_AS(Value::parse("[1, 2"), ParseError);
     CHECK_THROWS_AS(Value::parse("{} x"), ParseError);
