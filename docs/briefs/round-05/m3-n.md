@@ -8,7 +8,7 @@ first: root `CLAUDE.md`, `core/CLAUDE.md`, `core/engine/CLAUDE.md`, `core/kernel
 PHY-033 load torque, PHY-034 drives, slip and backlash, payload weld, contact pairs, joint positions and drive
 torques, approximation report), `core/physics/native/README.md` and `mechsim/physics/native/` (the skeleton),
 `mechsim/physics/CLAUDE.md` (neutral model, `prepare_model`), spec rows PHY-001 to 012, 018, 019, 020 to 022, 027 to
-034 in `docs/spec/phy.md`, ENG-043 to 048, round 5 rulings 1, 9, 13, 16, 21 in `docs/queue.md`, ADR 0003, 0013,
+034 in `docs/spec/phy.md`, ENG-043 to 048, round 5 rulings 1, 9, 13, 16, 21, 24, 29, 31 to 33 in `docs/queue.md`, ADR 0003, 0013,
 0014, 0016. Call cap 150 with a handoff rule (commit WIP at the cap, list the rest for N2). Iterate with
 `tools/locked_build.sh core debug -R "'native|Native'"` (name your ctest cases so the regex finds them) and the
 reference tier on the native adapter; at the end `tools/locked_build.sh core debug-sanitize`, `tools/locked_build.sh
@@ -74,6 +74,11 @@ core_driver.py` and `core_wiring.py` only for the adapter selection (run configu
   per tick, and delivers each once.
 - A payload release is `release_load(Payload)` emitting `LoadReleased` with source Payload; there is no
   `PayloadReleased`; a second release is an engine error and ends the run (invariant 7).
+- Builds and test runs: prefer the foreground with a 600000 ms timeout, split into build and ctest calls when one
+  would exceed it. E3 lost 45 minutes waiting on background tasks whose completion never arrived: if you do start a
+  background build, confirm its process is alive (`ps`) before waiting and never wait on an output file alone.
+- `core_builder` keeps `rigid_members=True` on the bridge (ruling 29); the native adapter builds lumped members
+  as the design states them, so a design with members records member end-loads on the native adapter.
 - Twist and the axial slide are free at a clamped end in milestone 3: record it as an approximation line per run for
   a design with a clamped member (deliverable 7).
 
