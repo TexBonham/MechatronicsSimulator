@@ -9,13 +9,14 @@ from __future__ import annotations
 import json
 import math
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any
 
 from mechsim.integrity.beam import peak
 from mechsim.integrity.checks.deflection import NOT_EVALUATED as STATIC
 from mechsim.integrity.config import IntegrityConfig
 from mechsim.integrity.plugin import LOADS_NOT_EVALUATED, CheckResult, CheckRow, RunInputs, rigid_note
+from mechsim.record.validity import NOT_VALID_FLAG, NOT_VALID_KIND, CarriedValidity
 from mechsim.testing.driver import IntegrityResults, MemberIntegrity, RopeIntegrity
 
 THERMAL_NOTE = "thermal check slot: accepted, not evaluated in v1 (INT-036)"
@@ -80,15 +81,36 @@ class IntegrityReport(IntegrityResults):
         return json.dumps(data, sort_keys=True, indent=1)
 
 
-def evaluate(config: IntegrityConfig, inputs: RunInputs, lines: Sequence[str] = ()) -> IntegrityReport:
+def not_valid_note(record: CarriedValidity) -> str:
+    """The line of a member the engine flagged (rulings 69, 72)."""
+    return (
+        f"integrity: {record.reason()}; its rows count the samples up to then and are flagged {NOT_VALID_FLAG}, its "
+        f"tier 1 crossings after then are recorded as {NOT_VALID_KIND} events, never counted (rulings 69, 72)"
+    )
+
+
+def evaluate(
+    config: IntegrityConfig,
+    inputs: RunInputs,
+    lines: Sequence[str] = (),
+    validity: Sequence[CarriedValidity] = (),
+) -> IntegrityReport:
     """Every configured check over `inputs`; `lines` (the case's design-load and evaluation-start lines) lead the
-    notes."""
+    notes. `validity` (the engine's carried-load record, ruling 69): a flagged member's rows (and its mounts') are its
+    checks over the samples up to the flag time (values before it stand), flagged `not_valid` with the detail
+    `not_valid_from`; with no sample before it they are NaN; its deflection history is NaN after it; one line says
+    so. Without a flag the result is the same, bit for bit."""
     results: list[CheckResult] = []
     notes: list[str] = list(lines)
     for check, tier, parameters in config.entries():
         result = check.evaluate(inputs, parameters, tier)
         results.append(result)
         notes += result.notes
+    names = {member.name for member in inputs.members}
+    for record in validity:
+        if record.flagged and record.member in names:
+            results = _not_valid(config, inputs, results, record)
+            notes.append(not_valid_note(record))
     for member in inputs.members:
         if member.loads is None:
             unevaluated = [result.check for result in results if _rigid(result, member.name)]
@@ -99,6 +121,45 @@ def evaluate(config: IntegrityConfig, inputs: RunInputs, lines: Sequence[str] = 
     members = tuple(_row(subject, results, subject in single) for subject in _subjects(inputs))
     times = tuple(float(time) for time in inputs.times)
     return IntegrityReport(members, _ropes(inputs), tuple(results), inputs.load_factor, tuple(notes), times)
+
+
+def _not_valid(
+    config: IntegrityConfig, inputs: RunInputs, results: list[CheckResult], record: CarriedValidity
+) -> list[CheckResult]:
+    subjects = {record.member}
+    subjects.update(joint.name for joint in inputs.joints if joint.member == record.member and joint.kind == "mount")
+    before = inputs.until(record.since)
+    marks = (("not_valid_from", record.since),)
+    out: list[CheckResult] = []
+    for (check, tier, parameters), result in zip(config.entries(), results, strict=True):
+        kept: tuple[CheckRow, ...] = ()
+        counts = result.cycle_counts
+        if before.times.size > 0:
+            cut = check.evaluate(before, parameters, tier)
+            kept = tuple(row for row in cut.rows if row.subject in subjects)
+            counts = tuple(item for item in result.cycle_counts if item[0] not in subjects) + tuple(
+                item for item in cut.cycle_counts if item[0] in subjects
+            )
+        else:
+            kept = tuple(replace(row, value=math.nan, margin=None) for row in result.rows if row.subject in subjects)
+        marked = tuple(
+            replace(row, flags=tuple(sorted({*row.flags, NOT_VALID_FLAG})), detail=row.detail + marks) for row in kept
+        )
+        rows = tuple(row for row in result.rows if row.subject not in subjects) + marked
+        series = tuple(
+            (
+                subject,
+                tuple(
+                    math.nan if record.covers(float(time)) else value
+                    for time, value in zip(inputs.times, values, strict=True)
+                ),
+            )
+            if subject in subjects
+            else (subject, values)
+            for subject, values in result.series
+        )
+        out.append(replace(result, rows=rows, cycle_counts=counts, series=series))
+    return out
 
 
 def _rigid(result: CheckResult, subject: str) -> bool:

@@ -65,4 +65,4 @@ class IntegrityService:
         if start > 0.0:
             lines.append(window_note(start))
             inputs = inputs.windowed(start)
-        return evaluate(config, inputs, lines)
+        return evaluate(config, inputs, lines, tuple(getattr(recording, "validity", ())))

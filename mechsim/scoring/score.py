@@ -14,6 +14,7 @@ from dataclasses import dataclass, replace
 from typing import Any, Literal, Protocol, runtime_checkable
 
 from mechsim.design.schema import OpenValue
+from mechsim.record.validity import NOT_VALID_KIND, CarriedValidity, flagged
 from mechsim.scoring.statistics import StatisticError, compare, statistic, window_indices, within
 from mechsim.testing.baseline import Baseline, BaselineDiff, Change, Entry, RunIdentity, diff_baselines, entry_key
 from mechsim.testing.driver import (
@@ -128,23 +129,35 @@ def score_run(
     (its `${}` forms), which the baseline keeps; by default the resolved criterion's own text. Structural criteria
     read `integrity` (SCO-014); a recorded tier 1 crossing fails the case (SCO-015). `gravity` (the design's, m/s^2)
     gives the down direction `swing:` quantities are measured from (SCO-030); without it they are unevaluable."""
-    recording = _StructuralView(_SwingView(recording, gravity), integrity)
+    not_valid = flagged(tuple(getattr(recording, "validity", ())))
+    view = _StructuralView(_SwingView(recording, gravity), integrity, not_valid)
+    recording = view
     results: list[CriterionResult] = []
     for criterion in case.criteria:
         limit = _limit_text(criterion, limits)
         if report.errored:
             results.append(CriterionResult(criterion.name, "error", limit, note=f"run error: {report.error}"))
             continue
+        view.read_not_valid = None
         try:
             results.append(_evaluate(criterion, recording, limit))
         except (_UnevaluableError, StatisticError, KeyError) as error:
-            results.append(CriterionResult(criterion.name, "error", limit, note=_reason(error)))
+            note = _reason(error)
+            if not isinstance(error, KeyError) and view.read_not_valid is not None:
+                note = view.read_not_valid
+            results.append(CriterionResult(criterion.name, "error", limit, note=note))
     status = _case_status(results)
     crossings = _crossings(recording)
+    invalid = _not_valid_crossings(recording, not_valid)
+    error = report.error
     if (len(crossings) > 0 or report.reason == "integrity_halt") and status == "pass":
         status = "fail"
+    if len(invalid) > 0 and status != "fail":
+        status = "error"
+        error = "; ".join(dict.fromkeys(reason for _, reason in invalid))
     if report.errored:
         status = "error"
+        error = report.error
     return CaseScore(
         case_id=case.id,
         status=status,
@@ -155,11 +168,11 @@ def score_run(
         ran=True,
         end_reason=report.reason,
         end_time=report.end_time,
-        error=report.error,
+        error=error,
         sweep=sweep,
         run=run,
         approximations=report.approximations + _layer_approximations(recording),
-        crossings=crossings,
+        crossings=crossings + tuple(line for line, _ in invalid),
         notes=tuple(report.notes),
     )
 
@@ -283,11 +296,21 @@ class _StructuralView:
     `deflection:<member>` (m) the member's deflection at every recorded sample when the results carry it (SCO-027: its
     maximum is the table's peak, its mean over a final window the settled value), else the table's peak as one sample;
     never recomputed from the recording. A table value integrity did not evaluate (NaN) is unevaluable, never a number
-    (invariant 7). Other refs go to the recording."""
+    (invariant 7). A member the engine flagged (`not_valid`, rulings 69, 72): its safety factor (the minimum over the
+    run, which holds the not-valid interval) and a deflection without its history are unevaluable with the not-valid
+    reason; its deflection history is NaN after the flag time, so a window reaching into it is unevaluable with that
+    reason (`read_not_valid`) and a window before it is scored. Other refs go to the recording."""
 
-    def __init__(self, recording: RecordView, integrity: IntegrityResults | None) -> None:
+    def __init__(
+        self,
+        recording: RecordView,
+        integrity: IntegrityResults | None,
+        not_valid: dict[str, CarriedValidity] | None = None,
+    ) -> None:
         self._recording = recording
         self._integrity = integrity
+        self._not_valid = dict(not_valid or {})
+        self.read_not_valid: str | None = None
 
     def times(self) -> Sequence[float]:
         return self._recording.times()
@@ -316,13 +339,24 @@ class _StructuralView:
             value = entry.deflection
             time = entry.deflection_time
             unit = "m"
-        if math.isnan(value):
+        record = self._not_valid.get(member)
+        if record is not None and kind == "safety_factor":
+            raise _UnevaluableError(f"{reference}: {record.reason()}")
+        if math.isnan(value) and record is None:
             flags = ", ".join(entry.flags)
             raise _UnevaluableError(f"{reference}: not evaluated by integrity (flags: {flags})")
         if kind == "deflection" and isinstance(self._integrity, _DeflectionHistory):
             history = self._integrity.deflection_series(member)
             if history is not None:
-                return Series(tuple(history[0]), tuple(history[1]), "m")
+                values = tuple(history[1])
+                if record is not None:
+                    self.read_not_valid = f"{reference}: {record.reason()}"
+                    values = tuple(
+                        math.nan if record.covers(float(t)) else v for t, v in zip(history[0], values, strict=True)
+                    )
+                return Series(tuple(history[0]), values, "m")
+        if record is not None:
+            raise _UnevaluableError(f"{reference}: {record.reason()}")
         return Series((time,), (value,), unit)
 
 
@@ -344,6 +378,31 @@ def _crossings(recording: RecordView) -> tuple[str, ...]:
         except StructuralError as error:
             lines.append(f"unreadable crossing at {event.time:.12g} s: {error}")
     return tuple(lines)
+
+
+def _not_valid_crossings(
+    recording: RecordView, not_valid: dict[str, CarriedValidity]
+) -> tuple[tuple[str, str], ...]:
+    """Each tier 1 crossing recorded as not valid (kind `integrity_not_valid`, rulings 69, 72) as (report line,
+    reason): never counted, but a case whose only crossings they are is unevaluable."""
+    out: list[tuple[str, str]] = []
+    for event in recording.events():
+        if event.kind != NOT_VALID_KIND:
+            continue
+        try:
+            crossing = IntegrityCrossing.parse(event.detail)
+        except StructuralError as error:
+            out.append((f"unreadable not-valid crossing at {event.time:.12g} s: {error}", str(error)))
+            continue
+        reason = f"one-way carried-load result not valid for {crossing.member}"
+        if crossing.member in not_valid:
+            reason = not_valid[crossing.member].reason()
+        line = (
+            f"{crossing.member} {crossing.quantity} {crossing.value:.12g} crossed limit {crossing.limit:.12g} at "
+            f"{event.time:.12g} s (tier {crossing.tier}): not valid, {reason}"
+        )
+        out.append((line, reason))
+    return tuple(out)
 
 
 def _layer_approximations(recording: RecordView) -> tuple[str, ...]:
