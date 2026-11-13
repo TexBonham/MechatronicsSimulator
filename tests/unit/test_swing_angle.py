@@ -6,14 +6,26 @@ from __future__ import annotations
 import math
 from collections.abc import Sequence
 from dataclasses import dataclass
+from pathlib import Path
 
 import pytest
 from pydantic import TypeAdapter, ValidationError
 
+from mechsim.design.schema import Design, Senses, load_design
 from mechsim.scoring.score import _SwingView, _UnevaluableError
 from mechsim.scoring.statistics import statistic
 from mechsim.testing.driver import Series
-from mechsim.testing.schema import QuantityRef, reference_dimension
+from mechsim.testing.schema import (
+    CASE_PAYLOAD_BODY,
+    ROOT,
+    Case,
+    Criterion,
+    QuantityRef,
+    case_payload_body,
+    cross_check,
+    load_test_case,
+    reference_dimension,
+)
 
 # Rigid pendulum: pivot body at the origin, bob at L (sin theta, -cos theta, 0) under gravity (0, -g, 0), released at
 # rest from theta_0, small-angle motion theta(t) = theta_0 cos(2 pi t / T) with T = 2 pi sqrt(L / g) (the closed form
@@ -160,3 +172,69 @@ def test_the_case_schema_accepts_swing_references(reference: str) -> None:
 def test_the_case_schema_refuses_malformed_swing_references(reference: str) -> None:
     with pytest.raises(ValidationError):
         TypeAdapter(QuantityRef).validate_python(reference)
+
+
+def _senses(**target: str) -> Senses:
+    return Senses(**target)  # type: ignore[arg-type]
+
+
+@pytest.mark.req("SCO-030")
+@pytest.mark.parametrize(
+    ("senses", "expected"),
+    [
+        ((), CASE_PAYLOAD_BODY),
+        ((None, _senses(joint="pivot")), CASE_PAYLOAD_BODY),
+        ((None, _senses(payload="crate")), "crate"),
+        ((_senses(joint_reaction="cargo"),), "cargo"),
+        ((_senses(joint_reaction="pivot"),), CASE_PAYLOAD_BODY),
+        ((_senses(joint_reaction="pivot"), _senses(payload="crate")), "crate"),
+        ((_senses(payload="first"), _senses(payload="second")), "first"),
+        ((_senses(body="hook"),), CASE_PAYLOAD_BODY),
+    ],
+)
+def test_the_case_payload_body_is_the_name_the_run_gives_it(senses: tuple[Senses | None, ...], expected: str) -> None:
+    assert case_payload_body(senses, {"pivot"}) == expected
+
+
+def _gantry_with(tmp_path: Path, old: str, new: str) -> Design:
+    text = (ROOT / "designs" / "gantry" / "design.yaml").read_text(encoding="utf-8")
+    assert old in text
+    folder = tmp_path / "gantry"
+    folder.mkdir()
+    (folder / "design.yaml").write_text(text.replace(old, new, 1), encoding="utf-8")
+    return load_design(folder / "design.yaml")
+
+
+def _swing_case(body: str) -> Case:
+    case = load_test_case(ROOT / "test_cases" / "gantry" / "G1.yaml")
+    criterion = TypeAdapter(Criterion).validate_python(
+        {
+            "name": "sway",
+            "check": "value",
+            "quantity": f"swing:hook.{body}",
+            "statistic": "maximum",
+            "comparison": "at_most",
+            "limit": "0.1 rad",
+        }
+    )
+    return case.model_copy(update={"criteria": (*case.criteria, criterion)})
+
+
+@pytest.mark.req("SCO-030")
+@pytest.mark.parametrize(
+    ("old", "new", "body"),
+    [
+        ("joint_reaction: payload", "joint_reaction: payload", "payload"),
+        ("joint_reaction: payload", "joint_reaction: cargo", "cargo"),
+    ],
+)
+def test_the_case_schema_accepts_the_payload_under_the_name_the_run_gives_it(
+    tmp_path: Path, old: str, new: str, body: str
+) -> None:
+    design = _gantry_with(tmp_path, old, new)
+    assert case_payload_body((c.senses for c in design.components), {j.name for j in design.joints}) == body
+    assert [error for error in cross_check(_swing_case(body), design) if "sway" in error] == []
+    if body != CASE_PAYLOAD_BODY:
+        errors = cross_check(_swing_case(CASE_PAYLOAD_BODY), design)
+        assert any("unknown body 'payload'" in error for error in errors), errors
+    assert any("unknown body 'ghost'" in error for error in cross_check(_swing_case("ghost"), design))
