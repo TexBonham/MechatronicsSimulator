@@ -25,7 +25,7 @@ namespace {
 std::string shortest(double value) {
     std::array<char, 32> buffer{};
     const std::to_chars_result written = std::to_chars(buffer.data(), buffer.data() + buffer.size(), value);
-    return std::string(buffer.data(), written.ptr);
+    return {buffer.data(), written.ptr};
 }
 
 std::string quoted(const std::string& text) {
@@ -43,8 +43,8 @@ std::string quoted(const std::string& text) {
 }  // namespace
 
 std::string crossing_detail(const Crossing& crossing) {
-    return "{\"limit\": " + shortest(crossing.limit) + ", \"member\": " + quoted(crossing.element) +
-           ", \"quantity\": " + quoted(crossing.quantity) + ", \"tier\": 1, \"value\": " + shortest(crossing.value) +
+    return R"({"limit": )" + shortest(crossing.limit) + R"(, "member": )" + quoted(crossing.element) +
+           R"(, "quantity": )" + quoted(crossing.quantity) + R"(, "tier": 1, "value": )" + shortest(crossing.value) +
            "}";
 }
 

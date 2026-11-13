@@ -227,7 +227,7 @@ TEST_CASE("a cantilever's static tip deflection crosses its limit at t*", "[INT-
 }
 
 TEST_CASE("tier 1 quantities follow beam.py on mixed end loads", "[INT-023]") {
-    integrity::MemberLimits m = cantilever();
+    const integrity::MemberLimits m = cantilever();
     kernel::MemberEndLoads loads;
     loads.start = kernel::Wrench{{0.3, 1.5, -2.0}, {40.0, 3.0, 1.0}};
     loads.end = kernel::Wrench{{0.0, -0.7, 4.0}, {-40.0, 2.0, 0.0}};
@@ -292,6 +292,7 @@ TEST_CASE("each element and quantity raises one event at its own first crossing"
     // Stress P L c_y / I_z = 1e9 t Pa: the second member (5.05e7) at t > 50.5 ms, the first (1.2e8) at t > 120 ms
     // (never in 100 ticks). Deflection P L^3 / (3 E I) = t / 6 m: > 1.05e-3 at t > 6.3 ms, both members.
     std::vector<std::string> seen;
+    seen.reserve(r.crossings.size());
     for (const integrity::Crossing& c : r.crossings) {
         seen.push_back(c.element + " " + c.quantity + " " + std::to_string(c.time.count()));
     }
@@ -437,5 +438,7 @@ TEST_CASE("a member published out of range faults the party", "[INT-023]") {
     const Run r = run(limits, [](double t) { return tip_loaded(t, 1.0); }, 5);
     CHECK(r.report.outcome == kernel::RunOutcome::run_error);
     REQUIRE(r.report.fault.has_value());
-    CHECK(r.report.fault->party() == "integrity");
+    if (r.report.fault.has_value()) {
+        CHECK(r.report.fault.value().party() == "integrity");
+    }
 }

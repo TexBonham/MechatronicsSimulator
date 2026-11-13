@@ -275,20 +275,28 @@ def _si(amount: object, joint: str) -> float:
     raise DriverError(f"joint '{joint}': start value {amount!r} is not resolved to a quantity")
 
 
+SHIPPED_TIER1 = "shipped"
+
+
 class CoreDriver:
     """`SimulationDriver` over the core binding. One driver per run (the runner's factory makes a fresh one)."""
 
     def __init__(
         self,
         subscribers: Sequence[Callable[[Any], None]] = (),
-        tier1: Callable[[Any, PhysicsModel], Tier1Setup | None] | None = None,
+        tier1: Callable[[Any, PhysicsModel], Tier1Setup | None] | str | None = SHIPPED_TIER1,
     ) -> None:
         """`subscribers` receive each row as the kernel writes it (REC-019); one that raises is a recorder error,
         which ends the scoring as a run error and lands in the archive metadata (invariant 7). The physics adapter is
         the run configuration's `physics.adapter`, set by `configure`. `tier1` gives the tier 1 integrity party's
-        setup for a build (`integrity.tier1.Tier1Service`, INT-023); None or a None setup registers no party."""
+        setup for a build (`integrity.tier1.Tier1Service`, INT-023), by default over the shipped designs folder; None or
+        a None setup registers no party."""
         self._subscribers = tuple(subscribers)
-        self._tier1 = tier1
+        self._tier1: Callable[[Any, PhysicsModel], Tier1Setup | None] | None = None
+        if isinstance(tier1, str):
+            self._tier1 = Tier1Service(DESIGNS_ROOT)
+        else:
+            self._tier1 = tier1
         self._case: Case | None = None
         self.integrity_trace: Any = None
         self.adapter: str = DEFAULT_PHYSICS_ADAPTER
@@ -918,9 +926,11 @@ def core_builder(design: Design, adapter: str = DEFAULT_PHYSICS_ADAPTER) -> Core
 def core_services(designs_root: Path = DESIGNS_ROOT) -> Services:
     """The runner's real services: a fresh `CoreDriver` per run, the builder, the record archiver, and integrity
     over the recording when the design has an `integrity.yaml` beside its design file (INT-022)."""
-    tier1 = Tier1Service(designs_root)
+    driver: Any = CoreDriver
+    if designs_root != DESIGNS_ROOT:
+        driver = partial(CoreDriver, tier1=Tier1Service(designs_root))
     return Services(
-        driver=partial(CoreDriver, tier1=tier1),
+        driver=driver,
         builder=core_builder,
         archiver=RecordArchiver(designs_root),
         designs_root=designs_root,
