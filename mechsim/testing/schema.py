@@ -230,6 +230,14 @@ class PhysicsSettings(StrictModel):
     adapter: PhysicsAdapterName = DEFAULT_PHYSICS_ADAPTER
 
 
+class IntegritySettings(StrictModel):
+    """The case's integrity section (INT-026, ADR 0010 amendment, round 5 ruling 4): `halt_on_crossing` true ends
+    the run at the first tier 1 limit crossing, false lets it run to its end; the case fails on a crossing either
+    way (INT-025). Absent or empty: false; nothing else sets it (round 5 rulings 4, 50)."""
+
+    halt_on_crossing: bool = Field(default=False, description="End the run at the first tier 1 crossing (INT-026).")
+
+
 # ===== Initial state ===================================================
 
 
@@ -801,6 +809,7 @@ class Case(StrictModel):
     seed: int = Field(ge=0, le=2**64 - 1)
     rates: Rates | None = None
     physics: PhysicsSettings = Field(default_factory=PhysicsSettings)
+    integrity: IntegritySettings | None = None
     open_parameters: list[OpenParameter] = Field(default_factory=list)
     parameters: dict[str, str] = Field(
         default_factory=dict,

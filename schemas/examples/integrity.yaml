@@ -1,6 +1,5 @@
 # Integrity configuration (INT-002): beside a design's design.yaml as integrity.yaml.
 schema_version: 1
-halt_on_crossing: false
 checks:
   - check: strength
     tier: 2
@@ -18,6 +17,8 @@ checks:
       impact_factor: 2.0
       step_threshold: 50 N
       window: 20 ms
+  - check: rope_snap
+    tier: 2
   - check: resonance
     parameters:
       band: 0.2

@@ -20,7 +20,8 @@ from mechsim.design.schema import Design
 from mechsim.testing.schema import Case, InitialState
 
 FaultOwner = Literal["signals", "physics", "controller"]
-EndReason = Literal["end_time", "message", "controller_state", "max_duration", "run_error"]
+# `integrity_halt`: the tier 1 party ended the run at its first crossing (INT-026, round 5 ruling 51).
+EndReason = Literal["end_time", "message", "controller_state", "max_duration", "run_error", "integrity_halt"]
 MESSAGE_KIND = "operator_message"
 FAULT_KIND = "controller_fault"
 # A tier 1 integrity limit crossing (ADR 0010, INT-024, REC-010): source and kind `integrity`, detail
@@ -80,7 +81,8 @@ class EndSpec:
 @dataclass(frozen=True)
 class RunReport:
     """How a run ended (KER RunReport plus the reason); `error` names the party and cause on a run error;
-    `approximations` are the physics bridge's translation report lines (ADR 0003, invariant 7)."""
+    `approximations` are the physics bridge's translation report lines (ADR 0003, invariant 7); `notes` are report
+    lines that are not approximations (the integrity halt line, INT-026)."""
 
     reason: EndReason
     end_tick: int
@@ -89,6 +91,7 @@ class RunReport:
     sink_errors: tuple[str, ...] = ()
     hook_errors: tuple[str, ...] = ()
     approximations: tuple[str, ...] = ()
+    notes: tuple[str, ...] = ()
 
     @property
     def errored(self) -> bool:

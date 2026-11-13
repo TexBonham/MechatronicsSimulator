@@ -183,6 +183,7 @@ def run_end_reason(summary: RunResultSummary) -> RunEndReason:
         "controller_state": "controller_state",
         "max_duration": "max_duration",
         "run_error": "run_error",
+        "integrity_halt": "integrity_halt",
     }
     if summary.end_reason is None or summary.end_reason not in reasons:
         return "run_error"
@@ -399,7 +400,7 @@ class FacadeServer:
             run_id = case.stem
             subscriptions: list[Subscription] = []
             try:
-                run_id = self.facade.run_id_of(case, design)
+                run_id = self.facade.run_id_of(case, design, payload.sets)
                 subscriptions = connection.live.pop(run_id, [])
             except FacadeError as error:
                 if error.field != "case":
@@ -409,7 +410,7 @@ class FacadeServer:
                 lambda: self.facade.run_case(
                     case,
                     design,
-                    None,
+                    payload.sets,
                     None,
                     False,
                     payload.seed,

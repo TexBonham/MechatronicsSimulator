@@ -389,6 +389,7 @@ class RecordArchiveReader:
                 tuple(json.loads(extra.get("sink_errors", "[]"))),
                 tuple(json.loads(extra.get("hook_errors", "[]"))),
                 approximations,
+                tuple(json.loads(extra.get("notes", "[]"))),
             ),
             bindings=tuple((item[0], item[1]) for item in json.loads(extra["bindings"])),
             control_rate=control_rate,

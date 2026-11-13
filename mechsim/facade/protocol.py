@@ -41,7 +41,7 @@ ErrorCode = Literal[
     "run_error",
     "internal",
 ]
-RunEndReason = Literal["end_time", "message", "controller_state", "max_duration", "run_error"]
+RunEndReason = Literal["end_time", "message", "controller_state", "max_duration", "run_error", "integrity_halt"]
 TimelineCategory = Literal["command", "fault", "safety_event", "criterion_failure"]
 
 
@@ -85,6 +85,10 @@ class RunCasePayload(StrictModel):
     test_case: NonEmptyText
     seed: int = Field(ge=0)
     mode: NonEmptyText = Field(description="Controller mode name.")
+    sets: dict[NonEmptyText, str] | None = Field(
+        default=None,
+        description="Run-configuration settings by dotted name, as `--set` gives them (TST-040), e.g. physics.adapter.",
+    )
 
 
 class RunSuitePayload(StrictModel):

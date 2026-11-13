@@ -137,7 +137,7 @@ def score_run(
             results.append(CriterionResult(criterion.name, "error", limit, note=_reason(error)))
     status = _case_status(results)
     crossings = _crossings(recording)
-    if len(crossings) > 0 and status == "pass":
+    if (len(crossings) > 0 or report.reason == "integrity_halt") and status == "pass":
         status = "fail"
     if report.errored:
         status = "error"

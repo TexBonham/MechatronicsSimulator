@@ -2,8 +2,9 @@
 parameters, from `integrity.yaml` beside the design file. Generates `schemas/integrity.json`; each registered
 check's entry is generated from its parameters model, so a new check adds its own schema entry (INT-001).
 
-`halt_on_crossing` mirrors the test case's `integrity.halt_on_crossing` (round 5 ruling 4) for the tier 1 party;
-`thermal` is the thermal check slot v1 accepts and does not evaluate (INT-036)."""
+`rope_snap` is a tier 2 entry with no post-run check: listed, the engine snaps a rope over its breaking tension during
+the run; absent, no rope snaps (INT-031, round 5 ruling 53). Halting on a tier 1 crossing is the test case's field, not
+this file's (round 5 rulings 4, 50). `thermal` is the thermal check slot v1 accepts and does not evaluate (INT-036)."""
 
 from __future__ import annotations
 
@@ -23,7 +24,10 @@ from mechsim.schema_base import StrictModel, format_errors
 SCHEMA_PATH = Path(__file__).resolve().parents[2] / "schemas" / "integrity.json"
 FILE_NAME = "integrity.yaml"
 TABLE_CHECKS = ("strength", "deflection")
+ROPE_SNAP = "rope_snap"
 REGISTRY = discover()
+if ROPE_SNAP in REGISTRY:
+    raise IntegrityError(f"check name {ROPE_SNAP!r} is the tier 2 rope snap entry of integrity.yaml")
 
 
 def _entry_model(check: IntegrityCheck) -> type[StrictModel]:
@@ -46,7 +50,15 @@ def _entry_model(check: IntegrityCheck) -> type[StrictModel]:
     return model
 
 
-ENTRY_MODELS = tuple(_entry_model(check) for check in REGISTRY.values())
+class RopeSnapEntry(StrictModel):
+    """Tier 2 rope snap (INT-031, round 5 ruling 53): a rope whose tension passes its breaking tension snaps and drops
+    its load. Absent: no rope snaps, whatever breaking tension the design states."""
+
+    check: Literal["rope_snap"]
+    tier: Literal[2] = Field(default=2, description="Fidelity tier (INT-003); rope snap is tier 2 only.")
+
+
+ENTRY_MODELS = (*(_entry_model(check) for check in REGISTRY.values()), RopeSnapEntry)
 CheckEntry: Any = Annotated[Union[ENTRY_MODELS], Field(discriminator="check")]  # noqa: UP007
 
 
@@ -60,7 +72,6 @@ class IntegrityConfig(StrictModel):
     """Root of `designs/<name>/integrity.yaml`."""
 
     schema_version: Literal[1]
-    halt_on_crossing: bool = False
     checks: list[CheckEntry] = Field(default_factory=list)
     thermal: ThermalSlot | None = None
 
@@ -75,7 +86,7 @@ class IntegrityConfig(StrictModel):
     def entries(self) -> list[tuple[IntegrityCheck, int, StrictModel]]:
         """(check, tier, parameters) to evaluate: the listed checks, and the table checks (strength, deflection) at
         their first tier with default parameters when not listed (INT-022 needs them)."""
-        listed: dict[str, Any] = {str(entry.check): entry for entry in self.checks}
+        listed: dict[str, Any] = {str(entry.check): entry for entry in self.checks if str(entry.check) != ROPE_SNAP}
         out: list[tuple[IntegrityCheck, int, StrictModel]] = []
         for name in TABLE_CHECKS:
             if name not in listed:
@@ -84,6 +95,9 @@ class IntegrityConfig(StrictModel):
         for name, entry in listed.items():
             out.append((REGISTRY[name], int(entry.tier), entry.parameters))
         return out
+
+    def rope_snap(self) -> bool:
+        return any(str(entry.check) == ROPE_SNAP for entry in self.checks)
 
 
 def default_config() -> IntegrityConfig:

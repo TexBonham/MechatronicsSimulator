@@ -97,10 +97,12 @@ def test_the_facade_is_python_in_mechsim_facade_and_runs_on_the_core_binding() -
     from mechsim.facade.service import default_services
     from mechsim.testing.core_driver import CoreDriver
 
+    # FAC-009: the facade service is Python in mechsim/facade/ and runs on the core binding: its default runner makes
+    # a CoreDriver, which drives the pybind11 extension.
     services = default_services()
     assert Facade.__module__ == "mechsim.facade.service"
     assert services.runner is not None
-    assert services.runner.driver is CoreDriver
+    assert isinstance(services.runner.driver(), CoreDriver)
     assert isinstance(services.live, CoreLiveWiring)
     assert "mechsim._core" in CoreDriver.run.__globals__["core"].__name__
 
@@ -193,6 +195,59 @@ def test_run_id_of_follows_the_adapter_identity_rule(tmp_path: Path) -> None:
     assert raised.value.code == "validation_failed"
     assert raised.value.field == "physics.adapter"
     assert "bullet" in raised.value.message
+
+
+class _StopError(Exception):
+    pass
+
+
+class _RecordingFacade(Facade):
+    """The real run id rule; `run_case` records what the server passes and stops before running."""
+
+    def __init__(self, services: FacadeServices) -> None:
+        super().__init__(services)
+        self.ids: list[str] = []
+        self.sets: list[Any] = []
+
+    def run_id_of(self, case: Path, design: Path | None = None, sets: Any = None) -> str:
+        run_id = super().run_id_of(case, design, sets)
+        self.ids.append(run_id)
+        return run_id
+
+    def run_case(self, case: Path, design: Path | None = None, sets: Any = None, *args: Any, **kwargs: Any) -> Any:
+        self.sets.append(sets)
+        raise _StopError
+
+
+def _server_run(tmp_path: Path, payload: dict[str, Any]) -> _RecordingFacade:
+    import asyncio
+
+    from mechsim.facade.protocol import RunCasePayload
+    from mechsim.facade.server import FacadeServer, _Connection
+
+    facade = _RecordingFacade(fake_services(tmp_path))
+    server = FacadeServer(facade, "token")
+    case = write_case(tmp_path / "cases", MACHINE_CASE)
+    body = {"design": str(tmp_path / "designs" / "machine" / "design.yaml"), "test_case": str(case), "seed": 7}
+    request = RunCasePayload.model_validate({**body, "mode": "none", **payload})
+
+    async def run() -> None:
+        connection = _Connection(None, asyncio.Queue())  # type: ignore[arg-type]
+        with pytest.raises(_StopError):
+            await server._run_case(connection, "r1", request)
+
+    asyncio.run(run())
+    return facade
+
+
+@pytest.mark.req("TST-040", "FAC-005")
+def test_the_run_request_sets_reach_the_run_id_through_the_server(tmp_path: Path) -> None:
+    native = _server_run(tmp_path / "native", {"sets": {"physics.adapter": "native"}})
+    assert native.ids == ["M1-seed7-native"]
+    assert native.sets == [{"physics.adapter": "native"}]
+    default = _server_run(tmp_path / "default", {})
+    assert default.ids == ["M1-seed7"]
+    assert default.sets == [None]
 
 
 @pytest.mark.req("FAC-010", "FAC-012")

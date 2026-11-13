@@ -59,6 +59,7 @@ proposed <value>)".
 | KER-025 | A party added later, such as a thermal party, shall register with the kernel without a change to kernel code. | Architecture doc, Seams reserved for the roadmap (thermal engine) | roadmap | unit | n/a |
 | KER-026 | The kernel shall carry no Qt or display dependency. | Architecture doc, Repository starting point (invariant 9) | M1 | invariant | n/a |
 | KER-027 | The physics inputs shall carry joint drives, each a joint index, a rest coordinate, a stiffness, a damping and an enabled flag, applied by physics in the next step; the physics party shall pass every source's drives through and shall end the run with a config error when two drives name one joint in one tick. | Brief M1-X5 coordinator ruling 1 (2026-11-04), for owner confirmation; ADR 0010 (mid-run spring changes) | M1 | unit | n/a |
+| KER-028 | The physics party shall accept, when configured with a model-change request name, a list of mid-run model changes (spring offset, spring stiffness, constraint disable, load release) published by another party, and shall apply each newly published list once, in order, through the adapter's mid-run entry before its next step; without the name it consumes nothing more. | ADR 0010, Consequences (mid-run model changes); round 5 rulings 5 and 35 (brief M3-I2) | M3 | unit | n/a |
 
 ## Open parameters
 

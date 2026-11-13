@@ -48,56 +48,6 @@ def test_int_018() -> None:
     raise NotImplementedError
 
 
-@pytest.mark.req("INT-023")
-@pytest.mark.xfail(strict=True, reason="stub")
-def test_int_023() -> None:
-    """A tier 1 kernel party shall evaluate member stress, buckling margin, fastener load and deflection
-    every tick from the live loads physics publishes.
-    """
-    raise NotImplementedError
-
-
-@pytest.mark.req("INT-024")
-@pytest.mark.xfail(strict=True, reason="stub")
-def test_int_024() -> None:
-    """When a tier 1 quantity crosses its limit, integrity shall raise an event stamped with the simulated
-    time of the crossing.
-    """
-    raise NotImplementedError
-
-
-@pytest.mark.req("INT-025")
-@pytest.mark.xfail(strict=True, reason="stub")
-def test_int_025() -> None:
-    """A tier 1 limit crossing shall fail the case."""
-    raise NotImplementedError
-
-
-@pytest.mark.req("INT-026")
-@pytest.mark.xfail(strict=True, reason="stub")
-def test_int_026() -> None:
-    """A tier 1 limit crossing shall halt the run when halting is configured, and let the run continue
-    otherwise.
-    """
-    raise NotImplementedError
-
-
-@pytest.mark.req("INT-027")
-@pytest.mark.xfail(strict=True, reason="stub")
-def test_int_027() -> None:
-    """Tier 1 events shall be deterministic: the same design, test case, seed and mode raise the same
-    events at the same simulated times.
-    """
-    raise NotImplementedError
-
-
-@pytest.mark.req("INT-028")
-@pytest.mark.xfail(strict=True, reason="stub")
-def test_int_028() -> None:
-    """A tier 2 yield shall set a permanent spring offset in the member's model for the rest of the run."""
-    raise NotImplementedError
-
-
 @pytest.mark.req("INT-029")
 @pytest.mark.xfail(strict=True, reason="stub")
 def test_int_029() -> None:
@@ -109,13 +59,6 @@ def test_int_029() -> None:
 @pytest.mark.xfail(strict=True, reason="stub")
 def test_int_030() -> None:
     """A tier 2 fastener break shall disable that fastener's constraint for the rest of the run."""
-    raise NotImplementedError
-
-
-@pytest.mark.req("INT-031")
-@pytest.mark.xfail(strict=True, reason="stub")
-def test_int_031() -> None:
-    """A tier 2 rope snap shall drop the load the rope carries."""
     raise NotImplementedError
 
 

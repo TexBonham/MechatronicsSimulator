@@ -38,7 +38,7 @@ runner, recorder, scoring and viewer.
 | Request kind | Facade call |
 |---|---|
 | `list_designs`, `validate_design` | `list_designs()`, `validate(path)` |
-| `run_case` | worker thread; `run_progress`, `tick_batch` (header + one binary frame) while running, `run_ended`, then the one answer; one run at a time (`busy`) |
+| `run_case` (`design`, `test_case`, `seed`, `mode`, `sets` dotted name -> value, TST-040: passed to `run_id_of` and `run_case`) | worker thread; `run_progress`, `tick_batch` (header + one binary frame) while running, `run_ended`, then the one answer; one run at a time (`busy`) |
 | `run_suite`, `report`, `diff` | `run_suite(suite, design)`, `report`, `diff` |
 | `replay_open`, `scrub`, `pause`, `step`, `advance` (`dt`, ruling 22) | the replay and its cursor |
 | `list_runs` | `list_runs()`: `RunList` of `<runs_dir>/*.h5` by run id plus open replays (`open`), sorted (ruling 22) |
@@ -87,7 +87,7 @@ Envelope: `version`, `message_id`, `kind`, `payload`.
 |---|---|
 | Requests | `list_designs`, `validate_design`, `run_case`, `run_suite`, `replay_open`, `subscribe_series`, `scrub`, `pause` (`paused` bool), `step` (`forward`/`backward`), `advance` (`run_id`, `dt`), `list_runs` (M2-X5, ruling 22); M2-F1: `events`, `timeline`, `geometry` (`run_id`), `value_at` (`run_id`, `ref`, `t`), `probe` (`run_id`, `probe`, `name`), `member_stress` (`run_id`), `swing_angle` (`run_id`, `load`, `attachment`) (brief R), `report`, `diff` (`suite_id`), `read_file` (`path`), `write_file` (`path`, `text`) |
 | Responses | `ok` (`request_id`, `result`), `error` (`request_id` or null, `code`, `message`, `requirement_id`) |
-| Events | `run_progress`, `run_ended` (`reason`), `tick_batch`, `timeline_event` (`category`, `label`) |
+| Events | `run_progress`, `run_ended` (`reason`, + `integrity_halt`), `tick_batch`, `timeline_event` (`category`, `label`) |
 
 Rules: times are simulated seconds, finite, >= 0, with `run_id`. `subscribe_series`: `t_start < t_end`,
 `points >= 1`, unique series (FAC-018). `tick_batch`: `byte_length == (1 + len(series)) * sample_count * 8`, time
