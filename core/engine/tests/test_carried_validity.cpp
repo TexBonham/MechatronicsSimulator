@@ -18,6 +18,10 @@ using mechsim::engine::add_lumped_beam;
 using mechsim::engine::BeamEnds;
 using mechsim::engine::Body;
 using mechsim::engine::carried_ratio_limit;
+using mechsim::engine::carried_validity_margin;
+using mechsim::engine::carried_window_bucket;
+using mechsim::engine::carried_window_periods;
+using mechsim::engine::carried_window_periods_max;
 using mechsim::engine::JointType;
 using mechsim::engine::MemberOutput;
 using mechsim::engine::MultibodyModel;
@@ -218,6 +222,109 @@ TEST_CASE("carried validity: the same force at half the first frequency is not f
     CHECK(run.last.peak_ratio <= peak * (1.0 + 1e-6));
     CHECK(run.last.peak_ratio >= first_share_lower * peak * (1.0 - (x * std::numbers::pi)));
     CHECK_FALSE(run.last.unresolved);
+}
+
+TEST_CASE("carried validity: the window is ln(1 / delta) / (pi x + 2 pi zeta) periods, capped, in quarter-period "
+          "buckets",
+          "[ENG-052]") {
+    // member_loads.hpp, Validity (brief M3-E7e): N = ln 50 / (pi x + 2 pi zeta), at most 100; b = floor(pi / (2 x)).
+    const double ln50 = std::log(1.0 / carried_validity_margin);
+    CHECK(std::abs(carried_window_periods(0.028, 0.01) - (ln50 / (std::numbers::pi * 0.048))) <= 1e-12);
+    CHECK(std::abs(carried_window_periods(0.5, 0.0) - (ln50 / (std::numbers::pi * 0.5))) <= 1e-12);
+    CHECK(carried_window_periods(1e-4, 0.0) == carried_window_periods_max);
+    CHECK(carried_window_periods(0.0, 0.0) == carried_window_periods_max);
+    CHECK(carried_window_periods(0.028, -1.0) == carried_window_periods(0.028, 0.0));
+    const double bound = ln50 / (100.0 * std::numbers::pi);
+    CHECK(carried_window_periods(bound * 1.001, 0.0) < carried_window_periods_max);
+    CHECK(carried_window_periods(bound * 0.999, 0.0) == carried_window_periods_max);
+    CHECK(carried_window_bucket(0.028) == 56);
+    CHECK(carried_window_bucket(std::numbers::pi / 2.0) == 1);
+    CHECK(carried_window_bucket(10.0) == 1);
+    CHECK(carried_window_bucket(0.0) == 1000000000000000);
+}
+
+TEST_CASE("carried validity: an impulse-like load is forgotten, and a matched resonance long after is flagged within "
+          "the predicted time",
+          "[ENG-052]") {
+    // The review's case (ruling 73, finding 1). The loaded rig with light Rayleigh damping, zeta_1 = 0.01 (the node
+    // dampers at 0.01 of carried_helpers' critical setting: zeta_1 = 0.01 beta omega_1 / 2). A load of 20 N held for
+    // half a first period (the worst case for what it leaves: the member at 2 u_s at rest when it is removed, a free
+    // ringing of 2 u_s = 40 c), then nothing for 70 periods, then F0 sin(omega_1 t'), F0 = 1 N, t' from the start of
+    // the drive. A running peak base would sit at 20 c for the rest of the run and never flag the drive (the largest
+    // deflection is below 2.04 x 20 c: asserted). The window forgets: N = ln 50 / (pi x + 2 pi zeta) periods (x =
+    // omega_1 h = 0.028), 26 here, so at the drive's start the base is the drive's own u_qs and the old ringing is
+    // below r = 40 c e^(-(pi x + 2 pi zeta) 69.5) (the decay per period of member_loads.hpp, Validity). The flag's
+    // time: the bounds of the resonant test above with the old ringing r on either side and the node damping in the
+    // lower bound's factor (1 - (x / 2 + zeta) th) (the envelope (1 - e^(-zeta th)) / (2 zeta) >= th (1 - zeta th / 2)
+    // / 2, backward Euler's x / 2 as before), give or take 3 x.
+    const double zeta = 0.01;
+    const CarriedRig rig = loaded_rig(zeta);
+    MultibodyProvider provider(rig.model);
+    State state = start_state(provider, rig.carriage, 0.5);
+    const double omega = chain_first_frequency(rig);
+    const double damping_ratio = zeta * rig.beta * omega / 2.0;
+    const double h = 0.028 / omega;
+    const double x = omega * h;
+    const double period = 2.0 * std::numbers::pi / omega;
+    const double drive_start = 70.0 * period;
+    const double pulse = 20.0;
+    const int steps = static_cast<int>(std::ceil((drive_start + (3.0 * period)) / h));
+    double largest = 0.0;
+    double before_drive = 0.0;
+    SemiImplicitEuler integrator(StepConfig{h});
+    Run run;
+    for (int n = 0; n < steps; ++n) {
+        double force = 0.0;
+        if (state.t < 0.5 * period) {
+            force = -pulse;
+        }
+        if (state.t >= drive_start) {
+            force = std::sin(omega * (state.t - drive_start));
+        }
+        provider.apply_body_wrench(rig.carriage, Eigen::Vector3d::Zero(), Eigen::Vector3d(0.0, force, 0.0));
+        static_cast<void>(provider.step(integrator, state));
+        run.last = provider.outputs().members.front();
+        largest = std::max(largest, run.last.carried_deflection);
+        if (state.t < drive_start) {
+            before_drive = std::max(before_drive, run.last.peak_ratio);
+        }
+        if (run.last.unresolved && run.flagged_at < 0.0) {
+            run.flagged_at = run.last.unresolved_time;
+        }
+    }
+    const double c = pinned_chain_compliance(8, 0.5, 1.0) / flexural_rigidity(rig.spec);
+    const double residual = 2.0 * pulse * std::exp(-std::numbers::pi * (x + (2.0 * damping_ratio)) * 69.5);
+    const auto g = [](double th) { return 0.5 * ((th * std::cos(th)) - std::sin(th)); };
+    double early = -1.0;
+    double late = -1.0;
+    for (double th = 1.5 * std::numbers::pi; th <= 2.0 * std::numbers::pi; th += 1e-5) {
+        const double low =
+            (((first_share_lower * g(th)) + ((1.0 - first_share_lower) * (std::abs(std::sin(th)) - 0.25))) *
+             (1.0 - (((0.5 * x) + damping_ratio) * th))) -
+            residual;
+        if (early < 0.0 && g(th) + residual > carried_ratio_limit) {
+            early = th;
+        }
+        if (late < 0.0 && low > carried_ratio_limit) {
+            late = th;
+        }
+    }
+    const double flagged = omega * (run.flagged_at - drive_start);
+    const double expected_periods = carried_window_periods(x, damping_ratio);
+    std::printf("window: x %.4f, zeta %.5f, N %.4f periods (engine %.4f, %ld steps); old ringing at the drive below "
+                "%.3e c; peak ratio before the drive %.4f; flagged at omega t' %.4f in [%.4f, %.4f]; largest "
+                "deflection over the since-load base %.4f (a running peak would not flag)\n",
+                x, damping_ratio, expected_periods, run.last.window_periods,
+                static_cast<long>(run.last.window_steps), residual, before_drive, flagged, early, late,
+                largest / run.last.peak_quasi_static);
+    CHECK(std::abs(run.last.window_periods / expected_periods - 1.0) <= 1e-6);
+    CHECK(run.last.window_steps == 4 * static_cast<Eigen::Index>(std::ceil(expected_periods)) * carried_window_bucket(x));
+    CHECK(run.last.peak_quasi_static >= pulse * c * (1.0 - 1e-6));
+    CHECK(largest / run.last.peak_quasi_static < carried_ratio_limit);
+    REQUIRE(run.last.unresolved);
+    CHECK(run.flagged_at >= drive_start);
+    CHECK(flagged >= early - (3.0 * x));
+    CHECK(flagged <= late + (3.0 * x));
 }
 
 namespace {
