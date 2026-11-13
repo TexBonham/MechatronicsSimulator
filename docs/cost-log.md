@@ -57,3 +57,8 @@ type live in the root `CLAUDE.md` dispatch table once measured.
 | 2026-11-12 | M3-E4 re-review: accept; zero-stretch coupling defect in the E2 transmission code found, fixed in a short E4 follow-up | Fable review (general-purpose), resumed | ~35K | 6 calls |
 | 2026-11-12 | M3-E4 follow-up: zero-stretch coupling, start on a bound (wip/05-e4 f6b9729); confirmed by the reviewer; E4 merged | module-writer (opus) and Fable review, both resumed | ~25K | 9 + 3 calls; ctest debug-sanitize 482 |
 | 2026-11-12 | M3-N3 adapter on the engine's limits, friction and drive (wip/05-n3 8e4d3f4); pose series naming and facade `sets` left for a follow-up | module-writer (opus) | 317K | 157 calls, over the 130 cap; ctest debug-sanitize 499 |
+| 2026-11-12 | M3 review: N3 (wip/05-n3 8e4d3f4): pass with a fix round, 3 major, 3 minor; rulings 47 to 49; engine follow-up E5 (review-m3-n3.md) | Fable review (general-purpose) | 128K | 19 calls |
+| 2026-11-12 | M3-N3 invariant audit: clean | invariant-auditor (sonnet) | 30K | 6 calls |
+| 2026-11-12 | M3-I2 tier 1 integrity party, tier 2 yield and rope snap (wip/05-i2 81b2943) | module-writer (opus), resumed once after the restart | 342K | 149 calls; ctest debug-sanitize 470 |
+| 2026-11-12 | M3 review: I2 (wip/05-i2 81b2943): approve after one fix round, 5 major, 6 minor; rulings 50 to 54 (review-m3-i2.md) | Fable review (general-purpose) | ~130K | 13 calls |
+| 2026-11-12 | M3-I2 invariant audit: clean | invariant-auditor (sonnet) | 25K | 5 calls |
