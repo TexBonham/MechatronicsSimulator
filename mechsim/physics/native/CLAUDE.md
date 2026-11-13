@@ -10,6 +10,8 @@ Stepping is `core/physics/native/`. The only Python importer of `mechsim._core_e
 | `prepare.prepare_model(model, starts, step, payloads, substeps=1) -> NativeArtifacts(model_json, version, report)` | `PreparedModel(model_json, "", version)` |
 | `supported_elements()`, `SUPPORTED_ELEMENTS` | Mirrors `supported_kinds` in `core/physics/native/src/native_adapter.cpp` (test-checked) |
 | `element_kinds(model)` | Kinds present, written as `elements` |
+| `driven_mode_lines(model, decays)` | One line per driven joint from the run's largest scheme decay pi x (`NativeAdapter.driven_scheme_decay()`), `mode_text(x)`; `CoreDriver` appends them at the end of a native run (rulings 44, 45) |
+| Creep line | Per transmission with efficiency below one: omega_s = `SLIP_VELOCITY`, tau forward and backward as formulas in F, K, D_d, values at the static load (prismatic driven joint: subtree mass times gravity along the world axis) when nonzero; self-locking screw: sag band [0, n F / K] (rulings 47, 48) |
 | `member_node_names(model)` | Names of the member node poses after the neutral bodies: `<member>.node<k>`, chain root to tip (pinned root: pin segment first) |
 | `output_per_input(transmission)` | n: r, lead / 2 pi, 1 / ratio (signed) |
 | `UnmappableElementError(element, reason)`, `StartStateError` | Refusals (PHY-019): also friction, stiffness or limits on a spherical or free joint, limits on a planar joint (ENG-013) |

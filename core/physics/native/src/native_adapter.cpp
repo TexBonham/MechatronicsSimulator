@@ -350,6 +350,8 @@ struct NativeAdapter::Engine {
     kernel::PhysicsInputs inputs;                            // re-applied before each engine step of a tick
     std::vector<kernel::ModelChangeEvent> pending_changes;  // mid-run spring changes, listed in the next tick
     std::vector<Eigen::Index> node_bodies;  // member chain bodies, published after the neutral bodies, in order
+    std::vector<std::pair<std::size_t, double>> previous_rests;  // last tick's enabled drives: joint, end rest
+    std::vector<DrivenSchemeDecay> scheme_decay;                  // joint order, largest over the run
 };
 
 namespace {
@@ -919,6 +921,45 @@ void NativeAdapter::clear_drives(Engine& e) {
     e.driven.clear();
 }
 
+// Ruling 49: with several engine steps per tick, substep s of S drives toward the rest interpolated from the previous
+// tick's end rest to this tick's, so each engine step's end-of-step rest is the rest at its own end time and a ramp's
+// steady lag D u / K stays exact. The last substep takes this tick's rest exactly; a joint not driven in the previous
+// tick has no start rest and takes this tick's throughout.
+void NativeAdapter::set_substep_rests(Engine& e, int sub) {
+    if (e.substeps == 1 || sub == e.substeps - 1) {
+        return;
+    }
+    const double fraction = static_cast<double>(sub + 1) / static_cast<double>(e.substeps);
+    for (const kernel::JointDrive& drive : e.drives) {
+        if (!drive.enabled) {
+            continue;
+        }
+        for (const auto& [joint, rest] : e.previous_rests) {
+            if (joint == drive.joint) {
+                e.provider->set_joint_drive(index_of(drive.joint), 0, rest + ((drive.rest - rest) * fraction),
+                                            drive.stiffness, drive.damping);
+            }
+        }
+    }
+}
+
+void NativeAdapter::keep_scheme_decay(Engine& e) {
+    const eng::MultibodyOutputs& out = e.provider->outputs();
+    for (const Eigen::Index joint : e.driven) {
+        const Eigen::VectorXd& decay = out.joints[static_cast<std::size_t>(joint)].scheme_decay;
+        if (decay.size() == 0) {
+            continue;
+        }
+        const std::size_t neutral = static_cast<std::size_t>(joint);
+        auto at = std::ranges::find_if(e.scheme_decay,
+                                       [neutral](const DrivenSchemeDecay& d) { return d.joint >= neutral; });
+        if (at == e.scheme_decay.end() || at->joint != neutral) {
+            at = e.scheme_decay.insert(at, DrivenSchemeDecay{neutral, 0.0});
+        }
+        at->decay = std::max(at->decay, decay.maxCoeff());
+    }
+}
+
 // ===== Step and outputs ==================================================
 
 // The engine overwrites its events every engine step: each step's are appended here, so a tick of several engine
@@ -997,6 +1038,7 @@ void NativeAdapter::step() {
             if (sub > 0) {
                 apply_inputs(e, e.inputs);
             }
+            set_substep_rests(e, sub);
             e.last_health = provider.step(*e.integrator, e.state);
         } catch (const eng::EngineError& error) {
             throw AdapterError(e.steps, "engine: " + error.cause());
@@ -1007,6 +1049,7 @@ void NativeAdapter::step() {
         iterations = std::max(iterations, e.last_health.iterations);
         converged = converged && e.last_health.converged;
         collect_events(provider.outputs().events, e.events, changes);
+        keep_scheme_decay(e);
     }
     e.last_health.max_constraint_drift = drift;
     e.last_health.iterations = iterations;
@@ -1123,6 +1166,12 @@ void NativeAdapter::step() {
         }
         o.joint_drive_torques.push_back(torque);
     }
+    e.previous_rests.clear();
+    for (const kernel::JointDrive& drive : e.drives) {
+        if (drive.enabled) {
+            e.previous_rests.emplace_back(drive.joint, drive.rest);
+        }
+    }
     e.drives.clear();
     e.inputs = kernel::PhysicsInputs{};
     clear_drives(e);
@@ -1157,6 +1206,10 @@ std::vector<double> NativeAdapter::rope_load_end_tensions() const {
         out.push_back(r.load_end_tension);
     }
     return out;
+}
+
+std::vector<DrivenSchemeDecay> NativeAdapter::driven_scheme_decay() const {
+    return engine("driven_scheme_decay").scheme_decay;
 }
 
 // ===== Mid-run changes ===================================================
