@@ -43,6 +43,7 @@ from mechsim.physics.neutral import PhysicsModel, from_yaml
 from mechsim.record.layout import MEMBER_SERIES
 from mechsim.record.reader import RecordArchiveReader
 from mechsim.record.stream import Recorder
+from mechsim.scoring.score import SuiteScore, report_text
 from mechsim.testing.core_driver import (
     ROPE_SNAP_OFF,
     CoreDriver,
@@ -443,7 +444,9 @@ def gantry_run(tmp_path: Path, adapter: str, tier1: IntegrityConfig | None, extr
     drivers: list[CoreDriver] = []
 
     def factory() -> CoreDriver:
-        service = None
+        # Without tier 1 is explicit: a designs folder holding no integrity.yaml, never the shipped
+        # designs/gantry/integrity.yaml.
+        service = Tier1Service(tmp_path / "no-integrity")
         if tier1 is not None:
             service = Tier1Service(config=tier1)
         driver = ShortDriver(tier1=service)
@@ -547,10 +550,16 @@ def test_only_the_case_field_true_halts_at_the_crossing(tmp_path: Path, extra: s
         crossing = driver.integrity_trace.crossings[0]
         assert float(match.group(1)) == pytest.approx(crossing.value, rel=1e-11)
         assert float(match.group(2)) == pytest.approx(1e-9 / 1.5, rel=1e-11)
+        # The halt line reaches the score and the printed report as a note, never an approximation (invariant 7).
+        assert result.score.notes == (line,)
+        text = report_text(SuiteScore("s", result.score.design, (result.score,)))
+        assert f"  note: {line}" in text.splitlines()
+        assert f"  approximation: {line}" not in text.splitlines()
     else:
         assert result.report.end_tick == TICKS
         assert result.report.reason == "end_time"
         assert result.report.notes == ()
+        assert result.score.notes == ()
 
 
 @pytest.mark.req("INT-026", "REC-010", "FAC-005")
@@ -567,6 +576,8 @@ def test_the_halt_end_reason_reaches_the_archive_and_the_facade(tmp_path: Path) 
     assert metadata.report.reason == "integrity_halt"
     assert len(metadata.report.notes) == 1
     assert HALT_LINE.match(metadata.report.notes[0]) is not None
+    assert summary.notes == list(metadata.report.notes)
+    assert f"  note: {metadata.report.notes[0]}" in summary.report_text.splitlines()
 
 
 @pytest.mark.req("INT-026")
@@ -639,3 +650,69 @@ def test_a_rope_without_a_breaking_tension_adds_no_line() -> None:
     gated, lines = _rope_snap_gate(model, None)
     assert gated is model
     assert lines == ()
+
+
+SPRING = ROOT / "designs" / "rope_spring" / "design.yaml"
+SNAP_CASE = """id: S9
+title: Stretched rope released
+design:
+  name: rope_spring
+  version: 1.0.0
+seed: 0
+initial_state:
+  joints: []
+physics:
+  adapter: native
+end:
+  at: 0.02 s
+  max_duration: 1 s
+criteria:
+  - name: settle
+    check: value
+    quantity: pose:bob.y
+    statistic: final
+    comparison: below
+    limit: 0 m
+"""
+
+
+def stretched_rope_run(tmp_path: Path, tier1: IntegrityConfig) -> tuple[Any, CoreDriver]:
+    """The rope_spring design with its bob placed 0.02 m below the rope's rest length: the one segment starts at
+    T = EA (0.02 m) / L0 = 10 kN, over the part's 5 kN breaking tension, so the rope snaps in the first tick when
+    rope_snap is on (INT-031) and the bob oscillates on it when off."""
+    root = tmp_path / "designs"
+    (root / "rope_spring").mkdir(parents=True)
+    text = SPRING.read_text(encoding="utf-8").replace("position: [0 m, -1 m, 0 m]", "position: [0 m, -1.02 m, 0 m]")
+    (root / "rope_spring" / "design.yaml").write_text(text, encoding="utf-8")
+    case = tmp_path / "S9.yaml"
+    case.write_text(SNAP_CASE, encoding="utf-8")
+    drivers: list[CoreDriver] = []
+
+    def factory() -> CoreDriver:
+        driver = CoreDriver(designs_root=root, tier1=Tier1Service(config=tier1))
+        drivers.append(driver)
+        return driver
+
+    result = run_case(case, Services(factory, core_builder, None, designs_root=root), None)
+    assert result.report is not None, result.score.error
+    assert not result.report.errored, result.report.error
+    return result, drivers[0]
+
+
+@pytest.mark.req("INT-031")
+@pytest.mark.parametrize("entry", [True, False])
+def test_the_rope_snap_gate_reaches_the_run_and_its_report_through_the_driver(tmp_path: Path, entry: bool) -> None:
+    entries: tuple[dict[str, Any], ...] = ()
+    if entry:
+        entries = ({"check": "rope_snap"},)
+    result, driver = stretched_rope_run(tmp_path, config(*entries))
+    kinds = [event.detail.split(" ")[0] for event in driver.recording().events() if event.kind == "model_change"]
+    off = ROPE_SNAP_OFF.format("line")
+    if entry:
+        assert kinds == ["rope_snapped", "load_released"]
+        assert off not in result.report.approximations
+        assert off not in result.score.approximations
+    else:
+        assert kinds == []
+        assert off in result.report.approximations
+        assert f"  approximation: {off}" in report_text(SuiteScore("s", result.score.design, (result.score,)))

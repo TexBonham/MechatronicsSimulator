@@ -6,7 +6,7 @@ nothing.
 | File | Holds |
 |---|---|
 | `statistics.py` | `statistic(name, times, values) -> (value, worst_time)` for final, minimum, maximum, peak_absolute, period; `upward_crossings`, `window_indices`, `compare`, `within`, `StatisticError` |
-| `score.py` | `score_run(case, recording, report, limits, sweep, run, integrity) -> CaseScore` (`variation`, `crossings` fields), `not_run(...)`, `run_failed(case, error, sweep)` (driver error from `run`: errored, end reason run_error, ran False), `CriterionResult`, `CaseScore` (`approximations` from the run report, printed one `approximation:` line each, SCO-013), `SuiteScore.status`, `suite_baseline`, `regression_diff(suite_score, baseline)` (SCO-009), `diff_sections` (report order, SCO-010), `report_text`, `report_markdown(suite_score, diff | None)` (shareable Markdown, SCO-012), `ScoringError` |
+| `score.py` | `score_run(case, recording, report, limits, sweep, run, integrity) -> CaseScore` (`variation`, `crossings` fields), `not_run(...)`, `run_failed(case, error, sweep)` (driver error from `run`: errored, end reason run_error, ran False), `CriterionResult`, `CaseScore` (`approximations` from the run report, printed one `approximation:` line each, SCO-013; `notes` from `RunReport.notes`, printed `note:` / `- Note:` before them, INT-026), `SuiteScore.status`, `suite_baseline`, `regression_diff(suite_score, baseline)` (SCO-009), `diff_sections` (report order, SCO-010), `report_text`, `report_markdown(suite_score, diff | None)` (shareable Markdown, SCO-012), `ScoringError` |
 
 ## Rules
 
@@ -29,5 +29,5 @@ nothing.
 
 | Section | File | Line |
 |---|---|---|
-| Criteria | score.py | 112 |
-| Suite, baseline and report | score.py | 543 |
+| Criteria | score.py | 113 |
+| Suite, baseline and report | score.py | 548 |

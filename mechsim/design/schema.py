@@ -581,44 +581,88 @@ def _shape_problem(shape: SectionShape) -> str | None:
 
 
 class Section(_Strict):
-    """Cross-section and span: a `shape` with its dimensions, or `area` and `second_moment` (DES-033); E and rho
-    come from the body's material."""
+    """Cross-section and span (DES-033, ruling 25): a `shape` with its dimensions; or `area` with `second_moment` (the
+    symmetric shorthand: both axes equal, optional `fibre_y` and `fibre_z` together, else evaluated single-axis); or
+    `area` with both axes explicit, `second_moment_y`, `second_moment_z`, `fibre_y`, `fibre_z` (member frame: z the
+    axis of bending along y, so `second_moment_z` is the neutral member's `second_moment_of_area`). E and rho come from
+    the body's material."""
 
     area: Area | None = None
     second_moment: SecondMomentOfArea | None = None
+    second_moment_y: SecondMomentOfArea | None = None
+    second_moment_z: SecondMomentOfArea | None = None
+    fibre_y: Length | None = None
+    fibre_z: Length | None = None
     shape: SectionShape | None = None
     length: Length
 
     @model_validator(mode="after")
     def _positive(self) -> Section:
-        explicit = self.area is not None or self.second_moment is not None
+        axes = self.second_moment_y is not None or self.second_moment_z is not None
+        fibres = self.fibre_y is not None or self.fibre_z is not None
+        explicit = self.area is not None or self.second_moment is not None or axes or fibres
         if self.shape is not None and explicit:
             raise ValueError("section takes a shape or area and second_moment, not both")
-        if self.shape is None and (self.area is None or self.second_moment is None):
-            raise ValueError("section needs a shape, or both area and second_moment")
+        if self.shape is None:
+            if self.area is None:
+                raise ValueError("section needs a shape, or both area and second_moment")
+            if self.second_moment is not None and axes:
+                raise ValueError("section takes second_moment (both axes equal) or second_moment_y and _z, not both")
+            if self.second_moment is None and not axes:
+                raise ValueError("section needs a shape, or both area and second_moment")
+            if axes and (self.second_moment_y is None or self.second_moment_z is None):
+                raise ValueError("section with explicit axes needs both second_moment_y and second_moment_z")
+            if axes and (self.fibre_y is None or self.fibre_z is None):
+                raise ValueError("section with explicit axes needs both fibre_y and fibre_z")
+            if fibres and (self.fibre_y is None or self.fibre_z is None):
+                raise ValueError("section fibre distances come together: fibre_y and fibre_z")
         if self.shape is not None:
             problem = _shape_problem(self.shape)
             if problem is not None:
                 raise ValueError(problem)
         _require_positive(self.area, "section area")
         _require_positive(self.second_moment, "section second_moment")
+        _require_positive(self.second_moment_y, "section second_moment_y")
+        _require_positive(self.second_moment_z, "section second_moment_z")
+        _require_positive(self.fibre_y, "section fibre_y")
+        _require_positive(self.fibre_z, "section fibre_z")
         _require_positive(self.length, "section length")
         return self
 
     def properties(self) -> SectionProperties | None:
-        """Full section properties: from the shape, or None for the explicit area and second-moment form."""
+        """Full section properties: from the shape, or None for the explicit forms."""
         if self.shape is None:
             return None
         return shape_properties(self.shape)
 
+    def bending_axes(self) -> tuple[float, float, float, float] | None:
+        """SI (I_y, I_z, c_y, c_z) as the file states them: a shape's, the explicit axes, or the shorthand with its
+        fibre distances (I_y = I_z = second_moment); None for the shorthand without fibres (single-axis)."""
+        if self.shape is not None:
+            found = shape_properties(self.shape)
+            return found.second_moment_y, found.second_moment_z, found.fibre_y, found.fibre_z
+        if self.fibre_y is None or self.fibre_z is None:
+            return None
+        if self.second_moment_y is not None and self.second_moment_z is not None:
+            i_y, i_z, c_y, c_z = _set_floats(self.second_moment_y, self.second_moment_z, self.fibre_y, self.fibre_z)
+            return i_y, i_z, c_y, c_z
+        if self.second_moment is None:
+            return None
+        moment, c_y, c_z = _set_floats(self.second_moment, self.fibre_y, self.fibre_z)
+        return moment, moment, c_y, c_z
+
     def area_and_moment(self) -> tuple[float, float]:
-        """SI area and second moment; raises TypeError while a dimension is open."""
+        """SI area and second moment about z (the bending axis of the lumped chain); raises TypeError while a
+        dimension is open."""
         if self.shape is not None:
             return shape_area_and_moment(self.shape)
-        if self.area is None or self.second_moment is None:
+        moment = self.second_moment
+        if moment is None:
+            moment = self.second_moment_z
+        if self.area is None or moment is None:
             raise TypeError("section without area and second_moment")
-        area, moment = _set_floats(self.area, self.second_moment)
-        return area, moment
+        area, value = _set_floats(self.area, moment)
+        return area, value
 
 
 class Calibration(_Strict):

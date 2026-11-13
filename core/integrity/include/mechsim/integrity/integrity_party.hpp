@@ -37,7 +37,7 @@ struct Crossing {
 // What the party saw, kept outside it so a caller that handed the party to the kernel can still read it.
 struct IntegrityTrace {
     std::vector<double> peak_stress;      // per member, Pa
-    std::vector<double> peak_deflection;  // per member, m
+    std::vector<double> peak_deflection;  // per member, m; NaN for a member without nodes (not evaluated)
     std::vector<double> min_buckling_margin;  // per member, infinite when never in compression
     std::vector<double> peak_fastener_load;   // per fastening, N
     std::vector<Crossing> crossings;

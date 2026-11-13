@@ -90,6 +90,7 @@ class CaseScore:
     approximations: tuple[str, ...] = ()
     variation: tuple[tuple[str, str], ...] | None = None
     crossings: tuple[str, ...] = ()
+    notes: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -156,6 +157,7 @@ def score_run(
         run=run,
         approximations=report.approximations + _layer_approximations(recording),
         crossings=crossings,
+        notes=tuple(report.notes),
     )
 
 
@@ -665,6 +667,8 @@ def _case_markdown(case: CaseScore) -> list[str]:
         lines.append("- Not run")
     if case.error is not None:
         lines.append(f"- Error: {_cell_text(case.error)}")
+    for line in case.notes:
+        lines.append(f"- Note: {_cell_text(line)}")
     for line in case.approximations:
         lines.append(f"- Approximation: {line}")
     for line in case.crossings:
@@ -722,6 +726,8 @@ def _case_lines(case: CaseScore) -> list[str]:
         lines.append("  not run")
     if case.error is not None:
         lines.append(f"  error: {case.error}")
+    for line in case.notes:
+        lines.append(f"  note: {line}")
     for line in case.approximations:
         lines.append(f"  approximation: {line}")
     for line in case.crossings:

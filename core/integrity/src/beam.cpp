@@ -5,6 +5,8 @@
 #include <cmath>
 #include <cstddef>
 #include <numbers>
+#include <span>
+#include <string>
 #include <vector>
 
 #include "mechsim/integrity/limits.hpp"
@@ -14,7 +16,6 @@ namespace mechsim::integrity {
 
 namespace {
 
-constexpr std::size_t grid_points = 201;
 constexpr double present_tolerance = 1e-9;
 
 // One bending plane in I1's form (beam.py `_plane`): E I v'' = M(x) = moment0 + shear0 x + load max(x - a, 0), the
@@ -101,68 +102,84 @@ double critical_load(const MemberLimits& member) {
     return std::numbers::pi * std::numbers::pi * member.elastic_modulus * std::min(member.i_y, member.i_z) / (kl * kl);
 }
 
-double static_deflection(const kernel::MemberEndLoads& loads, const MemberLimits& member) {
-    const double length = member.length;
-    std::vector<double> grid;
-    grid.reserve(grid_points + member.supports.size());
-    for (std::size_t k = 0; k < grid_points; ++k) {
-        grid.push_back(length * static_cast<double>(k) / static_cast<double>(grid_points - 1));
+namespace {
+
+kernel::Vec3 rotate(const kernel::Quat& q, const kernel::Vec3& v) {
+    const double tx = 2.0 * (q[2] * v[2] - q[3] * v[1]);
+    const double ty = 2.0 * (q[3] * v[0] - q[1] * v[2]);
+    const double tz = 2.0 * (q[1] * v[1] - q[2] * v[0]);
+    return {v[0] + q[0] * tx + (q[2] * tz - q[3] * ty), v[1] + q[0] * ty + (q[3] * tx - q[1] * tz),
+            v[2] + q[0] * tz + (q[1] * ty - q[2] * tx)};
+}
+
+kernel::Quat multiply(const kernel::Quat& a, const kernel::Quat& b) {
+    return {a[0] * b[0] - a[1] * b[1] - a[2] * b[2] - a[3] * b[3], a[0] * b[1] + a[1] * b[0] + a[2] * b[3] - a[3] * b[2],
+            a[0] * b[2] - a[1] * b[3] + a[2] * b[0] + a[3] * b[1], a[0] * b[3] + a[1] * b[2] - a[2] * b[1] + a[3] * b[0]};
+}
+
+kernel::Vec3 plus(const kernel::Vec3& a, const kernel::Vec3& b) {
+    return {a[0] + b[0], a[1] + b[1], a[2] + b[2]};
+}
+
+kernel::Vec3 minus(const kernel::Vec3& a, const kernel::Vec3& b) {
+    return {a[0] - b[0], a[1] - b[1], a[2] - b[2]};
+}
+
+kernel::Vec3 scaled(const kernel::Vec3& a, double k) {
+    return {a[0] * k, a[1] * k, a[2] * k};
+}
+
+double dot(const kernel::Vec3& a, const kernel::Vec3& b) {
+    return a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+}
+
+double distance_from_line(const kernel::Vec3& point, const kernel::Vec3& origin, const kernel::Vec3& direction) {
+    const kernel::Vec3 r = minus(point, origin);
+    const kernel::Vec3 off = minus(r, scaled(direction, dot(r, direction)));
+    return std::sqrt(dot(off, off));
+}
+
+}  // namespace
+
+double node_deflection(std::span<const kernel::BodyState> bodies, const MemberLimits& member) {
+    if (!member.nodes.has_value()) {
+        throw LimitsError("member '" + member.name + "': no node poses (built rigid); deflection not evaluated");
     }
-    for (const Support& support : member.supports) {
-        grid.push_back(support.at);
+    const NodeChain& chain = member.nodes.value();
+    if (chain.count == 0 || chain.first_body + chain.count > bodies.size()) {
+        throw LimitsError("member '" + member.name + "': nodes " + std::to_string(chain.first_body) + " + " +
+                          std::to_string(chain.count) + " outside the " + std::to_string(bodies.size()) +
+                          " published bodies");
     }
-    std::sort(grid.begin(), grid.end());
-    grid.erase(std::unique(grid.begin(), grid.end()), grid.end());
-    const auto nearest = [&grid](double at) {
-        std::size_t best = 0;
-        for (std::size_t k = 1; k < grid.size(); ++k) {
-            if (std::abs(grid[k] - at) < std::abs(grid[best] - at)) {
-                best = k;
+    const kernel::BodyState& last = bodies[chain.first_body + chain.count - 1];
+    const kernel::Vec3 tip = plus(last.position, rotate(last.orientation, {0.5 * member.segment_length, 0.0, 0.0}));
+    kernel::Vec3 origin{};
+    kernel::Vec3 direction{};
+    if (chain.root == SupportCondition::pinned) {
+        origin = bodies[chain.first_body].position;
+        const kernel::Vec3 chord = minus(tip, origin);
+        const double length = std::sqrt(dot(chord, chord));
+        if (!(length > 0.0)) {
+            throw LimitsError("member '" + member.name + "': its end nodes coincide; no chord");
+        }
+        direction = scaled(chord, 1.0 / length);
+    } else {
+        kernel::Vec3 parent_position{};
+        kernel::Quat parent_orientation{1.0, 0.0, 0.0, 0.0};
+        if (chain.parent_body.has_value()) {
+            if (chain.parent_body.value() >= bodies.size()) {
+                throw LimitsError("member '" + member.name + "': parent body " +
+                                  std::to_string(chain.parent_body.value()) + " outside the published bodies");
             }
+            parent_position = bodies[chain.parent_body.value()].position;
+            parent_orientation = bodies[chain.parent_body.value()].orientation;
         }
-        return grid[best];
-    };
-    // Least squares for C0 + C1 x over the support conditions (v = 0 at each, v' = 0 at a clamp): the normal
-    // equations of the n x 2 condition matrix, which is beam.py's pinv when it has rank 2.
-    double a00 = 0.0;
-    double a01 = 0.0;
-    double a11 = 0.0;
-    for (const Support& support : member.supports) {
-        a00 += 1.0;
-        a01 += support.at;
-        a11 += support.at * support.at;
-        if (support.condition == SupportCondition::clamped) {
-            a11 += 1.0;
-        }
+        origin = plus(parent_position, rotate(parent_orientation, chain.position));
+        direction = rotate(multiply(parent_orientation, chain.orientation), {1.0, 0.0, 0.0});
     }
-    const double det = a00 * a11 - a01 * a01;
-    if (!(std::abs(det) > 1e-12 * std::max(1.0, a11 * a00))) {
-        throw LimitsError("member '" + member.name + "': its supports leave it free to move; no deflection");
-    }
-    std::array<Plane, 2> planes{plane_y(loads, length), plane_z(loads, length)};
-    std::array<std::array<double, 2>, 2> fit{};
-    for (std::size_t p = 0; p < 2; ++p) {
-        double b0 = 0.0;
-        double b1 = 0.0;
-        for (const Support& support : member.supports) {
-            const double at = nearest(support.at);
-            const double r = -planes[p].value(at);
-            b0 += r;
-            b1 += support.at * r;
-            if (support.condition == SupportCondition::clamped) {
-                b1 += -planes[p].slope(at);
-            }
-        }
-        fit[p][0] = (a11 * b0 - a01 * b1) / det;
-        fit[p][1] = (a00 * b1 - a01 * b0) / det;
-    }
-    const double ei_z = member.elastic_modulus * member.i_z;
-    const double ei_y = member.elastic_modulus * member.i_y;
-    double peak = 0.0;
-    for (const double x : grid) {
-        const double v = (planes[0].value(x) + fit[0][0] + fit[0][1] * x) / ei_z;
-        const double w = (planes[1].value(x) + fit[1][0] + fit[1][1] * x) / ei_y;
-        peak = std::max(peak, std::hypot(v, w));
+    double peak = distance_from_line(tip, origin, direction);
+    for (std::size_t k = 0; k < chain.count; ++k) {
+        peak = std::max(peak, distance_from_line(bodies[chain.first_body + k].position, origin, direction));
     }
     return peak;
 }

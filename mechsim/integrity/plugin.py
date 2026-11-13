@@ -143,6 +143,40 @@ SupportCondition = Literal["clamped", "pinned", "roller"]
 
 
 @dataclass(frozen=True)
+class NodeChain:
+    """Where a lumped member's chain sits among the recorded body poses (`physics/bodies/*`, the native adapter's
+    `PhysicsOutputs.bodies`: the neutral bodies, then each lumped member's node bodies root to tip, a pinned root's
+    pin segment as node 0), and its root frame: the parent body's index (None: the world) with the member's placement
+    in it. `segment_length` l = L / N: the last node's far end lies l / 2 along its x (INT-006, ruling 28)."""
+
+    first_body: int
+    count: int
+    root: Literal["clamped", "pinned"]
+    parent_body: int | None
+    position: tuple[float, float, float]
+    orientation: tuple[float, float, float, float]
+    segment_length: float
+
+    def to_limits(self) -> dict[str, Any]:
+        return {
+            "count": self.count,
+            "first_body": self.first_body,
+            "orientation": list(self.orientation),
+            "parent_body": self.parent_body,
+            "position": list(self.position),
+            "root": self.root,
+        }
+
+
+@dataclass(frozen=True)
+class BodyPoses:
+    """Recorded body poses per sample: positions (rows, bodies, 3) and orientations (rows, bodies, 4), w first."""
+
+    positions: FloatArray
+    orientations: FloatArray
+
+
+@dataclass(frozen=True)
 class MemberInputs:
     """One structural member (BLD-008) with its recorded end-loads. `axis_body` is the member axis in its body frame
     (the direction for direction-dependent strengths); `natural_frequency` the calibrated first frequency (Hz) when
@@ -156,6 +190,7 @@ class MemberInputs:
     axis_body: tuple[float, float, float] = (1.0, 0.0, 0.0)
     natural_frequency: float | None = None
     mounts: tuple[str, ...] = ()
+    nodes: NodeChain | None = None
 
 
 @dataclass(frozen=True)
@@ -205,6 +240,7 @@ class RunInputs:
     series: Excitation = _no_series
     ropes: tuple[RopeLoads, ...] = ()
     design_tension: float | None = None
+    bodies: BodyPoses | None = None
 
     def material(self, name: str) -> MaterialView:
         if name not in self.materials:

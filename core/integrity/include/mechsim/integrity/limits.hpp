@@ -1,5 +1,6 @@
 #pragma once
 
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <optional>
@@ -21,6 +22,17 @@ enum class SupportCondition : std::uint8_t { clamped, pinned };
 struct Support {
     double at = 0.0;  // m along the member
     SupportCondition condition = SupportCondition::clamped;
+};
+
+// The lumped chain's node bodies in PhysicsOutputs::bodies (after the neutral bodies, root to tip; a pinned root's pin
+// segment is node 0) and the root frame: the parent body (none: world) and the member placement in it.
+struct NodeChain {
+    std::size_t first_body = 0;
+    std::size_t count = 0;
+    SupportCondition root = SupportCondition::clamped;
+    std::optional<std::size_t> parent_body;
+    std::array<double, 3> position{};
+    std::array<double, 4> orientation{1.0, 0.0, 0.0, 0.0};  // w first
 };
 
 // One structural member, SI, the member frame of ruling 24 (x start to end, y and z the section's principal axes).
@@ -45,6 +57,7 @@ struct MemberLimits {
     std::size_t segments = 0;
     double segment_length = 0.0;
     double node_stiffness = 0.0;
+    std::optional<NodeChain> nodes;  // none: built rigid, deflection not evaluated
 };
 
 // A rated fastening (fastener set or mount): the neutral joint whose reaction it carries.

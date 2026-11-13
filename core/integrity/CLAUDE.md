@@ -8,9 +8,9 @@ check rules rows "Tier 1 party" to "Tier 2 rope snap".
 
 | Header | Signatures |
 |---|---|
-| `limits.hpp` | `LimitsError`; `SupportCondition` (clamped, pinned; roller arrives as pinned); `Support{at, condition}`; `MemberLimits{name, index (PhysicsOutputs::members), area, i_y, i_z, c_y, c_z, length, elastic_modulus, effective_length_factor, allowable_stress, yield_strength, deflection_limit (optional), supports, first_spring, segments, segment_length, node_stiffness}`; `FasteningLimits{name, joint (PhysicsOutputs::joints), load_limit}`; `Limits{members, fastenings, minimum_safety_factor, stress, buckling, deflection, fastener, yield_offset}`; `limits_format` = `mechsim-integrity-limits-1`; `parse_limits(json)` (strict reader: duplicate keys, trailing text, non-finite or non-positive sizes refused) |
-| `beam.hpp` | `end_stress(wrench, m)` = abs(N) / A + abs(M_y) c_z / I_y + abs(M_z) c_y / I_z; `peak_normal_stress(loads, m)` (ends and each plane's resolved interior point, I1's `_plane`); `compression(loads)` = max(F_start.x, -F_end.x, 0); `critical_load(m)` = pi^2 E I_min / (K L)^2; `static_deflection(loads, m)` (I1's 201-point end-load formula, normal equations of the support conditions; `LimitsError` when the supports leave it free); `start_node_moment(start, l)` = -M_z + (l / 2) F_y, `end_node_moment(end, l)` = M_z + (l / 2) F_y |
-| `integrity_party.hpp` | `Crossing{time, element, quantity, value, limit}`; `IntegrityTrace{peak_stress, peak_deflection, min_buckling_margin, peak_fastener_load, crossings, requests}` (shared, readable after the kernel owns the party); `IntegrityPartyConfig{name "integrity", rate, physics_outputs "physics.outputs", halt_on_crossing}`; `IntegrityParty(Limits, config, shared_ptr<IntegrityTrace>)`: role integrity, consumes `physics_outputs`, publishes `<name>.model_requests` (`kernel::ModelChangeRequests`) only with yield on, `finished()` after a crossing when halting; `crossing_detail(c)` (the JSON of `testing.driver.IntegrityCrossing`, keys sorted, tier 1) |
+| `limits.hpp` | `LimitsError`; `SupportCondition` (clamped, pinned; roller arrives as pinned); `Support{at, condition}`; `NodeChain{first_body, count, root, parent_body (optional), position, orientation}`; `MemberLimits{name, index (PhysicsOutputs::members), area, i_y, i_z, c_y, c_z, length, elastic_modulus, effective_length_factor, allowable_stress, yield_strength, deflection_limit (optional), supports, first_spring, segments, segment_length, node_stiffness, nodes (optional: none = deflection not evaluated)}`; `FasteningLimits{name, joint (PhysicsOutputs::joints), load_limit}`; `Limits{members, fastenings, minimum_safety_factor, stress, buckling, deflection, fastener, yield_offset}`; `limits_format` = `mechsim-integrity-limits-1`; `parse_limits(json)` (strict reader: duplicate keys, trailing text, non-finite or non-positive sizes refused) |
+| `beam.hpp` | `end_stress(wrench, m)` = abs(N) / A + abs(M_y) c_z / I_y + abs(M_z) c_y / I_z; `peak_normal_stress(loads, m)` (ends and each plane's resolved interior point, I1's `_plane`); `compression(loads)` = max(F_start.x, -F_end.x, 0); `critical_load(m)` = pi^2 E I_min / (K L)^2; `node_deflection(bodies, m)` (ruling 28: largest distance of the node origins and the far end, last node + l / 2 along x, from the clamped root's tangent or the pinned chord; `LimitsError` without nodes or out of range); `start_node_moment(start, l)` = -M_z + (l / 2) F_y, `end_node_moment(end, l)` = M_z + (l / 2) F_y |
+| `integrity_party.hpp` | `Crossing{time, element, quantity, value, limit}`; `IntegrityTrace{peak_stress, peak_deflection (NaN for a member without nodes), min_buckling_margin, peak_fastener_load, crossings, requests}` (shared, readable after the kernel owns the party); `IntegrityPartyConfig{name "integrity", rate, physics_outputs "physics.outputs", halt_on_crossing}`; `IntegrityParty(Limits, config, shared_ptr<IntegrityTrace>)`: role integrity, consumes `physics_outputs`, publishes `<name>.model_requests` (`kernel::ModelChangeRequests`) only with yield on, `finished()` after a crossing when halting; `crossing_detail(c)` (the JSON of `testing.driver.IntegrityCrossing`, keys sorted, tier 1) |
 
 ## Conventions
 
@@ -32,8 +32,8 @@ check rules rows "Tier 1 party" to "Tier 2 rope snap".
 | Section | File | Line |
 |---|---|---|
 | Fixtures | tests/test_integrity_party.cpp | 35 |
-| Crossing oracles (INT-023, INT-024) | tests/test_integrity_party.cpp | 139 |
-| Events, halt and determinism | tests/test_integrity_party.cpp | 275 |
-| Yield requests (INT-028; at-limit boundary, INT-024) | tests/test_integrity_party.cpp | 345 |
-| Limits table | tests/test_integrity_party.cpp | 474 |
+| Crossing oracles (INT-023, INT-024; node-pose deflection, INT-006) | tests/test_integrity_party.cpp | 159 |
+| Events, halt and determinism | tests/test_integrity_party.cpp | 329 |
+| Yield requests (INT-028; at-limit boundary, INT-024) | tests/test_integrity_party.cpp | 399 |
+| Limits table | tests/test_integrity_party.cpp | 528 |
 | Cantilever on the native adapter (yield oracle, additivity) | tests/test_integrity_native.cpp | 33 |

@@ -1,0 +1,27 @@
+# Simply supported beam under its own weight (ACC-042, ACC-043), released straight at rest. Static midspan
+# deflection 5 w L^4 / (384 E I) = 6.016289e-4 m; first mode omega_1 = pi^2 sqrt(E I / (rho A L^4)) = 143.810 rad/s
+# (22.888 Hz). Physics step 0.25 ms: x = omega_1 h = 0.0359, frequency ratio atan(x) / x = 0.99957 (inside 0.1
+# percent), amplitude kept per period 0.89 (ruling 45); 3 s (69 periods) leave the swing below 1e-3 of the step.
+# The peak deflection over the run includes the release overshoot: at most twice the static value.
+id: B2
+title: Simply supported beam under its own weight
+design:
+  name: simple_beam
+  version: 1.0.0
+seed: 0
+initial_state:
+  joints: []
+rates:
+  physics_step: 0.25 ms
+physics:
+  adapter: native
+end:
+  at: 3 s
+  max_duration: 5 s
+criteria:
+  - name: peak_deflection
+    check: value
+    quantity: deflection:bar
+    statistic: maximum
+    comparison: at_most
+    limit: 1.21 mm

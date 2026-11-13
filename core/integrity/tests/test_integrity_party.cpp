@@ -82,7 +82,26 @@ integrity::MemberLimits cantilever(double length = 1.0) {
     m.segment_length = length / 8.0;
     m.node_stiffness = 2e11 * 1e-8 / (length / 8.0);
     m.first_spring = 3;
+    integrity::NodeChain chain;
+    chain.count = 8;
+    m.nodes = chain;
     return m;
+}
+
+// Node poses of a cantilever along world x, clamped at the origin, with tip deflection v(L) = P L^3 / (3 E I_z) of the
+// fixture section: interior nodes on the continuum shape v(x) = P x^2 (3 L - x) / (6 E I_z) at x_j = (j + 1/2) l, the
+// last node level at (L - l/2, v(L)), so its far end (l / 2 along its x) is (L, v(L)) and the node-pose deflection
+// (INT-006, the distance from the root tangent, world x) is abs(v(L)) to rounding.
+std::vector<kernel::BodyState> cantilever_nodes(double load, double length) {
+    const double ei = 2e11 * 1e-8;
+    const double l = length / 8.0;
+    std::vector<kernel::BodyState> bodies(8);
+    for (std::size_t j = 0; j + 1 < bodies.size(); ++j) {
+        const double x = (static_cast<double>(j) + 0.5) * l;
+        bodies[j].position = {x, -load * x * x * (3.0 * length - x) / (6.0 * ei), 0.0};
+    }
+    bodies.back().position = {length - 0.5 * l, -load * length * length * length / (3.0 * ei), 0.0};
+    return bodies;
 }
 
 // A cantilever clamped at x = 0 under a tip force (0, -P, 0) at x = L: the support on the member at the start carries
@@ -93,6 +112,7 @@ kernel::PhysicsOutputs tip_loaded(double load, double length) {
     loads.start.force = {0.0, load, 0.0};
     loads.start.moment = {0.0, 0.0, load * length};
     out.members.push_back(loads);
+    out.bodies = cantilever_nodes(load, length);
     return out;
 }
 
@@ -211,8 +231,9 @@ TEST_CASE("a fastening under a ramping load crosses its rating at t*", "[INT-023
     CHECK_THAT(r.crossings[0].value, WithinRel(rate * 0.008, 1e-12));
 }
 
-TEST_CASE("a cantilever's static tip deflection crosses its limit at t*", "[INT-023][INT-024]") {
-    // Tip deflection P L^3 / (3 E I_z) (the grid holds x = L); > delta first at t > t* = 3 E I delta / (k L^3).
+TEST_CASE("a cantilever's tip deflection from its node poses crosses its limit at t*", "[INT-023][INT-024][INT-006]") {
+    // Node-pose tip deflection P L^3 / (3 E I_z) (fixture `cantilever_nodes`); > delta first at t > t* =
+    // 3 E I delta / (k L^3).
     integrity::Limits limits;
     limits.deflection = true;
     integrity::MemberLimits m = cantilever();
@@ -252,24 +273,57 @@ TEST_CASE("tier 1 quantities follow beam.py on mixed end loads", "[INT-023]") {
     CHECK_THAT(integrity::end_node_moment(loads.end, 0.125), WithinRel(4.0 + 0.0625 * 2.0, 1e-15));
 }
 
-TEST_CASE("simply supported and clamped-clamped deflections are the closed forms", "[INT-023]") {
-    // Midspan point load W on a simply supported span: W L^3 / (48 E I) at the midspan grid point (I1's rule, exact).
+TEST_CASE("node-pose deflection measures from the root tangent or the pinned chord", "[INT-023][INT-006]") {
     integrity::MemberLimits m = cantilever(2.0);
-    m.supports = {integrity::Support{0.0, integrity::SupportCondition::pinned},
-                  integrity::Support{2.0, integrity::SupportCondition::pinned}};
-    kernel::MemberEndLoads loads;
-    loads.start.force = {0.0, 50.0, 0.0};
-    loads.end.force = {0.0, 50.0, 0.0};
-    const double ei = m.elastic_modulus * m.i_z;
-    CHECK_THAT(integrity::static_deflection(loads, m), WithinRel(100.0 * 8.0 / (48.0 * ei), 1e-12));
-    // Clamped-clamped: end moments W L / 8 hold the slopes; midspan W L^3 / (192 E I).
-    m.supports = {integrity::Support{0.0, integrity::SupportCondition::clamped},
-                  integrity::Support{2.0, integrity::SupportCondition::clamped}};
-    loads.start.moment = {0.0, 0.0, 100.0 * 2.0 / 8.0};
-    loads.end.moment = {0.0, 0.0, -100.0 * 2.0 / 8.0};
-    CHECK_THAT(integrity::static_deflection(loads, m), WithinRel(100.0 * 8.0 / (192.0 * ei), 1e-9));
-    m.supports = {integrity::Support{1.0, integrity::SupportCondition::pinned}};
-    CHECK_THROWS_AS(integrity::static_deflection(loads, m), integrity::LimitsError);
+    integrity::NodeChain chain;
+    chain.first_body = 1;
+    chain.count = 3;
+    chain.parent_body = 0;
+    chain.position = {0.5, 0.0, 0.0};
+    m.nodes = chain;
+    m.segment_length = 0.2;
+    // Parent at (1, 1, 0) turned +90 degrees about z: the member's root point is (1, 1.5, 0) and its root tangent
+    // world +y. Nodes 0.3 and 0.1 off that line; the last node (1.2, 2.2, 0) turned by the parent's rotation reaches
+    // l / 2 = 0.1 further along world +y, so the far end is (1.2, 2.3, 0), 0.2 off: the largest, the deflection.
+    const double half = std::sqrt(0.5);
+    std::vector<kernel::BodyState> bodies(4);
+    bodies[0].position = {1.0, 1.0, 0.0};
+    bodies[0].orientation = {half, 0.0, 0.0, half};
+    bodies[1].position = {1.0, 1.6, 0.0};
+    bodies[2].position = {0.7, 1.8, 0.0};
+    bodies[3].position = {1.2, 2.2, 0.0};
+    bodies[3].orientation = {half, 0.0, 0.0, half};
+    CHECK_THAT(integrity::node_deflection(bodies, m), WithinRel(0.3, 1e-12));
+    bodies[2].position = {1.1, 1.8, 0.0};
+    CHECK_THAT(integrity::node_deflection(bodies, m), WithinRel(0.2, 1e-12));
+    // A pinned root: the chord from node 0 (the pin, (1, 1.6, 0)) to the far end (1.2, 2.3, 0); node 1 at (1.1, 1.8,
+    // 0) sits off it by |cross(r, d)| with r = (0.1, 0.2), d = (0.2, 0.7) / |(0.2, 0.7)|: |0.1 * 0.7 - 0.2 * 0.2| /
+    // sqrt(0.53).
+    m.nodes->root = integrity::SupportCondition::pinned;
+    CHECK_THAT(integrity::node_deflection(bodies, m), WithinRel(0.03 / std::sqrt(0.53), 1e-12));
+    // No parent body: the world frame holds the placement.
+    m.nodes->root = integrity::SupportCondition::clamped;
+    m.nodes->parent_body.reset();
+    m.nodes->position = {0.0, 0.0, 0.0};
+    bodies[2].position = {1.1, -0.4, 0.0};
+    CHECK_THAT(integrity::node_deflection(bodies, m), WithinRel(2.3, 1e-12));
+    m.nodes->count = 4;
+    CHECK_THROWS_AS(integrity::node_deflection(bodies, m), integrity::LimitsError);
+    m.nodes.reset();
+    CHECK_THROWS_AS(integrity::node_deflection(bodies, m), integrity::LimitsError);
+}
+
+TEST_CASE("a member without node poses is not evaluated for deflection", "[INT-023][INT-006]") {
+    integrity::Limits limits;
+    limits.deflection = true;
+    integrity::MemberLimits m = cantilever();
+    m.deflection_limit = 1e-6;
+    m.nodes.reset();
+    limits.members.push_back(m);
+    const Run r = run(limits, [](double t) { return tip_loaded(1000.0 * t, 1.0); }, 5);
+    CHECK(r.crossings.empty());
+    REQUIRE(r.trace->peak_deflection.size() == 1);
+    CHECK(std::isnan(r.trace->peak_deflection[0]));
 }
 
 // ===== Events, halt and determinism (INT-024, INT-026, INT-027) ==========
@@ -478,7 +532,8 @@ TEST_CASE("the limits table parses and refuses malformed entries", "[INT-023]") 
         R"({"name": "arm", "index": 0, "area": 1e-4, "i_y": 2e-8, "i_z": 1e-8, "c_y": 0.01, "c_z": 0.02, )"
         R"("length": 1.0, "elastic_modulus": 2e11, "effective_length_factor": 2.0, "allowable_stress": 1e8, )"
         R"("yield_strength": 2.5e8, "deflection_limit": null, "supports": [{"at": 0.0, "condition": "clamped"}], )"
-        R"("first_spring": 2, "segments": 8, "segment_length": 0.125, "node_stiffness": 16000.0})";
+        R"("first_spring": 2, "segments": 8, "segment_length": 0.125, "node_stiffness": 16000.0, "nodes": {"first_body": )"
+        R"(5, "count": 9, "root": "pinned", "parent_body": null, "position": [0, 1, 0], "orientation": [1, 0, 0, 0]}})";
     const auto doc = [](const std::string& members, const std::string& checks = "true") {
         return R"({"format": "mechsim-integrity-limits-1", "minimum_safety_factor": 1.5, "checks": {"stress": )" +
                checks + R"(, "buckling": false, "deflection": false, "fastener": true, "yield_offset": false}, )"
@@ -491,6 +546,29 @@ TEST_CASE("the limits table parses and refuses malformed entries", "[INT-023]") 
     CHECK(limits.minimum_safety_factor == 1.5);
     CHECK(limits.stress);
     CHECK(limits.fastenings[0].joint == 3);
+    REQUIRE(limits.members[0].nodes.has_value());
+    CHECK(limits.members[0].nodes->first_body == 5);
+    CHECK(limits.members[0].nodes->count == 9);
+    CHECK(limits.members[0].nodes->root == integrity::SupportCondition::pinned);
+    CHECK_FALSE(limits.members[0].nodes->parent_body.has_value());
+    CHECK(limits.members[0].nodes->position[1] == 1.0);
+    std::string rigid = member;
+    rigid.replace(rigid.find(R"("nodes": {)"), rigid.size() - rigid.find(R"("nodes": {)"), R"("nodes": null})");
+    CHECK_FALSE(integrity::parse_limits(doc(rigid)).members[0].nodes.has_value());
+    for (const auto& [from, to] : std::vector<std::pair<std::string, std::string>>{
+             {R"("count": 9)", R"("count": 0)"},
+             {R"("root": "pinned")", R"("root": "free")"},
+             {"[1, 0, 0, 0]", "[2, 0, 0, 0]"},
+             {"[0, 1, 0]", "[0, 1]"},
+             {R"("parent_body": null)", R"("parent_body": -1)"}}) {
+        std::string bad = member;
+        bad.replace(bad.find(from), from.size(), to);
+        CAPTURE(to);
+        CHECK_THROWS_AS(integrity::parse_limits(doc(bad)), integrity::LimitsError);
+    }
+    std::string missing = member;
+    missing.replace(missing.find(R"(, "nodes")"), missing.size() - missing.find(R"(, "nodes")"), "}");
+    CHECK_THROWS_AS(integrity::parse_limits(doc(missing)), integrity::LimitsError);
     CHECK_THROWS_AS(integrity::parse_limits(doc(member, "1")), integrity::LimitsError);
     CHECK_THROWS_AS(integrity::parse_limits(doc(member) + "x"), integrity::LimitsError);
     CHECK_THROWS_AS(integrity::parse_limits("{"), integrity::LimitsError);

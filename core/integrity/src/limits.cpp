@@ -1,5 +1,6 @@
 #include "mechsim/integrity/limits.hpp"
 
+#include <array>
 #include <charconv>
 #include <cstdint>
 #include <functional>
@@ -295,6 +296,64 @@ Support support(const Value& entry, const std::string& where) {
     return out;
 }
 
+std::array<double, 3> triple(const Value& entry, std::string_view key, const std::string& where) {
+    const std::vector<Value>& items = array(entry, key, where);
+    if (items.size() != 3) {
+        throw LimitsError("limits table: " + where + "." + std::string(key) + " needs 3 numbers");
+    }
+    std::array<double, 3> out{};
+    for (std::size_t k = 0; k < 3; ++k) {
+        if (items[k].kind != Value::Kind::number || !std::isfinite(items[k].number)) {
+            throw LimitsError("limits table: " + where + "." + std::string(key) + " is not finite numbers");
+        }
+        out[k] = items[k].number;
+    }
+    return out;
+}
+
+std::array<double, 4> quaternion(const Value& entry, std::string_view key, const std::string& where) {
+    const std::vector<Value>& items = array(entry, key, where);
+    if (items.size() != 4) {
+        throw LimitsError("limits table: " + where + "." + std::string(key) + " needs 4 numbers (w, x, y, z)");
+    }
+    std::array<double, 4> out{};
+    double norm = 0.0;
+    for (std::size_t k = 0; k < 4; ++k) {
+        if (items[k].kind != Value::Kind::number || !std::isfinite(items[k].number)) {
+            throw LimitsError("limits table: " + where + "." + std::string(key) + " is not finite numbers");
+        }
+        out[k] = items[k].number;
+        norm += out[k] * out[k];
+    }
+    if (std::abs(norm - 1.0) > 1e-9) {
+        throw LimitsError("limits table: " + where + "." + std::string(key) + " is not a unit quaternion");
+    }
+    return out;
+}
+
+NodeChain node_chain(const Value& entry, const std::string& where) {
+    NodeChain chain;
+    chain.first_body = count(entry, "first_body", where);
+    chain.count = count(entry, "count", where);
+    if (chain.count == 0) {
+        throw LimitsError("limits table: " + where + ".count must be >= 1");
+    }
+    const std::string& root = text(entry, "root", where);
+    if (root == "clamped") {
+        chain.root = SupportCondition::clamped;
+    } else if (root == "pinned") {
+        chain.root = SupportCondition::pinned;
+    } else {
+        throw LimitsError("limits table: " + where + ".root '" + root + "': clamped or pinned");
+    }
+    if (field(entry, "parent_body", where).kind != Value::Kind::null) {
+        chain.parent_body = count(entry, "parent_body", where);
+    }
+    chain.position = triple(entry, "position", where);
+    chain.orientation = quaternion(entry, "orientation", where);
+    return chain;
+}
+
 MemberLimits member(const Value& entry, std::size_t position) {
     const std::string where = "members[" + std::to_string(position) + "]";
     MemberLimits m;
@@ -324,6 +383,13 @@ MemberLimits member(const Value& entry, std::size_t position) {
     m.node_stiffness = positive(entry, "node_stiffness", where);
     if (m.segments == 0) {
         throw LimitsError("limits table: " + where + ".segments must be >= 1");
+    }
+    const Value& nodes = field(entry, "nodes", where);
+    if (nodes.kind != Value::Kind::null) {
+        if (nodes.kind != Value::Kind::object) {
+            throw LimitsError("limits table: " + where + ".nodes is not an object or null");
+        }
+        m.nodes = node_chain(nodes, where + ".nodes");
     }
     return m;
 }

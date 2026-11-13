@@ -2,12 +2,16 @@
 
 import itertools
 import math
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
 import numpy as np
 import pytest
 
+from mechsim.integrity.beam import node_deflection
+from mechsim.integrity.inputs import node_chains, section_properties
+from mechsim.integrity.plugin import BodyPoses, MemberInputs
 from mechsim.testing.core_driver import CoreDriver, core_services
 from mechsim.testing.runner import RunResult, Services, prepare, run_case
 from mechsim.testing.schema import ROOT
@@ -643,12 +647,44 @@ def test_acc_036() -> None:
 
 
 @pytest.mark.req("ACC-037")
-@pytest.mark.xfail(strict=True, reason="stub")
 def test_acc_037() -> None:
     """Acceptance criterion 3, rewritten: the rope pendulum's period and swing decay shall match their
     closed-form values within tolerance.
+
+    Closed form (ADR 0016, `test_cases/rope_pendulum/R1_period.yaml`): T_N = 2 pi sqrt(I_N / (g S)) with the loaded
+    length L = L0 + g L0 (M + m_r / 2) / EA, I_N = M L^2 + m_r L^2 (1/3 + 1 / (6 N^2)), S = M L + m_r L / 2. The rope
+    damps only axially, so the undamped swing keeps its amplitude: every positive peak of the bob's x over 20 periods
+    lies within 2 percent of the release value L sin(0.02) (the scheme keeps (1 + x^2)^(-pi / atan x) per period at
+    x = omega h = 1.57e-4: 1 percent over 20 periods, ruling 45). Tolerances: ACC-037 row (proposed, owner).
     """
-    raise NotImplementedError
+    m, m_r, l0, ea, g, n = 1.0, 0.035, 1.0, 5e5, 9.81, 8
+    length = l0 + g * l0 * (m + m_r / 2.0) / ea
+    inertia = m * length**2 + m_r * length**2 * (1.0 / 3.0 + 1.0 / (6.0 * n * n))
+    moment = m * length + m_r * length / 2.0
+    period_n = 2.0 * math.pi * math.sqrt(inertia / (g * moment))
+    result, driver, _ = _reference_run(ROPE_PENDULUM_CASE)
+    series = driver.recording().series("pose:bob.x")
+    times = np.asarray(series.times, dtype=np.float64)
+    # pose:bob.x is the free joint's coordinate from its placement (L sin 0.02, -L cos 0.02): the swing is about
+    # -L sin(0.02), and its amplitude is L sin(0.02).
+    release = length * math.sin(0.02)
+    values = np.asarray(series.values, dtype=np.float64) + release
+    crossings = [
+        times[i - 1] + values[i - 1] / (values[i - 1] - values[i]) * (times[i] - times[i - 1])
+        for i in range(1, len(values))
+        if values[i - 1] < 0.0 <= values[i]
+    ]
+    assert len(crossings) >= 21
+    measured = (crossings[20] - crossings[0]) / 20.0
+    print(f"ACC-037 period: closed form T_N {period_n!r} s, measured {measured!r} s over 20 periods")
+    assert abs(measured / period_n - 1.0) <= 1e-3
+    inner = values[1:-1]
+    peaks = np.nonzero((inner > values[:-2]) & (inner >= values[2:]) & (inner > 0.0))[0] + 1
+    peaks = peaks[times[peaks] <= crossings[20]]
+    print(f"ACC-037 amplitude: release {release!r} m, peaks {values[peaks].min()!r} to {values[peaks].max()!r} m")
+    assert len(peaks) >= 20
+    assert np.all(np.abs(values[peaks] / release - 1.0) <= 0.02)
+    assert result.score.status == "pass"
 
 
 @pytest.mark.req("ACC-038")
@@ -661,48 +697,108 @@ def test_acc_038() -> None:
 
 
 @pytest.mark.req("ACC-039")
-@pytest.mark.xfail(strict=True, reason="stub")
 def test_acc_039() -> None:
     """Acceptance criterion 3, rewritten: the settle time of a step response shall match its closed-form
     value within tolerance.
+
+    Mass on a spring-damper (`designs/rope_spring`, `test_cases/rope_spring/S1_settle.yaml`): M = 1.0175 kg (bob plus
+    the rope's lower half-mass), k = EA / L0 = 500 kN/m, c = 50 N s/m, released at the rest length under gravity
+    (the step), x_s = M g / k. The underdamped deviation is bounded by the envelope x_s e^(-sigma t) / sqrt(1 - zeta^2);
+    it enters the 2 percent band for good at t_env = ln(50 / sqrt(1 - zeta^2)) / sigma. Continuous sigma = zeta
+    omega_n; backward Euler at step h maps each mode s to 1 / (1 - h s), so the run decays at sigma_h = ln|1 - h s| / h
+    (ruling 45). The last exit from the band lies at a peak under the envelope, at most half a damped period
+    pi / omega_d before t_env, and the scorer reports the first sample after it (+ h). Proposed tolerance (ACC-039
+    row): t_env - pi / omega_d - h <= measured <= t_env + 2 percent.
     """
-    raise NotImplementedError
+    m, k, c, h = 1.0175, 5e5, 50.0, 1e-5
+    omega = math.sqrt(k / m)
+    zeta = c / (2.0 * m * omega)
+    damped = omega * math.sqrt(1.0 - zeta * zeta)
+    pole = complex(-zeta * omega, damped)
+    sigma_h = math.log(abs(1.0 - h * pole)) / h
+    reach = math.log(50.0 / math.sqrt(1.0 - zeta * zeta))
+    continuous = reach / (zeta * omega)
+    corrected = reach / sigma_h
+    result, _, _ = _reference_run(ROPE_SPRING_CASE)
+    settle = _criterion(result, "settle")
+    measured = float(settle.measured)
+    print(
+        f"ACC-039 settle time: closed form {continuous!r} s, scheme-corrected {corrected!r} s, measured {measured!r} s"
+    )
+    assert corrected - math.pi / damped - h <= measured <= corrected * 1.02
+    assert result.score.status == "pass"
 
 
 @pytest.mark.req("ACC-040")
-@pytest.mark.xfail(strict=True, reason="stub")
 def test_acc_040() -> None:
     """Acceptance criterion 4, rewritten: a cantilever beam's static deflection shall match the closed-form
     value within tolerance.
+
+    Through the full stack on the native adapter (`test_cases/cantilever_beam/B1_cantilever.yaml`): the bar released
+    straight under its own weight w = rho A g settles under backward Euler's per-period decay (ruling 45) to the static
+    shape by the last sample, whose node-pose deflection (INT-006, ruling 28: distance from the root tangent) is the
+    static value. Closed form w L^4 / (8 E I); tolerance the lumped chain's 2 percent at N = 8 (rulings 31, 32; the
+    chain's own value under the distributed load is 0.78 percent low).
     """
-    raise NotImplementedError
+    static = BEAM_W * BEAM_LENGTH**4 / (8.0 * BEAM_EI)
+    measured = _settled_deflection(CANTILEVER_CASE)
+    print(f"ACC-040 cantilever static deflection: closed form {static!r} m, measured {measured!r} m")
+    assert abs(measured / static - 1.0) <= 0.02
 
 
 @pytest.mark.req("ACC-041")
-@pytest.mark.xfail(strict=True, reason="stub")
 def test_acc_041() -> None:
     """Acceptance criterion 4, rewritten: a cantilever beam's first natural frequency shall match the
     closed-form value within tolerance.
+
+    The released bar swings about its static shape; the first-mode frequency is counted from the upward zero crossings
+    of the node pose of the tip segment about its final (settled) value, over at least ten periods after the first two
+    (the higher modes decay faster under backward Euler). Step 1 ms: x = omega_1 h = 0.0512, frequency ratio atan(x) / x
+    = 0.99913, inside 0.1 percent (ruling 45). Closed form omega_1 = 1.8751^2 sqrt(E I / (rho A L^4)); tolerance the
+    lumped chain's 2 percent at N = 8 (rulings 31, 32).
     """
-    raise NotImplementedError
+    closed = 1.8751040687119611**2 * math.sqrt(BEAM_EI / (BEAM_RHO_A * BEAM_LENGTH**4)) / (2.0 * math.pi)
+    measured, periods = _first_frequency(CANTILEVER_CASE, -1)
+    print(f"ACC-041 cantilever first frequency: closed form {closed!r} Hz, measured {measured!r} Hz over {periods}")
+    assert periods >= 10
+    assert abs(measured / closed - 1.0) <= 0.02
 
 
 @pytest.mark.req("ACC-042")
-@pytest.mark.xfail(strict=True, reason="stub")
 def test_acc_042() -> None:
-    """Acceptance criterion 4, rewritten: a simply supported beam's static deflection shall match the
-    closed-form value within tolerance.
+    """Acceptance criterion 4, rewritten: a simply supported beam's static deflection shall match the closed-form
+    value within tolerance.
+
+    Through the full stack on the native adapter (`test_cases/simple_beam/B2_simply_supported.yaml`): the bar released
+    straight under its own weight w = rho A g settles under backward Euler's per-period decay (ruling 45) to the static
+    shape by the last sample, whose node-pose deflection (INT-006, ruling 28: distance from the chord through the pin
+    and the far end) is the static value. Closed form 5 w L^4 / (384 E I); tolerance the lumped chain's 2 percent at N =
+    8 (rulings 31, 32; the chain's own value under the distributed load is 0.625 percent low).
     """
-    raise NotImplementedError
+    static = 5.0 * BEAM_W * BEAM_LENGTH**4 / (384.0 * BEAM_EI)
+    measured = _settled_deflection(SIMPLE_BEAM_CASE)
+    print(f"ACC-042 simply supported static deflection: closed form {static!r} m, measured {measured!r} m")
+    assert abs(measured / static - 1.0) <= 0.02
 
 
 @pytest.mark.req("ACC-043")
-@pytest.mark.xfail(strict=True, reason="stub")
 def test_acc_043() -> None:
     """Acceptance criterion 4, rewritten: a simply supported beam's first natural frequency shall match the
     closed-form value within tolerance.
+
+    The released bar swings about its static shape; the first-mode frequency is counted from the upward zero crossings
+    of the node pose of the midspan segment about its final (settled) value, over at least ten periods after the first
+    two (the higher modes decay faster under backward Euler). Step 0.25 ms: x = omega_1 h = 0.0360, frequency ratio
+    atan(x) / x = 0.99957, inside 0.1 percent (ruling 45). Closed form omega_1 = pi^2 sqrt(E I / (rho A L^4)); tolerance
+    the lumped chain's 2 percent at N = 8 (rulings 31, 32).
     """
-    raise NotImplementedError
+    closed = math.pi**2 * math.sqrt(BEAM_EI / (BEAM_RHO_A * BEAM_LENGTH**4)) / (2.0 * math.pi)
+    measured, periods = _first_frequency(SIMPLE_BEAM_CASE, 4)
+    print(
+        f"ACC-043 simply supported first frequency: closed form {closed!r} Hz, measured {measured!r} Hz over {periods}"
+    )
+    assert periods >= 10
+    assert abs(measured / closed - 1.0) <= 0.02
 
 
 @pytest.mark.req("ACC-044")
@@ -736,3 +832,70 @@ def test_phy_016(gantry: dict[str, RunResult]) -> None:
         assert not report.errored, f"{case}: {report.error}"
         failing = [criterion.name for criterion in result.score.criteria if criterion.status != "pass"]
         assert failing == [], f"{case}: {failing}"
+
+
+# ===== Native references (ACC-037, ACC-039 to ACC-043) =======================
+ROPE_PENDULUM_CASE = ROOT / "test_cases" / "rope_pendulum" / "R1_period.yaml"
+ROPE_SPRING_CASE = ROOT / "test_cases" / "rope_spring" / "S1_settle.yaml"
+CANTILEVER_CASE = ROOT / "test_cases" / "cantilever_beam" / "B1_cantilever.yaml"
+SIMPLE_BEAM_CASE = ROOT / "test_cases" / "simple_beam" / "B2_simply_supported.yaml"
+# steel_bar_10mm_1m (catalog): E I = 200 GPa * 8.3333e-10 m^4, rho A = 7850 kg/m^3 * 1e-4 m^2, L = 1 m.
+BEAM_EI = 200e9 * 8.333333333333334e-10
+BEAM_RHO_A = 7850.0 * 1e-4
+BEAM_LENGTH = 1.0
+BEAM_W = BEAM_RHO_A * 9.81
+_REFERENCE_RUNS: dict[Path, tuple[RunResult, CoreDriver, Any]] = {}
+
+
+def _reference_run(case: Path) -> tuple[RunResult, CoreDriver, Any]:
+    """One run per case through the CLI's path (case file, builder, native adapter, kernel, recorder, integrity,
+    scoring) with the shipped services; the driver kept for its recording, the native build for its node chains."""
+    if case not in _REFERENCE_RUNS:
+        driver = CoreDriver()
+        services = core_services()
+        result = run_case(case, replace(services, driver=lambda: driver), None, None)
+        assert result.report is not None, result.score
+        assert not result.report.errored, result.report.error
+        build = services.builder(prepare(case).design, "native")
+        _REFERENCE_RUNS[case] = (result, driver, build)
+    return _REFERENCE_RUNS[case]
+
+
+def _poses(case: Path) -> tuple[BodyPoses, Any, np.ndarray]:
+    _, driver, build = _reference_run(case)
+    recording = driver.recording().recording
+    rows = len(recording.series["time/seconds"].values)
+    positions = np.asarray(recording.series["physics/bodies/position"].values, dtype=np.float64).reshape(rows, -1, 3)
+    orientations = np.asarray(recording.series["physics/bodies/orientation"].values, dtype=np.float64).reshape(
+        rows, -1, 4
+    )
+    times = np.asarray(recording.series["time/seconds"].values, dtype=np.float64)
+    return BodyPoses(positions, orientations), node_chains(build.physics)["bar"], times
+
+
+def _settled_deflection(case: Path) -> float:
+    bodies, chain, _ = _poses(case)
+    _, _, build = _reference_run(case)
+    (member,) = build.members
+    section = section_properties(member.section)
+    view = MemberInputs("bar", str(member.material), section, (), None, nodes=chain)  # type: ignore[arg-type]
+    last = BodyPoses(bodies.positions[-1:], bodies.orientations[-1:])
+    return float(node_deflection(view, last)[0])
+
+
+def _first_frequency(case: Path, node: int) -> tuple[float, int]:
+    """Hz from upward crossings (linear interpolation) of a node's y about its final value in the run's first half
+    (the swing still above 2 percent of the step there, so rounding near the settled value adds no crossing), dropping
+    the first two; (crossings - 1) / (last - first) periods per second, and the period count."""
+    bodies, chain, times = _poses(case)
+    y = bodies.positions[:, chain.first_body + (node % chain.count), 1]
+    y = y - y[-1]
+    crossings: list[float] = []
+    half = int(np.searchsorted(times, 0.5 * times[-1]))
+    for index in range(1, half):
+        if y[index - 1] < 0.0 <= y[index]:
+            fraction = y[index - 1] / (y[index - 1] - y[index])
+            crossings.append(times[index - 1] + fraction * (times[index] - times[index - 1]))
+    kept = crossings[2:]
+    periods = len(kept) - 1
+    return periods / (kept[-1] - kept[0]), periods
