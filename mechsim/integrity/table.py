@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import math
+from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any
 
@@ -22,6 +23,19 @@ SINGLE_AXIS = "approximation: single-axis section"
 SNAP = "snap"
 DESIGN_LOAD = "design_load"
 _STRESS = ("normal_stress", "mount_stress")
+CARRIED_NOTE = (
+    "design load: the case carries it (integrity.design_load_carried), so the table applies factor 1, not the "
+    "design's rule (TST-043, INT-019, ruling 52)"
+)
+
+
+def window_note(start: float) -> str:
+    """The line of an evaluation start (TST-044)."""
+    return (
+        f"integrity evaluation from {start:.12g} s (integrity.evaluate_from): peaks, safety factors and tier 1 "
+        "crossings before it do not count; a tier 1 crossing before it is recorded as an "
+        "integrity_before_evaluation event and does not fail the case (TST-044)"
+    )
 
 
 @dataclass(frozen=True)
@@ -66,9 +80,11 @@ class IntegrityReport(IntegrityResults):
         return json.dumps(data, sort_keys=True, indent=1)
 
 
-def evaluate(config: IntegrityConfig, inputs: RunInputs) -> IntegrityReport:
+def evaluate(config: IntegrityConfig, inputs: RunInputs, lines: Sequence[str] = ()) -> IntegrityReport:
+    """Every configured check over `inputs`; `lines` (the case's design-load and evaluation-start lines) lead the
+    notes."""
     results: list[CheckResult] = []
-    notes: list[str] = []
+    notes: list[str] = list(lines)
     for check, tier, parameters in config.entries():
         result = check.evaluate(inputs, parameters, tier)
         results.append(result)

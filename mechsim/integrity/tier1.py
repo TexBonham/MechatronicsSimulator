@@ -17,6 +17,7 @@ from typing import Any
 import numpy as np
 
 from mechsim.integrity.beam import effective_length_factor
+from mechsim.integrity.checks.fastener import rating
 from mechsim.integrity.config import FILE_NAME, IntegrityConfig, load_config
 from mechsim.integrity.inputs import member_axes, node_chains, section_properties
 from mechsim.integrity.plugin import IntegrityError, MaterialView, MemberInputs, NodeChain, Spread, Wrenches
@@ -48,6 +49,9 @@ class Tier1Setup:
     yield_offset: bool
     approximations: tuple[str, ...]
 
+
+# The event kind of a tier 1 crossing before the case's evaluation start (TST-044): recorded, never counted.
+BEFORE_EVALUATION_KIND = "integrity_before_evaluation"
 
 # The native document's `ends` of a member with a pinned root, whose spring-free pin segment publishes node 0.
 PINNED_ROOT_ENDS = "simply_supported"
@@ -229,18 +233,16 @@ def limits_table(
         ratings = _parameters(config, "fastener").ratings
         order = [str(body.joint.name) for body in model.bodies if body.joint is not None]
         for fastening in model.fastenings:
-            rating = ratings.get(str(fastening.name))
-            if rating is None and fastening.kind != "fastener":
+            limit = rating(str(fastening.name), str(fastening.kind), ratings)
+            if limit is None:
                 continue
-            if rating is None or float(rating) <= 0.0:
-                raise IntegrityError(f"fastener {fastening.name!r}: no load rating")
             if str(fastening.joint) not in order:
                 raise IntegrityError(f"fastening {fastening.name!r}: joint {fastening.joint!r} is not in the model")
             fastenings.append(
                 {
                     "name": str(fastening.name),
                     "joint": order.index(str(fastening.joint)),
-                    "load_limit": float(rating) / minimum,
+                    "load_limit": limit / minimum,
                 }
             )
     return {

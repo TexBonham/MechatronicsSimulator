@@ -66,8 +66,11 @@ IntegrityParty::IntegrityParty(Limits limits, IntegrityPartyConfig config, std::
         published_ = {config_.name + ".model_requests"};
     }
     members_.assign(limits_.members.size(), MemberState{});
-    fastenings_.assign(limits_.fastenings.size(), false);
+    fastenings_.assign(limits_.fastenings.size(), FasteningState{});
     trace_->peak_stress.assign(limits_.members.size(), 0.0);
+    if (!limits_.stress) {
+        trace_->peak_stress.assign(limits_.members.size(), std::numeric_limits<double>::quiet_NaN());
+    }
     trace_->peak_deflection.assign(limits_.members.size(), 0.0);
     for (std::size_t m = 0; m < limits_.members.size(); ++m) {
         if (!limits_.members[m].nodes.has_value()) {
@@ -118,6 +121,25 @@ void IntegrityParty::cross(kernel::SimTime t, const std::string& element, std::s
     }
 }
 
+void IntegrityParty::crossed(kernel::SimTime t, bool counts, bool& counted, bool& early, const std::string& element,
+                             std::string_view quantity, double value, double limit) {
+    if (counts) {
+        if (!counted) {
+            counted = true;
+            cross(t, element, quantity, value, limit);
+        }
+        return;
+    }
+    if (early) {
+        return;
+    }
+    early = true;
+    Crossing crossing{t, element, std::string(quantity), value, limit};
+    pending_events_.push_back(kernel::RecordedEvent{t, std::string(event_source), std::string(before_evaluation_kind),
+                                                    crossing_detail(crossing)});
+    trace_->before_evaluation.push_back(std::move(crossing));
+}
+
 void IntegrityParty::yield(const MemberLimits& member, const kernel::MemberEndLoads& loads, MemberState& state) {
     const double l = member.segment_length;
     std::size_t spring = member.first_spring;
@@ -151,6 +173,7 @@ void IntegrityParty::step(kernel::SimTime t, kernel::Duration dt) {
         return;
     }
     const kernel::SimTime stamp = t + dt;
+    const bool counts = !(stamp < config_.evaluate_from);
     requests_.requests.clear();
     if (limits_.bodies.has_value() && outputs_.bodies.size() != limits_.bodies.value()) {
         throw LimitsError("integrity: physics publishes " + std::to_string(outputs_.bodies.size()) +
@@ -165,28 +188,35 @@ void IntegrityParty::step(kernel::SimTime t, kernel::Duration dt) {
         }
         const kernel::MemberEndLoads& loads = outputs_.members[member.index];
         MemberState& state = members_[m];
-        const double stress = peak_normal_stress(loads, member);
-        trace_->peak_stress[m] = std::max(trace_->peak_stress[m], stress);
-        if (limits_.stress && !state.stress && stress > member.allowable_stress) {
-            state.stress = true;
-            cross(stamp, member.name, stress_quantity, stress, member.allowable_stress);
+        if (limits_.stress) {
+            const double stress = peak_normal_stress(loads, outputs_.bodies, member);
+            if (counts) {
+                trace_->peak_stress[m] = std::max(trace_->peak_stress[m], stress);
+            }
+            if (stress > member.allowable_stress) {
+                crossed(stamp, counts, state.stress, state.early_stress, member.name, stress_quantity, stress,
+                        member.allowable_stress);
+            }
         }
         const double load = compression(loads);
         if (load > 0.0) {
             const double margin = critical_load(member) / load;
-            trace_->min_buckling_margin[m] = std::min(trace_->min_buckling_margin[m], margin);
-            if (limits_.buckling && !state.buckling && margin < limits_.minimum_safety_factor) {
-                state.buckling = true;
-                cross(stamp, member.name, buckling_quantity, margin, limits_.minimum_safety_factor);
+            if (counts) {
+                trace_->min_buckling_margin[m] = std::min(trace_->min_buckling_margin[m], margin);
+            }
+            if (limits_.buckling && margin < limits_.minimum_safety_factor) {
+                crossed(stamp, counts, state.buckling, state.early_buckling, member.name, buckling_quantity, margin,
+                        limits_.minimum_safety_factor);
             }
         }
         if (limits_.deflection && member.nodes.has_value()) {
             const double deflection = node_deflection(outputs_.bodies, member);
-            trace_->peak_deflection[m] = std::max(trace_->peak_deflection[m], deflection);
-            if (!state.deflection && member.deflection_limit.has_value() &&
-                deflection > member.deflection_limit.value()) {
-                state.deflection = true;
-                cross(stamp, member.name, deflection_quantity, deflection, member.deflection_limit.value());
+            if (counts) {
+                trace_->peak_deflection[m] = std::max(trace_->peak_deflection[m], deflection);
+            }
+            if (member.deflection_limit.has_value() && deflection > member.deflection_limit.value()) {
+                crossed(stamp, counts, state.deflection, state.early_deflection, member.name, deflection_quantity,
+                        deflection, member.deflection_limit.value());
             }
         }
         if (limits_.yield_offset) {
@@ -201,10 +231,12 @@ void IntegrityParty::step(kernel::SimTime t, kernel::Duration dt) {
         }
         const kernel::Vec3& force = outputs_.joints[fastening.joint].reaction.force;
         const double magnitude = std::sqrt(force[0] * force[0] + force[1] * force[1] + force[2] * force[2]);
-        trace_->peak_fastener_load[f] = std::max(trace_->peak_fastener_load[f], magnitude);
-        if (limits_.fastener && !fastenings_[f] && magnitude > fastening.load_limit) {
-            fastenings_[f] = true;
-            cross(stamp, fastening.name, fastener_quantity, magnitude, fastening.load_limit);
+        if (counts) {
+            trace_->peak_fastener_load[f] = std::max(trace_->peak_fastener_load[f], magnitude);
+        }
+        if (limits_.fastener && magnitude > fastening.load_limit) {
+            crossed(stamp, counts, fastenings_[f].counted, fastenings_[f].early, fastening.name, fastener_quantity,
+                    magnitude, fastening.load_limit);
         }
     }
 }

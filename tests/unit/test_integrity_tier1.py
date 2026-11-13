@@ -25,7 +25,9 @@ from mechsim.integrity.checks.strength import Strength
 from mechsim.integrity.config import IntegrityConfig, parse_config
 from mechsim.integrity.inputs import run_inputs
 from mechsim.integrity.plugin import IntegrityError
+from mechsim.integrity.table import window_note
 from mechsim.integrity.tier1 import (
+    BEFORE_EVALUATION_KIND,
     FORMAT,
     MODEL_REQUESTS,
     NOT_EVALUATED,
@@ -261,6 +263,17 @@ def test_a_fastening_without_a_rating_is_a_build_error() -> None:
     rating = config({"check": "fastener", "parameters": {"ratings": {"bolts": "500 N"}}})
     table = limits_table(build_of(rated), rated, rating, views(), native_of(rated))
     assert table["fastenings"] == [{"name": "bolts", "joint": 0, "load_limit": 500.0}]
+    # The rule of the post-run check (`fastener.rating`): a mount is rated when given a rating, else left out.
+    data["fastenings"].append({"name": "base", "kind": "mount", "body_a": "link", "body_b": "link", "joint": "pivot"})
+    mounted = PhysicsModel.model_validate(data)
+    table = limits_table(build_of(mounted), mounted, rating, views(), native_of(mounted))
+    assert [entry["name"] for entry in table["fastenings"]] == ["bolts"]
+    both = config({"check": "fastener", "parameters": {"ratings": {"bolts": "500 N", "base": "2 kN"}}})
+    table = limits_table(build_of(mounted), mounted, both, views(), native_of(mounted))
+    assert table["fastenings"] == [
+        {"name": "bolts", "joint": 0, "load_limit": 500.0},
+        {"name": "base", "joint": 0, "load_limit": 2000.0},
+    ]
 
 
 @pytest.mark.req("INT-023", "INT-028")
@@ -604,6 +617,60 @@ def test_only_the_case_field_true_halts_at_the_crossing(tmp_path: Path, extra: s
         assert result.report.reason == "end_time"
         assert result.report.notes == ()
         assert result.score.notes == ()
+
+
+@pytest.mark.req("TST-044", "INT-024", "INT-025", "SCO-015")
+def test_a_crossing_before_the_evaluation_start_is_recorded_and_does_not_fail_the_case(tmp_path: Path) -> None:
+    # The mount's vanishing rating is crossed from tick 1 on. From 5 ms: the tick-1 crossing is one
+    # integrity_before_evaluation event and the first counted crossing is tick 5, which fails the case. From 30 ms
+    # (past the 20-tick run): the early event only, and the case scores as the run without tier 1 does.
+    result, driver = gantry_run(tmp_path, "native", mount_config(), "integrity:\n  evaluate_from: 5 ms")
+    early = [event for event in driver.recording().events() if event.kind == BEFORE_EVALUATION_KIND]
+    assert [round(event.time * 1000) for event in early] == [1]
+    assert [round(event.time * 1000) for event in integrity_events(driver)] == [5]
+    assert IntegrityCrossing.parse(early[0].detail).member == "rail_x_mount"
+    assert len(driver.integrity_trace.before_evaluation) == 1
+    assert result.score.status == "fail"
+    assert window_note(0.005) in result.report.approximations
+    late, quiet = gantry_run(tmp_path, "native", mount_config(), "integrity:\n  evaluate_from: 30 ms")
+    assert integrity_events(quiet) == []
+    assert len([event for event in quiet.recording().events() if event.kind == BEFORE_EVALUATION_KIND]) == 1
+    assert len(quiet.integrity_trace.crossings) == 0
+    assert list(quiet.integrity_trace.peak_fastener_load) == [0.0]
+    plain, _ = gantry_run(tmp_path, "native", None)
+    assert late.score.status == plain.score.status
+
+
+@pytest.mark.req("TST-043", "TST-044")
+def test_the_case_integrity_fields_default_and_validate() -> None:
+    settings = accepted(pendulum_case())
+    assert settings.integrity is None
+    data = pendulum_case()
+    data["integrity"] = {}
+    empty = accepted(data).integrity
+    assert empty is not None
+    assert (empty.design_load_carried, empty.evaluate_from) == (False, 0.0)
+    data["integrity"] = {"design_load_carried": True, "evaluate_from": "250 ms"}
+    given = accepted(data).integrity
+    assert given is not None
+    assert (given.design_load_carried, given.evaluate_from) == (True, 0.25)
+    for field, wrong in (
+        ("design_load_carried", "yes"),
+        ("design_load_carried", 1),
+        ("evaluate_from", "-1 s"),
+        ("evaluate_from", "2 m"),
+        ("evaluate_from", 0.5),
+    ):
+        data = pendulum_case()
+        data["integrity"] = {field: wrong}
+        rejected(data, field)
+    schema = json.loads((ROOT / "schemas" / "test_case.json").read_text(encoding="utf-8"))
+    data = pendulum_case()
+    data["integrity"] = {"design_load_carried": True, "evaluate_from": "2 s"}
+    jsonschema.validate(data, schema)
+    properties = Case.model_json_schema()["$defs"]["IntegritySettings"]["properties"]
+    assert properties["design_load_carried"]["default"] is False
+    assert properties["evaluate_from"]["default"] == 0.0
 
 
 @pytest.mark.req("INT-026", "REC-010", "FAC-005")

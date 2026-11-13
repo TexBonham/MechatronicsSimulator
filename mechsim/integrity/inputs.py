@@ -168,6 +168,10 @@ def node_chains(model: Any, names: tuple[str, ...] = ()) -> dict[str, NodeChain]
             position=(x, y, z),
             orientation=(w, i, j, k),
             segment_length=float(lumped.section.length) / int(lumped.segments),
+            stiffness=float(lumped.section.elastic_modulus)
+            * float(lumped.section.second_moment_of_area)
+            * int(lumped.segments)
+            / float(lumped.section.length),
         )
         first += count
     return out
@@ -231,9 +235,12 @@ def body_names(series: Mapping[str, Any]) -> tuple[str, ...]:
     return tuple(str(name) for name in getattr(series[BODY_POSITION], "names", ()))
 
 
-def run_inputs(build: Any, recording: RecordView, materials: Mapping[str, MaterialView]) -> RunInputs:
+def run_inputs(
+    build: Any, recording: RecordView, materials: Mapping[str, MaterialView], design_load_carried: bool = False
+) -> RunInputs:
     """`build` is the builder's `BuildResult`; `recording` the run's `RecordView` (a `RecordingView` carries the raw
-    recording the end-loads come from)."""
+    recording the end-loads come from). The load factor is the design's rule 1 + allowance (INT-019), or 1 when the
+    case states that the run carries the design load (`design_load_carried`, TST-043, ruling 52)."""
     times = np.asarray(recording.times(), dtype=np.float64)
     rows = times.shape[0]
     raw = getattr(recording, "recording", None)
@@ -281,9 +288,11 @@ def run_inputs(build: Any, recording: RecordView, materials: Mapping[str, Materi
     design_tension: float | None = None
     structural = design.structural
     if structural is not None:
-        load_factor = 1.0 + float(structural.design_load.allowance)
+        rule = 1.0 + float(structural.design_load.allowance)
+        if not design_load_carried:
+            load_factor = rule
         gravity = float(np.linalg.norm(np.asarray(design.environment.gravity, dtype=np.float64)))
-        design_tension = float(structural.design_load.rated_load) * load_factor * gravity
+        design_tension = float(structural.design_load.rated_load) * rule * gravity
         if structural.minimum_safety_factor is not None:
             minimum = float(structural.minimum_safety_factor)
         limit = float(structural.accuracy_target)

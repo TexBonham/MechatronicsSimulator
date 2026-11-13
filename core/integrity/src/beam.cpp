@@ -14,83 +14,9 @@
 
 namespace mechsim::integrity {
 
-namespace {
-
-constexpr double present_tolerance = 1e-9;
-
-// One bending plane in I1's form (beam.py `_plane`): E I v'' = M(x) = moment0 + shear0 x + load max(x - a, 0), the
-// interior load -(F_start + F_end) resolved to its statically equivalent point a = balance / load, clipped to [0, L];
-// absent (zero load at a = L) when it is below 1e-9 of the larger end shear.
-struct Plane {
-    double moment0 = 0.0;
-    double shear0 = 0.0;
-    double load = 0.0;
-    double where = 0.0;
-    bool present = false;
-
-    [[nodiscard]] double moment(double x) const {
-        return moment0 + shear0 * x + load * std::max(x - where, 0.0);
-    }
-    [[nodiscard]] double value(double x) const {
-        const double beyond = std::max(x - where, 0.0);
-        return moment0 * x * x / 2.0 + shear0 * x * x * x / 6.0 + load * beyond * beyond * beyond / 6.0;
-    }
-    [[nodiscard]] double slope(double x) const {
-        const double beyond = std::max(x - where, 0.0);
-        return moment0 * x + shear0 * x * x / 2.0 + load * beyond * beyond / 2.0;
-    }
-};
-
-Plane plane(double moment0, double shear0, double shear1, double balance, double length) {
-    Plane p;
-    p.moment0 = moment0;
-    p.shear0 = shear0;
-    const double load = -(shear0 + shear1);
-    const double scale = std::max(std::abs(shear0), std::abs(shear1));
-    p.present = std::abs(load) > present_tolerance * scale;
-    p.where = length;
-    if (p.present) {
-        p.load = load;
-        p.where = std::clamp(balance / load, 0.0, length);
-    }
-    return p;
-}
-
-// The bending plane about z (deflection v along y, I_z, fibre c_y) and about y (w along z, I_y, fibre c_z).
-Plane plane_y(const kernel::MemberEndLoads& loads, double length) {
-    const kernel::Wrench& s = loads.start;
-    const kernel::Wrench& e = loads.end;
-    return plane(-s.moment[2], s.force[1], e.force[1], -(s.moment[2] + e.moment[2] + length * e.force[1]), length);
-}
-
-Plane plane_z(const kernel::MemberEndLoads& loads, double length) {
-    const kernel::Wrench& s = loads.start;
-    const kernel::Wrench& e = loads.end;
-    return plane(s.moment[1], s.force[2], e.force[2], s.moment[1] + e.moment[1] - length * e.force[2], length);
-}
-
-}  // namespace
-
 double end_stress(const kernel::Wrench& wrench, const MemberLimits& member) {
     return std::abs(wrench.force[0]) / member.area + std::abs(wrench.moment[1]) * member.c_z / member.i_y +
            std::abs(wrench.moment[2]) * member.c_y / member.i_z;
-}
-
-double peak_normal_stress(const kernel::MemberEndLoads& loads, const MemberLimits& member) {
-    double peak = std::max(end_stress(loads.start, member), end_stress(loads.end, member));
-    const Plane y = plane_y(loads, member.length);
-    const Plane z = plane_z(loads, member.length);
-    const double axial = std::max(std::abs(loads.start.force[0]), std::abs(loads.end.force[0])) / member.area;
-    for (const Plane* resolved : {&y, &z}) {
-        if (!resolved->present) {
-            continue;
-        }
-        const double x = resolved->where;
-        const double stress = axial + std::abs(z.moment(x)) * member.c_z / member.i_y +
-                              std::abs(y.moment(x)) * member.c_y / member.i_z;
-        peak = std::max(peak, stress);
-    }
-    return peak;
 }
 
 double compression(const kernel::MemberEndLoads& loads) {
@@ -139,6 +65,18 @@ double distance_from_line(const kernel::Vec3& point, const kernel::Vec3& origin,
     return std::sqrt(dot(off, off));
 }
 
+// Rotation of `current` relative to `previous` about their common z (the chain's bending axis): the relative
+// quaternion conj(previous) current in its w >= 0 half, 2 atan2(r_z, r_w).
+double bending_angle(const kernel::Quat& previous, const kernel::Quat& current) {
+    const kernel::Quat inverse{previous[0], -previous[1], -previous[2], -previous[3]};
+    const kernel::Quat relative = multiply(inverse, current);
+    double sign = 1.0;
+    if (relative[0] < 0.0) {
+        sign = -1.0;
+    }
+    return 2.0 * std::atan2(sign * relative[3], sign * relative[0]);
+}
+
 }  // namespace
 
 double node_deflection(std::span<const kernel::BodyState> bodies, const MemberLimits& member) {
@@ -180,6 +118,58 @@ double node_deflection(std::span<const kernel::BodyState> bodies, const MemberLi
     double peak = distance_from_line(tip, origin, direction);
     for (std::size_t k = 0; k < chain.count; ++k) {
         peak = std::max(peak, distance_from_line(bodies[chain.first_body + k].position, origin, direction));
+    }
+    return peak;
+}
+
+std::vector<double> node_moments(std::span<const kernel::BodyState> bodies, const MemberLimits& member) {
+    if (!member.nodes.has_value()) {
+        throw LimitsError("member '" + member.name + "': no node poses (built rigid); no node moments");
+    }
+    const NodeChain& chain = member.nodes.value();
+    if (chain.count == 0 || chain.first_body + chain.count > bodies.size()) {
+        throw LimitsError("member '" + member.name + "': nodes " + std::to_string(chain.first_body) + " + " +
+                          std::to_string(chain.count) + " outside the " + std::to_string(bodies.size()) +
+                          " published bodies");
+    }
+    kernel::Quat previous = bodies[chain.first_body].orientation;
+    std::size_t first = 1;
+    if (chain.root != SupportCondition::pinned) {
+        kernel::Quat parent{1.0, 0.0, 0.0, 0.0};
+        if (chain.parent_body.has_value()) {
+            if (chain.parent_body.value() >= bodies.size()) {
+                throw LimitsError("member '" + member.name + "': parent body " +
+                                  std::to_string(chain.parent_body.value()) + " outside the published bodies");
+            }
+            parent = bodies[chain.parent_body.value()].orientation;
+        }
+        previous = multiply(parent, chain.orientation);
+        first = 0;
+    }
+    std::vector<double> moments;
+    moments.reserve(chain.count - first);
+    for (std::size_t k = first; k < chain.count; ++k) {
+        const kernel::Quat& current = bodies[chain.first_body + k].orientation;
+        moments.push_back(member.node_stiffness * bending_angle(previous, current));
+        previous = current;
+    }
+    return moments;
+}
+
+double peak_normal_stress(const kernel::MemberEndLoads& loads, std::span<const kernel::BodyState> bodies,
+                          const MemberLimits& member) {
+    double peak = std::max(end_stress(loads.start, member), end_stress(loads.end, member));
+    if (!member.nodes.has_value()) {
+        return peak;
+    }
+    const std::vector<double> moments = node_moments(bodies, member);
+    const double axial = std::max(std::abs(loads.start.force[0]), std::abs(loads.end.force[0])) / member.area;
+    for (std::size_t j = 0; j < moments.size(); ++j) {
+        const double share = (static_cast<double>(j) + 0.5) * member.segment_length / member.length;
+        const double moment_y = loads.start.moment[1] * (1.0 - share) - loads.end.moment[1] * share;
+        const double stress =
+            axial + std::abs(moment_y) * member.c_z / member.i_y + std::abs(moments[j]) * member.c_y / member.i_z;
+        peak = std::max(peak, stress);
     }
     return peak;
 }

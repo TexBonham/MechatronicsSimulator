@@ -182,6 +182,77 @@ def node_deflection(member: MemberInputs, bodies: BodyPoses) -> FloatArray:
     return result
 
 
+def _conjugate(q: FloatArray) -> FloatArray:
+    result: FloatArray = q * np.asarray([1.0, -1.0, -1.0, -1.0], dtype=np.float64)
+    return result
+
+
+def _bending_angle(previous: FloatArray, current: FloatArray) -> FloatArray:
+    """Rotation (rows,) of `current` relative to `previous` about their common z (the chain's bending axis): the
+    relative quaternion r = conj(previous) current taken in its w >= 0 half, 2 atan2(r_z, r_w)."""
+    relative = _multiply(_conjugate(previous), current)
+    sign = np.where(relative[:, 0] < 0.0, -1.0, 1.0)
+    result: FloatArray = 2.0 * np.arctan2(sign * relative[:, 3], sign * relative[:, 0])
+    return result
+
+
+def node_moments(member: MemberInputs, bodies: BodyPoses) -> tuple[FloatArray, FloatArray]:
+    """Bending moment about member z at every node spring from the recorded node poses (INT-005, INT-023): k times the
+    rotation of each node body relative to the one before it (the root frame, the parent's pose times the member
+    placement, before a clamped root's node 0; a pinned root's node 0 is the spring-free pin segment), k = E I / l the
+    chain's node stiffness. Returns the moments (rows, N) in the spring's sense and the springs' positions along the
+    member (N,), x_j = (j + 1/2) l."""
+    chain = member.nodes
+    if chain is None:
+        raise IntegrityError(f"member {member.name!r}: built rigid, no node poses; no node moments")
+    total = bodies.orientations.shape[1]
+    if chain.first_body + chain.count > total:
+        raise IntegrityError(
+            f"member {member.name!r}: nodes {chain.first_body} + {chain.count} outside the {total} recorded bodies"
+        )
+    rows = bodies.orientations.shape[0]
+    nodes = bodies.orientations[:, chain.first_body : chain.first_body + chain.count, :]
+    columns: list[FloatArray] = []
+    if chain.root == "pinned":
+        previous = nodes[:, 0, :]
+        first = 1
+    else:
+        parent = np.tile(np.asarray([1.0, 0.0, 0.0, 0.0], dtype=np.float64), (rows, 1))
+        if chain.parent_body is not None:
+            parent = bodies.orientations[:, chain.parent_body, :]
+        turn = np.tile(np.asarray(chain.orientation, dtype=np.float64), (rows, 1))
+        previous = _multiply(parent, turn)
+        first = 0
+    for k in range(first, chain.count):
+        columns.append(chain.stiffness * _bending_angle(previous, nodes[:, k, :]))
+        previous = nodes[:, k, :]
+    springs = len(columns)
+    where = (np.arange(springs, dtype=np.float64) + 0.5) * chain.segment_length
+    if springs == 0:
+        return np.zeros((rows, 0), dtype=np.float64), where
+    return np.stack(columns, axis=1), where
+
+
+def member_normal_stress(
+    loads: Wrenches, section: SectionProperties, member: MemberInputs, bodies: BodyPoses | None, factor: float = 1.0
+) -> FloatArray:
+    """Normal stress (rows, 2 + N) along the member (INT-005): the two ends by `normal_stress`, then each node spring
+    with abs(N) the larger end value, abs(M_z) its spring moment (`node_moments`) over I_z / c_y, and abs(M_y) the
+    out-of-plane moment interpolated linearly between the end moments (the chain is rigid out of its bending plane,
+    ruling 65) over I_y / c_z. A member without node poses has its two ends only. Node moments scale with `factor`
+    (linear elasticity) as the given loads already do."""
+    ends = normal_stress(loads, section)
+    if member.nodes is None or bodies is None:
+        return ends
+    moments, where = node_moments(member, bodies)
+    axial = np.maximum(np.abs(loads.start_force[:, 0]), np.abs(loads.end_force[:, 0])) / section.area
+    share = where / section.length
+    moment_y = np.outer(loads.start_moment[:, 1], 1.0 - share) - np.outer(loads.end_moment[:, 1], share)
+    interior = axial[:, None] + np.abs(moment_y) * section.c_z / section.i_y
+    interior = interior + np.abs(moments * factor) * section.c_y / section.i_z
+    return np.concatenate((ends, interior), axis=1)
+
+
 def peak(values: FloatArray, times: FloatArray) -> tuple[float, float]:
     """Largest value of a (rows,) or (rows, k) array and the time of its row (the first on a tie); (0, t0) when
     empty."""

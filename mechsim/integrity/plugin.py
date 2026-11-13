@@ -15,7 +15,7 @@ from __future__ import annotations
 import math
 from abc import ABC, abstractmethod
 from collections.abc import Callable, Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Annotated, Any, ClassVar, Literal, Protocol
 
 import numpy as np
@@ -147,7 +147,8 @@ class NodeChain:
     """Where a lumped member's chain sits among the recorded body poses (`physics/bodies/*`, the native adapter's
     `PhysicsOutputs.bodies`: the neutral bodies, then each lumped member's node bodies root to tip, a pinned root's
     pin segment as node 0), and its root frame: the parent body's index (None: the world) with the member's placement
-    in it. `segment_length` l = L / N: the last node's far end lies l / 2 along its x (INT-006, ruling 28)."""
+    in it. `segment_length` l = L / N: the last node's far end lies l / 2 along its x (INT-006, ruling 28);
+    `stiffness` the node springs' k = E I / l of the simulated section (the node moments, INT-005)."""
 
     first_body: int
     count: int
@@ -156,6 +157,7 @@ class NodeChain:
     position: tuple[float, float, float]
     orientation: tuple[float, float, float, float]
     segment_length: float
+    stiffness: float = 0.0
 
     def to_limits(self) -> dict[str, Any]:
         return {
@@ -242,6 +244,52 @@ class RunInputs:
     ropes: tuple[RopeLoads, ...] = ()
     design_tension: float | None = None
     bodies: BodyPoses | None = None
+
+    def windowed(self, start: float) -> RunInputs:
+        """These inputs from the first sample at or after `start` (s) on (TST-044): every per-sample array and the
+        series reader cut there, so every check's peaks and safety factors count from it. 0 or before the first
+        sample: unchanged; past the last sample: an `IntegrityError`."""
+        if self.times.size == 0 or start <= float(self.times[0]):
+            return self
+        first = int(np.searchsorted(self.times, start, side="left"))
+        if first >= self.times.size:
+            raise IntegrityError(
+                f"integrity evaluation from {start!r} s: the run's last sample is at {float(self.times[-1])!r} s"
+            )
+
+        def cut(array: FloatArray) -> FloatArray:
+            result: FloatArray = array[first:]
+            return result
+
+        members = []
+        for member in self.members:
+            loads = member.loads
+            if loads is not None:
+                loads = Wrenches(
+                    cut(loads.start_force), cut(loads.start_moment), cut(loads.end_force), cut(loads.end_moment)
+                )
+            members.append(replace(member, loads=loads))
+        joints = tuple(replace(joint, force=cut(joint.force), moment=cut(joint.moment)) for joint in self.joints)
+        ropes = tuple(replace(rope, tension=cut(rope.tension)) for rope in self.ropes)
+        bodies = self.bodies
+        if bodies is not None:
+            bodies = BodyPoses(cut(bodies.positions), cut(bodies.orientations))
+        reader = self.series
+
+        def series(reference: str) -> tuple[FloatArray, FloatArray]:
+            times, values = reader(reference)
+            keep = np.asarray(times, dtype=np.float64) >= start
+            return np.asarray(times)[keep], np.asarray(values)[keep]
+
+        return replace(
+            self,
+            times=cut(self.times),
+            members=tuple(members),
+            joints=joints,
+            ropes=ropes,
+            bodies=bodies,
+            series=series,
+        )
 
     def material(self, name: str) -> MaterialView:
         if name not in self.materials:

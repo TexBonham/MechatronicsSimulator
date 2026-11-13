@@ -123,11 +123,13 @@ struct Run {
     std::shared_ptr<integrity::IntegrityTrace> trace;
 };
 
-Run run(integrity::Limits limits, std::function<kernel::PhysicsOutputs(double)> load, int ticks, bool halt = false) {
+Run run(integrity::Limits limits, std::function<kernel::PhysicsOutputs(double)> load, int ticks, bool halt = false,
+        kernel::SimTime evaluate_from = kernel::SimTime{0}) {
     kernel::CoSimKernel k{kernel::RunConfig{}};
     k.register_party(std::make_unique<LoadSource>(std::move(load)));
     integrity::IntegrityPartyConfig config;
     config.halt_on_crossing = halt;
+    config.evaluate_from = evaluate_from;
     Run out;
     out.trace = std::make_shared<integrity::IntegrityTrace>();
     k.register_party(std::make_unique<integrity::IntegrityParty>(std::move(limits), config, out.trace));
@@ -248,29 +250,94 @@ TEST_CASE("a cantilever's tip deflection from its node poses crosses its limit a
     CHECK_THAT(r.crossings[0].value, WithinRel(0.01 * 0.005 / t_star, 1e-9));
 }
 
-TEST_CASE("tier 1 quantities follow beam.py on mixed end loads", "[INT-023]") {
+namespace {
+
+kernel::Quat about_z(double angle) {
+    return {std::cos(0.5 * angle), 0.0, 0.0, std::sin(0.5 * angle)};
+}
+
+}  // namespace
+
+TEST_CASE("tier 1 stress takes the ends and every node spring's moment", "[INT-023][INT-005]") {
     const integrity::MemberLimits m = cantilever();
     kernel::MemberEndLoads loads;
-    loads.start = kernel::Wrench{{0.3, 1.5, -2.0}, {40.0, 3.0, 1.0}};
-    loads.end = kernel::Wrench{{0.0, -0.7, 4.0}, {-40.0, 2.0, 0.0}};
-    // Ends: |N| / A + |M_y| c_z / I_y + |M_z| c_y / I_z (ruling 25).
+    loads.start = kernel::Wrench{{0.3, 1.5, 2.0}, {40.0, 3.0, 1.0}};
+    loads.end = kernel::Wrench{{0.0, 2.0, 0.0}, {-40.0, 2.0, 0.0}};
+    // Ends: |N| / A + |M_y| c_z / I_y + |M_z| c_y / I_z (ruling 25): 3.9e6 and 2.4e6 Pa.
     const double start = 40.0 / 1e-4 + 1.5 * 0.02 / 2e-8 + 2.0 * 0.01 / 1e-8;
-    const double end = 40.0 / 1e-4 + 0.7 * 0.02 / 2e-8 + 4.0 * 0.01 / 1e-8;
+    const double end = 40.0 / 1e-4 + 2.0 * 0.02 / 2e-8;
     CHECK_THAT(integrity::end_stress(loads.start, m), WithinRel(start, 1e-15));
     CHECK_THAT(integrity::end_stress(loads.end, m), WithinRel(end, 1e-15));
-    // Interior load per plane (beam.py `_plane`): about z, moment0 = -M_z0 = 2, shear F_y0 = 3, Q = -(3 + 2) = -5 at
-    // a = -(M_z0 + M_z1 + L F_y1) / Q = -4 / -5 = 0.8; about y, moment0 = M_y0 = 1.5, shear F_z0 = 1, Q = -1 at
-    // a = (M_y0 + M_y1 - L F_z1) / Q = 0.8 / -1, clipped to 0 (the start). At x = 0.8: M_z = 2 + 3 (0.8) = 4.4,
-    // M_y = 1.5 + 0.8 - 0.8 = 1.5, abs(N) the larger end value 40: 6.3e6 Pa against the ends' 3.9e6 and 5.1e6.
-    const double interior = 40.0 / 1e-4 + 1.5 * 0.02 / 2e-8 + 4.4 * 0.01 / 1e-8;
-    CHECK_THAT(integrity::peak_normal_stress(loads, m), WithinRel(interior, 1e-12));
+    // Straight nodes: every spring moment is zero and the ends govern; the out-of-plane moment interpolated between
+    // the ends (1.5 (1 - s) - 2 s) stays below the larger end's.
+    std::vector<kernel::BodyState> bodies(8);
+    CHECK(integrity::node_moments(bodies, m) == std::vector<double>(8, 0.0));
+    CHECK_THAT(integrity::peak_normal_stress(loads, bodies, m), WithinRel(start, 1e-15));
+    // Nodes 3 to 7 turned by delta about z: spring 3 (between nodes 2 and 3, x = 3.5 l = 0.4375 m) carries
+    // M = k delta = (E I / l) delta = 16000 * 5e-4 = 8 N m, the others none. There M_y = 1.5 (0.5625) - 2 (0.4375) =
+    // -0.03125 N m: 4e5 + 0.03125 (0.02) / 2e-8 + 8 (0.01) / 1e-8 = 8.43125e6 Pa, above both ends.
+    const double delta = 5e-4;
+    for (std::size_t j = 3; j < bodies.size(); ++j) {
+        bodies[j].orientation = about_z(delta);
+    }
+    const std::vector<double> moments = integrity::node_moments(bodies, m);
+    REQUIRE(moments.size() == 8);
+    CHECK_THAT(moments[3], WithinRel(8.0, 1e-12));
+    CHECK(moments[2] == 0.0);
+    CHECK(moments[4] == 0.0);
+    CHECK_THAT(integrity::peak_normal_stress(loads, bodies, m), WithinRel(4e5 + 31250.0 + 8e6, 1e-12));
+    // A quaternion and its negative are one rotation: the moment does not change sign or size.
+    bodies[3].orientation = {-bodies[3].orientation[0], 0.0, 0.0, -bodies[3].orientation[3]};
+    CHECK_THAT(integrity::node_moments(bodies, m)[3], WithinRel(8.0, 1e-12));
+    // A member without node poses: its ends only.
+    integrity::MemberLimits rigid = m;
+    rigid.nodes.reset();
+    CHECK_THAT(integrity::peak_normal_stress(loads, bodies, rigid), WithinRel(start, 1e-15));
+    CHECK_THROWS_AS(integrity::node_moments(bodies, rigid), integrity::LimitsError);
     CHECK(integrity::compression(loads) == 40.0);
     loads.start.force[0] = -1.0;
     loads.end.force[0] = 2.0;
     CHECK(integrity::compression(loads) == 0.0);
     // Node moments by statics over the half segment l / 2 (ruling 35).
-    CHECK_THAT(integrity::start_node_moment(loads.start, 0.125), WithinRel(2.0 + 0.0625 * 3.0, 1e-15));
-    CHECK_THAT(integrity::end_node_moment(loads.end, 0.125), WithinRel(4.0 + 0.0625 * 2.0, 1e-15));
+    CHECK_THAT(integrity::start_node_moment(loads.start, 0.125), WithinRel(-2.0 + 0.0625 * 3.0, 1e-15));
+    CHECK_THAT(integrity::end_node_moment(loads.end, 0.125), WithinRel(0.0625 * 2.0, 1e-15));
+}
+
+TEST_CASE("node spring moments start from the root frame or the pin segment", "[INT-023][INT-005]") {
+    integrity::MemberLimits m = cantilever(2.0);
+    m.segments = 2;
+    m.segment_length = 1.0;
+    m.node_stiffness = 100.0;
+    integrity::NodeChain chain;
+    chain.first_body = 1;
+    chain.count = 2;
+    chain.parent_body = 0;
+    chain.orientation = about_z(0.5);
+    m.nodes = chain;
+    // Parent turned 0.25 rad, placement 0.5 rad: the root frame is at 0.75 rad. Node 0 at 0.75 + 0.01, node 1 at
+    // 0.75 + 0.01 - 0.03: spring 0 carries k (0.01) = 1 N m, spring 1 k (-0.03) = -3 N m.
+    std::vector<kernel::BodyState> bodies(3);
+    bodies[0].orientation = about_z(0.25);
+    bodies[1].orientation = about_z(0.76);
+    bodies[2].orientation = about_z(0.73);
+    std::vector<double> moments = integrity::node_moments(bodies, m);
+    REQUIRE(moments.size() == 2);
+    CHECK_THAT(moments[0], WithinRel(1.0, 1e-9));
+    CHECK_THAT(moments[1], WithinRel(-3.0, 1e-9));
+    // No parent body: the world holds the placement (0.5 rad), so spring 0 reads 0.76 - 0.5.
+    m.nodes->parent_body.reset();
+    CHECK_THAT(integrity::node_moments(bodies, m)[0], WithinRel(26.0, 1e-9));
+    // A pinned root: node 0 is the spring-free pin segment, so its N + 1 nodes give N springs from node 1.
+    m.nodes->root = integrity::SupportCondition::pinned;
+    moments = integrity::node_moments(bodies, m);
+    REQUIRE(moments.size() == 1);
+    CHECK_THAT(moments[0], WithinRel(-3.0, 1e-9));
+    m.nodes->count = 3;
+    CHECK_THROWS_AS(integrity::node_moments(bodies, m), integrity::LimitsError);
+    m.nodes->count = 2;
+    m.nodes->root = integrity::SupportCondition::clamped;
+    m.nodes->parent_body = 5;
+    CHECK_THROWS_AS(integrity::node_moments(bodies, m), integrity::LimitsError);
 }
 
 TEST_CASE("node-pose deflection measures from the root tangent or the pinned chord", "[INT-023][INT-006]") {
@@ -354,6 +421,53 @@ TEST_CASE("each element and quantity raises one event at its own first crossing"
     CHECK(seen == std::vector<std::string>{"arm deflection 7", "second deflection 7", "second stress 51"});
     CHECK(integrity::crossing_detail(r.crossings[0]).starts_with(
         R"({"limit": 0.00105, "member": "arm", "quantity": "deflection", "tier": 1, "value": )"));
+}
+
+TEST_CASE("a crossing before the evaluation start is recorded and does not count", "[TST-044][INT-024][INT-026]") {
+    // The ramp of the first oracle crosses at tick 11 (t* = 10.5 ms). With the start at tick 20 that crossing is one
+    // before_evaluation event, and the first counted crossing is the first row at or after the start still past the
+    // limit: tick 20, which halts the run there. The peak counts rows from tick 20 on.
+    integrity::Limits limits;
+    limits.stress = true;
+    limits.members.push_back(cantilever());
+    const integrity::MemberLimits& m = limits.members[0];
+    const double rate = m.allowable_stress * m.i_z / (0.0105 * m.length * m.c_y);
+    const auto ramp = [rate](double t) { return tip_loaded(rate * t, 1.0); };
+    const Run r = run(limits, ramp, 30, true, kernel::SimTime{20});
+    REQUIRE(r.trace->before_evaluation.size() == 1);
+    CHECK(r.trace->before_evaluation[0].time.count() == 11);
+    REQUIRE(r.crossings.size() == 1);
+    CHECK(r.crossings[0].time.count() == 20);
+    CHECK(r.report.end_reason == kernel::EndReason::party_state);
+    std::vector<std::pair<std::int64_t, std::string>> events;
+    for (const kernel::TickRecord& row : r.rows) {
+        for (const kernel::RecordedEvent& event : row.events) {
+            CHECK(event.source == "integrity");
+            events.emplace_back(row.time.count(), event.kind);
+        }
+    }
+    CHECK(events == std::vector<std::pair<std::int64_t, std::string>>{{11, "integrity_before_evaluation"},
+                                                                       {20, "integrity"}});
+    CHECK_THAT(r.trace->peak_stress[0], WithinRel(rate * 0.020 * m.length * m.c_y / m.i_z, 1e-12));
+    // A load that crosses and falls back before the start: one early event, no counted crossing, no halt, and the
+    // peak only of the rows from the start (zero load there).
+    const auto pulse = [rate](double t) {
+        double p = rate * t;
+        if (t > 0.015) {
+            p = 0.0;
+        }
+        return tip_loaded(p, 1.0);
+    };
+    const Run quiet = run(limits, pulse, 30, true, kernel::SimTime{20});
+    CHECK(quiet.trace->before_evaluation.size() == 1);
+    CHECK(quiet.crossings.empty());
+    CHECK(quiet.report.end_reason == kernel::EndReason::max_duration);
+    CHECK(quiet.trace->peak_stress[0] == 0.0);
+    // The start at 0 (the default): every row counts, as the first oracle.
+    const Run all = run(limits, ramp, 30, false, kernel::SimTime{0});
+    CHECK(all.trace->before_evaluation.empty());
+    REQUIRE(all.crossings.size() == 1);
+    CHECK(all.crossings[0].time.count() == 11);
 }
 
 TEST_CASE("halting ends the run at the crossing tick through party_state", "[INT-026]") {

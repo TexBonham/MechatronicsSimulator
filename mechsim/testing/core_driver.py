@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import replace
 from fractions import Fraction
@@ -31,7 +32,16 @@ from mechsim.design.schema import Design, DesignError, blob_hash, design_materia
 from mechsim.integrity.config import IntegrityConfig
 from mechsim.integrity.plugin import IntegrityError
 from mechsim.integrity.service import IntegrityService
-from mechsim.integrity.tier1 import MODEL_REQUESTS, NOT_EVALUATED, PARTY, Tier1Service, Tier1Setup, tier1_enabled
+from mechsim.integrity.table import window_note
+from mechsim.integrity.tier1 import (
+    BEFORE_EVALUATION_KIND,
+    MODEL_REQUESTS,
+    NOT_EVALUATED,
+    PARTY,
+    Tier1Service,
+    Tier1Setup,
+    tier1_enabled,
+)
 from mechsim.library.registry import default_registry
 from mechsim.materials.schema import MaterialError
 from mechsim.physics.mujoco.prepare import StartStateError, prepare_model
@@ -518,6 +528,10 @@ class CoreDriver:
             settings.name = PARTY
             settings.rate = rate
             settings.halt_on_crossing = halt
+            start = self._evaluate_from()
+            if start > 0.0:
+                settings.evaluate_from = core.SimTime(math.ceil(Fraction(repr(start)) * config.base_rate))
+                self.approximations = (*self.approximations, window_note(start))
             self.integrity_trace = core.IntegrityTrace()
             kernel.register_party(core.IntegrityParty(tier1.limits, settings, self.integrity_trace))
             if halt:
@@ -629,6 +643,13 @@ class CoreDriver:
         if case is not None and case.integrity is not None:
             return case.integrity.halt_on_crossing
         return False
+
+    def _evaluate_from(self) -> float:
+        """The case's `integrity.evaluate_from` (s), 0 when the case has no integrity section (TST-044)."""
+        case = self._case
+        if case is not None and case.integrity is not None:
+            return case.integrity.start_seconds()
+        return 0.0
 
     def _halt_line(self, ticks: int, base_rate: Fraction) -> str:
         """The report line of a halted run (INT-026, ruling 51): what crossed, by how much, and when."""
@@ -772,13 +793,14 @@ class CoreDriver:
 
 
 def _canonical_crossings(record: TickRecord) -> TickRecord:
-    """Tier 1 crossing events with the detail text of `IntegrityCrossing.detail()` (the party writes the same JSON
-    with C++ number formatting)."""
-    if not any(event.kind == INTEGRITY_KIND for event in record.events):
+    """Tier 1 crossing events, counted or before the evaluation start (TST-044), with the detail text of
+    `IntegrityCrossing.detail()` (the party writes the same JSON with C++ number formatting)."""
+    kinds = (INTEGRITY_KIND, BEFORE_EVALUATION_KIND)
+    if not any(event.kind in kinds for event in record.events):
         return record
     events = []
     for event in record.events:
-        if event.kind == INTEGRITY_KIND:
+        if event.kind in kinds:
             event = replace(event, detail=IntegrityCrossing.parse(event.detail).detail())
         events.append(event)
     return replace(record, events=tuple(events))

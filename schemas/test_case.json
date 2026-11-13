@@ -418,8 +418,29 @@
     },
     "IntegritySettings": {
       "additionalProperties": false,
-      "description": "The case's integrity section (INT-026, ADR 0010 amendment, round 5 ruling 4): `halt_on_crossing` true ends\nthe run at the first tier 1 limit crossing, false lets it run to its end; the case fails on a crossing either\nway (INT-025). Absent or empty: false; nothing else sets it (round 5 rulings 4, 50).",
+      "description": "The case's integrity section (INT-026, ADR 0010 amendment, round 5 ruling 4): `halt_on_crossing` true ends\nthe run at the first tier 1 limit crossing, false lets it run to its end; the case fails on a crossing either\nway (INT-025). Absent or empty: false; nothing else sets it (round 5 rulings 4, 50). `design_load_carried`\n(TST-043) and `evaluate_from` (TST-044) shape the integrity results, never the run.",
       "properties": {
+        "design_load_carried": {
+          "default": false,
+          "description": "The run's loads already carry the design load (TST-043, INT-019, ruling 52): the post-run table applies factor 1 and says so; false: the design's design-load rule scales the recorded loads.",
+          "title": "Design Load Carried",
+          "type": "boolean"
+        },
+        "evaluate_from": {
+          "anyOf": [
+            {
+              "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s+\\S.*)?$",
+              "type": "string"
+            },
+            {
+              "pattern": "^\\$\\{[a-z][a-z0-9_]*\\}$",
+              "type": "string"
+            }
+          ],
+          "default": 0.0,
+          "description": "Time from which integrity results count (TST-044): peaks, safety factors and tier 1 crossings; a crossing before it is recorded as an `integrity_before_evaluation` event and does not fail the case.",
+          "title": "Evaluate From"
+        },
         "halt_on_crossing": {
           "default": false,
           "description": "End the run at the first tier 1 crossing (INT-026).",

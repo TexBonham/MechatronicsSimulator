@@ -19,6 +19,8 @@ namespace mechsim::integrity {
 
 inline constexpr std::string_view event_source = "integrity";
 inline constexpr std::string_view event_kind = "integrity";
+// A crossing before the evaluation start (TST-044): recorded, never counted, so it does not fail the case.
+inline constexpr std::string_view before_evaluation_kind = "integrity_before_evaluation";
 
 // Quantity names in a crossing's detail (INT-024).
 inline constexpr std::string_view stress_quantity = "stress";
@@ -36,11 +38,12 @@ struct Crossing {
 
 // What the party saw, kept outside it so a caller that handed the party to the kernel can still read it.
 struct IntegrityTrace {
-    std::vector<double> peak_stress;      // per member, Pa
+    std::vector<double> peak_stress;      // per member, Pa; NaN when stress is off (not evaluated)
     std::vector<double> peak_deflection;  // per member, m; NaN for a member without nodes (not evaluated)
     std::vector<double> min_buckling_margin;  // per member, infinite when never in compression
     std::vector<double> peak_fastener_load;   // per fastening, N
-    std::vector<Crossing> crossings;
+    std::vector<Crossing> crossings;          // counted crossings (at or after the evaluation start)
+    std::vector<Crossing> before_evaluation;  // crossings before the evaluation start, recorded and not counted
     std::vector<kernel::ModelChangeRequest> requests;  // every model change requested, in order
 };
 
@@ -49,6 +52,9 @@ struct IntegrityPartyConfig {
     kernel::Rate rate{1000};
     std::string physics_outputs = "physics.outputs";
     bool halt_on_crossing = false;  // INT-026: finished() after the first crossing
+    // TST-044: rows stamped before it update no peak and their crossings are recorded as before_evaluation_kind
+    // events (one per element and quantity, no re-arm) that neither count nor halt.
+    kernel::SimTime evaluate_from{0};
 };
 
 // The tier 1 integrity party (INT-023 to INT-028, ADR 0010, round 5 rulings 24 to 26, 34, 35). Every step it reads
@@ -80,11 +86,21 @@ private:
         bool stress = false;
         bool buckling = false;
         bool deflection = false;
+        bool early_stress = false;
+        bool early_buckling = false;
+        bool early_deflection = false;
         double start_peak = 0.0;
         double end_peak = 0.0;
     };
 
+    struct FasteningState {
+        bool counted = false;
+        bool early = false;
+    };
+
     void cross(kernel::SimTime t, const std::string& element, std::string_view quantity, double value, double limit);
+    void crossed(kernel::SimTime t, bool counts, bool& counted, bool& early, const std::string& element,
+                 std::string_view quantity, double value, double limit);
     void yield(const MemberLimits& member, const kernel::MemberEndLoads& loads, MemberState& state);
 
     Limits limits_;
@@ -93,7 +109,7 @@ private:
     std::vector<std::string> published_;
     std::vector<std::string> consumed_;
     std::vector<MemberState> members_;
-    std::vector<bool> fastenings_;
+    std::vector<FasteningState> fastenings_;
     kernel::PhysicsOutputs outputs_;
     bool has_outputs_ = false;
     kernel::ModelChangeRequests requests_;

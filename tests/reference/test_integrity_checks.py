@@ -6,13 +6,14 @@ row states (docs/spec/int.md)."""
 
 from __future__ import annotations
 
+import json
 import math
 from collections.abc import Sequence
 
 import numpy as np
 import pytest
 
-from mechsim.integrity.beam import first_frequency
+from mechsim.integrity.beam import first_frequency, node_moments
 from mechsim.integrity.checks.buckling import Buckling, BucklingParameters
 from mechsim.integrity.checks.deflection import Deflection
 from mechsim.integrity.checks.fastener import Fastener, FastenerParameters
@@ -292,11 +293,21 @@ def _settled_chain(
         supports = ((0.0, "pinned"), (BEAM_LENGTH, "roller"))
     if ends == "Clamped":
         supports = ((0.0, "clamped"), (BEAM_LENGTH, "clamped"))
-    chain = NodeChain(bodies[0], len(bodies), root, None, (0.0, 0.0, 0.0), (1.0, 0.0, 0.0, 0.0), BEAM_LENGTH / segments)
+    segment = BEAM_LENGTH / segments
+    chain = NodeChain(
+        bodies[0], len(bodies), root, None, (0.0, 0.0, 0.0), (1.0, 0.0, 0.0, 0.0), segment, rigidity / segment
+    )
     section = SectionProperties(
         BEAM_AREA, BEAM_MODULUS, BEAM_DENSITY, BEAM_LENGTH, BEAM_I, BEAM_I, BEAM_SIDE / 2, BEAM_SIDE / 2
     )
-    loads = constant(1)
+    ends = provider.outputs.members[0]
+    loads = constant(
+        1,
+        start_force=tuple(ends.start_force),
+        start_moment=tuple(ends.start_moment),
+        end_force=tuple(ends.end_force),
+        end_moment=tuple(ends.end_moment),
+    )
     return MemberInputs("beam", "fake", section, supports, loads, nodes=chain), BodyPoses(positions, orientations)
 
 
@@ -378,6 +389,194 @@ def test_deflection_of_a_member_built_rigid_is_not_evaluated_with_a_note() -> No
     assert result.notes == (
         "deflection of 'rail': not evaluated, the member is built rigid and has no node poses (INT-006)",
     )
+
+
+# ===== Peak moment along the member (INT-005, INT-023) =====================
+#
+# The bending moment at every node spring is k times the relative rotation of its two node bodies (k = E I / l), plus
+# the recorded end moments; stress M c / I. On the square section with no axial force (pinned and clamped far ends
+# slide freely, a cantilever's tip is free) the peak stress is abs(M) c / I exactly, so M = sigma I / c. In a settled
+# chain each spring's moment is the exact static moment at x_j = (j + 1/2) l (a joint transmits its spring torque),
+# so the chain errs only where the closed-form peak lies off a spring or where a support moment is statically
+# indeterminate. The segment counts below put each peak on a spring or an end:
+#   pinned centre load P L / 4, N = 9: spring 4 at 4.5 l = L / 2, exact (statically determinate).
+#   pinned load at a = 2.5 l, N = 8: P a b / L under the load at spring 2, exact.
+#   cantilever tip load P L at the root: the end moment, exact by statics.
+#   pinned own weight w L^2 / 8, N = 9: each segment body lies wholly on one side of the centre spring with its weight
+#     at its centre, so the left part's statics reproduce the integral: exact.
+#   clamped-clamped centre load P L / 8, N = 17 (centre spring 8 at L / 2): the support moment from the chain's
+#     compatibility sum_j M(x_j) = 0 with M(x) = M_0 + (P / 2) min(x, L - x) is
+#     M_0 = -(P / (2 N)) sum_j min(x_j, L - x_j) = -(72.5 / 578) P L = -0.12543 P L (+0.35 %), the centre
+#     M_0 + P L / 4 = 0.12457 P L (-0.35 %).
+#   clamped-clamped own weight w L^2 / 12 at the ends, N = 16: the midpoint sum of M over the springs gives
+#     -(w L^2 / 12)(1 + 1 / (2 N^2)) (+0.2 %); the root stub [0, l / 2] is carried by the clamp, not the member, a
+#     load w l / 2 at l / 4 whose fixed-end moment is at most w l^2 / 8, 1.5 / N^2 = 0.6 % of w L^2 / 12.
+# Each sits within the lumped chain's 2 percent row (rulings 31, 32); the settled residual is below exp(-75). Tier 1
+# (`core/integrity` through `_core.integrity_member_stress`) on the same end-loads and poses agrees within 1e-9.
+
+
+def _limits_json(member_inputs: MemberInputs, bodies: int) -> str:
+    chain = member_inputs.nodes
+    assert chain is not None
+    section = member_inputs.section
+    supports = [{"at": at, "condition": condition} for at, condition in member_inputs.supports]
+    for support in supports:
+        if support["condition"] == "roller":
+            support["condition"] = "pinned"
+    return json.dumps(
+        {
+            "format": "mechsim-integrity-limits-1",
+            "minimum_safety_factor": 1.0,
+            "bodies": bodies,
+            "checks": {
+                "stress": True,
+                "buckling": False,
+                "deflection": False,
+                "fastener": False,
+                "yield_offset": False,
+            },
+            "members": [
+                {
+                    "name": member_inputs.name,
+                    "index": 0,
+                    "area": section.area,
+                    "i_y": section.i_y,
+                    "i_z": section.i_z,
+                    "c_y": section.c_y,
+                    "c_z": section.c_z,
+                    "length": section.length,
+                    "elastic_modulus": section.elastic_modulus,
+                    "effective_length_factor": 1.0,
+                    "allowable_stress": 1e12,
+                    "yield_strength": 1e12,
+                    "deflection_limit": None,
+                    "supports": supports,
+                    "first_spring": 0,
+                    "segments": chain.count,
+                    "segment_length": chain.segment_length,
+                    "node_stiffness": chain.stiffness,
+                    "nodes": chain.to_limits(),
+                }
+            ],
+            "fastenings": [],
+        }
+    )
+
+
+def _tier1(member_inputs: MemberInputs, bodies: BodyPoses) -> tuple[float, list[float]]:
+    from mechsim import _core as core
+
+    assert member_inputs.loads is not None
+    loads = core.MemberEndLoads()
+    start = core.Wrench()
+    start.force = list(member_inputs.loads.start_force[0])
+    start.moment = list(member_inputs.loads.start_moment[0])
+    end = core.Wrench()
+    end.force = list(member_inputs.loads.end_force[0])
+    end.moment = list(member_inputs.loads.end_moment[0])
+    loads.start = start
+    loads.end = end
+    states = []
+    for position, orientation in zip(bodies.positions[0], bodies.orientations[0], strict=True):
+        state = core.BodyState()
+        state.position = list(position)
+        state.orientation = list(orientation)
+        states.append(state)
+    stress, moments = core.integrity_member_stress(_limits_json(member_inputs, len(states)), 0, loads, states)
+    return float(stress), [float(moment) for moment in moments]
+
+
+def _peak_moment(name: str, continuum: float, member_inputs: MemberInputs, bodies: BodyPoses) -> list[float]:
+    """Both tiers' peak moment against the continuum peak; returns tier 2's node moments for location checks."""
+    run = RunInputs(np.zeros(1), (member_inputs,), {"fake": FakeMaterial()}, TEMPERATURE, bodies=bodies)
+    (row,) = Strength().evaluate(run, NoParameters(), 1).rows
+    section = member_inputs.section
+    tier2 = row.value * section.i_z / section.c_y
+    stress, tier1_moments = _tier1(member_inputs, bodies)
+    tier1 = stress * section.i_z / section.c_y
+    report(f"{name} (tier 2)", continuum, tier2)
+    report(f"{name} (tier 1)", continuum, tier1)
+    assert abs(tier2 / continuum - 1.0) <= CHAIN
+    assert tier1 == pytest.approx(tier2, rel=EXACT)
+    moments, _ = node_moments(member_inputs, bodies)
+    assert tier1_moments == pytest.approx(list(moments[0]), rel=EXACT, abs=EXACT * abs(continuum))
+    return [float(value) for value in moments[0]]
+
+
+@pytest.mark.req("INT-004", "INT-005", "INT-023")
+def test_strength_pinned_centre_load_peak_moment_is_p_l_over_4() -> None:
+    load, n = 0.2, 9
+    member_inputs, bodies = _settled_chain("SimplySupported", n, (0.5 * BEAM_LENGTH, load))
+    moments = _peak_moment("pinned centre load", load * BEAM_LENGTH / 4.0, member_inputs, bodies)
+    assert int(np.argmax(np.abs(moments))) == 4
+
+
+@pytest.mark.req("INT-005", "INT-023")
+def test_strength_pinned_load_at_a_peak_moment_is_p_a_b_over_l_under_the_load() -> None:
+    load, n = 0.2, 8
+    a = 2.5 * BEAM_LENGTH / n
+    member_inputs, bodies = _settled_chain("SimplySupported", n, (a, load))
+    target = load * a * (BEAM_LENGTH - a) / BEAM_LENGTH
+    moments = _peak_moment("pinned load at a", target, member_inputs, bodies)
+    assert int(np.argmax(np.abs(moments))) == 2
+
+
+@pytest.mark.req("INT-005", "INT-023")
+def test_strength_cantilever_tip_load_peak_moment_is_p_l_at_the_root() -> None:
+    load, n = 0.05, 8
+    member_inputs, bodies = _settled_chain("Cantilever", n, (BEAM_LENGTH, load))
+    _peak_moment("cantilever tip load", load * BEAM_LENGTH, member_inputs, bodies)
+    assert member_inputs.loads is not None
+    root = abs(float(member_inputs.loads.start_moment[0, 2]))
+    report("cantilever root end moment", load * BEAM_LENGTH, root)
+    assert root == pytest.approx(load * BEAM_LENGTH, rel=SETTLED)
+
+
+@pytest.mark.req("INT-005", "INT-023")
+def test_strength_clamped_centre_load_peak_moment_is_p_l_over_8_at_the_ends_and_centre() -> None:
+    load, n = 0.8, 17
+    member_inputs, bodies = _settled_chain("Clamped", n, (0.5 * BEAM_LENGTH, load))
+    target = load * BEAM_LENGTH / 8.0
+    moments = _peak_moment("clamped centre load", target, member_inputs, bodies)
+    assert member_inputs.loads is not None
+    for label, value in (
+        ("clamped centre load, start", float(member_inputs.loads.start_moment[0, 2])),
+        ("clamped centre load, end", float(member_inputs.loads.end_moment[0, 2])),
+        ("clamped centre load, centre spring", moments[n // 2]),
+    ):
+        report(label, target, abs(value))
+        assert abs(abs(value) / target - 1.0) <= CHAIN
+
+
+@pytest.mark.req("INT-005", "INT-023")
+def test_strength_pinned_own_weight_peak_moment_is_w_l2_over_8() -> None:
+    n, g = 9, 0.5
+    member_inputs, bodies = _settled_chain("SimplySupported", n, None, gravity=g)
+    w = BEAM_DENSITY * BEAM_AREA * g
+    moments = _peak_moment("pinned own weight", w * BEAM_LENGTH**2 / 8.0, member_inputs, bodies)
+    assert int(np.argmax(np.abs(moments))) == 4
+
+
+@pytest.mark.req("INT-005", "INT-023")
+def test_strength_clamped_own_weight_peak_moment_is_w_l2_over_12_at_the_ends() -> None:
+    n, g = 16, 0.5
+    member_inputs, bodies = _settled_chain("Clamped", n, None, gravity=g)
+    w = BEAM_DENSITY * BEAM_AREA * g
+    target = w * BEAM_LENGTH**2 / 12.0
+    _peak_moment("clamped own weight", target, member_inputs, bodies)
+    assert member_inputs.loads is not None
+    for label, value in (
+        ("clamped own weight, start", float(member_inputs.loads.start_moment[0, 2])),
+        ("clamped own weight, end", float(member_inputs.loads.end_moment[0, 2])),
+    ):
+        report(label, target, abs(value))
+        assert abs(abs(value) / target - 1.0) <= CHAIN
+
+
+@pytest.mark.req("INT-005")
+def test_strength_of_a_member_without_node_poses_reads_its_ends_with_a_note() -> None:
+    result = Strength().evaluate(inputs([member(cantilever(5.0))], 3), NoParameters(), 1)
+    assert result.notes == ("strength of 'rail': end moments only, the member has no node poses (INT-005)",)
 
 
 @pytest.mark.req("INT-004", "INT-007")

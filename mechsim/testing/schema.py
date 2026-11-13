@@ -257,9 +257,31 @@ class PhysicsSettings(StrictModel):
 class IntegritySettings(StrictModel):
     """The case's integrity section (INT-026, ADR 0010 amendment, round 5 ruling 4): `halt_on_crossing` true ends
     the run at the first tier 1 limit crossing, false lets it run to its end; the case fails on a crossing either
-    way (INT-025). Absent or empty: false; nothing else sets it (round 5 rulings 4, 50)."""
+    way (INT-025). Absent or empty: false; nothing else sets it (round 5 rulings 4, 50). `design_load_carried`
+    (TST-043) and `evaluate_from` (TST-044) shape the integrity results, never the run."""
+
+    def start_seconds(self) -> float:
+        """`evaluate_from` in s; an unresolved open value is a `ValueError` (a sweep resolves it before a run)."""
+        if not isinstance(self.evaluate_from, float):
+            raise ValueError(f"integrity.evaluate_from {self.evaluate_from!r}: not resolved")
+        return self.evaluate_from
 
     halt_on_crossing: bool = Field(default=False, description="End the run at the first tier 1 crossing (INT-026).")
+    design_load_carried: bool = Field(
+        default=False,
+        description=(
+            "The run's loads already carry the design load (TST-043, INT-019, ruling 52): the post-run table applies "
+            "factor 1 and says so; false: the design's design-load rule scales the recorded loads."
+        ),
+    )
+    evaluate_from: Time = Field(
+        default=0.0,
+        ge=0.0,
+        description=(
+            "Time from which integrity results count (TST-044): peaks, safety factors and tier 1 crossings; a "
+            "crossing before it is recorded as an `integrity_before_evaluation` event and does not fail the case."
+        ),
+    )
 
 
 # ===== Initial state ===================================================
