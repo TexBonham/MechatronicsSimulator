@@ -62,3 +62,6 @@ type live in the root `CLAUDE.md` dispatch table once measured.
 | 2026-11-12 | M3-I2 tier 1 integrity party, tier 2 yield and rope snap (wip/05-i2 81b2943) | module-writer (opus), resumed once after the restart | 342K | 149 calls; ctest debug-sanitize 470 |
 | 2026-11-12 | M3 review: I2 (wip/05-i2 81b2943): approve after one fix round, 5 major, 6 minor; rulings 50 to 54 (review-m3-i2.md) | Fable review (general-purpose) | ~130K | 13 calls |
 | 2026-11-12 | M3-I2 invariant audit: clean | invariant-auditor (sonnet) | 25K | 5 calls |
+| 2026-11-12 | M3-E5 regularised efficiency switch, screw lock row (wip/05-e5 8beefd2) | module-writer (opus) | 220K | 94 calls; ctest debug-sanitize 509 |
+| 2026-11-12 | M3 review: E5 (wip/05-e5 8beefd2): accept after one small fix round, 2 major, 2 minor; ruling 55 (review-m3-e5.md) | Fable review (general-purpose) | 102K | 9 calls |
+| 2026-11-12 | M3-E5 invariant audit: clean | invariant-auditor (sonnet) | 30K | 5 calls |
