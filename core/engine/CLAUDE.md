@@ -69,8 +69,8 @@ exact n / eta_f, n eta_b at and above omega_s (g_k = g); below it g_k = n and th
 c = |alpha| n |F| / omega_s (larger loss at omega = 0). Static sag n F / K exact; creep tau_f = (n F (1 / eta_f - 1) /
 omega_s + D_d) / K, tau_b = (n F (1 - eta_b) / omega_s + D_d) / K. `Static` = shaft at exactly zero speed (or F = 0).
 Self-locking screw (ruling 48): `lock_rows_` from `evaluate` (transmission order), scalar row s omega >= 0 after the
-limit rows in `solve_constraints`, absent when the shaft's own torque T (tau, shaft torques, drive spring-damper) has
-T L > 0 (lowering: gain 0); `TransmissionOutput::lock_torque` = s lambda / h; Locked when P >= 0 and T L >= 0
+limit rows in `solve_constraints`, absent when the shaft's own torque T (tau, body wrenches, drive and model joint
+spring-damper) has T L > 0 (lowering: gain 0); two-sided only at omega == 0 with F = 0 and T = 0 (ruling 55); `TransmissionOutput::lock_torque` = s lambda / h; Locked when P >= 0 and T L >= 0
 (published load torque 0). `TransmissionCoupling`: `gain`, `stiffness_gain`, `shaft_damping`, `shaft_torque`, `lock`.
 `set_shaft_torque(i, tau)` (per step), `set_slip(i, s)` (persists), `slip(i)`, `transmission_states(q, v)`.
 `outputs().transmissions`, `transmission_states`: end state, step's drive (next step's pre-image); `shaft_load_torque`
