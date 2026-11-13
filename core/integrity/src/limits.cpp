@@ -417,6 +417,12 @@ Limits parse_limits(std::string_view json) {
         limits.members.push_back(member(entry, k));
         ++k;
     }
+    for (const MemberLimits& m : limits.members) {
+        if (m.nodes.has_value() && !limits.bodies.has_value()) {
+            throw LimitsError("limits table: member '" + m.name +
+                              "' has nodes, so the table must give the published body count 'bodies' (INT-006)");
+        }
+    }
     k = 0;
     for (const Value& entry : array(root, "fastenings", "root")) {
         const std::string where = "fastenings[" + std::to_string(k) + "]";

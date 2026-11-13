@@ -527,17 +527,19 @@ TEST_CASE("a value exactly at the limit is not a crossing and the next represent
 
 // ===== Limits table ======================================================
 
-TEST_CASE("the limits table parses and refuses malformed entries", "[INT-023]") {
+TEST_CASE("the limits table parses and refuses malformed entries", "[INT-023][INT-006]") {
     const std::string member =
         R"({"name": "arm", "index": 0, "area": 1e-4, "i_y": 2e-8, "i_z": 1e-8, "c_y": 0.01, "c_z": 0.02, )"
         R"("length": 1.0, "elastic_modulus": 2e11, "effective_length_factor": 2.0, "allowable_stress": 1e8, )"
         R"("yield_strength": 2.5e8, "deflection_limit": null, "supports": [{"at": 0.0, "condition": "clamped"}], )"
         R"("first_spring": 2, "segments": 8, "segment_length": 0.125, "node_stiffness": 16000.0, "nodes": {"first_body": )"
         R"(5, "count": 9, "root": "pinned", "parent_body": null, "position": [0, 1, 0], "orientation": [1, 0, 0, 0]}})";
-    const auto doc = [](const std::string& members, const std::string& checks = "true") {
+    const auto doc = [](const std::string& members, const std::string& checks = "true",
+                        const std::string& bodies = R"(, "bodies": 14)") {
         return R"({"format": "mechsim-integrity-limits-1", "minimum_safety_factor": 1.5, "checks": {"stress": )" +
                checks + R"(, "buckling": false, "deflection": false, "fastener": true, "yield_offset": false}, )"
-               R"("members": [)" + members + R"(], "fastenings": [{"name": "bolts", "joint": 3, "load_limit": 10}]})";
+               R"("members": [)" + members + R"(], "fastenings": [{"name": "bolts", "joint": 3, "load_limit": 10}])" +
+               bodies + "}";
     };
     const integrity::Limits limits = integrity::parse_limits(doc(member));
     REQUIRE(limits.members.size() == 1);
@@ -558,6 +560,10 @@ TEST_CASE("the limits table parses and refuses malformed entries", "[INT-023]") 
     std::string rigid = member;
     rigid.replace(rigid.find(R"("nodes": {)"), rigid.size() - rigid.find(R"("nodes": {)"), R"("nodes": null})");
     CHECK_FALSE(integrity::parse_limits(doc(rigid)).members[0].nodes.has_value());
+    CHECK_FALSE(integrity::parse_limits(doc(rigid, "true", "")).bodies.has_value());
+    CHECK(integrity::parse_limits(doc(member)).bodies == std::optional<std::size_t>(14));
+    CHECK_THROWS_AS(integrity::parse_limits(doc(member, "true", "")), integrity::LimitsError);
+    CHECK_THROWS_AS(integrity::parse_limits(doc(member, "true", R"(, "bodies": null)")), integrity::LimitsError);
     for (const auto& [from, to] : std::vector<std::pair<std::string, std::string>>{
              {R"("count": 9)", R"("count": 0)"},
              {R"("root": "pinned")", R"("root": "free")"},

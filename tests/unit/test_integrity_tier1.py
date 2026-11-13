@@ -233,6 +233,23 @@ def test_node_indices_and_the_body_count_come_from_the_prepared_native_model() -
     core.check_integrity_limits(json.dumps(table))
 
 
+@pytest.mark.req("INT-006", "INT-023")
+def test_the_node_names_are_counted_from_the_native_document_not_the_model() -> None:
+    # The document's member entry is what the adapter loads: its `segments`, plus the pin segment's node 0 when its
+    # `ends` is simply_supported (a pinned root), sets the published node count; the model's member names them.
+    model = cantilever_model()
+    native = native_of(model)
+    neutral = int(native["neutral_bodies"])
+    name = model.lumped_members[0].name
+    native["members"][0]["segments"] = 3
+    assert published_names(model, native)[neutral:] == tuple(f"{name}.node{k}" for k in range(3))
+    native["members"][0]["ends"] = "simply_supported"
+    assert published_names(model, native)[neutral:] == tuple(f"{name}.node{k}" for k in range(4))
+    native["members"] = []
+    with pytest.raises(IntegrityError, match="the native model lists 0 members, the physics model 1"):
+        published_names(model, native)
+
+
 @pytest.mark.req("INT-023", "INT-010")
 def test_a_fastening_without_a_rating_is_a_build_error() -> None:
     model = cantilever_model()
