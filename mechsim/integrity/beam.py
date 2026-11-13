@@ -1,4 +1,5 @@
-"""Beam theory on recorded member end-loads (member frame, round 5 rulings 24 and 25), shared by the checks."""
+"""Beam theory on recorded member end-loads (member frame, round 5 rulings 24 and 25) and the deflection from the
+recorded node poses (ruling 28), shared by the checks."""
 
 from __future__ import annotations
 
@@ -6,10 +7,15 @@ import math
 
 import numpy as np
 
-from mechsim.integrity.plugin import FloatArray, IntegrityError, MemberInputs, SectionProperties, Wrenches
+from mechsim.integrity.plugin import (
+    BodyPoses,
+    FloatArray,
+    IntegrityError,
+    MemberInputs,
+    SectionProperties,
+    Wrenches,
+)
 
-GRID_POINTS = 201
-ROW_CHUNK = 4096
 END_TOLERANCE = 1e-9
 
 # First-mode eigenvalue lambda (f = lambda^2 / (2 pi L^2) sqrt(E I / (rho A))) and effective length factor K
@@ -108,86 +114,72 @@ def first_frequency(member: MemberInputs) -> float:
     return lam * lam / (2.0 * math.pi * section.length**2) * math.sqrt(stiffness)
 
 
-def _constraints(member: MemberInputs) -> FloatArray:
-    rows: list[list[float]] = []
-    for at, condition in member.supports:
-        rows.append([1.0, at, 0.0])
-        if condition == "clamped":
-            rows.append([0.0, 1.0, 1.0])
-    matrix = np.asarray(rows, dtype=np.float64)
-    if np.linalg.matrix_rank(matrix[:, :2]) < 2:
-        raise IntegrityError(f"member {member.name!r}: its supports leave it free to move; no deflection")
-    return matrix
-
-
-def _plane(
-    moment0: FloatArray, shear0: FloatArray, shear1: FloatArray, balance: FloatArray, length: float, grid: FloatArray
-) -> tuple[FloatArray, FloatArray]:
-    """E I v and E I v' (rows, grid) of the particular solution: the start's internal moment A and shear B and the
-    interior load Q = -(F_start + F_end) at its statically equivalent point a = balance / Q."""
-    load = -(shear0 + shear1)
-    scale = np.maximum(np.abs(shear0), np.abs(shear1))
-    present = np.abs(load) > 1e-9 * scale
-    safe = np.where(present, load, 1.0)
-    where = np.clip(np.where(present, balance / safe, length), 0.0, length)
-    load = np.where(present, load, 0.0)
-    x = grid[None, :]
-    beyond = np.maximum(x - where[:, None], 0.0)
-    value = moment0[:, None] * x**2 / 2.0 + shear0[:, None] * x**3 / 6.0 + load[:, None] * beyond**3 / 6.0
-    slope = moment0[:, None] * x + shear0[:, None] * x**2 / 2.0 + load[:, None] * beyond**2 / 2.0
-    return value, slope
-
-
-def _fit(
-    member: MemberInputs, matrix: FloatArray, grid: FloatArray, value: FloatArray, slope: FloatArray
-) -> FloatArray:
-    """Add C0 + C1 x so the supports hold (v = 0 at each, v' = 0 at a clamp), least squares over the conditions."""
-    rhs = []
-    for at, condition in member.supports:
-        rhs.append(-_at(grid, value, at))
-        if condition == "clamped":
-            rhs.append(-_at(grid, slope, at))
-    stacked = np.stack(rhs, axis=0)
-    coefficients = np.linalg.pinv(matrix[:, :2]) @ stacked
-    result: FloatArray = value + coefficients[0][:, None] + coefficients[1][:, None] * grid[None, :]
+def _rotate(q: FloatArray, v: FloatArray) -> FloatArray:
+    """Rotate v (rows, 3) by unit quaternions q (rows, 4), w first."""
+    w = q[:, :1]
+    u = q[:, 1:]
+    t = 2.0 * np.cross(u, v)
+    result: FloatArray = v + w * t + np.cross(u, t)
     return result
 
 
-def _at(grid: FloatArray, values: FloatArray, at: float) -> FloatArray:
-    index = int(np.argmin(np.abs(grid - at)))
-    return values[:, index]
+def _multiply(a: FloatArray, b: FloatArray) -> FloatArray:
+    aw, ax, ay, az = a[:, 0], a[:, 1], a[:, 2], a[:, 3]
+    bw, bx, by, bz = b[:, 0], b[:, 1], b[:, 2], b[:, 3]
+    return np.stack(
+        (
+            aw * bw - ax * bx - ay * by - az * bz,
+            aw * bx + ax * bw + ay * bz - az * by,
+            aw * by - ax * bz + ay * bw + az * bx,
+            aw * bz + ax * by - ay * bx + az * bw,
+        ),
+        axis=1,
+    )
 
 
-def deflection(member: MemberInputs, loads: Wrenches) -> FloatArray:
-    """Peak transverse deflection magnitude (rows,) along the member per sample, quasi-static from the end-loads:
-    E I v'' equals the internal moment from the start wrench and the interior load resolved to one point load at its
-    statically equivalent position, with the support conditions fixing the rigid-body terms. Exact for end loads and
-    one interior point load. For a distributed load it reads high on a member supported at both ends (simply supported:
-    1/48 against 5/384 of W L^3 / E I) and low on a cantilever (tip: 5/48 against 1/8 of w L^4 / E I, 17 percent
-    under). With more support conditions than rigid terms (clamped-clamped: four for two) the terms are a least-squares
-    fit, exact when the recorded end-loads are in equilibrium with the resolved interior load (ruling 28)."""
-    section = member.section
-    length = section.length
-    points = [length * index / (GRID_POINTS - 1) for index in range(GRID_POINTS)]
-    points += [at for at, _ in member.supports]
-    grid = np.unique(np.asarray(points, dtype=np.float64))
-    matrix = _constraints(member)
-    rows = loads.start_force.shape[0]
-    out = np.zeros(rows, dtype=np.float64)
-    for first in range(0, rows, ROW_CHUNK):
-        part = slice(first, min(rows, first + ROW_CHUNK))
-        fs = loads.start_force[part]
-        fe = loads.end_force[part]
-        ms = loads.start_moment[part]
-        me = loads.end_moment[part]
-        value_y, slope_y = _plane(
-            -ms[:, 2], fs[:, 1], fe[:, 1], -(ms[:, 2] + me[:, 2] + length * fe[:, 1]), length, grid
+def node_deflection(member: MemberInputs, bodies: BodyPoses) -> FloatArray:
+    """Deflection (rows,) from the recorded node poses (round 5 ruling 28, INT-006): the largest perpendicular distance
+    of the chain's node origins and its far end (the last node's origin plus l / 2 along its x) from the member's
+    reference line. A clamped root's line is the root tangent: the parent's recorded pose times the member placement,
+    through the root point along its x (for a cantilever the chord through both ends is not the undeformed axis; a
+    clamped-clamped member's far end lies on that line too). A pinned root's line is the chord from the pin (node 0)
+    to the far end. Frame-free: a distance, so the member frame of ruling 24 needs no rotation."""
+    chain = member.nodes
+    if chain is None:
+        raise IntegrityError(f"member {member.name!r}: built rigid, no node poses; deflection not evaluated")
+    total = bodies.positions.shape[1]
+    if chain.first_body + chain.count > total:
+        raise IntegrityError(
+            f"member {member.name!r}: nodes {chain.first_body} + {chain.count} outside the {total} recorded bodies"
         )
-        value_z, slope_z = _plane(ms[:, 1], fs[:, 2], fe[:, 2], ms[:, 1] + me[:, 1] - length * fe[:, 2], length, grid)
-        v = _fit(member, matrix, grid, value_y, slope_y) / (section.elastic_modulus * section.i_z)
-        w = _fit(member, matrix, grid, value_z, slope_z) / (section.elastic_modulus * section.i_y)
-        out[part] = np.max(np.hypot(v, w), axis=1)
-    return out
+    rows = bodies.positions.shape[0]
+    nodes = bodies.positions[:, chain.first_body : chain.first_body + chain.count, :]
+    last = bodies.orientations[:, chain.first_body + chain.count - 1, :]
+    reach = np.tile(np.asarray([0.5 * chain.segment_length, 0.0, 0.0], dtype=np.float64), (rows, 1))
+    tip = nodes[:, -1, :] + _rotate(last, reach)
+    unit_x = np.tile(np.asarray([1.0, 0.0, 0.0], dtype=np.float64), (rows, 1))
+    if chain.root == "pinned":
+        origin = nodes[:, 0, :]
+        chord = tip - origin
+        length = np.linalg.norm(chord, axis=1)
+        if np.any(length <= 0.0):
+            raise IntegrityError(f"member {member.name!r}: its end nodes coincide; no chord")
+        direction = chord / length[:, None]
+    else:
+        parent_position = np.zeros((rows, 3), dtype=np.float64)
+        parent_orientation = np.tile(np.asarray([1.0, 0.0, 0.0, 0.0], dtype=np.float64), (rows, 1))
+        if chain.parent_body is not None:
+            parent_position = bodies.positions[:, chain.parent_body, :]
+            parent_orientation = bodies.orientations[:, chain.parent_body, :]
+        placement = np.tile(np.asarray(chain.position, dtype=np.float64), (rows, 1))
+        turn = np.tile(np.asarray(chain.orientation, dtype=np.float64), (rows, 1))
+        origin = parent_position + _rotate(parent_orientation, placement)
+        direction = _rotate(_multiply(parent_orientation, turn), unit_x)
+    points = np.concatenate((nodes, tip[:, None, :]), axis=1) - origin[:, None, :]
+    along = np.einsum("rkj,rj->rk", points, direction)
+    off = points - along[:, :, None] * direction[:, None, :]
+    result: FloatArray = np.max(np.linalg.norm(off, axis=2), axis=1)
+    return result
 
 
 def peak(values: FloatArray, times: FloatArray) -> tuple[float, float]:

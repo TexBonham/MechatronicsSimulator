@@ -497,8 +497,59 @@ def test_conformance_fac_015(session: Session, tmp_path: Path) -> None:
     assert report.identical, report.first_difference
 
 
-@pytest.mark.req("FAC-013")
-@pytest.mark.xfail(strict=True, reason="stub")
-def test_conformance_fac_013() -> None:
-    """A client reads integrity results and the load-case export through protocol requests."""
-    raise NotImplementedError
+@pytest.mark.req("FAC-013", "INT-006", "INT-022")
+def test_conformance_fac_013(ws: ClientConnection, session: Session) -> None:
+    """A client reads integrity results and the load-case export through protocol requests: a native run of the
+    cantilever reference (a flexible member, node-pose deflection) gives through the protocol exactly the table the
+    integrity service computes directly on the archived recording, and the load case the export writes."""
+    # The cantilever's files live in the session root only for this test (FAC-010 lists the root's designs).
+    copied = (session.root / "designs" / "cantilever_beam", session.root / "test_cases" / "cantilever_beam")
+    shutil.copytree(ROOT / "designs" / "cantilever_beam", copied[0])
+    shutil.copytree(ROOT / "test_cases" / "cantilever_beam", copied[1])
+    try:
+        _integrity_through_the_protocol(ws, session)
+    finally:
+        for folder in copied:
+            shutil.rmtree(folder)
+
+
+def _integrity_through_the_protocol(ws: ClientConnection, session: Session) -> None:
+    from mechsim.design.schema import load_design
+    from mechsim.integrity.export import load_case
+    from mechsim.integrity.service import IntegrityService
+    from mechsim.testing.core_driver import RecordArchiveReader, core_builder
+    from mechsim.testing.schema import load_test_case
+
+    case_path = "test_cases/cantilever_beam/B1_cantilever.yaml"
+    payload = {"design": "designs/cantilever_beam/design.yaml", "test_case": case_path, "seed": 0, "mode": "none"}
+    ran = request(ws, "run_case", payload).answer["payload"]["result"]
+    run_id = ran["run_id"]
+    replay = request(ws, "replay_open", {"archive": ran["archive"]}).answer
+    assert replay["kind"] == "ok"
+    table = request(ws, "integrity_results", {"run_id": run_id}).answer["payload"]["result"]
+    metadata, view = RecordArchiveReader().open(Path(ran["archive"]))
+    case = load_test_case(session.root / case_path, session.root / "designs")
+    design = load_design(session.root / "designs" / "cantilever_beam" / "design.yaml")
+    direct = IntegrityService(session.root / "designs")(core_builder(design, "native"), case, view)
+    assert direct is not None
+    bar = direct.member("bar")
+    assert bar.deflection > 0.0
+    assert "deflection_not_evaluated" not in bar.flags
+    assert table["run_id"] == run_id
+    assert table["members"] == [
+        {
+            "member": entry.member,
+            "peak_stress": entry.peak_stress,
+            "peak_stress_time": entry.peak_stress_time,
+            "deflection": entry.deflection,
+            "deflection_time": entry.deflection_time,
+            "safety_factor": entry.safety_factor,
+            "safety_factor_time": entry.safety_factor_time,
+            "flags": list(entry.flags),
+        }
+        for entry in direct.members
+    ]
+    exported = load_case(view, metadata.members, metadata.design_name, metadata.design_version, metadata.run_id)
+    for file_format, text in (("json", exported.to_json()), ("csv", exported.to_csv())):
+        answer = request(ws, "load_case", {"run_id": run_id, "format": file_format}).answer["payload"]["result"]
+        assert answer["text"] == text

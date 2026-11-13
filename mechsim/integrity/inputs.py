@@ -10,11 +10,13 @@ from typing import Any
 import numpy as np
 
 from mechsim.integrity.plugin import (
+    BodyPoses,
     FloatArray,
     IntegrityError,
     JointLoads,
     MaterialView,
     MemberInputs,
+    NodeChain,
     RopeLoads,
     RunInputs,
     SectionProperties,
@@ -31,6 +33,8 @@ MEMBER_SERIES = (
 REACTION_FORCE = "physics/joints/reaction_force"
 REACTION_MOMENT = "physics/joints/reaction_moment"
 ROPE_MAX_TENSION = "physics/ropes/max_tension"
+BODY_POSITION = "physics/bodies/position"
+BODY_ORIENTATION = "physics/bodies/orientation"
 
 
 def section_properties(section: Any) -> SectionProperties:
@@ -103,6 +107,47 @@ def member_axes(build: Any) -> dict[str, tuple[float, float, float]]:
     return out
 
 
+def node_chains(model: Any) -> dict[str, NodeChain]:
+    """Each lumped member's node chain in the native adapter's published bodies, keyed by structural member name: the
+    neutral bodies first, then per lumped member in neutral order N node bodies (N + 1 with a pinned root's pin
+    segment; `mechsim.physics.native.member_node_names`). A model without lumped members (the bridge builds members
+    rigid) gives none."""
+    out: dict[str, NodeChain] = {}
+    if model is None:
+        return out
+    bodies = tuple(getattr(model, "bodies", ()))
+    index = {str(body.name): position for position, body in enumerate(bodies)}
+    first = len(bodies)
+    for lumped in getattr(model, "lumped_members", ()):
+        count = int(lumped.segments)
+        if lumped.root == "pinned":
+            count += 1
+        name = str(lumped.name)
+        if lumped.structural_member is not None:
+            name = str(lumped.structural_member)
+        x, y, z = (float(value) for value in lumped.position)
+        w, i, j, k = (float(value) for value in lumped.orientation)
+        out[name] = NodeChain(
+            first_body=first,
+            count=count,
+            root=lumped.root,
+            parent_body=index.get(str(lumped.parent)),
+            position=(x, y, z),
+            orientation=(w, i, j, k),
+            segment_length=float(lumped.section.length) / int(lumped.segments),
+        )
+        first += count
+    return out
+
+
+def _body_poses(series: Mapping[str, Any], rows: int) -> BodyPoses | None:
+    if BODY_POSITION not in series or BODY_ORIENTATION not in series:
+        return None
+    positions = np.asarray(series[BODY_POSITION].values, dtype=np.float64).reshape(rows, -1, 3)
+    orientations = np.asarray(series[BODY_ORIENTATION].values, dtype=np.float64).reshape(rows, -1, 4)
+    return BodyPoses(positions, orientations)
+
+
 def run_inputs(build: Any, recording: RecordView, materials: Mapping[str, MaterialView]) -> RunInputs:
     """`build` is the builder's `BuildResult`; `recording` the run's `RecordView` (a `RecordingView` carries the raw
     recording the end-loads come from)."""
@@ -120,6 +165,7 @@ def run_inputs(build: Any, recording: RecordView, materials: Mapping[str, Materi
         if getattr(record, "calibrated", False) and record.calibration_frequency is not None:
             calibrated[str(record.member)] = float(record.calibration_frequency)
     placements = member_axes(build)
+    chains = node_chains(getattr(build, "physics", None))
     members: list[MemberInputs] = []
     holder: dict[str, str] = {}
     for member in members_list:
@@ -139,6 +185,7 @@ def run_inputs(build: Any, recording: RecordView, materials: Mapping[str, Materi
                 natural_frequency=calibrated.get(name),
                 axis_body=placements.get(name, (1.0, 0.0, 0.0)),
                 mounts=mounts,
+                nodes=chains.get(name),
             )
         )
     joints = _joints(build, series, holder, rows)
@@ -167,6 +214,7 @@ def run_inputs(build: Any, recording: RecordView, materials: Mapping[str, Materi
         series=_series_reader(recording),
         ropes=_ropes(build, series, rows),
         design_tension=design_tension,
+        bodies=_body_poses(series, rows),
     )
 
 

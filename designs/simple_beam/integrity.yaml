@@ -1,0 +1,3 @@
+# Integrity table for the simple_beam reference (INT-002): the always-on strength and deflection checks, so the run carries
+# the node-pose deflection (INT-006) the acceptance references read.
+schema_version: 1

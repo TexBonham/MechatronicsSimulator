@@ -20,7 +20,7 @@ runner, recorder, scoring and viewer.
 |---|---|
 | `list_designs(root)` | `DesignList`: name, path, version, errors per `<root>/*/design.yaml` |
 | `validate(path)` | `ValidationResult` per YAML file of a folder or the file; missing path `not_found` |
-| `run_case(case, design, sets, out_dir, dry, seed, mode, listener, subscriptions)` | `RunResultSummary`: run id, case id, status, archive, end reason/time, `report_text`, `error: RunErrorReport(party, t, cause, requirement_id=INV-007)`, `dry`; never raises for a run error (FAC-014); seed/mode must equal the case's |
+| `run_case(case, design, sets, out_dir, dry, seed, mode, listener, subscriptions)` | `RunResultSummary`: run id, case id, status, archive, end reason/time, `report_text`, `error: RunErrorReport(party, t, cause, requirement_id=INV-007)`, `dry`, `notes` (the run report's notes, e.g. the integrity halt line, INT-026); never raises for a run error (FAC-014); seed/mode must equal the case's |
 | `run_id_of(case, design, sets)` | `<case id>-seed<seed>`, `-<adapter>` appended off the default adapter (case's own or `physics.adapter` in `sets`; unknown value `validation_failed` naming the field) (TST-040) |
 | `run_suite(suite, design, sets, out_dir, report_path, baseline_path)` | `SuiteResultSummary` (suite_id, text, diff entries and text, written paths, errors, runs); writes `<out>/<name>_report.txt` |
 | `report(suite_id)`, `diff(suite_id)` | text + Markdown; diff entries in report order (FAC-012) |
@@ -115,6 +115,6 @@ column first, float64 little-endian; one sample means `t_start == t_end` (FAC-01
 | Facade server | server.py | 227 |
 | Static files | server.py | 469 |
 | Serve entry point | server.py | 518 |
-| Result models | service.py | 97 |
-| Helpers | service.py | 315 |
-| Facade | service.py | 404 |
+| Result models | service.py | 99 |
+| Helpers | service.py | 348 |
+| Facade | service.py | 438 |

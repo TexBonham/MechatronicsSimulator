@@ -2294,6 +2294,104 @@ def test_section_shape_rules(section: dict[str, Any], message: str) -> None:
     rejected(flexible_link(section), message)
 
 
+TWO_AXES = {
+    "area": "2 cm**2",
+    "second_moment_y": "1 cm**4",
+    "second_moment_z": "3 cm**4",
+    "fibre_y": "2 cm",
+    "fibre_z": "1 cm",
+    "length": "0.5 m",
+}
+
+
+@pytest.mark.req("DES-033")
+@pytest.mark.parametrize(
+    ("section", "axes"),
+    [
+        (TWO_AXES, (1e-8, 3e-8, 0.02, 0.01)),
+        (
+            {"area": "2 cm**2", "second_moment": "3 cm**4", "fibre_y": "2 cm", "fibre_z": "1 cm", "length": "0.5 m"},
+            (3e-8, 3e-8, 0.02, 0.01),
+        ),
+        ({"area": "2 cm**2", "second_moment": "3 cm**4", "length": "0.5 m"}, None),
+        (
+            {"shape": {"kind": "rectangle", "width": "1 cm", "height": "2 cm"}, "length": "0.5 m"},
+            (0.02 * 0.01**3 / 12.0, 0.01 * 0.02**3 / 12.0, 0.01, 0.005),
+        ),
+    ],
+)
+def test_section_bending_axes_for_every_form(section: dict[str, Any], axes: tuple[float, ...] | None) -> None:
+    # Ruling 25: both axes explicit; the shorthand with fibres (I_y = I_z); the shorthand alone (single-axis, None);
+    # a shape's own. second_moment_z is the chain's bending moment (area_and_moment).
+    flexible = accepted(flexible_link(section)).bodies[0].flexible
+    assert flexible is not None
+    assert flexible.section is not None
+    found = flexible.section.bending_axes()
+    if axes is None:
+        assert found is None
+    else:
+        assert found == pytest.approx(axes, rel=1e-12)
+        assert flexible.section.area_and_moment()[1] == pytest.approx(axes[1], rel=1e-12)
+
+
+def _without(key: str) -> dict[str, Any]:
+    return {name: value for name, value in TWO_AXES.items() if name != key}
+
+
+@pytest.mark.req("DES-033")
+@pytest.mark.parametrize(
+    ("section", "message"),
+    [
+        ({**TWO_AXES, "second_moment": "1 cm**4"}, "second_moment (both axes equal) or second_moment_y and _z"),
+        (_without("second_moment_y"), "needs both second_moment_y and second_moment_z"),
+        (_without("second_moment_z"), "needs both second_moment_y and second_moment_z"),
+        (_without("fibre_y"), "needs both fibre_y and fibre_z"),
+        (_without("fibre_z"), "needs both fibre_y and fibre_z"),
+        (_without("area"), "needs a shape, or both area and second_moment"),
+        (
+            {"area": "2 cm**2", "second_moment": "3 cm**4", "fibre_y": "2 cm", "length": "1 m"},
+            "fibre_y and fibre_z",
+        ),
+        ({"area": "2 cm**2", "fibre_y": "2 cm", "fibre_z": "1 cm", "length": "1 m"}, "needs a shape"),
+        (
+            {"shape": {"kind": "circle", "diameter": "1 cm"}, "fibre_y": "2 cm", "fibre_z": "1 cm", "length": "1 m"},
+            "a shape or area and second_moment, not both",
+        ),
+        (
+            {"shape": {"kind": "circle", "diameter": "1 cm"}, "second_moment_y": "1 cm**4", "length": "1 m"},
+            "a shape or area and second_moment, not both",
+        ),
+        ({**TWO_AXES, "second_moment_y": "0 cm**4"}, "second_moment_y must be positive"),
+        ({**TWO_AXES, "second_moment_z": "-1 cm**4"}, "second_moment_z must be positive"),
+        ({**TWO_AXES, "fibre_y": "0 m"}, "fibre_y must be positive"),
+        ({**TWO_AXES, "fibre_z": "-1 cm"}, "fibre_z must be positive"),
+        ({**TWO_AXES, "fibre_z": "1 kg"}, "fibre_z"),
+    ],
+)
+def test_section_two_axis_rules(section: dict[str, Any], message: str) -> None:
+    rejected(flexible_link(section), message)
+
+
+@pytest.mark.req("DES-033")
+def test_two_axis_section_values_reach_the_neutral_member_unchanged() -> None:
+    from mechsim.builder import build
+    from mechsim.design.schema import shipped_materials
+    from mechsim.library.registry import default_registry
+
+    design = accepted(flexible_link(TWO_AXES))
+    result = build(design, default_registry(), shipped_materials())
+    assert result.physics is not None
+    (lumped,) = result.physics.lumped_members
+    section = lumped.section
+    assert (section.second_moment_y, section.second_moment_of_area, section.fibre_y, section.fibre_z) == (
+        pytest.approx(1e-8, rel=1e-15),
+        pytest.approx(3e-8, rel=1e-15),
+        pytest.approx(0.02, rel=1e-15),
+        pytest.approx(0.01, rel=1e-15),
+    )
+    assert section.area == pytest.approx(2e-4, rel=1e-15)
+
+
 @pytest.mark.req("DES-033")
 @pytest.mark.req("LIB-030")
 def test_section_may_come_from_a_flexible_beam_catalog_part() -> None:

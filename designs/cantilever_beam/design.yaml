@@ -1,0 +1,35 @@
+# Cantilever beam (ACC-040, ACC-041): the catalog's 10 mm square steel bar (steel_bar_10mm_1m: A 1e-4 m^2, I 8.333e-10 m^4, L 1 m,
+# E 200 GPa, rho 7850 kg/m^3; E I = 166.67 N m^2, rho A = 0.785 kg/m) clamped at the world origin, free at x = 1 m, under its own
+# weight w = rho A g = 7.70085 N/m along -y, released straight at rest. Lumped chain of 8 segments (ruling 31).
+name: cantilever_beam
+version: 1.0.0
+source_hash: unset
+status: release
+description: Steel bar clamped at one end under its own weight (ACC-040, ACC-041).
+environment:
+  gravity: [0 m/s**2, -9.81 m/s**2, 0 m/s**2]
+  ambient_temperature: 298.15 K
+bodies:
+  - name: bar
+    material: aluminium_6063_t5_extrusion
+    process:
+      kind: extrusion
+    geometry:
+      kind: primitives
+      shapes:
+        - shape: box
+          position: [0.5 m, 0 m, 0 m]
+          size: [1 m, 0.01 m, 0.01 m]
+    catalog_part:
+      type: flexible_beam
+      part: steel_bar_10mm_1m
+    flexible:
+      supports: [clamped, free]
+      segments: 8
+joints:
+  - name: bar_mount
+    type: fixed
+    parent: world
+    child: bar
+    placement:
+      position: [0 m, 0 m, 0 m]

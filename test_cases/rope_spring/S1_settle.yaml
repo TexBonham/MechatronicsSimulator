@@ -1,0 +1,32 @@
+# Settle time of a step response (ACC-039): the bob on its one-segment rope released at the rest length under
+# gravity. Linear model M x'' + c x' + k x = M g (x down from the release), M = 1.0175 kg, k = 500 kN/m, c = 50 N s/m:
+# omega_n = 700.99964 rad/s, zeta = 0.03504998, final value x_s = M g / k = 1.996335e-5 m: pose:bob.y (the free
+# joint's coordinate from its placement) settles at -1.996335e-5 m. Band 2 percent of the step, 3.99267e-7 m.
+# Continuous closed form of the envelope x_s e^(-zeta omega_n t) / sqrt(1 - zeta^2) reaching the band: t = ln(50 / sqrt(1 - zeta^2)) / (zeta omega_n) =
+# 0.15924 s. At the 10 microsecond step backward Euler maps each mode s to 1 / (1 - h s), so the envelope decays at
+# sigma = ln|1 - h s| / h = 27.020 /s (ruling 45: x = omega_n h = 0.0070), not zeta omega_n = 24.57 /s; the corrected
+# envelope reaches the band at 0.14481 s. The last exit from the band falls at a peak under the envelope, so up to half
+# a damped period (4.48 ms) earlier; the limit is the corrected value plus the proposed 2 percent (ACC-039).
+id: S1
+title: Mass on a spring-damper, settle time of the gravity step
+design:
+  name: rope_spring
+  version: 1.0.0
+seed: 0
+initial_state:
+  joints: []
+rates:
+  physics_step: 10 us
+physics:
+  adapter: native
+end:
+  at: 0.3 s
+  max_duration: 1 s
+criteria:
+  - name: settle
+    check: settle_time
+    quantity: pose:bob.y
+    band: 3.99267e-7 m
+    target: -1.996335e-5 m
+    comparison: at_most
+    limit: 0.1477 s

@@ -21,8 +21,10 @@ from mechsim.integrity.checks.impact import Impact, ImpactParameters
 from mechsim.integrity.checks.resonance import Resonance, ResonanceParameters
 from mechsim.integrity.checks.strength import Strength
 from mechsim.integrity.plugin import (
+    BodyPoses,
     JointLoads,
     MemberInputs,
+    NodeChain,
     NoParameters,
     RunInputs,
     SectionProperties,
@@ -35,11 +37,6 @@ from mechsim.materials.database import MaterialSet
 # agree to rounding; 1e-9 relative is the proposed tolerance (INT-004, T4) for strength, buckling, fatigue, fastener,
 # impact and resonance.
 EXACT = 1e-9
-# Deflection is maximised over a 201-point grid (spacing h = L / 200). Near the maximum v' = 0, so sampling misses it by
-# at most h^2 max|v''| / 8 with max|v''| = M_max / E I. The references here have v_max / (M_max L^2 / E I) of 1/3
-# (cantilever), 1/12 (simply supported midspan), above 1/24 (off-centre) and 1/24 (clamped-clamped), so the relative
-# miss is at most 24 / 8 (h / L)^2 = 7.5e-5; 1e-3 relative is the proposed tolerance (INT-006).
-DEFLECTION = 1e-3
 
 LENGTH = 0.5
 WIDTH = 0.02
@@ -89,9 +86,13 @@ def constant(
 
 
 def member(
-    loads: Wrenches, supports=((0.0, "clamped"),), name: str = "rail", frequency: float | None = None
+    loads: Wrenches,
+    supports=((0.0, "clamped"),),
+    name: str = "rail",
+    frequency: float | None = None,
+    nodes: NodeChain | None = None,
 ) -> MemberInputs:
-    return MemberInputs(name, "fake", SECTION, tuple(supports), loads, natural_frequency=frequency)
+    return MemberInputs(name, "fake", SECTION, tuple(supports), loads, natural_frequency=frequency, nodes=nodes)
 
 
 def inputs(members: Sequence[MemberInputs], rows: int, dt: float = 1e-3, **extra: object) -> RunInputs:
@@ -105,6 +106,28 @@ def cantilever(load: float, rows: int = 3) -> Wrenches:
     return constant(
         rows, start_force=(0.0, load, 0.0), start_moment=(0.0, 0.0, load * LENGTH), end_force=(0.0, -load, 0.0)
     )
+
+
+def cantilever_poses(tips: Sequence[Sequence[float]]) -> tuple[tuple[NodeChain, ...], BodyPoses]:
+    """Node poses of cantilevers along world x clamped at the origin, one chain of 8 nodes per entry of `tips` (its
+    tip deflection per row, along -y): interior nodes on the tip-load shape v(x) = v_L x^2 (3 L - x) / (2 L^3) at
+    x_j = (j + 1/2) l, the last node level at (L - l/2, -v_L), so its far end is (L, -v_L) and the node-pose
+    deflection (distance from the root tangent, world x) is abs(v_L) to rounding."""
+    count = 8
+    segment = LENGTH / count
+    rows = len(tips[0])
+    positions = np.zeros((rows, count * len(tips), 3))
+    orientations = np.zeros((rows, count * len(tips), 4))
+    orientations[:, :, 0] = 1.0
+    chains: list[NodeChain] = []
+    for k, chain_tips in enumerate(tips):
+        for row, tip in enumerate(chain_tips):
+            for j in range(count - 1):
+                x = (j + 0.5) * segment
+                positions[row, k * count + j] = (x, -tip * x * x * (3.0 * LENGTH - x) / (2.0 * LENGTH**3), 0.0)
+            positions[row, k * count + count - 1] = (LENGTH - 0.5 * segment, -tip, 0.0)
+        chains.append(NodeChain(k * count, count, "clamped", None, (0.0, 0.0, 0.0), (1.0, 0.0, 0.0, 0.0), segment))
+    return tuple(chains), BodyPoses(positions, orientations)
 
 
 def report(name: str, target: float, measured: float) -> None:
@@ -184,72 +207,177 @@ def test_strength_tier_two_adds_shear_and_von_mises() -> None:
     assert rows[1].margin.typ == pytest.approx(25e6 / shear, rel=EXACT)
 
 
-def _deflection(loads: Wrenches, supports) -> float:  # type: ignore[no-untyped-def]
-    (row,) = (
-        Deflection().evaluate(inputs([member(loads, supports)], loads.start_force.shape[0]), NoParameters(), 1).rows
+# ===== Deflection from node poses (INT-006, ruling 28) ===================
+#
+# A lumped chain (ENG-022: N rigid segments, spring k = E I / l at x_j = (j + 1/2) l) is settled on the own engine under
+# a held load and its body poses go to the check as the recorder would publish them. Node damping D = (2 / omega_c) K
+# (omega_c the closed-form first mode) puts every mode at zeta_i = omega_i / omega_c >= 1, so 3 s at omega_c >= 50
+# rad/s leave exp(-75) of the transient (lumped_beam_support.settled_deflection). Reference lines (INT-006 row): the
+# clamped root's tangent for a member with a clamped root, the chord from the pin for a pinned root.
+#
+# Chain closed forms (core/engine lumped_beam.hpp, unit-load method, the chain being the midpoint rule of
+# integral M m / E I):
+#   cantilever tip load:          P L^3 / (3 E I)   (1 - 1 / (4 N^2)), N = 8: -0.39 %
+#   simply supported centre load: P L^3 / (48 E I)  (1 - 1 / N^2),     N = 8: -1.56 %
+#   clamped-clamped centre load:  P L^3 / (192 E I) (1 - 4 / N^2),     N = 16: -1.56 %
+# For the pinned and clamped spans the central segment straddles midspan and stays level by symmetry, so its two
+# nodes carry the midspan value. Cantilever under its own weight w = rho A g: the chain's tip deflection is
+# sum_j theta_j (L - x_j), theta_j = M(x_j) l / (E I) with M(x_j) = sum_{k >= j} w s_k (c_k - x_j) over the segment
+# bodies (span s_k, centre c_k; the root stub [0, l/2] belongs to the clamp), against w L^4 / (8 E I); the end-load
+# formula read this 17 percent low (5/48 against 1/8). Each value asserts against the continuum within the lumped
+# chain's 2 percent (rulings 31, 32), and against the chain's own value within 1e-6: the settled residual is below
+# exp(-75) and the large-rotation terms are of order theta^2 < 1e-6 at these loads (theta below 6e-4 rad: tip
+# deflections near 3e-4 m on the 1 m bar).
+CHAIN = 0.02
+SETTLED = 1e-6
+BEAM_MODULUS = 70e9
+BEAM_SIDE = 0.01
+BEAM_AREA = BEAM_SIDE**2
+BEAM_I = BEAM_SIDE**4 / 12.0
+BEAM_DENSITY = 2700.0
+BEAM_LENGTH = 1.0
+BETA = {"Cantilever": 1.8751040687119611, "SimplySupported": math.pi, "Clamped": 4.730040744862704}
+
+
+def _rotate_q(q: Sequence[float], v: np.ndarray) -> np.ndarray:
+    w = q[0]
+    u = np.asarray(q[1:], dtype=np.float64)
+    t = 2.0 * np.cross(u, v)
+    return np.asarray(v + w * t + np.cross(u, t), dtype=np.float64)
+
+
+def _settled_chain(
+    ends: str, segments: int, point: tuple[float, float] | None, gravity: float = 0.0
+) -> tuple[MemberInputs, BodyPoses]:
+    """The chain settled under a transverse force -P y at x (point = (x, P)) or its own weight (gravity), as the check's
+    member with its node chain and one row of body poses."""
+    from mechsim.physics.native import _engine as eng
+
+    spec = eng.BeamSpec()
+    spec.youngs_modulus = BEAM_MODULUS
+    spec.area_moment = BEAM_I
+    spec.density = BEAM_DENSITY
+    spec.area = BEAM_AREA
+    spec.length = BEAM_LENGTH
+    spec.segments = segments
+    spec.ends = getattr(eng.BeamEnds, ends)
+    rigidity = BEAM_MODULUS * BEAM_I
+    omega = (BETA[ends] / BEAM_LENGTH) ** 2 * math.sqrt(rigidity / (BEAM_DENSITY * BEAM_AREA))
+    spec.node_damping = 2.0 / omega * rigidity / (BEAM_LENGTH / segments)
+    model = eng.MultibodyModel()
+    model.gravity = np.array([0.0, -gravity, 0.0])
+    beam = eng.add_lumped_beam(model, spec)
+    provider = eng.MultibodyProvider(model)
+    integrator = eng.SemiImplicitEuler(eng.StepConfig())
+    state = eng.State(provider.neutral_positions(), np.zeros(provider.velocity_size()), 0.0)
+    for _ in range(3000):
+        if point is not None:
+            at = eng.beam_point(beam, point[0])
+            body = provider.body_states(state.q, state.v)[at.body]
+            origin = np.asarray(body.position, dtype=np.float64)
+            where = origin + _rotate_q(body.orientation, np.asarray(at.point, dtype=np.float64))
+            centre = origin + _rotate_q(body.orientation, np.asarray(model.bodies[at.body].com, dtype=np.float64))
+            load = np.array([0.0, -point[1], 0.0])
+            provider.apply_body_wrench(at.body, np.cross(where - centre, load), load)
+        provider.step(integrator, state)
+    states = provider.body_states(state.q, state.v)
+    positions = np.asarray([[s.position for s in states]], dtype=np.float64)
+    orientations = np.asarray([[s.orientation for s in states]], dtype=np.float64)
+    bodies = list(beam.bodies)
+    assert bodies == list(range(bodies[0], bodies[0] + len(bodies)))
+    root = "clamped"
+    supports: tuple[tuple[float, str], ...] = ((0.0, "clamped"),)
+    if ends == "SimplySupported":
+        root = "pinned"
+        supports = ((0.0, "pinned"), (BEAM_LENGTH, "roller"))
+    if ends == "Clamped":
+        supports = ((0.0, "clamped"), (BEAM_LENGTH, "clamped"))
+    chain = NodeChain(bodies[0], len(bodies), root, None, (0.0, 0.0, 0.0), (1.0, 0.0, 0.0, 0.0), BEAM_LENGTH / segments)
+    section = SectionProperties(
+        BEAM_AREA, BEAM_MODULUS, BEAM_DENSITY, BEAM_LENGTH, BEAM_I, BEAM_I, BEAM_SIDE / 2, BEAM_SIDE / 2
     )
+    loads = constant(1)
+    return MemberInputs("beam", "fake", section, supports, loads, nodes=chain), BodyPoses(positions, orientations)
+
+
+def _node_deflection(member_inputs: MemberInputs, bodies: BodyPoses) -> float:
+    run = RunInputs(np.zeros(1), (member_inputs,), {"fake": FakeMaterial()}, TEMPERATURE, bodies=bodies)
+    (row,) = Deflection().evaluate(run, NoParameters(), 1).rows
     return row.value
 
 
+def _assert_chain(name: str, continuum: float, chain: float, measured: float) -> None:
+    report(f"{name} (continuum)", continuum, measured)
+    report(f"{name} (chain)", chain, measured)
+    assert abs(measured / continuum - 1.0) <= CHAIN
+    assert measured == pytest.approx(chain, rel=SETTLED)
+
+
 @pytest.mark.req("INT-004", "INT-006")
-def test_deflection_cantilever_tip_is_p_l3_over_3_e_i() -> None:
-    load = 50.0
-    target = load * LENGTH**3 / (3.0 * MODULUS * I_Z)
-    measured = _deflection(cantilever(load), ((0.0, "clamped"),))
-    report("cantilever tip deflection", target, measured)
-    assert measured == pytest.approx(target, rel=DEFLECTION)
-
-
-@pytest.mark.req("INT-006")
-def test_deflection_cantilever_out_of_plane_uses_i_y() -> None:
-    # Tip load +P z: root reaction -P z and, balancing L x (P z) = -P L y, +P L y.
-    load = 5.0
-    loads = constant(
-        2, start_force=(0.0, 0.0, -load), start_moment=(0.0, load * LENGTH, 0.0), end_force=(0.0, 0.0, load)
+def test_deflection_cantilever_tip_load_from_node_poses_is_p_l3_over_3_e_i() -> None:
+    load, n = 0.05, 8
+    member_inputs, bodies = _settled_chain("Cantilever", n, (BEAM_LENGTH, load))
+    continuum = load * BEAM_LENGTH**3 / (3.0 * BEAM_MODULUS * BEAM_I)
+    _assert_chain(
+        "cantilever tip load",
+        continuum,
+        continuum * (1.0 - 1.0 / (4.0 * n * n)),
+        _node_deflection(member_inputs, bodies),
     )
-    target = load * LENGTH**3 / (3.0 * MODULUS * I_Y)
-    measured = _deflection(loads, ((0.0, "clamped"),))
-    report("cantilever z deflection", target, measured)
-    assert measured == pytest.approx(target, rel=DEFLECTION)
 
 
 @pytest.mark.req("INT-006")
-def test_deflection_simply_supported_midspan_is_p_l3_over_48_e_i() -> None:
-    load = 80.0
-    loads = constant(2, start_force=(0.0, load / 2.0, 0.0), end_force=(0.0, load / 2.0, 0.0))
-    target = load * LENGTH**3 / (48.0 * MODULUS * I_Z)
-    measured = _deflection(loads, ((0.0, "pinned"), (LENGTH, "roller")))
-    report("simply supported midspan", target, measured)
-    assert measured == pytest.approx(target, rel=DEFLECTION)
+def test_deflection_cantilever_own_weight_from_node_poses_is_w_l4_over_8_e_i() -> None:
+    n, g = 8, 0.5
+    member_inputs, bodies = _settled_chain("Cantilever", n, None, gravity=g)
+    w = BEAM_DENSITY * BEAM_AREA * g
+    segment = BEAM_LENGTH / n
+    spans = [segment] * (n - 1) + [0.5 * segment]
+    starts = [(j + 0.5) * segment for j in range(n)]
+    centres = [start + 0.5 * span for start, span in zip(starts, spans, strict=True)]
+    chain = 0.0
+    for j, x in enumerate(starts):
+        moment = sum(w * spans[k] * (centres[k] - x) for k in range(j, n))
+        chain += moment * segment / (BEAM_MODULUS * BEAM_I) * (BEAM_LENGTH - x)
+    continuum = w * BEAM_LENGTH**4 / (8.0 * BEAM_MODULUS * BEAM_I)
+    _assert_chain("cantilever own weight", continuum, chain, _node_deflection(member_inputs, bodies))
 
 
 @pytest.mark.req("INT-006")
-def test_deflection_simply_supported_off_centre_load() -> None:
-    # Load P at a from the start, b = L - a: v_max = P b (L^2 - b^2)^(3/2) / (9 sqrt(3) L E I) (a > b).
-    load, a = 60.0, 0.35
-    b = LENGTH - a
-    loads = constant(2, start_force=(0.0, load * b / LENGTH, 0.0), end_force=(0.0, load * a / LENGTH, 0.0))
-    target = load * b * (LENGTH**2 - b**2) ** 1.5 / (9.0 * math.sqrt(3.0) * LENGTH * MODULUS * I_Z)
-    measured = _deflection(loads, ((0.0, "pinned"), (LENGTH, "roller")))
-    report("simply supported off-centre", target, measured)
-    assert measured == pytest.approx(target, rel=DEFLECTION)
-
-
-@pytest.mark.req("INT-006")
-def test_deflection_clamped_clamped_midspan_is_p_l3_over_192_e_i() -> None:
-    # Midspan load P down: reactions P / 2 up, fixed-end moments +P L / 8 (start) and -P L / 8 (end) about z.
-    load = 120.0
-    loads = constant(
-        2,
-        start_force=(0.0, load / 2.0, 0.0),
-        start_moment=(0.0, 0.0, load * LENGTH / 8.0),
-        end_force=(0.0, load / 2.0, 0.0),
-        end_moment=(0.0, 0.0, -load * LENGTH / 8.0),
+def test_deflection_simply_supported_centre_load_from_node_poses_is_p_l3_over_48_e_i() -> None:
+    load, n = 0.2, 8
+    member_inputs, bodies = _settled_chain("SimplySupported", n, (0.5 * BEAM_LENGTH, load))
+    continuum = load * BEAM_LENGTH**3 / (48.0 * BEAM_MODULUS * BEAM_I)
+    _assert_chain(
+        "simply supported centre load",
+        continuum,
+        continuum * (1.0 - 1.0 / (n * n)),
+        _node_deflection(member_inputs, bodies),
     )
-    target = load * LENGTH**3 / (192.0 * MODULUS * I_Z)
-    measured = _deflection(loads, ((0.0, "clamped"), (LENGTH, "clamped")))
-    report("clamped-clamped midspan", target, measured)
-    assert measured == pytest.approx(target, rel=DEFLECTION)
+
+
+@pytest.mark.req("INT-006")
+def test_deflection_clamped_clamped_centre_load_from_node_poses_is_p_l3_over_192_e_i() -> None:
+    load, n = 0.8, 16
+    member_inputs, bodies = _settled_chain("Clamped", n, (0.5 * BEAM_LENGTH, load))
+    continuum = load * BEAM_LENGTH**3 / (192.0 * BEAM_MODULUS * BEAM_I)
+    _assert_chain(
+        "clamped-clamped centre load",
+        continuum,
+        continuum * (1.0 - 4.0 / (n * n)),
+        _node_deflection(member_inputs, bodies),
+    )
+
+
+@pytest.mark.req("INT-006")
+def test_deflection_of_a_member_built_rigid_is_not_evaluated_with_a_note() -> None:
+    result = Deflection().evaluate(inputs([member(cantilever(5.0))], 3), NoParameters(), 1)
+    (row,) = result.rows
+    assert math.isnan(row.value)
+    assert row.flags == ("deflection_not_evaluated",)
+    assert result.notes == (
+        "deflection of 'rail': not evaluated, the member is built rigid and has no node poses (INT-006)",
+    )
 
 
 @pytest.mark.req("INT-004", "INT-007")

@@ -155,6 +155,7 @@ class RunResultSummary(StrictModel):
     report_text: str
     error: RunErrorReport | None
     dry: DrySummary | None
+    notes: list[str] = Field(default_factory=list)
 
 
 class DiffEntry(StrictModel):
@@ -400,6 +401,7 @@ def _summary(result: RunResult, name: str, dry_run: bool = False) -> RunResultSu
         report_text=report_text(SuiteScore(name, score.design, (score,))),
         error=_error_report(result),
         dry=dry,
+        notes=list(score.notes),
     )
 
 

@@ -1,0 +1,26 @@
+# Cantilever under its own weight (ACC-040, ACC-041), released straight at rest. Static tip deflection
+# w L^4 / (8 E I) = 5.775638e-3 m (w = 7.700850 N/m, E I = 166.6667 N m^2); first mode
+# omega_1 = 1.8751^2 sqrt(E I / (rho A L^4)) = 51.2319 rad/s (8.15384 Hz). At the 1 ms step x = omega_1 h = 0.0512:
+# frequency ratio atan(x) / x = 0.99913 (inside 0.1 percent), amplitude kept per period 0.85 (ruling 45), so after
+# 6 s (49 periods) the swing is below 1e-3 of the step and the last sample is the static shape. The peak deflection
+# over the run (the integrity table, INT-006) includes the release overshoot: at most twice the static value.
+id: B1
+title: Cantilever under its own weight
+design:
+  name: cantilever_beam
+  version: 1.0.0
+seed: 0
+initial_state:
+  joints: []
+physics:
+  adapter: native
+end:
+  at: 6 s
+  max_duration: 10 s
+criteria:
+  - name: peak_deflection
+    check: value
+    quantity: deflection:bar
+    statistic: maximum
+    comparison: at_most
+    limit: 11.6 mm
