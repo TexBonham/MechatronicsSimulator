@@ -310,7 +310,9 @@ bodies:
           size: [0.5 m, 0.04 m, 0.06 m]
     flexible:
       section:
-        # The placeholder 40 x 40 mm section of rail_x, both axes and fibres stated (ruling 58).
+        # The placeholder 40 x 40 mm section of rail_x, both axes and fibres stated (ruling 58). rail_y's box above is
+        # 40 x 60 mm, so its own section would put fibre_z at 0.03 m: the shared placeholder stands until the gantry
+        # team states rail_y's section (docs/gantry-team-inputs.md; the rail bends in-plane only, ruling 65).
         area: 1.5e-4 m**2
         second_moment_y: 2e-8 m**4
         second_moment_z: 2e-8 m**4

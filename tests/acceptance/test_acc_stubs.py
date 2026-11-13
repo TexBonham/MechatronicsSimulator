@@ -465,16 +465,12 @@ def test_acc_024(gantry: dict[str, RunResult]) -> None:
 
 
 @pytest.mark.req("BLD-039")
-@pytest.mark.xfail(
-    strict=True,
-    reason="stub (M3-X1d handoff): G3 on the bridge reported no stand-in line; which bridge case hangs a "
-    "payload on payload_rope, and where the line reaches the report, is unchecked",
-)
 def test_bridge_keeps_the_rope_payload_on_its_carrier_with_one_line(gantry: dict[str, RunResult]) -> None:
-    """G3 on the bridge (milestone 2, the design's integrity file present): its payload on payload_rope stays fixed
+    """G7 on the bridge (milestone 2, a 2 kg payload attached to the hook from the start, the design's integrity file
+    present): the line is emitted only for a case payload (G3 has none), so G7's payload on payload_rope stays fixed
     to the hook with one stand-in line naming the rope and the carrier, tier 1 is reported not evaluated, and the
     case still passes (G12 and G15 hang the payload on the rope on native: `native_gantry`)."""
-    result = gantry["G3"]
+    result = gantry["G7"]
     assert result.report is not None
     lines = result.report.approximations
     stand_in = [line for line in lines if line.startswith("payload rope 'payload_rope': not modeled")]
@@ -487,7 +483,10 @@ def test_bridge_keeps_the_rope_payload_on_its_carrier_with_one_line(gantry: dict
 # ===== ACC-025 to ACC-028 ===================================================
 # G12 and G15 on the native adapter (rope payload, 100 microseconds): each runs once per module, archived, so the
 # load case export and the archive digest are checked; the determinism test runs each a second time (invariant 4).
-SWING_A, SWING_G, SWING_L, SWING_V = 0.05, 9.81, 0.3, 0.1
+# The swing's pendulum length L: the hook's rope fitting 0.02 m below the hook origin, the rope's 0.3 m rest length and
+# half the 0.1 m payload box to its centre (the swing is measured from the hook origin to the payload centre): 0.37 m.
+SWING_A, SWING_G, SWING_V = 0.05, 9.81, 0.1
+SWING_L = 0.02 + 0.3 + 0.05
 HOOK_ON_LIMIT = 0.54
 
 
@@ -544,7 +543,7 @@ def test_acc_025(native_gantry: dict[str, tuple[RunResult, CoreDriver]]) -> None
     """Reference design (gantry), G12: after a fast move and after an E-stop, the peak load swing angle
     shall be within its limit.
 
-    The fast move (8 s to 20 s). Limit 0.1 rad (swing_limit_angle, placeholder), scored by the case on the hook's tilt.
+    The fast move (8 s to 20 s). Limit 0.1 rad (swing_limit_angle, placeholder), scored by the case on the swing angle.
     Oracle (G12 header), per axis: each of the six step changes of acceleration (a = 0.05 m/s^2) in the trapezoid with
     its slow zone adds a free swing of at most a / g about an offset of at most a / g, on top of the free swing R0 left
     by homing (measured over the last rope period before 8 s; no damping removes it): theta <= R0 + 7 a / g. The angle
@@ -562,7 +561,7 @@ def test_acc_025(native_gantry: dict[str, tuple[RunResult, CoreDriver]]) -> None
         assert measured <= 0.1
     for name in ("move_swing_x", "move_swing_y"):
         criterion = _criterion(result, name)
-        print(f"G12 {name}: hook tilt {criterion.measured} rad ({criterion.limit})")
+        print(f"G12 {name}: swing {criterion.measured} rad ({criterion.limit})")
         assert criterion.status == "pass", criterion
 
 
@@ -710,12 +709,17 @@ def test_acc_028(gantry: dict[str, RunResult]) -> None:
 # rope and shackle, the carried weights P_c (rail_y and all on it) and P_t (trolley, lift, hook), mid-travel on both
 # rails. Static deflection w L^4 / (384 E I) + (P_c + P) L^3 / (192 E I) clamped-clamped (rail_x), 5 w L^4 / (384 E I)
 # + (P_t + P) L^3 / (48 E I) pinned-roller (rail_y); static moment (P_c + P) L / 8 + w L^2 / 12 and (P_t + P) L / 4 +
-# w L^2 / 8, stress M c / I. The table applies the design's 1.15 again (INT-019). The rigid-body dynamic factor of the
-# acceleration, the drive couple d F and the swing is at most 1.01, so a peak beyond 1.01 x static is the start or the
-# E-stop transient passed from rail_y to rail_x by the feed-forward coupling (finding, G15 header).
+# w L^2 / 8, stress M c / I. The case carries the design load (`integrity.design_load_carried`, TST-043), so the
+# table's factor is 1, and integrity counts from 8 s (`evaluate_from`, TST-044). The rigid-body dynamic factor of the
+# acceleration, the drive couple d F and the swing is at most 1.01, so a peak beyond 1.01 x static is the E-stop
+# transient passed from rail_y to rail_x by the feed-forward coupling (ruling 69). Both tiers read the moment at the
+# node springs (INT-005): the lever rule puts a carried load at mid-span on the nodes at 3.5 l and 4.5 l (rail_y,
+# N = 8), so the chain's own static moment there is (P_t + P) / 2 (3.5 l) + w x (L - x) / 2, the lower oracle; rail_x's
+# governing end moment is the chain's within its 2 percent.
 G15_SPAN = 0.5
 G15_LOAD = 51.286
-G15_TABLE_FACTOR = 1.15
+G15_TABLE_FACTOR = 1.0
+G15_CHAIN = 0.02
 G15_RAILS = {
     "rail_x": (64.087, 51.641, 43.856, 192.0, 384.0 / 1.0, 8.0, 12.0),
     "rail_y": (256.35, 39.710, 9.000, 48.0, 384.0 / 5.0, 4.0, 8.0),
@@ -732,21 +736,32 @@ def _g15_oracle(member: str) -> tuple[float, float]:
     return deflection, moment * 0.02 / 2e-8
 
 
+def _g15_chain_stress(member: str) -> float:
+    """The lumped chain's own static stress (Pa) at its governing spring: rail_y's spring at x = 3.5 l under the
+    lever-ruled carried load and its own weight; rail_x's end moment, the continuum's within the chain's 2 percent."""
+    if member == "rail_x":
+        return _g15_oracle(member)[1] * (1.0 - G15_CHAIN)
+    _, weight, carried, *_ = G15_RAILS[member]
+    x = 3.5 * G15_SPAN / 8.0
+    moment = (carried + G15_LOAD) / 2.0 * x + weight * x * (G15_SPAN - x) / 2.0
+    return moment * 0.02 / 2e-8
+
+
 @pytest.mark.req("ACC-029")
 @pytest.mark.xfail(
     strict=True,
-    reason="finding M3-X1d: at the E-stop rail_y's 50 Hz oscillation drives rail_x at 49.7 Hz through the "
-    "feed-forward carried joint (no energy taken from rail_y): rail_x safety factor 0.11, tier 1 crossings of rail_x "
-    "and both fastenings (1.39 kN, 1.34 kN against 1.33 kN); rail_y's static safety factor at the design load is "
-    "1.56 unfactored, 1.36 with the table's second 1.15 (placeholder section and material)",
+    reason="ruling 69 (A1): at the E-stop rail_y's 50 Hz oscillation drives rail_x at 49.7 Hz through the one-way "
+    "carried joint, which does work rail_y never loses: rail_x's safety factor and tier 1 crossings of rail_x and the "
+    "fastenings in the stop half are not valid until full coupling (milestone 4)",
 )
 def test_acc_029(native_gantry: dict[str, tuple[RunResult, CoreDriver]]) -> None:
     """Reference design (gantry), G15: under maximum acceleration with rated load and an E-stop with a
     swinging load, every member shall stay above the minimum safety factor.
 
-    Minimum 1.5 (design, gantry team 2026-11-11). Each member's table peak stress is printed beside the static oracle
-    M c / I times the table's factor and asserted at most 1.01 times it (the rigid-body dynamic factor); no tier 1
-    crossing; the load case is exported beside the archive.
+    Minimum 1.5 (design, gantry team 2026-11-11). Each member's table peak stress (from 8 s, at the carried design
+    load) is printed beside the static oracles and asserted two-sided: at least the chain's own static stress less its
+    2 percent (the peak includes the settled static state) and at most 1.01 times the continuum's (the rigid-body
+    dynamic factor); no tier 1 crossing; the load case is exported beside the archive.
     """
     result, _ = native_gantry["G15"]
     assert result.metadata is not None
@@ -760,11 +775,13 @@ def test_acc_029(native_gantry: dict[str, tuple[RunResult, CoreDriver]]) -> None
         static = _g15_oracle(member)[1] * G15_TABLE_FACTOR
         print(
             f"G15 {member}: safety factor {row.safety_factor!r} at {row.safety_factor_time!r} s (minimum 1.5), peak "
-            f"stress {row.peak_stress!r} Pa at {row.peak_stress_time!r} s (static oracle x 1.15: {static!r} Pa)"
+            f"stress {row.peak_stress!r} Pa at {row.peak_stress_time!r} s (continuum static {static!r} Pa, chain "
+            f"{_g15_chain_stress(member)!r} Pa)"
         )
     for member in ("rail_x", "rail_y"):
         row = result.metadata.integrity.member(member)
         assert _criterion(result, f"safety_factor_{member}").status == "pass"
+        assert row.peak_stress >= (1.0 - G15_CHAIN) * _g15_chain_stress(member)
         assert row.peak_stress <= 1.01 * _g15_oracle(member)[1] * G15_TABLE_FACTOR
     assert result.score.crossings == ()
     assert result.score.status == "pass"
@@ -773,8 +790,9 @@ def test_acc_029(native_gantry: dict[str, tuple[RunResult, CoreDriver]]) -> None
 @pytest.mark.req("ACC-030")
 @pytest.mark.xfail(
     strict=True,
-    reason="finding M3-X1d: the E-stop transient, passed from rail_y to rail_x by the feed-forward carried joint at "
-    "matched 50 Hz, takes rail_x to 16.8 mm (table) against the 1 cm target; the settled values pass",
+    reason="ruling 69 (A1): the E-stop transient, passed from rail_y to rail_x by the one-way carried joint at "
+    "matched 50 Hz, takes rail_x over the 1 cm target (not valid until full coupling, milestone 4); part (a)'s "
+    "4.2 mm peak of rail_x is the same pumping of the start transient; the settled values pass",
 )
 def test_acc_030(native_gantry: dict[str, tuple[RunResult, CoreDriver]]) -> None:
     """Reference design (gantry), G15: under the same worst cases, member deflection shall stay under the
@@ -782,8 +800,8 @@ def test_acc_030(native_gantry: dict[str, tuple[RunResult, CoreDriver]]) -> None
 
     Target 1 cm (ACC-030 row), the dynamic node-pose peak from 8 s (the conservative reading; the case's settle window
     before it). Settled (14 s to 15 s, both carriages at mid-travel): the case's own criterion within 2 percent of the
-    closed form times the table's factor (G15 header). Peak: at most 1.01 times the static value (the rigid-body
-    dynamic factor) and under the target.
+    closed form (G15 header; the table's factor is 1, the case carrying the design load). Peak: at most 1.01 times the
+    static value (the rigid-body dynamic factor) and under the target.
     """
     result, _ = native_gantry["G15"]
     assert result.metadata is not None
@@ -794,7 +812,7 @@ def test_acc_030(native_gantry: dict[str, tuple[RunResult, CoreDriver]]) -> None
         peak = _criterion(result, f"deflection_{member}")
         print(
             f"G15 {member}: settled {settled.measured} m ({settled.status}), peak from 8 s {peak.measured} m at "
-            f"{peak.worst_time} s ({peak.status}); static oracle x 1.15 {static!r} m"
+            f"{peak.worst_time} s ({peak.status}); static oracle {static!r} m"
         )
     for member in ("rail_x", "rail_y"):
         static = _g15_oracle(member)[0] * G15_TABLE_FACTOR

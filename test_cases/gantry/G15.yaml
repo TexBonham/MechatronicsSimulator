@@ -9,8 +9,7 @@
 #
 # Design load (ruling 52: the case carries it, tier 1 applies no factor): rated load + 15 percent = 4.536 kg x 1.15 =
 # 5.2164 kg on payload_rope (the rated load is the gantry team's 10 lb; the rule is the design's structural section).
-# The post-run table multiplies every recorded load and deflection by the design's 1.15 again (INT-019): the table
-# values below are at 1.3225 times the rated load (finding, reported to the integrity owner).
+# `integrity.design_load_carried` says so, so the post-run table applies factor 1 (TST-043, brief M3-I4).
 # Part (a), maximum acceleration: target (25, 25) at 8 s, both axes at the 0.05 m/s^2 limit to mid-travel of both
 # rails (rail_y at x 0.25 m, the middle of rail_x; the trolley at y 0.25 m, the middle of rail_y), arrived by about
 # 12.75 s, held to 15 s. Part (b), E-stop with a swinging load: target (5, 25) at 15 s, the E-stop at 16.5 s, 1.5 s
@@ -22,23 +21,25 @@
 # Euler's, x = omega h = 0.0312 (rail_x, 49.70 Hz) and 0.0314 (rail_y, 50.00 Hz), amplitude kept 0.907 per period, an
 # e-fold time 2 / (omega^2 h) = 0.205 s. rail_y's start transient drives rail_x at its own frequency through the
 # carried joint (one-way, feed-forward: rail_y does not ride rail_x), so rail_x's transient grows as t exp(-t / tau),
-# peaks at tau and is below 1 percent of the static deflection by about 11 tau = 2.3 s; homing runs to 5.25 s and the
-# deflection criteria start at 8 s. The safety factor (one table sample, the run's minimum) and the tier 1 crossings
-# have no window: the start transient counts in both (finding, reported).
+# peaks at tau and is below 1 percent of the static deflection by about 11 tau = 2.3 s; homing runs to 5.25 s and
+# integrity counts from 8 s (`integrity.evaluate_from`, TST-044: peaks, safety factors and tier 1 crossings; an
+# earlier crossing is recorded as integrity_before_evaluation and does not fail the case), as do the deflection
+# criteria.
 #
 # Oracles (item 1 of brief M3-X1d; E I and w of the calibrated chains: rail_x 64.087 N m^2, 51.641 N/m, 16 segments
 # clamped-clamped; rail_y 256.35 N m^2, 39.710 N/m, 8 segments pinned-roller, rail_calibration 100 N for 1 mm at
 # mid-span, 50 Hz). Static deflection at mid-travel: rail_x w L^4 / (384 E I) + (P_c + P) L^3 / (192 E I), rail_y
-# 5 w L^4 / (384 E I) + (P_t + P) L^3 / (48 E I), with P = 51.286 N (design load, rope and shackle), P_c = 43.856 N
-# (rail_y and everything on it), P_t = 9.000 N (trolley, lift, hook): 1.09767 mm and 0.73848 mm, times 1.15 in the
-# table: 1.26232 mm and 0.84925 mm, the settled criteria's targets (measured on a static run: -1.56 and -1.41 percent,
+# 5 w L^4 / (384 E I) + (P_t + P) L^3 / (48 E I), with P = 51.286 N (design load, rope and 1 g end fitting), P_c = 43.856 N
+# (rail_y and everything on it), P_t = 9.000 N (trolley, lift, hook): 1.09767 mm and 0.73849 mm, the settled
+# criteria's targets (measured on a static run: -1.56 and -1.41 percent,
 # the chain's -1 / N^2 at mid-span; at sixteen segments clamped and eight pinned-roller, ruling 67's L^2 / (4 N^2 a b)
 # is 1.6 percent at mid-span, 2.4 percent at the 0.1 m end of rail_y's travel: eight segments kept). Static bending
 # stress M c / I, c = 0.02 m, I = 2e-8 m^4: rail_x (P_c + P) L / 8 + w L^2 / 12 = 7.02 N m, 7.02 MPa; rail_y
 # (P_t + P) L / 4 + w L^2 / 8 = 8.78 N m, 8.78 MPa: a static safety factor of 13.71 / 8.78 = 1.56 against the
-# placeholder PETG strength (tier 1 limit 9.14 MPa = 13.71 MPa / 1.5), 1.36 with the table's second 1.15, under the
-# 1.5 minimum (finding against the placeholder rail section and material; the post-run table reads rail_y from its
-# end loads only, zero moment at pinned ends, and shows 9.4: finding against the strength check). Dynamic factor of the rigid-body loads: the drive force at d =
+# placeholder PETG strength (tier 1 limit 9.14 MPa = 13.71 MPa / 1.5), just above the 1.5 minimum. Both tiers read
+# the moment at every node spring (INT-005, brief M3-I4); the lever rule puts rail_y's carried load on the nodes at
+# 3.5 l and 4.5 l, so the chain's moment there, (P_t + P) / 2 (3.5 l) + w x (L - x) / 2 = 7.82 N m, is 11 percent
+# under the continuum's mid-span peak (a point load between springs reads x_k / a of P a b / L; finding). Dynamic factor of the rigid-body loads: the drive force at d =
 # 0.04 m above rail_x's axis adds d m a = 0.02 N m at 0.05 m/s^2 (0.3 percent), the swing adds m g theta^2 (under 0.5
 # percent at 0.07 rad), the carriage crosses the rail slowly against its 50 Hz mode: 1.01 at most.
 # Measured (M3-X1d, native): settled rail_x 1.2427 mm, rail_y 0.8373 mm (table); part (a) peak rail_x 4.20 mm, rail_y
@@ -61,6 +62,8 @@ physics:
   substeps: 10
 integrity:
   halt_on_crossing: false
+  design_load_carried: true
+  evaluate_from: 8 s
 open_parameters:
   - name: design_load_mass
     dimension: "[mass]"
@@ -138,7 +141,7 @@ criteria:
       start: 14 s
       end: 15 s
     comparison: within
-    target: 1.2623195e-3 m
+    target: 1.0976722e-3 m
     relative_limit: "0.02"
   - name: deflection_rail_y
     check: value
@@ -156,5 +159,5 @@ criteria:
       start: 14 s
       end: 15 s
     comparison: within
-    target: 8.492532e-4 m
+    target: 7.384859e-4 m
     relative_limit: "0.02"
