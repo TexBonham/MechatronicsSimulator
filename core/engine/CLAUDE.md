@@ -87,6 +87,10 @@ and M_p . z (member frame, ruling 65); axial, out-of-plane and torsion stay on t
 at the same points, added in `applied_body_wrenches` (so `evaluate`, joint reactions and end loads see it). Explicit,
 one step lagged, not in K, D or H. `outputs().carried` per carried joint; `MemberOutput::carried_deflection` per member;
 `carried_generalized_forces(q)` for the energy oracle. Foot point off [0, L] by more than `drift_threshold_m`: InvalidModelError.
+Lag stability (brief M3-E7b, header Stability): at the first step, modes of K, M on the loop null space; per joint
+`CarriedLoadOutput::inverse_inertia`, `lag_ratio`, `lag_omega_h`, `lag_factor` (damped spectral radius,
+`lag_spectral_radius`; one mode `lag_growth_factor`, boundary `lag_stability_boundary` = (1 + x^2) / 2); undamped
+radius > 1 refused (InvalidModelError, ruling 67); `MultibodyConfig::refuse_unstable_carried` is a test seam only.
 Mid-run changes (ENG-031 to 034), next step on, each listed in the next step's `outputs().events` (`ModelChange`):
 `set_spring_offset(member, node, offset)` (rest = built + offset), `set_spring_stiffness(member, node, k)`,
 `disable_constraint(c)` / `release_load(c)` (zero rows; twice throws), `release_rope(r)` (same path); `constraint_enabled`, `rope_attached`.

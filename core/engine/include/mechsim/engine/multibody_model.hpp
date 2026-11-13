@@ -99,6 +99,9 @@ struct MultibodyConfig {
     // Below this relative rate Coulomb friction (the rope attachment's and the joints') acts as the viscous damping
     // friction / threshold, so D stays bounded at zero rate; at and above it the torque is the full Coulomb value.
     double friction_slip_threshold = default_friction_slip_threshold;  // finite, > 0
+    // Test seam only (brief M3-E7b): false runs a carried joint whose lagged load path grows instead of refusing it,
+    // so a test can measure the growth the derivation in member_loads.hpp predicts. Never set by an adapter.
+    bool refuse_unstable_carried = true;
 };
 
 }  // namespace mechsim::engine

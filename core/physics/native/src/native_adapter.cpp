@@ -353,6 +353,7 @@ struct NativeAdapter::Engine {
     std::vector<Eigen::Index> node_bodies;  // member chain bodies, published after the neutral bodies, in order
     std::vector<kernel::JointDrive> previous_drives;  // last tick's enabled drives: joint, end rest, K, D
     std::shared_ptr<DrivenSchemeDecayRecord> scheme_decay;       // joint order, largest over the run
+    std::shared_ptr<CarriedRecord> carried;                      // per member, deflection and lag (ENG-052)
 };
 
 namespace {
@@ -453,6 +454,8 @@ void NativeAdapter::load(const kernel::PreparedModel& prepared, const kernel::Ra
     auto e = std::make_unique<Engine>();
     decay_record_->values.clear();
     e->scheme_decay = decay_record_;
+    carried_record_->members.clear();
+    e->carried = carried_record_;
     e->rate = physics_rate;
     try {
         const json::Value doc = json::Value::parse(prepared.neutral_model_json);
@@ -722,6 +725,7 @@ void NativeAdapter::load(const kernel::PreparedModel& prepared, const kernel::Ra
             e->node_bodies.insert(e->node_bodies.end(), beam.bodies.begin(), beam.bodies.end());
         }
         e->carried_deflection.assign(model.members.size(), 0.0);
+        e->carried->members.assign(model.members.size(), CarriedMemberRecord{});
         e->extras.dofs.assign(static_cast<std::size_t>(provider.velocity_size()), DofExtras{});
         for (std::size_t b = 0; b < doc_bodies; ++b) {
             const eng::Body& body = model.bodies[b];
@@ -1083,6 +1087,18 @@ void NativeAdapter::step() {
             e.carried_deflection[m] =
                 std::max(e.carried_deflection[m], provider.outputs().members[m].carried_deflection);
         }
+        for (const eng::CarriedLoadOutput& c : provider.outputs().carried) {
+            CarriedMemberRecord& record = e.carried->members.at(static_cast<std::size_t>(c.member));
+            const double boundary = eng::lag_stability_boundary(c.lag_omega_h);
+            if (c.lag_ratio / boundary > record.lag_ratio / eng::lag_stability_boundary(record.lag_omega_h)) {
+                record.lag_ratio = c.lag_ratio;
+                record.lag_omega_h = c.lag_omega_h;
+            }
+            record.lag_factor = std::max(record.lag_factor, c.lag_factor);
+        }
+        for (std::size_t m = 0; m < e.carried_deflection.size(); ++m) {
+            e.carried->members.at(m).deflection = e.carried_deflection[m];
+        }
     }
     e.last_health.max_constraint_drift = drift;
     e.last_health.iterations = iterations;
@@ -1250,6 +1266,8 @@ std::shared_ptr<const DrivenSchemeDecayRecord> NativeAdapter::scheme_decay_recor
 std::vector<double> NativeAdapter::carried_deflection() const {
     return engine("carried_deflection").carried_deflection;
 }
+
+std::shared_ptr<const CarriedRecord> NativeAdapter::carried_record() const { return carried_record_; }
 
 // ===== Mid-run changes ===================================================
 

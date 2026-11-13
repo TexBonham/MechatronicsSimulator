@@ -213,7 +213,8 @@ private:
     void add_carried_wrenches(const Kinematics& kin, const std::vector<spatial::Vector6d>& loads,
                               std::vector<spatial::Vector6d>& wrenches) const;
     [[nodiscard]] std::vector<spatial::Vector6d> static_carried_loads(const Kinematics& kin) const;
-    void prepare_carried(const State& before);
+    void prepare_carried(const State& before, double h);
+    void check_carried_stability(const State& before, double h);
     void record_members_and_ropes(const State& before, const State& after, double h);
     void check_constraint_change(Eigen::Index constraint) const;
     ModelChangeEvent release_load(LoadSource source, Eigen::Index target, double time);
@@ -276,6 +277,7 @@ private:
     std::vector<CarriedJoint> carried_;               // member order, then each member's carried order
     std::vector<spatial::Vector6d> carried_load_;     // per carried_, world-aligned [M about r_c; F] on the member
     bool carried_ready_ = false;                      // carried_load_ holds a reaction (else computed at step start)
+    std::vector<CarriedLoadOutput> carried_stability_;  // per carried_, the lag's stability fields at load
     // Written by the const step hooks for step(); single-threaded by ENG-023.
     mutable std::vector<Eigen::VectorXd> impulse_;
     mutable std::vector<ConstraintError> error_;

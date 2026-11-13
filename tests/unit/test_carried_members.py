@@ -189,10 +189,13 @@ def test_the_translation_writes_the_carried_body_index_and_the_approximation_lin
 # ===== A run through the native adapter =================================
 
 
-def _record(model: PhysicsModel, ticks: int) -> Recording:
+def _record(model: PhysicsModel, ticks: int, document: str | None = None) -> Recording:
     prepared = prepare_model(model, None, 1e-3)
+    text = prepared.model_json
+    if document is not None:
+        text = document
     adapter = core.make_physics_adapter("native")
-    adapter.load(core.PreparedModel(prepared.model_json, "", prepared.version), core.Rate(1000))
+    adapter.load(core.PreparedModel(text, "", prepared.version), core.Rate(1000))
     party_config = core.PhysicsPartyConfig()
     party_config.rate = core.Rate(1000)
     party_config.inputs = []
@@ -303,3 +306,51 @@ def test_the_adapter_records_the_run_largest_carried_deflection() -> None:
     for _ in range(20):
         adapter.step()
     assert adapter.carried_deflection()[0] > 0.0
+
+
+@pytest.mark.req("PHY-035", "ENG-052")
+def test_a_run_reports_each_carrying_member_s_deflection_and_lag_after_the_run() -> None:
+    """The shared record outlives the adapter the party takes (as CoreDriver reads it at run end): the carrying member's
+    largest deflection is the adapter's own value, and the parent fixed to the world gives the feed-forward line."""
+    model = _physics(_design(["slide"]))
+    prepared = prepare_model(model, None, 1e-3)
+    adapter = core.NativeAdapter()
+    adapter.load(core.PreparedModel(prepared.model_json, "", prepared.version), core.Rate(1000))
+    record = adapter.carried_record()
+    assert record.values() == [(0.0, 0.0, 0.0, 0.0)]
+    for _ in range(50):
+        adapter.step()
+    deflection = adapter.carried_deflection()[0]
+    assert deflection > 0.0
+    assert record.values() == [(deflection, 0.0, 0.0, 0.0)]
+    lines = translate.carried_member_lines(model, record.values())
+    assert len(lines) == 1
+    assert lines[0].startswith("lumped member 'bar_beam': largest deflection at a carried joint over the run")
+    assert f"{deflection:.6g} m" in lines[0]
+    assert "parent fixed across the member" in lines[0]
+    assert translate.carried_member_lines(_physics(_design([])), [(0.0, 0.0, 0.0, 0.0)]) == ()
+    free = translate.carried_member_lines(model, [(1e-4, 0.25, 0.1, 0.999)])
+    assert "lag ratio r 0.25 against its boundary (1 + x^2) / 2 = 0.505 at omega h 0.1" in free[0]
+    assert "largest per-step factor 0.999" in free[0]
+
+
+@pytest.mark.req("PHY-035")
+def test_a_member_carrying_nothing_records_identically_with_the_field_absent_or_empty() -> None:
+    """The no-carry path is inert (PHY-035): `carried` absent (as the translation writes it) and `carried: []` give
+    bit-identical recordings."""
+    model = _physics(_design([]))
+    absent = prepare_model(model, None, 1e-3).model_json
+    document = json.loads(absent)
+    assert "carried" not in document["members"][0]
+    document["members"][0]["carried"] = []
+    first = _record(model, 300)
+    second = _record(model, 300, json.dumps(document))
+    assert sorted(second.series) == sorted(first.series)
+    for path, series in first.series.items():
+        left = np.asarray(series.values)
+        right = np.asarray(second.series[path].values)
+        if left.dtype.kind in "fiub":
+            assert left.tobytes() == right.tobytes(), path
+        else:
+            assert left.tolist() == right.tolist(), path
+    assert second.events == first.events

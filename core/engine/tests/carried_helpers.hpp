@@ -54,7 +54,7 @@ constexpr double parent_mass = 5.0;
 // The parent: the world, a 5 kg body fixed to the world, or a 5 kg body on a world prismatic joint along y (across
 // the member, in its bending plane).
 inline CarriedRig carried_rig(BeamEnds ends, int segments, double carriage_mass, double offset, bool carry,
-                              ParentKind kind = ParentKind::World) {
+                              ParentKind kind = ParentKind::World, double damping_scale = 1.0) {
     CarriedRig rig;
     rig.model.gravity = Eigen::Vector3d(0.0, -rig_gravity, 0.0);
     if (kind != ParentKind::World) {
@@ -73,7 +73,7 @@ inline CarriedRig carried_rig(BeamEnds ends, int segments, double carriage_mass,
     rig.spec = steel_bar(1.0, ends, segments);
     const double omega = first_mode_factor(ends) * frequency_scale(rig.spec);
     rig.beta = 2.0 / omega;
-    rig.spec.node_damping = rig.beta * flexural_rigidity(rig.spec) / (rig.spec.length / segments);
+    rig.spec.node_damping = damping_scale * rig.beta * flexural_rigidity(rig.spec) / (rig.spec.length / segments);
     static_cast<void>(add_lumped_beam(rig.model, rig.spec, rig.parent));
     Body carriage;
     carriage.parent = rig.parent;

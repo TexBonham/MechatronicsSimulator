@@ -83,13 +83,40 @@ struct MemberOutput {
 // first start state by Newton-Euler at zero acceleration, so a carried body at rest puts its static weight on the
 // member from the first step. The pair is explicit (lagged); it is not in K, D or the mass matrix.
 //
-// Stability. Along a direction in which P moves (a translation across the member), C's inertia is in P's row of
-// the mass matrix (implicit) and the pair returns m_c a_{n-1} to P one step late while taking it from the nodes.
-// For P rigidly holding the nodes the update of P's acceleration is the fixed-point iteration
-//   (m_p + m_c) a_n = R + m_c a_{n-1}   (R the rest of P's load)
-// with factor r = m_c / (m_p + m_c) < 1 for any mass ratio: it converges, the error shrinking by r per step. For a
-// constant acceleration the reaction is constant after the first step and the lag error is zero; a step change da
-// in acceleration leaves the rerouted load off by m_c da for one step only (m_c j h under a constant jerk j).
+// Stability (brief M3-E7b). C's inertia sits in P's row of the mass matrix (implicit); the pair takes m_c a_{n-1}
+// (a the carried subtree's acceleration across the member, m_c its mass) off P and puts it on the nodes one step
+// late. On a parent fixed in the bending plane a = 0: the pair is feed-forward (gravity, applied loads) and always
+// stable. On a parent that can move there the lag feeds back through the member's bending modes. With the
+// coordinates q, mass matrix M (C included), J_c the subtree's centre-of-mass Jacobian along y, J_P the parent's
+// and J_n the lever-weighted nodes' point Jacobians along y at the load, the pair's generalized force is
+// m_c (J_P - J_n)^T J_c q''_{n-1}. Project on an M-normalised bending mode phi (K phi = omega^2 M phi, on the null
+// space of the loop constraints), dropping the lag's coupling between modes: with u the modal coordinate
+//   u''_n - r u''_{n-1} + 2 zeta omega u'_{n+1} + omega^2 u_{n+1} = 0,   r = m_c (J_c phi) ((J_P - J_n) phi),
+// zeta = phi^T D phi / (2 omega). For one lumped node of mass mu on a parent of mass m_p this is the review's
+// alpha u''_n - beta u''_{n-1} + k u = 0 with r = beta / alpha = m_c / (m_p + m_c); a distributed mode adds the
+// shape factor phi(s) sum m phi / sum m phi^2 (4 / pi for the pinned-pinned first mode at midspan).
+// The engine's scheme (backward Euler in K and D: v_{n+1} = v_n + h u''_n, u_{n+1} = u_n + h v_{n+1}) with
+// u_n = z^n gives, x = omega h,
+//   (1 + 2 zeta x + x^2) z^3 - (2 + r + 2 zeta x) z^2 + (1 + 2 r) z - r = 0
+// (r = 0: z = 0 and backward Euler's 1 / (1 -+ i x)). The growth factor is the largest |z| (lag_growth_factor).
+// Undamped, z = e^(i theta) on the unit circle needs cos theta = 1 / (1 + x^2) and then r = (1 + x^2) / 2: the
+// mode grows exactly when r > (1 + x^2) / 2 (lag_stability_boundary), to leading order
+//   |z| = 1 + x^2 (2 r - 1) / (2 (1 - r)^2),
+// a negative damping above r = 1/2 that backward Euler's x^2 / 2 offsets only at a coarse step (the h -> 0 limit
+// of the boundary is r = 1/2: m_c > m_p for the lumped node). At load (the first step's start state) the engine
+// computes, per carried joint, the inverse inertia J_P M^-1 J_P^T on the constrained space (zero: P fixed in the
+// plane, no check) and r, x of every coupled mode; the decision does not drop the coupling between modes (measured:
+// the diagonal r of the pinned-pinned free-parent rig is about 0.7 % low near the boundary, enough to turn a decay
+// of 1e-4 per step into one of 4e-4): it takes the spectral radius of the whole linear step on every elastic mode
+// with the full rank-one-per-joint lag (lag_spectral_radius; one mode: exactly the cubic above). It refuses the
+// model (InvalidModelError naming the member, the joint closest to its boundary and its r) when the undamped radius
+// exceeds 1 (ruling 67: refuse, never clamp), and otherwise publishes per joint the mode closest to its boundary
+// (CarriedLoadOutput::lag_ratio, lag_omega_h) and the damped radius (lag_factor). The check is linear at the load
+// configuration (a carriage moving along the member changes r with phi(s)); the moment channel (C's rotary inertia
+// about z on a rotating parent) is not checked.
+// Full (implicit) coupling is milestone 4. For a constant acceleration the reaction is constant after the first
+// step and the lag error is zero; a step change da in acceleration leaves the rerouted load off by m_c da for one
+// step only (m_c j h under a constant jerk j).
 // Energy. The pair does work only through the members' deflection (its two halves act at the same points), so on
 // a rigid configuration it does none; with a constant load it is the potential -F_y u(p) - M_z theta(p) of the
 // deflection under the load, and the scheme's energy E (kinetic, gravitational, elastic) satisfies
@@ -106,7 +133,22 @@ struct CarriedLoadOutput {
     Eigen::Index node = 0;       // k: the load is on nodes k and k + 1 (0 = the root node, x = 0)
     double weight = 1.0;         // w_k; node k + 1 takes 1 - w_k
     double deflection = 0.0;     // (w_k p_k + w_{k+1} p_{k+1} - p) . y, m
+    // The lag's stability at load (Stability above); constant over the run, 0 on a parent fixed in the plane.
+    double inverse_inertia = 0.0;  // J_P M^-1 J_P^T at the load, 1/kg
+    double lag_ratio = 0.0;        // r of the coupled mode closest to its boundary
+    double lag_omega_h = 0.0;      // x = omega h of that mode
+    double lag_factor = 0.0;       // per-step |z| of the coupled modes together, damped (< 1 decays)
 };
+
+// Largest |z| of (1 + 2 zeta x + x^2) z^3 - (2 + r + 2 zeta x) z^2 + (1 + 2 r) z - r = 0 (Stability above).
+[[nodiscard]] double lag_growth_factor(double r, double x, double zeta);
+// The undamped boundary: a mode grows exactly when r > (1 + x^2) / 2.
+[[nodiscard]] double lag_stability_boundary(double x);
+// The coupled modes together, without dropping the lag's coupling between them: the largest |z| of the linear step
+// on (u_n, v_n, a_{n-1}) for M-normalised modes, lag the modal B (B_pq = sum over carried joints of
+// m_c ((J_P - J_n) phi_p) (J_c phi_q)), omega_squared the modes' K, damping the modal D. One mode: lag_growth_factor.
+[[nodiscard]] double lag_spectral_radius(const Eigen::MatrixXd& lag, const Eigen::VectorXd& omega_squared,
+                                         const Eigen::MatrixXd& damping, double h);
 
 // The member's load nodes, root to tip: x along the member, the body holding the point (-1 the world) and the point
 // in that body's frame.
