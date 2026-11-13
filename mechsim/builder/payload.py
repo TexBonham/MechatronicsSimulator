@@ -9,13 +9,14 @@ released, ruling 24) makes it a child of the carrier on a fixed joint `<name>_fi
 reads that joint's reaction. Otherwise it is a free body on `<name>_free` under world and the run's payload argument
 welds it to its carrier (`prepare_model(..., payloads=)`), for a mid-run attach or release.
 
-`rope` (a design rope ending at this payload, `BuildResult.payload_ropes`, BLD-032) hangs the payload on it instead:
-a shackle body `<name>_shackle` (mass `SHACKLE_MASS`, no shapes) on the fixed joint `<name>_fixed` at the rope's
-`from_point` of its carrier (the rope's `from_body`), so a load cell reading the payload's joint reaction reads the
-rope's top; the payload a free body on `<name>_free` under world, its top face centre plus the rope's `to_point`
-the rope's rest length below the shackle along gravity with the carrier at the run's start coordinates (`starts`, joint
-name to coordinate: the engine builds the rope between its end points at the start configuration), so the rope starts
-straight at rest length; the rope from the shackle to that point. The run never welds a rope payload.
+`rope` (a design rope ending at this payload, `BuildResult.payload_ropes`, BLD-032) hangs the payload on it instead: a
+shackle body `<name>_shackle` (mass `fitting_mass`, the rope part's `end_fitting_mass`, LIB-020; no shapes) on the fixed
+joint `<name>_fixed` at the rope's `from_point` of its carrier (the rope's `from_body`), so a load cell reading the
+payload's joint reaction reads the rope's top; the payload a free body on `<name>_free` under world, its top face centre
+plus the rope's `to_point` the rope's rest length below the shackle along gravity with the carrier at the run's start
+coordinates (`starts`, joint name to coordinate: the engine builds the rope between its end points at the start
+configuration), so the rope starts straight at rest length; the rope from the shackle to that point. The run never welds
+a rope payload.
 """
 
 from __future__ import annotations
@@ -29,8 +30,6 @@ from mechsim.physics.neutral import Body, PhysicsModel, Rope
 
 PAYLOAD_EDGE = 0.1
 PAYLOAD_CLEARANCE = 0.01
-# The rope's top fitting: light against any payload, so the reaction at <payload>_fixed is the rope's top tension.
-SHACKLE_MASS = 1e-3
 SHACKLE_EDGE = 0.01
 
 
@@ -112,6 +111,7 @@ def with_payload(
     fixed: bool = False,
     rope: Rope | None = None,
     starts: Mapping[str, float] | None = None,
+    fitting_mass: float | None = None,
 ) -> PhysicsModel:
     bodies = {body.name: body for body in model.bodies}
     if name in bodies:
@@ -121,7 +121,11 @@ def with_payload(
     if not mass > 0.0:
         raise BuildError([f"payload '{name}': mass must be positive, got {mass}"])
     if rope is not None:
-        return _on_rope(model, name, carrier, mass, rope, starts)
+        if fitting_mass is None or not fitting_mass > 0.0:
+            raise BuildError(
+                [f"payload '{name}': rope '{rope.name}' needs a positive end fitting mass, got {fitting_mass}"]
+            )
+        return _on_rope(model, name, carrier, mass, rope, starts, fitting_mass)
     down = _down(model)
     origin, orientation = _pose(model, carrier)
     drop = _extent(bodies[carrier]) + PAYLOAD_EDGE / 2.0 + PAYLOAD_CLEARANCE
@@ -148,7 +152,13 @@ def _down(model: PhysicsModel) -> tuple[float, float, float]:
 
 
 def _on_rope(
-    model: PhysicsModel, name: str, carrier: str, mass: float, rope: Rope, starts: Mapping[str, float] | None
+    model: PhysicsModel,
+    name: str,
+    carrier: str,
+    mass: float,
+    rope: Rope,
+    starts: Mapping[str, float] | None,
+    fitting_mass: float,
 ) -> PhysicsModel:
     if rope.to_body != name:
         raise BuildError([f"payload '{name}': rope '{rope.name}' ends at '{rope.to_body}', not at this payload"])
@@ -165,10 +175,10 @@ def _on_rope(
     anchor = _q_rot(orientation, rope.from_point)
     top = tuple(-PAYLOAD_EDGE / 2.0 * down[index] + float(rope.to_point[index]) for index in range(3))
     centre = [origin[index] + anchor[index] + rope.rest_length * down[index] - top[index] for index in range(3)]
-    inertia = SHACKLE_MASS * SHACKLE_EDGE * SHACKLE_EDGE / 6.0
+    inertia = fitting_mass * SHACKLE_EDGE * SHACKLE_EDGE / 6.0
     fitting = {
         "name": shackle,
-        "mass": f"{SHACKLE_MASS!r} kg",
+        "mass": f"{fitting_mass!r} kg",
         "com": ["0.0 m", "0.0 m", "0.0 m"],
         "inertia": {"ixx": f"{inertia!r} kg*m**2", "iyy": f"{inertia!r} kg*m**2", "izz": f"{inertia!r} kg*m**2"},
         "material": bodies[carrier].material,

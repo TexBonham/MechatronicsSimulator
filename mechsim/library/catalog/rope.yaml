@@ -1,6 +1,7 @@
 # Rope (LIB-020): the ADR 0016 element, a lumped chain of point masses joined by tension-only springs. Axial
 # stiffness EA (N), strain-rate damping (N s; a segment of length l gets EA / l and damping / l), mass per length,
-# an optional breaking tension (tier 2 snap, its own tier; absent, the rope never snaps, ruling 19) and rest length.
+# an optional breaking tension (tier 2 snap, its own tier; absent, the rope never snaps, ruling 19), rest length and
+# the top end fitting's mass (the shackle a case payload's rope hangs from, default 1 g, LIB-020).
 # A design names a part in `ropes` (BLD-032). Part values are placeholders.
 types:
   - name: rope
@@ -27,9 +28,14 @@ types:
         dimension: "[length]"
         minimum: "0 m"
         minimum_exclusive: true
+      - name: end_fitting_mass
+        dimension: "[mass]"
+        minimum: "0 kg"
+        minimum_exclusive: true
+        default: "1 g"
     tiers:
       - name: ideal
-        parameters: [axial_stiffness, damping, mass_per_length, rest_length]
+        parameters: [axial_stiffness, damping, mass_per_length, rest_length, end_fitting_mass]
       - name: breaking
         parameters: [breaking_tension]
     mechanical:
@@ -65,4 +71,5 @@ parts:
       mass_per_length: "0.035 kg/m"
       breaking_tension: "5 kN"
       rest_length: "0.3 m"
-    placeholders: [axial_stiffness, damping, mass_per_length, breaking_tension, rest_length]
+      end_fitting_mass: "1 g"
+    placeholders: [axial_stiffness, damping, mass_per_length, breaking_tension, rest_length, end_fitting_mass]

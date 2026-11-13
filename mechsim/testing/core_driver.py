@@ -463,6 +463,7 @@ class CoreDriver:
         model, snap_lines = _rope_snap_gate(model, integrity)
         native = self.adapter == NATIVE_ADAPTER
         stand_in: tuple[str, ...] = ()
+        fitting_lines: tuple[str, ...] = ()
         if self._payload is not None:
             name, carrier, mass, _ = self._payload
             fixed = self._payload_fixed()
@@ -472,8 +473,12 @@ class CoreDriver:
                 rope = None
             if rope is not None and not fixed:
                 raise DriverError(f"payload '{name}': hangs on rope '{rope.name}'; a mid-run release has no rope form")
+            fitting: float | None = None
+            if rope is not None:
+                fitting, line = self._fitting(rope.name, name)
+                fitting_lines = (line,)
             try:
-                model = with_payload(model, name, carrier, mass, fixed, rope, self._starts)
+                model = with_payload(model, name, carrier, mass, fixed, rope, self._starts, fitting)
             except BuildError as failure:
                 raise DriverError(str(failure)) from failure
             if not fixed:
@@ -484,7 +489,7 @@ class CoreDriver:
         tier1: Tier1Setup | None = None
         if native:
             prepared_native = prepare_native_model(model, self._starts, step, payloads, config.physics_substeps)
-            self.approximations = (f"physics adapter: {NATIVE_ADAPTER}", *prepared_native.report)
+            self.approximations = (f"physics adapter: {NATIVE_ADAPTER}", *prepared_native.report, *fitting_lines)
             prepared = core.PreparedModel(prepared_native.model_json, "", prepared_native.version)
             tier1 = self._tier1_setup(model, json.loads(prepared_native.model_json))
         else:
@@ -693,6 +698,24 @@ class CoreDriver:
             if rope.to_body == name:
                 return rope
         return None
+
+    def _fitting(self, rope: str, payload: str) -> tuple[float, str]:
+        """The end fitting mass (kg) of the design rope `rope` from its part's `end_fitting_mass` (LIB-020) and the
+        build-note line naming it."""
+        if self._build is None:
+            raise DriverError(f"rope '{rope}': no build")
+        for entry in self._build.design.ropes:
+            if entry.name == rope:
+                part = str(entry.part)
+                value = default_registry().part(part).values["end_fitting_mass"]
+                if not isinstance(value, float):
+                    raise DriverError(f"rope '{rope}': part '{part}' states no end_fitting_mass")
+                line = (
+                    f"rope '{rope}': payload '{payload}' hangs from the end fitting '{payload}_shackle' of "
+                    f"{value!r} kg (part '{part}' end_fitting_mass, LIB-020)"
+                )
+                return value, line
+        raise DriverError(f"rope '{rope}': not a rope of the design")
 
     def _payload_fixed(self) -> bool:
         """Ruling 24: a payload attached at t = 0 that no fault releases is a fixed child of its carrier; a released

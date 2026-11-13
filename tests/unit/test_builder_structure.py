@@ -10,7 +10,7 @@ from typing import Any
 import pytest
 
 from mechsim.builder import BuildError, BuildResult, build, structure
-from mechsim.builder.payload import PAYLOAD_EDGE, SHACKLE_MASS, with_payload
+from mechsim.builder.payload import PAYLOAD_EDGE, with_payload
 from mechsim.builder.payload import _pose as payload_pose
 from mechsim.builder.payload import _q_rot as q_rot
 from mechsim.builder.physics import element_kinds
@@ -381,11 +381,29 @@ def test_rope_to_a_case_payload_is_listed_for_the_run() -> None:
     assert between.payload_ropes == ()
 
 
+# The shipped rope part's end fitting (LIB-020): its default, 1 g.
+SHACKLE_MASS = 1e-3
+
+
+@pytest.mark.req("LIB-020", "BLD-036")
+def test_the_rope_parts_end_fitting_mass_is_data_and_the_shackle_takes_it() -> None:
+    values = default_registry().part("rope_3mm_steel_generic").values
+    assert values["end_fitting_mass"] == SHACKLE_MASS
+    result = _build(gantry(), rigid_members=True)
+    assert result.physics is not None
+    hung = result.payload_ropes[0]
+    heavy = with_payload(result.physics, "payload", "hook", 4.5, True, hung, None, 0.25)
+    assert heavy.bodies[-2].mass == 0.25
+    for missing in (None, 0.0, -1.0):
+        with pytest.raises(BuildError, match="needs a positive end fitting mass"):
+            with_payload(result.physics, "payload", "hook", 4.5, True, hung, None, missing)
+
+
 def _hung(starts: dict[str, float] | None = None, carrier: str = "hook", **rope: Any) -> PhysicsModel:
     result = _build(gantry(), rigid_members=True)
     assert result.physics is not None
     hung = result.payload_ropes[0].model_copy(update=rope)
-    return with_payload(result.physics, "payload", carrier, 4.5, True, hung, starts)
+    return with_payload(result.physics, "payload", carrier, 4.5, True, hung, starts, SHACKLE_MASS)
 
 
 def _world(
