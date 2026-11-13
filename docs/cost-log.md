@@ -92,3 +92,4 @@ type live in the root `CLAUDE.md` dispatch table once measured.
 | 2026-11-13 | M3-X1d gantry G12 and G15 on native with carried rails (wip/05-x1a 3775c76): ACC-025 converted; G15 findings | module-writer (opus) | 280K | 158 calls |
 | 2026-11-13 | M3 review: X1a and X1d gantry work (wip/05-x1a d456cfa): land after a fix round, 5 medium, 3 low; integrity findings confirmed; ruling 70 (review-m3-x1ad.md) | Fable review (general-purpose), resumed | ~90K | 13 calls |
 | 2026-11-13 | M3-E7c carried-load validity: pair work, dynamic ratio, unresolved flag (wip/05-e7 1f8e8b2) | module-writer (opus) | 204K | 79 calls |
+| 2026-11-13 | M3-I4 integrity defects from G15 and the gantry review's fixes (wip/05-x1a 4bd6609) | module-writer (opus) | see notification | cap 140 |
