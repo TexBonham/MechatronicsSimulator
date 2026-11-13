@@ -755,6 +755,41 @@ TEST_CASE("the yield rule offsets the root spring by the peak excess over M_y", 
     CHECK(r.crossings.empty());
 }
 
+TEST_CASE("no yield request before the evaluation start; the same load after it yields", "[INT-028][TST-044]") {
+    // A release transient: P = 1000 N for the first 10 ticks, |M_n| = 1000 arm = 937.5 N m > M_y = 250 N m, then 0.
+    // With the start at tick 20 the transient is an integrity_before_evaluation stress event only: no request, so the
+    // physics party would apply no offset and list no model_change. The same pulse at ticks 30 to 39, after the start,
+    // yields: one request at its first row (tick 30), offset -(1000 arm - M_y) / k (sign of M_n, ruling 35).
+    integrity::Limits limits;
+    limits.yield_offset = true;
+    limits.stress = true;
+    limits.members.push_back(cantilever());
+    const integrity::MemberLimits& m = limits.members[0];
+    const auto early = [](double t) {
+        double p = 0.0;
+        if (t < 0.0105) {
+            p = 1000.0;
+        }
+        return tip_loaded(p, 1.0);
+    };
+    const Run quiet = run(limits, early, 40, false, kernel::SimTime{20});
+    CHECK(quiet.trace->requests.empty());
+    CHECK(quiet.crossings.empty());
+    CHECK(quiet.trace->before_evaluation.size() == 1);
+    const auto late = [](double t) {
+        double p = 0.0;
+        if (t > 0.0295 && t < 0.0395) {
+            p = 1000.0;
+        }
+        return tip_loaded(p, 1.0);
+    };
+    const Run yielded = run(limits, late, 50, false, kernel::SimTime{20});
+    REQUIRE(yielded.trace->requests.size() == 1);
+    const double arm = m.length - m.segment_length / 2.0;
+    const double yield_moment = m.yield_strength * m.i_z / m.c_y;
+    CHECK_THAT(yielded.trace->requests[0].value, WithinRel(-(1000.0 * arm - yield_moment) / m.node_stiffness, 1e-12));
+}
+
 TEST_CASE("the yield rule takes the end with the larger moment", "[INT-028]") {
     // End moment larger: the last spring (first + N - 1) takes M_n = M_z1 + (l / 2) F_y1.
     integrity::Limits limits;
@@ -858,26 +893,28 @@ TEST_CASE("the party reads a yielded spring by its elastic rotation from the tic
     // first tick requests o = (500 - 250) / k (k = 16000 N m / rad); the node poses turn every node by theta with
     // k theta = 750 N m (the poses need not match the wrench here: the test separates the two readings). From the
     // second tick (physics applies the request before its next step) the root spring reads k (theta - o) = 500 N m,
-    // its stress 500 c_y / I_z = 5e8 Pa, equal to the start end's; the total rotation would read 7.5e8 Pa. Counting
-    // from the second tick isolates it.
+    // its stress 500 c_y / I_z = 5e8 Pa, equal to the start end's; the total rotation would read 7.5e8 Pa. The poses
+    // turn only from the third tick, after the offset applies (no request precedes the evaluation start, TST-044).
     integrity::Limits limits;
     limits.stress = true;
     limits.yield_offset = true;
     limits.members.push_back(cantilever());
     const integrity::MemberLimits& m = limits.members[0];
     const double theta = 750.0 / m.node_stiffness;
-    const auto load = [theta](double /*t*/) {
+    const auto load = [theta](double t) {
         kernel::PhysicsOutputs out;
         kernel::MemberEndLoads loads;
         loads.start.moment = {0.0, 0.0, -500.0};
         out.members.push_back(loads);
         out.bodies.resize(8);
-        for (kernel::BodyState& body : out.bodies) {
-            body.orientation = about_z(theta);
+        if (t > 0.0015) {
+            for (kernel::BodyState& body : out.bodies) {
+                body.orientation = about_z(theta);
+            }
         }
         return out;
     };
-    const Run r = run(limits, load, 5, false, kernel::SimTime{2});
+    const Run r = run(limits, load, 5);
     REQUIRE(r.trace->requests.size() == 1);
     CHECK_THAT(r.trace->requests[0].value, WithinRel(250.0 / m.node_stiffness, 1e-12));
     CHECK_THAT(r.trace->peak_stress[0], WithinRel(500.0 * m.c_y / m.i_z, 1e-9));

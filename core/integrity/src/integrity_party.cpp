@@ -238,7 +238,7 @@ void IntegrityParty::step(kernel::SimTime t, kernel::Duration dt) {
                         deflection, member.deflection_limit.value());
             }
         }
-        if (limits_.yield_offset) {
+        if (limits_.yield_offset && counts) {
             yield(member, loads, state);
         }
     }
