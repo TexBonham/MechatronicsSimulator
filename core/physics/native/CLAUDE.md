@@ -17,7 +17,7 @@ Implements `kernel::PhysicsAdapter` over `engine::MultibodyProvider` + `SemiImpl
 | `set_payload_mass/attachment` | Payload bodies only; `kWorldBody` releases |
 | `set_transmission_slip(t, s)` | s in [0, 1] -> `set_slip` |
 | `integrator()`, `timestep()`, `events()`, `rope_segment_tensions()`, `rope_load_end_tensions()` | Extras for tests and later briefs (PHY-004, I2) |
-| `driven_scheme_decay()` | `DrivenSchemeDecay{joint, decay}` per joint that carried an enabled drive since load, joint order: the largest engine `JointOutput::scheme_decay` (pi omega h) of any engine step (rulings 44, 45; bound as `NativeAdapter.driven_scheme_decay()`, read by `CoreDriver` through `PhysicsParty.adapter`) |
+| `driven_scheme_decay()` | `DrivenSchemeDecay{joint, decay}` per joint that carried an enabled drive since load, joint order: the largest engine `JointOutput::scheme_decay` (pi omega h) of any engine step (rulings 44, 45; bound as `NativeAdapter.driven_scheme_decay()`, `scheme_decay_record()` the same values as a shared `DrivenSchemeDecayRecord` that outlives the adapter, reset by `load`, read by `CoreDriver` after the run) |
 
 ## Extras (`ExtendedProvider`, implicit through K and D)
 

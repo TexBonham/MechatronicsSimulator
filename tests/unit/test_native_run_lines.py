@@ -4,7 +4,10 @@ published, and the member node poses named `<member>.node<k>` in a recorded arch
 
 from __future__ import annotations
 
+import gc
 import math
+from dataclasses import replace
+from fractions import Fraction
 from pathlib import Path
 from typing import Any
 
@@ -12,6 +15,7 @@ import numpy as np
 import pytest
 
 from mechsim import _core as core
+from mechsim.builder.structure import chain_layout
 from mechsim.physics.native.prepare import prepare_model
 from mechsim.physics.native.translate import (
     MODE_RESOLUTION,
@@ -22,11 +26,15 @@ from mechsim.physics.native.translate import (
     translate,
 )
 from mechsim.physics.neutral import PhysicsModel, from_yaml
-from mechsim.record.archive import RunArchive
+from mechsim.record.archive import RunArchive, write_archive
+from mechsim.record.stream import Recorder
+from mechsim.record.tick import BodyState
 from mechsim.testing.core_driver import BRIDGE_NODE_POSES, CoreDriver, RecordArchiver, core_builder
 from mechsim.testing.driver import EndSpec, RunReport
 from mechsim.testing.runner import Services, prepare, run_case
 from mechsim.testing.schema import DESIGNS_ROOT
+from tests.reference.test_phy_native_beams import EI, beam_model, settle
+from tests.unit.test_record_support import finished, identity, synthetic_rows
 
 ROOT = Path(__file__).resolve().parents[2]
 PENDULUM = (ROOT / "schemas/examples/physics_model.pendulum.yaml").read_text()
@@ -168,6 +176,34 @@ def test_the_driven_joint_line_carries_the_run_mode_and_flags_it_above_the_thres
 
 
 @pytest.mark.req("PHY-031")
+def test_the_decay_record_is_readable_after_the_kernel_is_released() -> None:
+    """The record is taken before the party owns the adapter and read after the kernel, party and adapter are gone:
+    a value snapshot, no handle to the adapter (x = 0.1, decay pi 0.1, 1e-12)."""
+    model = _driven_model(None, (1.0, 0.0, 0.0))
+    prepared = prepare_model(model, None, H)
+    adapter = core.make_physics_adapter("native")
+    adapter.load(core.PreparedModel(prepared.model_json, "", prepared.version), core.Rate(1000))
+    record = adapter.scheme_decay_record()
+    inputs = core.PhysicsInputs()
+    inputs.joint_drives = [core.JointDrive(2, 0.0, 2.0 * (0.1 / H) ** 2, 0.0, True)]
+    adapter.set_inputs(inputs)
+    adapter.step()
+    party_config = core.PhysicsPartyConfig()
+    party_config.rate = core.Rate(1000)
+    party_config.inputs = []
+    kernel = core.make_kernel(core.RunConfig())
+    kernel.register_party(core.PhysicsParty(adapter, party_config))
+    kernel.run(core.EndCondition(core.Seconds(5, 1000)), core.InMemoryRecorderSink())
+    del kernel
+    del adapter
+    gc.collect()
+    ((joint, decay),) = record.values()
+    assert joint == 2
+    assert decay == pytest.approx(math.pi * 0.1, rel=1e-12)
+    assert not hasattr(core.PhysicsParty, "adapter")
+
+
+@pytest.mark.req("PHY-031")
 def test_the_largest_decay_of_the_run_is_kept_and_an_undriven_run_keeps_none() -> None:
     assert _run_decays(0.0, 0) == []
     assert driven_mode_lines(_driven_model(None, (1.0, 0.0, 0.0)), []) == ()
@@ -208,10 +244,60 @@ def test_a_flexible_design_on_native_records_named_node_pose_series(tmp_path: Pa
     assert np.all(np.isfinite(node))
     quaternion = np.asarray(orientation.values[:, first, :])
     assert np.allclose(np.linalg.norm(quaternion, axis=1), 1.0, atol=1e-12)
+    # Undeformed spacing at the first sample: consecutive node origins of the first member sit the chain's start
+    # spacing apart (rigid segments; a 1 ms deflection angle changes a length by its square, far below 1e-6).
+    member = model.lumped_members[0]
+    chain = chain_layout(member.root, member.end, int(member.segments), float(member.section.length))
+    own = [name for name in nodes if name.startswith(f"{member.name}.node")]
+    for k in range(1, len(own) - 2):
+        a = np.asarray(position.values[0, position.names.index(own[k]), :])
+        b = np.asarray(position.values[0, position.names.index(own[k + 1]), :])
+        spacing = chain.starts[k + 1] - chain.starts[k]
+        assert float(np.linalg.norm(b - a)) == pytest.approx(spacing, rel=1e-6)
     lines = [line for line in result.report.approximations if line.startswith("driven joint '")]
     assert len(lines) > 0
     assert all("x = omega h = " in line for line in lines)
     assert BRIDGE_NODE_POSES not in result.report.approximations
+
+
+@pytest.mark.req("PHY-003", "PHY-012", "REC-018")
+def test_a_recorded_mid_node_reads_back_at_the_chain_static_deflection(tmp_path: Path) -> None:
+    """A 1 m steel cantilever (8 segments, tip load P = 1 N, settled as in the reference tier) recorded with named
+    body series and read back by `beam.node4`, whose origin is its hinge at a = (4 + 1/2) l = 0.5625 m (`chain_layout`
+    starts). Chain value at x = a for springs at x_k = (k + 1/2) l: P l / (E I) sum_{x_k < a} (L - x_k)(a - x_k)
+    (1e-6, the settled backward Euler fixed point); the continuum P a^2 (3 L - a) / (6 E I) is 1.2 percent away,
+    inside the 2 percent row (BLD-015 to BLD-017)."""
+    beam = settle("free", 8, 1.0, 1.0)
+    model_nodes = translate_names()
+    bodies = tuple(
+        BodyState(
+            tuple(float(v) for v in b.position),
+            tuple(float(v) for v in b.orientation),
+            tuple(float(v) for v in b.angular_velocity),
+            tuple(float(v) for v in b.linear_velocity),
+        )
+        for b in beam.adapter.outputs().bodies
+    )
+    row = synthetic_rows(1, 1)[0]
+    row = replace(row, physics=replace(row.physics, bodies=bodies))
+    recorder = Recorder(Fraction(1000), bodies=("base", *model_nodes))
+    recorder.write_row(row)
+    path = tmp_path / "beam.h5"
+    write_archive(path, identity(), finished(1), recorder.recording())
+    with RunArchive(path) as archive:
+        series = archive.series("physics/bodies/position")
+    mid = float(series.values[0, series.names.index("beam.node4"), 1])
+    layout = chain_layout("clamped", "free", 8, 1.0)
+    a = layout.starts[4]
+    chain = sum((1.0 - x) * (a - x) for x in layout.hinges if x < a) * 0.125 / EI
+    continuum = a * a * (3.0 - a) / (6.0 * EI)
+    print(f"mid node deflection {mid:.9g} m, chain {chain:.9g}, continuum {continuum:.9g}")
+    assert mid == pytest.approx(chain, rel=1e-6)
+    assert mid == pytest.approx(continuum, rel=0.02)
+
+
+def translate_names() -> tuple[str, ...]:
+    return member_node_names(beam_model("free", 8, 0.0))
 
 
 @pytest.mark.req("PHY-003", "PHY-021")

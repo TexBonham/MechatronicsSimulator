@@ -495,10 +495,11 @@ class CoreDriver:
             party.inputs = ["signals.physics_inputs"]
         if tier1 is not None and tier1.yield_offset:
             party.model_requests = MODEL_REQUESTS
+        decay_record = None
+        if native:
+            decay_record = adapter.scheme_decay_record()
         physics = core.PhysicsParty(adapter, party)
         self._schedule_physics(physics, model)
-        # The kernel takes the party (disowning its Python handle); the adapter handle stays valid while kernel lives.
-        owned = physics.adapter
         kernel.register_party(physics)
         halt = False
         self.integrity_trace = None
@@ -526,9 +527,10 @@ class CoreDriver:
         bodies = tuple(body.name for body in model.bodies)
         if native:
             bodies = (*bodies, *member_node_names(model))
-            decays = [(int(joint), float(decay)) for joint, decay in owned.driven_scheme_decay()]
+        if decay_record is not None:
+            decays = [(int(joint), float(decay)) for joint, decay in decay_record.values()]
             self.approximations = (*self.approximations, *driven_mode_lines(model, decays))
-        elif self._build is not None and len(self._build.members) > 0:
+        if not native and self._build is not None and len(self._build.members) > 0:
             self.approximations = (*self.approximations, BRIDGE_NODE_POSES)
         recorder = Recorder(config.base_rate, model_columns(model, sorted(payloads)), bodies)
         frames = member_frames(model)
