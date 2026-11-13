@@ -115,9 +115,11 @@ Transmission lossy_belt() {
 
 TEST_CASE("belt efficiency gain passes linearly through n inside the threshold shaft speed", "[ENG-043][ENG-045]") {
     // Hand formulas (transmission.hpp, ruling 47) at a stretch E = 1e-4 m (F = k E = 10 N, L = -n F < 0): at and
-    // above omega_s the gain is n / eta_f (omega > 0, P < 0) or n eta_b (omega < 0, P > 0) bit for bit, the M3-E4
-    // hard switch, with no damping and a = [g, -1]; below it g = n (1 + s_w alpha), a = [n, -1] and the loss equals
-    // the viscous torque -c omega, c = |alpha| n F / omega_s; at omega = 0 g = n and c takes the larger loss.
+    // above omega_s the explicit gain is n / eta_f (omega > 0, P < 0) or n eta_b (omega < 0, P > 0) bit for bit, the
+    // loss there being the implicit shaft damping c = |alpha| n F / |omega| on a = [n, -1] (brief M3-E6: a gain g
+    // applied to the end-of-step force put energy in whenever the flow reversed within a step); below it
+    // g = n (1 + s_w alpha), a = [n, -1] and the loss equals the viscous torque -c omega, c = |alpha| n F / omega_s;
+    // at omega = 0 g = n and c takes the larger loss.
     const Transmission t = lossy_belt();
     const double n = t.ratio;
     const double x = -1e-4;
@@ -127,14 +129,14 @@ TEST_CASE("belt efficiency gain passes linearly through n inside the threshold s
             mechsim::engine::couple(t, 0.0, 0.0, 0.0, factor * omega_s, x, 0.0, 0.0, omega_s);
         REQUIRE(fwd.output.power_flow == PowerFlow::Forward);
         REQUIRE(fwd.gain == n / t.efficiency);
-        REQUIRE(fwd.stiffness_gain == fwd.gain);
-        REQUIRE(fwd.shaft_damping == 0.0);
+        REQUIRE(fwd.stiffness_gain == n);
+        REQUIRE(close(fwd.shaft_damping, (1.0 / t.efficiency - 1.0) * n * f / (factor * omega_s), 1e-12));
         const TransmissionCoupling back =
             mechsim::engine::couple(t, 0.0, 0.0, 0.0, -factor * omega_s, x, 0.0, 0.0, omega_s);
         REQUIRE(back.output.power_flow == PowerFlow::Backward);
         REQUIRE(back.gain == n * t.back_efficiency);
-        REQUIRE(back.stiffness_gain == back.gain);
-        REQUIRE(back.shaft_damping == 0.0);
+        REQUIRE(back.stiffness_gain == n);
+        REQUIRE(close(back.shaft_damping, (1.0 - t.back_efficiency) * n * f / (factor * omega_s), 1e-12));
     }
     for (const double fraction : {0.25, -0.25, 1e-12, -1e-12}) {
         const double omega = fraction * omega_s;

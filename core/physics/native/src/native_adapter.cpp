@@ -350,7 +350,7 @@ struct NativeAdapter::Engine {
     kernel::PhysicsInputs inputs;                            // re-applied before each engine step of a tick
     std::vector<kernel::ModelChangeEvent> pending_changes;  // mid-run spring changes, listed in the next tick
     std::vector<Eigen::Index> node_bodies;  // member chain bodies, published after the neutral bodies, in order
-    std::vector<std::pair<std::size_t, double>> previous_rests;  // last tick's enabled drives: joint, end rest
+    std::vector<kernel::JointDrive> previous_drives;  // last tick's enabled drives: joint, end rest, K, D
     std::shared_ptr<DrivenSchemeDecayRecord> scheme_decay;       // joint order, largest over the run
 };
 
@@ -923,10 +923,14 @@ void NativeAdapter::clear_drives(Engine& e) {
     e.driven.clear();
 }
 
-// Ruling 49: with several engine steps per tick, substep s of S drives toward the rest interpolated from the previous
-// tick's end rest to this tick's, so each engine step's end-of-step rest is the rest at its own end time and a ramp's
-// steady lag D u / K stays exact. The last substep takes this tick's rest exactly; a joint not driven in the previous
-// tick has no start rest and takes this tick's throughout.
+// Ruling 49: with several engine steps per tick, substep s of S applies the spring law blended from the previous
+// tick's drive (K0, D0, rest r0) to this tick's (K1, D1, r1) at f = (s + 1) / S: K = K0 + f (K1 - K0),
+// D = D0 + f (D1 - D0), K rest = K0 r0 + f (K1 r1 - K0 r0), so the torque at any state is the same blend of the two
+// ticks' torques and the drive's potential moves from V0 to V1 (brief M3-E6). With K0 == K1 this is the rest
+// interpolated from r0 to r1, so a ramp's steady lag D u / K stays exact. A rest interpolated under K1 alone would
+// apply K1 to r0, a rest that belongs to the softer law (a slipping brake's rest lies T_b / K_s off the shaft) and
+// store K1 (r1 - r0)^2 / 2 from nowhere. The last substep takes this tick's drive exactly; a joint not driven in
+// the previous tick takes this tick's throughout.
 void NativeAdapter::set_substep_rests(Engine& e, int sub) {
     if (e.substeps == 1 || sub == e.substeps - 1) {
         return;
@@ -936,11 +940,25 @@ void NativeAdapter::set_substep_rests(Engine& e, int sub) {
         if (!drive.enabled) {
             continue;
         }
-        for (const auto& [joint, rest] : e.previous_rests) {
-            if (joint == drive.joint) {
-                e.provider->set_joint_drive(index_of(drive.joint), 0, rest + ((drive.rest - rest) * fraction),
-                                            drive.stiffness, drive.damping);
+        for (const kernel::JointDrive& previous : e.previous_drives) {
+            if (previous.joint != drive.joint) {
+                continue;
             }
+            const double damping = previous.damping + ((drive.damping - previous.damping) * fraction);
+            if (previous.stiffness == drive.stiffness) {
+                e.provider->set_joint_drive(index_of(drive.joint), 0,
+                                            previous.rest + ((drive.rest - previous.rest) * fraction), drive.stiffness,
+                                            damping);
+                continue;
+            }
+            const double stiffness = previous.stiffness + ((drive.stiffness - previous.stiffness) * fraction);
+            const double moment = (previous.stiffness * previous.rest) +
+                                  (((drive.stiffness * drive.rest) - (previous.stiffness * previous.rest)) * fraction);
+            double rest = drive.rest;
+            if (stiffness > 0.0) {
+                rest = moment / stiffness;
+            }
+            e.provider->set_joint_drive(index_of(drive.joint), 0, rest, stiffness, damping);
         }
     }
 }
@@ -1169,10 +1187,10 @@ void NativeAdapter::step() {
         }
         o.joint_drive_torques.push_back(torque);
     }
-    e.previous_rests.clear();
+    e.previous_drives.clear();
     for (const kernel::JointDrive& drive : e.drives) {
         if (drive.enabled) {
-            e.previous_rests.emplace_back(drive.joint, drive.rest);
+            e.previous_drives.push_back(drive);
         }
     }
     e.drives.clear();

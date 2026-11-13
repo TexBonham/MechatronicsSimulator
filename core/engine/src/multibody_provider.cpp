@@ -704,7 +704,7 @@ void MultibodyProvider::add_attachment_terms(const Kinematics& kin, const Eigen:
 
 // Transmissions (ENG-043 to ENG-048): f gets the shaft torque input, F on the output and -g F on the shaft; in
 // contact K += k a b^T and D += c a b^T, a = [g_k, -1], b = [n_eff, -1] over (shaft, output), and the shaft gets the
-// regularised efficiency damping below omega_s (ruling 47); self-locking rows recorded for solve_constraints in
+// efficiency loss as implicit damping at every speed (ruling 47, brief M3-E6); self-locking rows recorded for solve_constraints in
 // transmission order (ruling 48); derivation in transmission.hpp.
 TransmissionCoupling MultibodyProvider::coupling(Eigen::Index transmission, const Eigen::VectorXd& q,
                                                  const Eigen::VectorXd& v) const {

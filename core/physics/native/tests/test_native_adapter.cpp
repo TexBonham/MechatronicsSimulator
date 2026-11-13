@@ -459,6 +459,84 @@ TEST_CASE("native adapter: scheduled slip loses the fraction of the shaft travel
     CHECK_THAT(adapter.outputs().transmissions[0].slip, WithinRel(0.25 * shaft, 1e-9));
 }
 
+// ===== Energy through a limit, a belt and a drive hand-off (PHY-034, ruling 49; ENG-013) =====
+
+namespace {
+
+// Mechanical energy of the belt fixture with the carriage on a lower limit at 0: kinetic, gravitational (m g x),
+// the belt's elastic energy k (n theta - x)^2 / 2 (no backlash, no slip) and a drive's potential K (theta - rest)^2 / 2.
+struct BeltEnergy {
+    double shaft_inertia = 1e-4;
+    double carriage_mass = 2.0;
+    double n = 0.01;
+    double k = 1e5;
+
+    [[nodiscard]] double mechanical(const NativeAdapter& adapter) const {
+        const auto& out = adapter.outputs();
+        const double theta = out.joint_positions[0];
+        const double x = out.joint_positions[1];
+        const double omega = out.bodies[0].angular_velocity[2];
+        const double v = out.bodies[1].linear_velocity[2];
+        const double stretch = (n * theta) - x;
+        return (0.5 * shaft_inertia * omega * omega) + (0.5 * carriage_mass * v * v) + (carriage_mass * g * x) +
+               (0.5 * k * stretch * stretch);
+    }
+
+    [[nodiscard]] static double drive(double stiffness, double rest, double theta) {
+        return 0.5 * stiffness * (theta - rest) * (theta - rest);
+    }
+};
+
+}  // namespace
+
+TEST_CASE("native adapter: a drive law handed over between ticks adds no energy and keeps a limit seated",
+          "[PHY-034][ENG-013]") {
+    // A brake's hand-off (G12's E-stop, brief M3-E6): tick law A is a soft spring K0 whose rest r0 lies far below the
+    // shaft (a slipping brake's rest theta + T_b / K_s), pressing the carriage into its lower limit through the belt;
+    // law B is a stiff hold K1 at the shaft's angle r1 at the end of law A. Oracle: each engine step under a fixed
+    // spring law is backward Euler on a conservative system with dampers and an inelastic limit row, so
+    // E(q') + V(q') <= E(q) + V(q) for that law V. Across the hand-off the substep law moves from A to B over the tick;
+    // when the substep law is the convex blend V_f = (1 - f) V0 + f V1, the energy put in by each law change is
+    // (f_k - f_k-1) (V1 - V0)(q) at the substep's start state, and V1 - V0 < 0 while the shaft stays within
+    // sqrt(K0 / K1) |r1 - r0| = 0.29 rad of r1 (it moves by microradians), so
+    // E(end of B) + V1(end of B) <= E(end of A) + V0(end of A). From then on law B is fixed: E + V1 never rises.
+    // A rest interpolated from r0 under the stiffness K1 instead stores K1 (0.9 |r1 - r0|)^2 / 2 = 3.0e4 J in one
+    // substep. The carriage is pushed into its bound by gravity and the belt throughout, and the anticipatory limit
+    // row (ruling 43) lands it on the bound exactly: x == 0 bitwise every tick. Round-off: energies of order 1 J
+    // carry about 1e-15 relative per step, so 1e-9 J is far above it and far below any injection.
+    const double k0 = 1e-3;
+    const double r0 = -50.0;
+    const double k1 = 30.0;
+    const double round_off = 1e-9;
+    const BeltEnergy energy;
+    for (const int substeps : {1, 10}) {
+        CAPTURE(substeps);
+        NativeAdapter adapter;
+        Doc doc = belt();
+        doc.bodies[1] = body("carriage", -1, "prismatic", "[0, 0, 1]", 2.0, "[]", "[]", DofSpec{"0.0", "0.0", "null"},
+                             "[0.5, 0, 0]");
+        doc.substeps = substeps;
+        load(adapter, doc);
+        for (int n = 0; n < 300; ++n) {
+            drive(adapter, r0, k0, 0.0);
+            adapter.step();
+            REQUIRE(adapter.outputs().joint_positions[1] == 0.0);
+        }
+        const double r1 = adapter.outputs().joint_positions[0];
+        double before = energy.mechanical(adapter) + BeltEnergy::drive(k0, r0, r1);
+        for (int n = 0; n < 300; ++n) {
+            drive(adapter, r1, k1, 0.0);
+            adapter.step();
+            const double theta = adapter.outputs().joint_positions[0];
+            const double after = energy.mechanical(adapter) + BeltEnergy::drive(k1, r1, theta);
+            CAPTURE(n, before, after);
+            REQUIRE(adapter.outputs().joint_positions[1] == 0.0);
+            REQUIRE(after <= before + round_off);
+            before = after;
+        }
+    }
+}
+
 // ===== Drives through transmissions (PHY-034, ruling 39; PHY-006, PHY-018) ===
 
 namespace {
