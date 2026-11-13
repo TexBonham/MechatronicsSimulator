@@ -952,7 +952,7 @@ void NativeAdapter::keep_scheme_decay(Engine& e) {
         if (decay.size() == 0) {
             continue;
         }
-        const std::size_t neutral = static_cast<std::size_t>(joint);
+        const auto neutral = static_cast<std::size_t>(joint);
         std::vector<DrivenSchemeDecay>& kept = e.scheme_decay->values;
         auto at = std::ranges::find_if(kept,
                                        [neutral](const DrivenSchemeDecay& d) { return d.joint >= neutral; });

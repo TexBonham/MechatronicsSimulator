@@ -880,7 +880,7 @@ TEST_CASE("native adapter: the largest scheme decay per driven joint is kept ove
     // Rulings 44, 45: a 1 kg slider on a drive K publishes pi omega h, omega = sqrt(K / m). K = 1e4 gives x = 0.1, then
     // K = 100 (x = 0.01): the kept value stays pi 0.1 (1e-12). At 2 substeps h halves, so x = 0.05. An undriven model
     // keeps nothing; the accessor needs a loaded model.
-    NativeAdapter unloaded;
+    const NativeAdapter unloaded;
     CHECK_THROWS_AS(unloaded.driven_scheme_decay(), AdapterError);
     for (const int substeps : {1, 2}) {
         Doc doc = slider(1.0);
