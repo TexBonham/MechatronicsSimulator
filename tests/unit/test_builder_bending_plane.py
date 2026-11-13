@@ -17,7 +17,9 @@ HALF = 0.7071067811865476
 FRAGMENT = "gravity entirely outside its bending plane"
 
 
-def _notes(gravity: tuple[float, float, float], orientation: list[float] | None = None, rigid: bool = False) -> list[str]:
+def _notes(
+    gravity: tuple[float, float, float], orientation: list[float] | None = None, rigid: bool = False
+) -> list[str]:
     """The bar of the carried-member fixture (along world x from the origin, frame y the bending direction) under
     `gravity`, its mount turned by `orientation` (w-first) when given; the notes naming the bar's bending plane."""
     data: dict[str, Any] = _design_data([])

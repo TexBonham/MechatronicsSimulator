@@ -98,6 +98,7 @@ from mechsim.testing.driver import (
 )
 from mechsim.testing.runner import Services
 from mechsim.testing.schema import (
+    CASE_PAYLOAD_BODY,
     DEFAULT_PHYSICS_ADAPTER,
     DESIGNS_ROOT,
     NATIVE_ADAPTER,
@@ -106,6 +107,7 @@ from mechsim.testing.schema import (
     Case,
     InitialState,
     Quantity,
+    case_payload_body,
 )
 
 OPERATOR_EVENT_KINDS = ("operator_status", "operator_command")
@@ -379,36 +381,22 @@ class CoreDriver:
         self.adapter = config.physics_adapter
         self._config = config
 
-    def _sensed_payload(self) -> tuple[str, str] | None:
-        """(payload name, the sensing instance's mounted body) of the first load cell reading a payload."""
+    def _payload_name(self) -> str:
+        """The body name the run gives the case payload: `testing.schema.case_payload_body` over the design's
+        components and the model's joints (SCO-030), so the driver and scoring agree."""
         if self._build is None:
-            return None
+            return CASE_PAYLOAD_BODY
         joints: set[str] = set()
         if self._model is not None:
             joints = {body.joint.name for body in self._model.bodies if body.joint is not None}
-        for instance in self._build.wiring.instances:
-            senses = instance.senses
-            if senses is None:
-                continue
-            name = senses.payload
-            if senses.joint_reaction is not None and senses.joint_reaction not in joints:
-                name = senses.joint_reaction
-            if name is not None:
-                for mount in instance.mounts:
-                    if mount.body is not None:
-                        return name, mount.body
-                raise DriverError(f"load cell '{instance.name}': senses a payload but is mounted on no body")
-        return None
+        return case_payload_body((component.senses for component in self._build.design.components), joints)
 
     def set_initial_state(self, state: InitialState) -> None:
         """The case payload becomes a neutral body (BLD-036) on `initial_state.payload.body`; a case that attaches
         none gets no body, and a load cell reading a payload then has no target and reads zero (A4)."""
-        sensed = self._sensed_payload()
         self._payload = None
         if state.payload is not None and state.payload.attached:
-            name = "payload"
-            if sensed is not None:
-                name = sensed[0]
+            name = self._payload_name()
             self._payload = (name, str(state.payload.body), _si(state.payload.mass, "payload"), True)
         starts: dict[str, float] = {}
         for joint in state.joints:
