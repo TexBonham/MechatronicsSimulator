@@ -19,12 +19,34 @@ attribution trailer, no push.
 ## Ownership
 
 `designs/gantry/**`, `test_cases/gantry/**`, `docs/gantry-team-inputs.md`, `mechsim/builder/` (the case payload on
-the rope, BLD-032), `mechsim/testing/` (run-configuration field for substeps, item 3), `mechsim/scoring/` only if
-a swing or settle criterion is missing, `tests/acceptance/test_acc_stubs.py` (the ACC-025, 026, 029, 030 stubs),
+the rope, BLD-032), `mechsim/testing/` (run-configuration field for substeps, item 3), `tests/acceptance/test_acc_stubs.py` (the ACC-025, 026, 029, 030 stubs),
 the unit tests of what you touch, `docs/spec/{acc,bld,tst,sco}.md` rows you change, `docs/spec/traceability.md`,
 the contracts. Not yours: `core/**`, `mechsim/physics/`, `mechsim/integrity/` (report a defect, do not patch it).
 Invariant 2: nothing gantry-specific in code; every number lives in the design or the case, with its unit, and
 every placeholder is listed in `docs/gantry-team-inputs.md` with the file it lives in.
+
+## State of the tree you start from
+
+The worktree is the round branch (N4 landed) with `wip/05-x1b` at 6c68248 merged in (node-pose deflection, the
+two-axis section fields, notes in the score; reviewed, no algorithm defect). Its fix round X1c runs concurrently
+in another worktree and owns `mechsim/scoring/`, the criteria part of `mechsim/testing/schema.py`,
+`mechsim/integrity/`, the reference designs and `tests/invariant/test_schema_*.py`: stay out of those (so the
+scoring ownership above is withdrawn: report a missing criterion instead of adding it; two invariant tests that
+enumerate shipped data fail until X1c lands, ignore them). What the reviews say you must know:
+- `deflection:<member>` is the dynamic peak over the run; a straight release reads about twice static. X1c adds a
+  settled (final-window) reading; G15 asserts the dynamic peak under 1 cm (the conservative reading; the target's
+  static or dynamic sense is owed by the gantry team) and reports both where available.
+- Bridge runs give not-evaluated for deflection and no tier 1: G12 and G15 run on native only.
+- The gantry is the first design combining ropes, lumped members and world constraints: the node indexing
+  (recorded bodies = neutral bodies + member nodes; body series carry `names`, index by name) is exercised for the
+  first time: check the recorded body count and one node series by name before trusting a deflection.
+- A member's parent must be a neutral body.
+- State the rails' fibre distances explicitly (`second_moment_y`, `second_moment_z`, `fibre_y`, `fibre_z`; ruling
+  58), not the single-axis shorthand.
+- Transmissions with efficiency below one reach their exact static sag only as an asymptote with time constant
+  (n F (1 / eta - 1) / omega_s + D) / K; a short hold sits inside [n eta, n / eta] F / K. A self-locking hoist's
+  sag is path-dependent in [0, n F / K]. Account for both when a criterion reads a position after a stop.
+- `substeps` has no run-configuration field yet (item 3 adds it); decay and report lines use h / substeps.
 
 ## Scope rule
 
