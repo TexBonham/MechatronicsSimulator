@@ -100,3 +100,4 @@ type live in the root `CLAUDE.md` dispatch table once measured.
 | 2026-11-13 | M3-E7e validity base window, momentum form for the moving carried mass (wip/05-e7 b7221c9); gantry rails now flag during the move, undiagnosed | module-writer (opus) | 265K | 94 calls |
 | 2026-11-13 | M3 review: E7e (wip/05-e7 b7221c9): momentum form accepted, flag definition to change, 2 major, 1 minor; ruling 74 | Fable review (general-purpose), resumed | ~40K | 5 calls |
 | 2026-11-13 | M3-I5 integrity follow-ups, not-valid results (wip/05-x1a a0d37b9) | module-writer (opus) | 305K | 118 calls |
+| 2026-11-13 | M3 review: I5 (wip/05-x1a a0d37b9): one fix round, 4 major, 4 medium; exact rule for a carried couple; ruling 75 (review-m3-i5.md) | Fable review (general-purpose) | see notification | 25 cap |
