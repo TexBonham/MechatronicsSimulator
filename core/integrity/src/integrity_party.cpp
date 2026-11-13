@@ -152,6 +152,11 @@ void IntegrityParty::step(kernel::SimTime t, kernel::Duration dt) {
     }
     const kernel::SimTime stamp = t + dt;
     requests_.requests.clear();
+    if (limits_.bodies.has_value() && outputs_.bodies.size() != limits_.bodies.value()) {
+        throw LimitsError("integrity: physics publishes " + std::to_string(outputs_.bodies.size()) +
+                          " bodies, the limits table expects " + std::to_string(limits_.bodies.value()) +
+                          " (the run's bodies plus member nodes, INT-006)");
+    }
     for (std::size_t m = 0; m < limits_.members.size(); ++m) {
         const MemberLimits& member = limits_.members[m];
         if (member.index >= outputs_.members.size()) {

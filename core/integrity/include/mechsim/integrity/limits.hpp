@@ -71,6 +71,9 @@ struct Limits {
     std::vector<MemberLimits> members;
     std::vector<FasteningLimits> fastenings;
     double minimum_safety_factor = 1.0;
+    // Bodies physics publishes per tick (neutral bodies, those a case adds at run time, member nodes), from the
+    // prepared native model; when set the party requires exactly this many. Absent or null: not checked.
+    std::optional<std::size_t> bodies;
     bool stress = false;
     bool buckling = false;
     bool deflection = false;

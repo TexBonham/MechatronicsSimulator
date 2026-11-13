@@ -7,7 +7,7 @@ from __future__ import annotations
 import numpy as np
 
 from mechsim.integrity.beam import mount_stress, normal_stress, peak, shear_stress
-from mechsim.integrity.plugin import CheckResult, CheckRow, IntegrityCheck, RunInputs, Spread
+from mechsim.integrity.plugin import CheckResult, CheckRow, IntegrityCheck, RunInputs, Spread, not_evaluated
 from mechsim.schema_base import StrictModel
 
 FLAG = "safety_factor_below_minimum"
@@ -28,9 +28,15 @@ class Strength(IntegrityCheck):
         self.check_tier(tier)
         rows: list[CheckRow] = []
         for member in inputs.members:
-            loads = member.loads.scaled(inputs.load_factor)
             view = inputs.material(member.material)
             yield_strength = Spread.of(view.strength_spread("yield", inputs.temperature, member.axis_body))
+            if member.loads is None:
+                rows.append(not_evaluated(member.name, "normal_stress", 1, yield_strength.min))
+                if tier >= 2:
+                    rows.append(not_evaluated(member.name, "shear_stress", 2))
+                    rows.append(not_evaluated(member.name, "von_mises_stress", 2, yield_strength.min))
+                continue
+            loads = member.loads.scaled(inputs.load_factor)
             normal = normal_stress(loads, member.section)
             value, time = peak(normal, inputs.times)
             margin = yield_strength.over(value)

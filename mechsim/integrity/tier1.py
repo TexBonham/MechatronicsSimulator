@@ -49,6 +49,10 @@ class Tier1Setup:
     approximations: tuple[str, ...]
 
 
+# The native document's `ends` of a member with a pinned root, whose spring-free pin segment publishes node 0.
+PINNED_ROOT_ENDS = "simply_supported"
+
+
 def enabled(config: IntegrityConfig) -> dict[str, bool]:
     """Tier 1 quantities and the yield offset the configuration turns on (listed checks only)."""
     listed = {str(entry.check): int(entry.tier) for entry in config.checks}
@@ -79,6 +83,26 @@ def first_springs(native: Mapping[str, Any]) -> list[int]:
         out.append(count)
         count += int(member["segments"])
     return out
+
+
+def published_names(model: Any, native: Mapping[str, Any]) -> tuple[str, ...]:
+    """The bodies the native adapter publishes per tick, by name: the prepared document's neutral bodies (the build's
+    plus those a case adds at run time, such as a payload and its shackle), then each lumped member's nodes root to
+    tip, `<member>.node<k>`, each member's node count from its document entry (`segments`, plus node 0 for the pin
+    segment of a pinned root, `ends` simply_supported; `mechsim.physics.native.member_node_names`), its name from the
+    physics model's member at the same place (the document's member list must match it)."""
+    names = [str(body["name"]) for body in native["bodies"][: int(native["neutral_bodies"])]]
+    entries = list(native["members"])
+    if len(entries) != len(model.lumped_members):
+        raise IntegrityError(
+            f"the native model lists {len(entries)} members, the physics model {len(model.lumped_members)}"
+        )
+    for lumped, entry in zip(model.lumped_members, entries, strict=True):
+        count = int(entry["segments"])
+        if entry["ends"] == PINNED_ROOT_ENDS:
+            count += 1
+        names.extend(f"{lumped.name}.node{k}" for k in range(count))
+    return tuple(names)
 
 
 def _parameters(config: IntegrityConfig, check: str) -> Any:
@@ -133,7 +157,8 @@ def limits_table(
 ) -> dict[str, Any]:
     """The limits table: one record per lumped member the build lists as a structural member (index in
     `PhysicsOutputs.members` = its place in `model.lumped_members`), one per rated fastening. `native` is the prepared
-    native model document the run loads; its member list must match the model's."""
+    native model document the run loads; its member list must match the model's. Node indices and the exact published
+    body count (`bodies`, checked by the party) come from that document, never the build's layout (INT-006)."""
     flags = enabled(config)
     design = build.design
     structural = design.structural
@@ -148,7 +173,8 @@ def limits_table(
     records = {str(record.member): record for record in getattr(build, "lumped", ())}
     axes = member_axes(build)
     springs = first_springs(native)
-    chains = node_chains(model)
+    names = published_names(model, native)
+    chains = node_chains(model, names)
     if len(springs) != len(model.lumped_members):
         raise IntegrityError(
             f"the native model lists {len(springs)} members, the physics model {len(model.lumped_members)}"
@@ -220,6 +246,7 @@ def limits_table(
     return {
         "format": FORMAT,
         "minimum_safety_factor": minimum,
+        "bodies": len(names),
         "checks": {
             "stress": flags["stress"],
             "buckling": flags["buckling"],

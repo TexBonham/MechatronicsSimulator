@@ -1,9 +1,11 @@
+#include <cstdint>
 #include <memory>
 #include <optional>
 #include <pybind11/pybind11.h>
 #include <pybind11/stl.h>
 #include <string>
 #include <utility>
+#include <vector>
 
 #include "bindings.hpp"
 #include "mechsim/integrity/integrity_party.hpp"
@@ -37,6 +39,17 @@ void bind_integrity(py::module_& m) {
         .def_readonly("kind", &kernel::ModelChangeRequest::kind)
         .def_readonly("index", &kernel::ModelChangeRequest::index)
         .def_readonly("value", &kernel::ModelChangeRequest::value);
+    // Read-only value copy: Python reads it from a row's coupling column (the recorder digests every coupling value,
+    // REC-022) and never writes it; only the integrity party publishes it, to physics (invariant 1: no controller sees
+    // it).
+    py::class_<kernel::ModelChangeRequests>(m, "ModelChangeRequests",
+                                            "One published list of model change requests (KER-028), a copy.")
+        .def(py::init([](std::int64_t sequence, std::vector<kernel::ModelChangeRequest> requests) {
+                 return kernel::ModelChangeRequests{sequence, std::move(requests)};
+             }),
+             py::arg("sequence"), py::arg("requests"))
+        .def_readonly("sequence", &kernel::ModelChangeRequests::sequence)
+        .def_readonly("requests", &kernel::ModelChangeRequests::requests);
     py::class_<integrity::Crossing>(m, "IntegrityCrossingRecord", "One tier 1 limit crossing (INT-024).")
         .def_readonly("time", &integrity::Crossing::time)
         .def_readonly("element", &integrity::Crossing::element)

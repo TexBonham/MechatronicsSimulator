@@ -35,6 +35,7 @@ from mechsim.integrity.tier1 import (
     enabled,
     first_springs,
     limits_table,
+    published_names,
     tier1_enabled,
 )
 from mechsim.materials.database import MaterialSet
@@ -204,6 +205,49 @@ def test_the_limits_table_carries_the_member_data_and_conservative_allowable() -
     bad = dict(table, members=[dict(member, area=-1.0)])
     with pytest.raises(ValueError, match="area"):
         core.check_integrity_limits(json.dumps(bad))
+
+
+@pytest.mark.req("INT-006", "INT-023")
+def test_node_indices_and_the_body_count_come_from_the_prepared_native_model() -> None:
+    # The prepared document lists the build's bodies plus two a case added at run time (a payload and its shackle)
+    # before the member's nodes: the chain starts after all of them, its parent is found by name, and the table states
+    # the exact published count, neutral bodies plus N node bodies.
+    model = cantilever_model()
+    structural = SimpleNamespace(minimum_safety_factor=2.0, accuracy_target=0.01)
+    native = native_of(model)
+    neutral = int(native["neutral_bodies"])
+    plain = limits_table(build_of(model, structural), model, config({"check": "deflection"}), views(), native)
+    assert plain["bodies"] == neutral + SEGMENTS
+    assert plain["members"][0]["nodes"]["first_body"] == neutral
+    extra = [{"name": "payload_shackle", "joint": {"type": "fixed"}}, {"name": "payload", "joint": {"type": "free"}}]
+    native["bodies"] = [*native["bodies"][:neutral], *extra, *native["bodies"][neutral:]]
+    native["neutral_bodies"] = neutral + 2
+    names = published_names(model, native)
+    assert names[neutral : neutral + 2] == ("payload_shackle", "payload")
+    assert names[neutral + 2 :] == tuple(f"{model.lumped_members[0].name}.node{k}" for k in range(SEGMENTS))
+    table = limits_table(build_of(model, structural), model, config({"check": "deflection"}), views(), native)
+    assert table["bodies"] == neutral + 2 + SEGMENTS
+    nodes = table["members"][0]["nodes"]
+    assert (nodes["first_body"], nodes["count"]) == (neutral + 2, SEGMENTS)
+    assert nodes["parent_body"] == plain["members"][0]["nodes"]["parent_body"]
+    core.check_integrity_limits(json.dumps(table))
+
+
+@pytest.mark.req("INT-006", "INT-023")
+def test_the_node_names_are_counted_from_the_native_document_not_the_model() -> None:
+    # The document's member entry is what the adapter loads: its `segments`, plus the pin segment's node 0 when its
+    # `ends` is simply_supported (a pinned root), sets the published node count; the model's member names them.
+    model = cantilever_model()
+    native = native_of(model)
+    neutral = int(native["neutral_bodies"])
+    name = model.lumped_members[0].name
+    native["members"][0]["segments"] = 3
+    assert published_names(model, native)[neutral:] == tuple(f"{name}.node{k}" for k in range(3))
+    native["members"][0]["ends"] = "simply_supported"
+    assert published_names(model, native)[neutral:] == tuple(f"{name}.node{k}" for k in range(4))
+    native["members"] = []
+    with pytest.raises(IntegrityError, match="the native model lists 0 members, the physics model 1"):
+        published_names(model, native)
 
 
 @pytest.mark.req("INT-023", "INT-010")

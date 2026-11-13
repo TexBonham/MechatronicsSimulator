@@ -527,17 +527,19 @@ TEST_CASE("a value exactly at the limit is not a crossing and the next represent
 
 // ===== Limits table ======================================================
 
-TEST_CASE("the limits table parses and refuses malformed entries", "[INT-023]") {
+TEST_CASE("the limits table parses and refuses malformed entries", "[INT-023][INT-006]") {
     const std::string member =
         R"({"name": "arm", "index": 0, "area": 1e-4, "i_y": 2e-8, "i_z": 1e-8, "c_y": 0.01, "c_z": 0.02, )"
         R"("length": 1.0, "elastic_modulus": 2e11, "effective_length_factor": 2.0, "allowable_stress": 1e8, )"
         R"("yield_strength": 2.5e8, "deflection_limit": null, "supports": [{"at": 0.0, "condition": "clamped"}], )"
         R"("first_spring": 2, "segments": 8, "segment_length": 0.125, "node_stiffness": 16000.0, "nodes": {"first_body": )"
         R"(5, "count": 9, "root": "pinned", "parent_body": null, "position": [0, 1, 0], "orientation": [1, 0, 0, 0]}})";
-    const auto doc = [](const std::string& members, const std::string& checks = "true") {
+    const auto doc = [](const std::string& members, const std::string& checks = "true",
+                        const std::string& bodies = R"(, "bodies": 14)") {
         return R"({"format": "mechsim-integrity-limits-1", "minimum_safety_factor": 1.5, "checks": {"stress": )" +
                checks + R"(, "buckling": false, "deflection": false, "fastener": true, "yield_offset": false}, )"
-               R"("members": [)" + members + R"(], "fastenings": [{"name": "bolts", "joint": 3, "load_limit": 10}]})";
+               R"("members": [)" + members + R"(], "fastenings": [{"name": "bolts", "joint": 3, "load_limit": 10}])" +
+               bodies + "}";
     };
     const integrity::Limits limits = integrity::parse_limits(doc(member));
     REQUIRE(limits.members.size() == 1);
@@ -558,6 +560,10 @@ TEST_CASE("the limits table parses and refuses malformed entries", "[INT-023]") 
     std::string rigid = member;
     rigid.replace(rigid.find(R"("nodes": {)"), rigid.size() - rigid.find(R"("nodes": {)"), R"("nodes": null})");
     CHECK_FALSE(integrity::parse_limits(doc(rigid)).members[0].nodes.has_value());
+    CHECK_FALSE(integrity::parse_limits(doc(rigid, "true", "")).bodies.has_value());
+    CHECK(integrity::parse_limits(doc(member)).bodies == std::optional<std::size_t>(14));
+    CHECK_THROWS_AS(integrity::parse_limits(doc(member, "true", "")), integrity::LimitsError);
+    CHECK_THROWS_AS(integrity::parse_limits(doc(member, "true", R"(, "bodies": null)")), integrity::LimitsError);
     for (const auto& [from, to] : std::vector<std::pair<std::string, std::string>>{
              {R"("count": 9)", R"("count": 0)"},
              {R"("root": "pinned")", R"("root": "free")"},
@@ -598,5 +604,36 @@ TEST_CASE("a member published out of range faults the party", "[INT-023]") {
     REQUIRE(r.report.fault.has_value());
     if (r.report.fault.has_value()) {
         CHECK(r.report.fault.value().party() == "integrity");
+    }
+}
+
+TEST_CASE("the limits table's body count is exact, never an upper bound", "[INT-006]") {
+    const std::string doc = R"({"format": "mechsim-integrity-limits-1", "minimum_safety_factor": 1.5, "checks": )"
+                            R"({"stress": false, "buckling": false, "deflection": false, "fastener": false, )"
+                            R"("yield_offset": false}, "members": [], "fastenings": [])";
+    CHECK_FALSE(integrity::parse_limits(doc + "}").bodies.has_value());
+    CHECK_FALSE(integrity::parse_limits(doc + R"(, "bodies": null})").bodies.has_value());
+    CHECK(integrity::parse_limits(doc + R"(, "bodies": 36})").bodies == std::optional<std::size_t>(36));
+    CHECK_THROWS_AS(integrity::parse_limits(doc + R"(, "bodies": -1})"), integrity::LimitsError);
+    CHECK_THROWS_AS(integrity::parse_limits(doc + R"(, "bodies": 2.5})"), integrity::LimitsError);
+    // tip_loaded publishes the 8 node bodies; 8 runs, 7 (fewer) and 10 (more: a bound would accept it) fault.
+    for (const std::size_t expected : {std::size_t{7}, std::size_t{8}, std::size_t{10}}) {
+        integrity::Limits limits;
+        limits.deflection = true;
+        limits.members.push_back(cantilever());
+        limits.bodies = expected;
+        const Run r = run(limits, [](double t) { return tip_loaded(t, 1.0); }, 5);
+        CAPTURE(expected);
+        if (expected == 8) {
+            CHECK(r.report.outcome != kernel::RunOutcome::run_error);
+            continue;
+        }
+        CHECK(r.report.outcome == kernel::RunOutcome::run_error);
+        REQUIRE(r.report.fault.has_value());
+        if (r.report.fault.has_value()) {
+            const std::string cause = r.report.fault.value().cause();
+            CHECK(cause.find("publishes 8 bodies, the limits table expects " + std::to_string(expected)) !=
+                  std::string::npos);
+        }
     }
 }

@@ -122,11 +122,13 @@ def score_run(
     sweep: tuple[str, str] | None = None,
     run: RunIdentity | None = None,
     integrity: IntegrityResults | None = None,
+    gravity: Sequence[float] | None = None,
 ) -> CaseScore:
     """Score one run of a resolved case. `limits` maps criterion name to the limit text of the case as written
     (its `${}` forms), which the baseline keeps; by default the resolved criterion's own text. Structural criteria
-    read `integrity` (SCO-014); a recorded tier 1 crossing fails the case (SCO-015)."""
-    recording = _StructuralView(recording, integrity)
+    read `integrity` (SCO-014); a recorded tier 1 crossing fails the case (SCO-015). `gravity` (the design's, m/s^2)
+    gives the down direction `swing:` quantities are measured from (SCO-030); without it they are unevaluable."""
+    recording = _StructuralView(_SwingView(recording, gravity), integrity)
     results: list[CriterionResult] = []
     for criterion in case.criteria:
         limit = _limit_text(criterion, limits)
@@ -163,6 +165,109 @@ def score_run(
 
 
 STRUCTURAL_KINDS = ("safety_factor", "deflection")
+SWING_KIND = "swing"
+_AXES = {"x": (1.0, 0.0, 0.0), "y": (0.0, 1.0, 0.0), "z": (0.0, 0.0, 1.0)}
+
+
+class _ReferencePoses(Protocol):
+    """The recording's body order and reference-configuration world poses (the record reader's `Kinematics`)."""
+
+    @property
+    def bodies(self) -> Sequence[str]: ...
+
+    @property
+    def reference(self) -> Sequence[tuple[Sequence[float], Sequence[float]]]: ...
+
+
+@runtime_checkable
+class _Placed(Protocol):
+    """A record view that also gives each body's reference pose, so `pose:` displacements become world origins."""
+
+    @property
+    def kinematics(self) -> _ReferencePoses: ...
+
+    def series(self, reference: str) -> Series: ...
+
+
+class _SwingView:
+    """The record view plus `swing:<a>.<b>` (SCO-030): at each sample the angle (rad) between the line from body a's
+    origin to body b's and the gravity direction g, acos(d . g / (|d| |g|)), unsigned in [0, pi]; and
+    `swing:<a>.<b>.<axis>` (axis x, y or z), the signed angle of that line in the vertical plane through g and the
+    world axis, atan2(d . e, d . g_hat) with e the axis made orthogonal to g, positive toward the axis: a planar swing's
+    angle, so its period and settle statistics read the swing itself. A body's origin is its reference-configuration
+    origin plus its recorded `pose:` displacement (TST-038); a view without reference poses is unevaluable.
+    No gravity, a zero gravity, an axis along gravity or coincident origins is unevaluable (invariant 7)."""
+
+    def __init__(self, recording: RecordView, gravity: Sequence[float] | None) -> None:
+        self._recording = recording
+        self._gravity = gravity
+
+    def times(self) -> Sequence[float]:
+        return self._recording.times()
+
+    def controller_states(self) -> Sequence[str]:
+        return self._recording.controller_states()
+
+    def events(self) -> Sequence[RecordedEvent]:
+        return self._recording.events()
+
+    def series(self, reference: str) -> Series:
+        kind, _, rest = reference.partition(":")
+        if kind != SWING_KIND:
+            return self._recording.series(reference)
+        parts = rest.split(".")
+        down = self._down(reference)
+        start = self._position(parts[0])
+        end = self._position(parts[1])
+        values: list[float] = []
+        across: tuple[float, float, float] | None = None
+        if len(parts) == 3:
+            across = self._across(reference, parts[2], down)
+        for index, time in enumerate(self._recording.times()):
+            line = [end[axis][index] - start[axis][index] for axis in range(3)]
+            length = math.sqrt(sum(value * value for value in line))
+            if length == 0.0:
+                raise _UnevaluableError(f"{reference}: the two bodies' origins coincide at {time:.12g} s")
+            along = sum(line[axis] * down[axis] for axis in range(3))
+            if across is None:
+                values.append(math.acos(max(-1.0, min(1.0, along / length))))
+            else:
+                values.append(math.atan2(sum(line[axis] * across[axis] for axis in range(3)), along))
+        return Series(tuple(self._recording.times()), tuple(values), "rad")
+
+    def _down(self, reference: str) -> tuple[float, float, float]:
+        if self._gravity is None:
+            raise _UnevaluableError(f"{reference}: no gravity input: scoring was given no design gravity")
+        x, y, z = (float(value) for value in self._gravity)
+        norm = math.sqrt(x * x + y * y + z * z)
+        if norm == 0.0:
+            raise _UnevaluableError(f"{reference}: gravity is zero, no down direction")
+        return (x / norm, y / norm, z / norm)
+
+    def _position(self, body: str) -> tuple[list[float], list[float], list[float]]:
+        """Body origin in world: the reference-configuration origin plus the `pose:` displacement (TST-038)."""
+        if not isinstance(self._recording, _Placed):
+            raise _UnevaluableError(f"swing: the recording carries no reference pose for body {body!r}")
+        kinematics = self._recording.kinematics
+        if body not in kinematics.bodies:
+            raise KeyError(f"no body {body!r} in the recording")
+        origin = kinematics.reference[kinematics.bodies.index(body)][0]
+        displacement = [self._recording.series(f"pose:{body}.{axis}").values for axis in ("x", "y", "z")]
+        return (
+            [origin[0] + value for value in displacement[0]],
+            [origin[1] + value for value in displacement[1]],
+            [origin[2] + value for value in displacement[2]],
+        )
+
+    @staticmethod
+    def _across(reference: str, axis: str, down: tuple[float, float, float]) -> tuple[float, float, float]:
+        unit = _AXES[axis]
+        dot = sum(unit[k] * down[k] for k in range(3))
+        rest = [unit[k] - dot * down[k] for k in range(3)]
+        norm = math.sqrt(sum(value * value for value in rest))
+        if norm < 1e-12:
+            raise _UnevaluableError(f"{reference}: axis {axis} is along gravity, no swing plane")
+        return (rest[0] / norm, rest[1] / norm, rest[2] / norm)
 
 
 @runtime_checkable

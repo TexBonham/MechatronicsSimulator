@@ -12,8 +12,9 @@ from dataclasses import dataclass
 from typing import Any
 
 from mechsim.integrity.beam import peak
+from mechsim.integrity.checks.deflection import NOT_EVALUATED as STATIC
 from mechsim.integrity.config import IntegrityConfig
-from mechsim.integrity.plugin import CheckResult, CheckRow, RunInputs
+from mechsim.integrity.plugin import LOADS_NOT_EVALUATED, CheckResult, CheckRow, RunInputs, rigid_note
 from mechsim.testing.driver import IntegrityResults, MemberIntegrity, RopeIntegrity
 
 THERMAL_NOTE = "thermal check slot: accepted, not evaluated in v1 (INT-036)"
@@ -72,12 +73,23 @@ def evaluate(config: IntegrityConfig, inputs: RunInputs) -> IntegrityReport:
         result = check.evaluate(inputs, parameters, tier)
         results.append(result)
         notes += result.notes
+    for member in inputs.members:
+        if member.loads is None:
+            unevaluated = [result.check for result in results if _rigid(result, member.name)]
+            notes.append(rigid_note(member.name, unevaluated))
     if config.thermal is not None:
         notes.append(THERMAL_NOTE)
     single = {member.name for member in inputs.members if member.section.single_axis}
     members = tuple(_row(subject, results, subject in single) for subject in _subjects(inputs))
     times = tuple(float(time) for time in inputs.times)
     return IntegrityReport(members, _ropes(inputs), tuple(results), inputs.load_factor, tuple(notes), times)
+
+
+def _rigid(result: CheckResult, subject: str) -> bool:
+    for row in result.rows:
+        if row.subject == subject and (LOADS_NOT_EVALUATED in row.flags or STATIC in row.flags):
+            return True
+    return False
 
 
 def _ropes(inputs: RunInputs) -> tuple[RopeIntegrity, ...]:
@@ -114,13 +126,19 @@ def _row(subject: str, results: list[CheckResult], single_axis: bool) -> MemberI
     stress_time = 0.0
     factor = math.inf
     factor_time = 0.0
+    unevaluated = False
     for row in _rows(results, "strength", subject):
+        if LOADS_NOT_EVALUATED in row.flags:
+            unevaluated = True
         if row.quantity in _STRESS and row.tier == 1:
             stress = row.value
             stress_time = row.time
         if row.margin is not None and row.margin.min < factor:
             factor = row.margin.min
             factor_time = row.time
+    if unevaluated:
+        stress = math.nan
+        factor = math.nan
     deflection = 0.0
     deflection_time = 0.0
     for row in _rows(results, "deflection", subject):
