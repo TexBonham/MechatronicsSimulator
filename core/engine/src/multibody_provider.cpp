@@ -1459,7 +1459,7 @@ void MultibodyProvider::check_carried_stability(const State& before, double h) {
     const Eigen::GeneralizedSelfAdjointEigenSolver<Eigen::MatrixXd> solver(
         basis.transpose() * stiffness * basis, basis.transpose() * terms.mass * basis);
     const Eigen::MatrixXd modes = basis * solver.eigenvectors();
-    const Eigen::VectorXd omega_squared = solver.eigenvalues();
+    const Eigen::VectorXd& omega_squared = solver.eigenvalues();
 
     std::vector<Eigen::Index> elastic;
     const double largest = std::max(omega_squared.maxCoeff(), 0.0);
