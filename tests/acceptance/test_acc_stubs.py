@@ -733,12 +733,17 @@ def test_acc_030(native_gantry: dict[str, tuple[RunResult, CoreDriver]]) -> None
 def test_native_gantry_cases_repeat_bit_identically(
     case: str, native_gantry: dict[str, tuple[RunResult, CoreDriver]], tmp_path: Path
 ) -> None:
-    """G12 and G15 run twice with the same seed give the same archive bytes (invariant 4)."""
-    first, _ = native_gantry[case]
-    second, _ = _native_run(case, tmp_path)
-    assert first.score.run is not None
-    assert second.score.run is not None
-    assert first.score.run.archive_sha256 == second.score.run.archive_sha256
+    """G12 and G15 run twice with the same seed give the same recording, compared bitwise (invariant 4: every series'
+    values and times, every event), and the same run report. The archive files are not compared: they also carry the
+    archive's own path and write metadata."""
+    first, one = native_gantry[case]
+    second, two = _native_run(case, tmp_path)
+    a = one.recording().recording
+    b = two.recording().recording
+    assert sorted(a.series) == sorted(b.series)
+    for path, series in a.series.items():
+        assert np.asarray(series.values).tobytes() == np.asarray(b.series[path].values).tobytes(), path
+    assert a.events == b.events
     assert first.report == second.report
 
 
