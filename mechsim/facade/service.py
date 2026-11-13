@@ -289,7 +289,9 @@ class IntegrityMemberResult(StrictModel):
     state, the value None and its `_evaluated` flag false, never a NaN in a number field (FAC-013, invariant 7)."""
 
     member: str
-    peak_stress: float | None = Field(description="Peak stress at the design load, Pa (INT-022); None when not evaluated.")
+    peak_stress: float | None = Field(
+        description="Peak stress at the design load, Pa (INT-022); None when not evaluated."
+    )
     peak_stress_evaluated: bool
     peak_stress_time: float
     deflection: float | None = Field(description="Peak deflection, m; None when not evaluated.")

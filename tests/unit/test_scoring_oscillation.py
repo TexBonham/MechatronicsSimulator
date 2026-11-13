@@ -77,9 +77,7 @@ def test_an_about_the_mean_period_needs_two_crossings() -> None:
 @pytest.mark.req("SCO-027")
 def test_oscillation_criteria_on_a_recorded_series_report_their_units() -> None:
     recording = recording_from(TIMES, {"pose:bob.x": SWING}, "m")
-    period = score_one(
-        value("period_about_mean", "within", "1 ms", quantity="pose:bob.x", target="1 s"), recording
-    )
+    period = score_one(value("period_about_mean", "within", "1 ms", quantity="pose:bob.x", target="1 s"), recording)
     frequency = score_one(
         value("frequency_about_mean", "within", "1 mHz", quantity="pose:bob.x", target="1 Hz"), recording
     )

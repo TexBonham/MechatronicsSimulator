@@ -27,7 +27,7 @@ runner, recorder, scoring and viewer.
 | `replay_open(archive)` | `ReplayHandle` keyed by run id; archive reader only (FAC-008) |
 | `events`, `timeline`, `probe(run_id, kind, name)`, `geometry` | viewer results (VIE-002 to VIE-006, VIE-015) |
 | `member_stress(run_id)`, `swing_angle(run_id, load, attachment)` | `MemberStressResult` (unit Pa, times, members with area, second moments y and z, fibres y and z, start, end), `SwingAngleResult` (unit rad, times, values; down from the archived design's gravity, an unreadable archive `not_found`); VIE-010, VIE-011 |
-| `integrity_results(run_id)`, `load_case(run_id, format)` | FAC-013: `IntegrityResultsResult` (the archived per-member table; `not_found` without one), `LoadCaseResult` (`csv` or `json` text, design version); requests `integrity_results`, `load_case`; `files.py` kind `integrity` (`integrity.yaml`) |
+| `integrity_results(run_id)`, `load_case(run_id, format)` | FAC-013: `IntegrityResultsResult` (the archived per-member table; `not_found` without one; `peak_stress`, `deflection`, `safety_factor` are `None` with `<quantity>_evaluated` false when integrity did not evaluate them, never NaN), `LoadCaseResult` (`csv` or `json` text, design version); requests `integrity_results`, `load_case`; `files.py` kind `integrity` (`integrity.yaml`) |
 | `series(run_id, names, t_start, t_end, points)` | `SeriesWindow`, decimated; archive untouched (FAC-007) |
 | `value_at(run_id, ref, t)` | latest sample at or before t; refs `pose:`, `joint:`, `signal:`, `actuator:` |
 | `scrub`, `pause`, `step`, `advance` | `CursorResult` (index, t, paused, samples) |
