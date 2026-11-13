@@ -1,0 +1,111 @@
+# G15 (Requirements doc, Test cases, gantry suite): structural worst cases with the design load. Pass: every member's
+# minimum safety factor at or above the design's minimum (ACC-029; 1.5, gantry team 2026-11-11), every member's
+# node-pose deflection under the 1 cm target (ACC-030; the dynamic peak over the run, the conservative reading while
+# the target's static or dynamic sense is owed: deflection_target_mode), and no tier 1 crossing (a crossing fails a
+# passing case, SCO-015). Tier 1 runs (designs/gantry/integrity.yaml) without halting, so the whole run is scored; the
+# peak member end loads are exported beside the archive as the load case (INT-022). Native adapter only: the bridge
+# builds the rails rigid and evaluates no tier 1 (rulings 29, 34).
+#
+# Design load (ruling 52: the case carries it, tier 1 applies no factor): rated load + 15 percent = 4.536 kg x 1.15 =
+# 5.2164 kg on payload_rope (the rated load is the gantry team's 10 lb; the rule is the design's structural section).
+# Part (a), maximum acceleration: target (25, 25) at 8 s, both axes at the 0.05 m/s^2 limit to mid-travel of both
+# rails (rail_y at x 0.25 m, the middle of rail_x; the trolley at y 0.25 m, the middle of rail_y), arrived by about
+# 12.75 s (0.1 m ramp, 0.025 m cruise, 0.075 m deceleration to the 0.05 m/s slow zone, 0.05 m slow, final stop), held
+# to 15 s. Part (b), E-stop with a swinging load: target (5, 25) at 15 s, the E-stop at 16.5 s, 1.5 s into the ramp
+# (0.075 m/s) with the payload still swinging from part (a) and swung back by the ramp, released 1 s later; observed to
+# 22 s. Step: 100 microseconds (substeps 10), as G12 (ruling 21): the rails' first modes (about 50 Hz after the
+# calibration) keep 0.906 of their amplitude per period there, resolved (x = 0.031).
+#
+# Oracles (PLACEHOLDER section and calibration: E I from the rail_calibration default, 100 N giving 1 mm at mid-span,
+# so the calibrated mid-span stiffness is 1e5 N/m for each rail). Design-load weight P = (5.2164 kg + rope 0.0105 kg)
+# x 9.81 m/s^2 = 51.3 N, at mid-span of each rail at mid-travel; carriage, trolley and lift masses add to it on rail_x.
+# Static mid-span deflection P L^3 / (192 E I) clamped-clamped (rail_x) and P L^3 / (48 E I) pinned-roller (rail_y),
+# both P / (1e5 N/m) by the calibration: 0.51 mm for the payload alone; a suddenly applied load doubles it. Static
+# bending stress M c / I with M = P L / 8 clamped-clamped, P L / 4 pinned, c = 0.02 m, I = 2e-8 m^4 (the stated
+# section): 3.2 MPa and 6.4 MPa for the payload alone. The acceptance test prints each member's measured safety factor
+# and deflection beside these and asserts the measured peaks against them.
+id: G15
+title: Structural worst cases with the design load
+design:
+  name: gantry
+  version: 0.1.0
+controller_mode: native
+seed: 15
+physics:
+  adapter: native
+  substeps: 10
+integrity:
+  halt_on_crossing: false
+open_parameters:
+  - name: design_load_mass
+    dimension: "[mass]"
+    owed_by: gantry team
+    note: Design load on the rope, rated load + 15 percent (4.536 kg x 1.15); PLACEHOLDER with the rated load.
+    default: "5.2164 kg"
+initial_state:
+  joints:
+    - joint: x_axis
+      position: 0.1 m
+      velocity: 0 m/s
+    - joint: y_axis
+      position: 0.1 m
+      velocity: 0 m/s
+    - joint: lift_axis
+      position: 0.1 m
+      velocity: 0 m/s
+  controller:
+    state: not_homed
+  payload:
+    attached: true
+    body: hook
+    mass: ${design_load_mass}
+commands:
+  - at: 0 s
+    message: home
+  - at: 8 s
+    message: target
+    payload:
+      x: 25 cm
+      y: 25 cm
+  - at: 15 s
+    message: target
+    payload:
+      x: 5 cm
+      y: 25 cm
+faults:
+  - kind: estop_press
+    target: estop
+    start: 16.5 s
+    duration: 1 s
+end:
+  at: 22 s
+  max_duration: 22 s
+criteria:
+  - name: ready_after_homing
+    check: event
+    event: state:ready
+    expect: present
+  - name: safety_factor_rail_x
+    check: value
+    quantity: safety_factor:rail_x
+    statistic: minimum
+    comparison: at_least
+    limit: ${minimum_safety_factor}
+  - name: safety_factor_rail_y
+    check: value
+    quantity: safety_factor:rail_y
+    statistic: minimum
+    comparison: at_least
+    limit: ${minimum_safety_factor}
+  - name: deflection_rail_x
+    check: value
+    quantity: deflection:rail_x
+    statistic: maximum
+    comparison: below
+    limit: 1 cm
+  - name: deflection_rail_y
+    check: value
+    quantity: deflection:rail_y
+    statistic: maximum
+    comparison: below
+    limit: 1 cm

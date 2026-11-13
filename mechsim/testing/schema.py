@@ -225,9 +225,12 @@ ADAPTER_SETTING = "physics.adapter"
 
 class PhysicsSettings(StrictModel):
     """The run configuration's physics section (TST-040): `adapter` selects the physics adapter, `mujoco` by default
-    until X2 (ruling 41); `--set physics.adapter=<name>` overrides it."""
+    until X2 (ruling 41); `--set physics.adapter=<name>` overrides it. `substeps` (TST-042, rulings 21, 49): engine
+    steps per physics step on the native adapter, each h / substeps, the control tick unchanged; above one on the
+    bridge the run fails."""
 
     adapter: PhysicsAdapterName = DEFAULT_PHYSICS_ADAPTER
+    substeps: int = Field(default=1, ge=1)
 
 
 class IntegritySettings(StrictModel):

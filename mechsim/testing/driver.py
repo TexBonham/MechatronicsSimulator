@@ -45,6 +45,7 @@ class RunConfig:
     controller_mode: Literal["native", "emulated"] | None
     dry: bool = False
     physics_adapter: str = "mujoco"
+    physics_substeps: int = 1
 
 
 @dataclass(frozen=True)

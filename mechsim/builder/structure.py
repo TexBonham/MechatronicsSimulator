@@ -220,6 +220,18 @@ def rope_element(rope: Rope, values: Mapping[str, float | bool]) -> dict[str, An
     """The neutral rope (ADR 0016) of a design rope; None while its to end is a case payload (placed at run time)."""
     if rope.to_end.body is None or rope.from_end.body is None:
         return None
+    return _rope(rope, rope.to_end.body, values)
+
+
+def payload_rope_element(rope: Rope, values: Mapping[str, float | bool]) -> dict[str, Any] | None:
+    """The neutral rope of a design rope whose to end is a case payload, `to_body` naming the payload and `to_point`
+    the design's point, offset from the payload's top face centre (BLD-032; `payload.with_payload` places both)."""
+    if rope.to_end.payload is None or rope.from_end.body is None:
+        return None
+    return _rope(rope, rope.to_end.payload, values)
+
+
+def _rope(rope: Rope, to_body: str, values: Mapping[str, float | bool]) -> dict[str, Any]:
     rest: float | bool | OpenValue | None = rope.rest_length
     if rest is None:
         rest = values["rest_length"]
@@ -230,7 +242,7 @@ def rope_element(rope: Rope, values: Mapping[str, float | bool]) -> dict[str, An
         "name": rope.name,
         "from_body": rope.from_end.body,
         "from_point": _points(rope.from_end.point),
-        "to_body": rope.to_end.body,
+        "to_body": to_body,
         "to_point": _points(rope.to_end.point),
         "segments": rope.segments,
         "axial_stiffness": f"{float(numbers['axial_stiffness'])!r} N",

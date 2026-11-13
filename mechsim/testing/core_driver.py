@@ -41,6 +41,7 @@ from mechsim.physics.native.translate import StartStateError as NativeStartState
 from mechsim.physics.native.translate import UnmappableElementError as NativeUnmappableElementError
 from mechsim.physics.native.translate import driven_mode_lines, member_node_names
 from mechsim.physics.neutral import PhysicsModel
+from mechsim.physics.neutral import Rope as NeutralRope
 from mechsim.record.archive import RunEnd, RunFault, RunIdentity, repository_commit, tool_version
 from mechsim.record.archive import write_archive as write_record_archive
 from mechsim.record.layout import DRIVE_DRIVEN, DRIVE_TORQUE, JOINT_POSITIONS, MEMBER_SERIES, ROPE_SERIES, Columns
@@ -287,6 +288,15 @@ BRIDGE_NODE_POSES = (
 )
 
 
+
+def payload_stand_in_line(rope: NeutralRope, carrier: str) -> str:
+    """The bridge's approximation line for a case payload whose design rope it does not model (BLD-032)."""
+    return (
+        f"payload rope '{rope.name}': not modeled on the mujoco bridge; the case payload is fixed to '{carrier}' "
+        "(the design's suspension joints stand in for the rope swing); the native adapter hangs it on the rope"
+    )
+
+
 class CoreDriver:
     """`SimulationDriver` over the core binding. One driver per run (the runner's factory makes a fresh one)."""
 
@@ -454,26 +464,35 @@ class CoreDriver:
         payloads: dict[str, str] = {}
         integrity = self._integrity_config()
         model, snap_lines = _rope_snap_gate(model, integrity)
+        native = self.adapter == NATIVE_ADAPTER
+        stand_in: tuple[str, ...] = ()
         if self._payload is not None:
             name, carrier, mass, _ = self._payload
             fixed = self._payload_fixed()
+            rope = self._payload_rope(name)
+            if rope is not None and not native:
+                stand_in = (payload_stand_in_line(rope, carrier),)
+                rope = None
+            if rope is not None and not fixed:
+                raise DriverError(f"payload '{name}': hangs on rope '{rope.name}'; a mid-run release has no rope form")
             try:
-                model = with_payload(model, name, carrier, mass, fixed)
+                model = with_payload(model, name, carrier, mass, fixed, rope, self._starts)
             except BuildError as failure:
                 raise DriverError(str(failure)) from failure
             if not fixed:
                 payloads[name] = carrier
+        if config.physics_substeps > 1 and not native:
+            raise DriverError(f"physics.substeps {config.physics_substeps}: only the native adapter substeps (TST-042)")
         step = float(1 / config.physics_rate)
-        native = self.adapter == NATIVE_ADAPTER
         tier1: Tier1Setup | None = None
         if native:
-            prepared_native = prepare_native_model(model, self._starts, step, payloads)
+            prepared_native = prepare_native_model(model, self._starts, step, payloads, config.physics_substeps)
             self.approximations = (f"physics adapter: {NATIVE_ADAPTER}", *prepared_native.report)
             prepared = core.PreparedModel(prepared_native.model_json, "", prepared_native.version)
             tier1 = self._tier1_setup(model, json.loads(prepared_native.model_json))
         else:
             artifacts = prepare_model(model, self._starts, step, payloads)
-            self.approximations = artifacts.report
+            self.approximations = (*artifacts.report, *stand_in)
             prepared = core.PreparedModel(artifacts.neutral_json, artifacts.mjcf, artifacts.version)
             if integrity is not None and tier1_enabled(integrity):
                 self.approximations = (*self.approximations, NOT_EVALUATED)
@@ -653,6 +672,15 @@ class CoreDriver:
         if self._payload is None:
             return None
         return self._payload[0]
+
+    def _payload_rope(self, name: str) -> NeutralRope | None:
+        """The design rope ending at the case payload `name` (BLD-032), if any."""
+        if self._build is None:
+            return None
+        for rope in self._build.payload_ropes:
+            if rope.to_body == name:
+                return rope
+        return None
 
     def _payload_fixed(self) -> bool:
         """Ruling 24: a payload attached at t = 0 that no fault releases is a fixed child of its carrier; a released

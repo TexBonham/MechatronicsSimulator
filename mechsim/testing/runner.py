@@ -440,6 +440,7 @@ def run_config(case: Case, design: Design, build: BuildResult, dry: bool = False
         controller_mode=case.controller_mode,
         dry=dry,
         physics_adapter=case.physics.adapter,
+        physics_substeps=case.physics.substeps,
     )
 
 

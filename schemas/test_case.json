@@ -867,7 +867,7 @@
     },
     "PhysicsSettings": {
       "additionalProperties": false,
-      "description": "The run configuration's physics section (TST-040): `adapter` selects the physics adapter, `mujoco` by default\nuntil X2 (ruling 41); `--set physics.adapter=<name>` overrides it.",
+      "description": "The run configuration's physics section (TST-040): `adapter` selects the physics adapter, `mujoco` by default\nuntil X2 (ruling 41); `--set physics.adapter=<name>` overrides it. `substeps` (TST-042, rulings 21, 49): engine\nsteps per physics step on the native adapter, each h / substeps, the control tick unchanged; above one on the\nbridge the run fails.",
       "properties": {
         "adapter": {
           "default": "mujoco",
@@ -877,6 +877,12 @@
           ],
           "title": "Adapter",
           "type": "string"
+        },
+        "substeps": {
+          "default": 1,
+          "minimum": 1,
+          "title": "Substeps",
+          "type": "integer"
         }
       },
       "title": "PhysicsSettings",

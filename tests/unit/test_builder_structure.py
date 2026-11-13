@@ -10,6 +10,9 @@ from typing import Any
 import pytest
 
 from mechsim.builder import BuildError, BuildResult, build, structure
+from mechsim.builder.payload import PAYLOAD_EDGE, SHACKLE_MASS, with_payload
+from mechsim.builder.payload import _pose as payload_pose
+from mechsim.builder.payload import _q_rot as q_rot
 from mechsim.builder.physics import element_kinds
 from mechsim.design.schema import Design, shipped_materials
 from mechsim.library.registry import default_registry
@@ -363,6 +366,77 @@ def test_rope_to_a_case_payload_is_noted_and_not_emitted() -> None:
         "rope 'payload_rope': its to end is case payload 'payload'; not emitted until the case places the payload "
         "(BLD-032)",
     )
+
+
+@pytest.mark.req("BLD-032")
+def test_rope_to_a_case_payload_is_listed_for_the_run() -> None:
+    result = _build(gantry(), rigid_members=True)
+    assert len(result.payload_ropes) == 1
+    rope = result.payload_ropes[0]
+    assert (rope.name, rope.from_body, rope.to_body, rope.segments) == ("payload_rope", "hook", "payload", 8)
+    assert rope.from_point == (0.0, 0.0, -0.02)
+    assert rope.to_point == (0.0, 0.0, 0.0)
+    assert rope.rest_length == pytest.approx(0.3, rel=1e-15)
+    between = _build(_rope_design({"body": "frame"}), rigid_members=True)
+    assert between.payload_ropes == ()
+
+
+def _hung(starts: dict[str, float] | None = None, carrier: str = "hook", **rope: Any) -> PhysicsModel:
+    result = _build(gantry(), rigid_members=True)
+    assert result.physics is not None
+    hung = result.payload_ropes[0].model_copy(update=rope)
+    return with_payload(result.physics, "payload", carrier, 4.5, True, hung, starts)
+
+
+def _world(
+    model: PhysicsModel, body: str, point: tuple[float, float, float], starts: dict[str, float] | None = None
+) -> tuple[float, float, float]:
+    origin, orientation = payload_pose(model, body, starts)
+    offset = q_rot(orientation, point)
+    return (origin[0] + offset[0], origin[1] + offset[1], origin[2] + offset[2])
+
+
+@pytest.mark.req("BLD-032")
+@pytest.mark.req("BLD-036")
+@pytest.mark.parametrize("starts", [None, {"x_axis": 0.1, "y_axis": 0.2, "lift_axis": 0.3}])
+def test_payload_hangs_on_its_rope_straight_at_rest_length_from_the_start_pose(
+    starts: dict[str, float] | None,
+) -> None:
+    model = _hung(starts)
+    assert [body.name for body in model.bodies][-2:] == ["payload_shackle", "payload"]
+    shackle, payload = model.bodies[-2], model.bodies[-1]
+    assert shackle.joint is not None
+    assert payload.joint is not None
+    assert (shackle.parent, shackle.joint.name, shackle.joint.type) == ("hook", "payload_fixed", "fixed")
+    assert shackle.joint.position == (0.0, 0.0, -0.02)
+    assert shackle.shapes == ()
+    assert shackle.mass == SHACKLE_MASS
+    assert (payload.parent, payload.joint.name, payload.joint.type) == ("world", "payload_free", "free")
+    assert payload.mass == 4.5
+    rope = model.ropes[-1]
+    assert (rope.from_body, rope.from_point, rope.to_body) == ("payload_shackle", (0.0, 0.0, 0.0), "payload")
+    assert rope.to_point == pytest.approx((0.0, 0.0, PAYLOAD_EDGE / 2.0), abs=1e-15)
+    hook_point = _world(model, "hook", (0.0, 0.0, -0.02), starts)
+    top = _world(model, "payload", rope.to_point)
+    moved = [0.0, 0.0, 0.0]
+    if starts is not None:
+        moved = [starts["x_axis"], starts["y_axis"], starts["lift_axis"]]
+    base = _world(_hung(None), "hook", (0.0, 0.0, -0.02))
+    assert hook_point == pytest.approx(tuple(base[i] + moved[i] for i in range(3)), abs=1e-12)
+    assert (hook_point[0] - top[0], hook_point[1] - top[1]) == pytest.approx((0.0, 0.0), abs=1e-12)
+    assert hook_point[2] - top[2] == pytest.approx(0.3, abs=1e-12)
+
+
+@pytest.mark.req("BLD-032")
+def test_payload_rope_from_another_carrier_or_to_another_payload_is_a_build_error() -> None:
+    with pytest.raises(BuildError) as carrier:
+        _hung(carrier="lift_carriage")
+    assert carrier.value.failures == [
+        "payload 'payload': carried by 'lift_carriage', but rope 'payload_rope' hangs from 'hook'"
+    ]
+    with pytest.raises(BuildError) as other:
+        _hung(to_body="crate")
+    assert other.value.failures == ["payload 'payload': rope 'payload_rope' ends at 'crate', not at this payload"]
 
 
 @pytest.mark.req("BLD-024")

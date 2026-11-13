@@ -8,7 +8,7 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict
 
 from mechsim.design.schema import Design
-from mechsim.physics.neutral import PhysicsModel, StructuralMember
+from mechsim.physics.neutral import PhysicsModel, Rope, StructuralMember
 
 
 class BuildError(ValueError):
@@ -165,6 +165,7 @@ class BuildResult(_Out):
     lumped: tuple[LumpedRecord, ...]
     pending: tuple[str, ...]
     notes: tuple[str, ...]
+    payload_ropes: tuple[Rope, ...] = ()
 
     def to_json(self) -> str:
         """Canonical JSON: the same build gives the same bytes (BLD-026)."""

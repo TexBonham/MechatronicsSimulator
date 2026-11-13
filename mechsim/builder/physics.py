@@ -41,7 +41,7 @@ from mechsim.design.schema import (
 )
 from mechsim.library.registry import Registry, RegistryError
 from mechsim.materials.schema import Material
-from mechsim.physics.neutral import LumpedMember, PhysicsModel, StructuralMember
+from mechsim.physics.neutral import LumpedMember, PhysicsModel, Rope, StructuralMember
 from mechsim.schema_base import format_errors
 
 FLOOR_MATERIAL = "floor"
@@ -938,6 +938,16 @@ def _ropes(design: Design, registry: Registry, collector: Collector) -> list[dic
             continue
         out.append(element)
     return out
+
+
+def payload_ropes(design: Design, registry: Registry) -> tuple[Rope, ...]:
+    """The neutral rope of each design rope ending at a case payload, for the run to hang its payload on (BLD-032)."""
+    out: list[Rope] = []
+    for rope in design.ropes:
+        element = structure.payload_rope_element(rope, registry.part(rope.part).values)
+        if element is not None:
+            out.append(Rope.model_validate(element))
+    return tuple(out)
 
 
 def _name(value: str | OpenValue) -> str:
