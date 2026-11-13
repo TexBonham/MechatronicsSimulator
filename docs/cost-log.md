@@ -78,3 +78,5 @@ type live in the root `CLAUDE.md` dispatch table once measured.
 | 2026-11-12 | M3-X1b re-review after X1c: accept; ruling 62 | Fable review (general-purpose), resumed | ~25K | 6 calls |
 | 2026-11-13 | M3-X1a gantry G12 and G15 on native (wip/05-x1a fe7a386): stopped at the cap, not green; findings in rulings 63, 64 and briefs I3, E6 | module-writer (opus) | 316K | 164 calls |
 | 2026-11-13 | M3-I3 integrity and scoring fixes from the gantry cases (wip/05-i3 eef3732) | module-writer (opus) | 270K | 159 calls, over the 110 cap |
+| 2026-11-13 | M3 review: I3 (wip/05-i3 eef3732): fix round needed, 1 blocker (swing angle reads displacements), 2 major, 4 minor; rail_x zero deflection traced to the chain's single bending plane | Fable review (general-purpose), resumed | ~45K | 9 calls |
+| 2026-11-13 | M3-I3 invariant audit: pass, 2 minor | invariant-auditor (sonnet) | 48K | 4 calls |
