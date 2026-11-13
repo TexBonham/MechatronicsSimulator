@@ -950,14 +950,25 @@ def _flexible_build() -> SimpleNamespace:
     )
 
 
+def _bodies_of(view: _View) -> Any:
+    """The pose check of a recording read without its body names: the build's layout count."""
+    from mechsim.integrity.inputs import _bodies
+
+    model = _flexible_build().physics
+    rows = len(view.times())
+    return _bodies(view.recording.series, rows, model, node_chains(model), ())
+
+
 @pytest.mark.req("INT-006")
 def test_the_recorded_body_count_must_equal_neutral_bodies_plus_member_nodes() -> None:
     # 2 neutral bodies + 8 + 5 nodes = 15; a recording of 14 poses per sample (one neutral body short, every node
-    # named) names both counts.
+    # named) names the missing body; without names the layout count names both counts.
     assert recorded_body_count(_flexible_build().physics) == 15
     assert run_inputs(_flexible_build(), _posed(_cantilever_rows(1.0), _NAMES), _views()).bodies is not None
-    with pytest.raises(IntegrityError, match="has 14 body poses per sample, the model 15"):
+    with pytest.raises(IntegrityError, match=r"the published bodies \(14\) name no \['frame'\]"):
         run_inputs(_flexible_build(), _posed(_cantilever_rows(1.0), _NAMES[1:]), _views())
+    with pytest.raises(IntegrityError, match="has 14 body poses per sample, the model 15"):
+        _bodies_of(_posed(_cantilever_rows(1.0), _NAMES[1:]))
 
 
 @pytest.mark.req("INT-006")

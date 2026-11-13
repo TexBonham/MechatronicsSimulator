@@ -600,3 +600,34 @@ TEST_CASE("a member published out of range faults the party", "[INT-023]") {
         CHECK(r.report.fault.value().party() == "integrity");
     }
 }
+
+TEST_CASE("the limits table's body count is exact, never an upper bound", "[INT-006]") {
+    const std::string doc = R"({"format": "mechsim-integrity-limits-1", "minimum_safety_factor": 1.5, "checks": )"
+                            R"({"stress": false, "buckling": false, "deflection": false, "fastener": false, )"
+                            R"("yield_offset": false}, "members": [], "fastenings": [])";
+    CHECK_FALSE(integrity::parse_limits(doc + "}").bodies.has_value());
+    CHECK_FALSE(integrity::parse_limits(doc + R"(, "bodies": null})").bodies.has_value());
+    CHECK(integrity::parse_limits(doc + R"(, "bodies": 36})").bodies == std::optional<std::size_t>(36));
+    CHECK_THROWS_AS(integrity::parse_limits(doc + R"(, "bodies": -1})"), integrity::LimitsError);
+    CHECK_THROWS_AS(integrity::parse_limits(doc + R"(, "bodies": 2.5})"), integrity::LimitsError);
+    // tip_loaded publishes the 8 node bodies; 8 runs, 7 (fewer) and 10 (more: a bound would accept it) fault.
+    for (const std::size_t expected : {std::size_t{7}, std::size_t{8}, std::size_t{10}}) {
+        integrity::Limits limits;
+        limits.deflection = true;
+        limits.members.push_back(cantilever());
+        limits.bodies = expected;
+        const Run r = run(limits, [](double t) { return tip_loaded(t, 1.0); }, 5);
+        CAPTURE(expected);
+        if (expected == 8) {
+            CHECK(r.report.outcome != kernel::RunOutcome::run_error);
+            continue;
+        }
+        CHECK(r.report.outcome == kernel::RunOutcome::run_error);
+        REQUIRE(r.report.fault.has_value());
+        if (r.report.fault.has_value()) {
+            const std::string cause = r.report.fault.value().cause();
+            CHECK(cause.find("publishes 8 bodies, the limits table expects " + std::to_string(expected)) !=
+                  std::string::npos);
+        }
+    }
+}
