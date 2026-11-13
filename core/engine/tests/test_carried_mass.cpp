@@ -161,7 +161,7 @@ struct MomentumRun {
 
 // A loaded pinned member under gravity from straight, undamped (it rings), the carriage at 0.3 m with speed c.
 MomentumRun momentum_run(bool momentum, double speed, int steps) {
-    CarriedRig rig = carried_rig(BeamEnds::SimplySupported, 8, 1.0, 0.0, true, ParentKind::World, 0.0);
+    const CarriedRig rig = carried_rig(BeamEnds::SimplySupported, 8, 1.0, 0.0, true, ParentKind::World, 0.0);
     MultibodyConfig config;
     config.carried_momentum = momentum;
     MultibodyProvider provider(rig.model, config);

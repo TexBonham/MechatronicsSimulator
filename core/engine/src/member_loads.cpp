@@ -135,7 +135,7 @@ CarriedPair carried_pair(const LumpedBeam& beam, Eigen::Index carried, const std
     }
     const Eigen::Vector3d root = placed_point(beam.parent, beam.position, rotation, origin);
     const Eigen::Vector3d axis_x = (parent_rotation * beam.orientation.toRotationMatrix()).col(0);
-    const Eigen::Vector3d r_c = origin.at(static_cast<std::size_t>(carried));
+    const Eigen::Vector3d& r_c = origin.at(static_cast<std::size_t>(carried));
     const double s_raw = (r_c - root).dot(axis_x);
     double s = s_raw;
     double excursion = 0.0;
