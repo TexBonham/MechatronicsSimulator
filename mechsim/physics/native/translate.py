@@ -381,7 +381,10 @@ def _member(member: LumpedMember, index: Mapping[str, int], h: float, report: li
             f"lumped member '{member.name}': carries {carried} by load-path coupling (ENG-052, ruling 63): their "
             "in-plane transverse force and bending moment reach the parent through the member's nodes (lever rule, "
             "one step lagged); the carried bodies move with the parent and do not ride the deflected member, a "
-            "position error equal to the member's deflection at each carried body; the lag is checked at load "
+            "position error equal to the member's deflection at each carried body; their mass (each carried body "
+            "and its tree descendants) loads the member's inertia at the foot point for its deflection motion, no "
+            "added weight and no rotary inertia (brief M3-E7d, ruling 70 b), so the member rings below the unloaded "
+            "first mode stated above; the lag is checked at load "
             "against its stability boundary (refused above it, ruling 67); the run's largest deflection and the lag's "
             "ratio and per-step factor are recorded after the run"
         )

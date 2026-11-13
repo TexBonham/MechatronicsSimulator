@@ -59,7 +59,9 @@ Interface requirement: physics publishes live member end-loads every tick.
   onto the two member nodes around the joint's foot point by the lever rule and takes the same off the member's
   parent, so end loads, stress and deflection see the load. Approximation: the carried body moves with the parent
   and does not ride the deflected member; the position error, the member's deflection at the carried body, is
-  published per member, and out-of-plane bending stays rigid (ruling 65). Milestone 4 alternative: full coupling,
+  published per member, and out-of-plane bending stays rigid (ruling 65). The carried body's mass loads the member's
+  inertia for the member's own deflection motion at the foot point, with no added weight (ruling 70 b, brief M3-E7d).
+  Milestone 4 alternative: full coupling,
   the carried body riding the deflected member through a sliding constraint between node bodies.
 
 ## Amendment 2026-11-11: open items closed (round 5 rulings 3 and 4)

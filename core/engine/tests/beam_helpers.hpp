@@ -59,8 +59,13 @@ inline void apply_point_force(MultibodyProvider& provider, const State& state, c
 
 // Lowest eigenfrequency, rad/s, of the linearized model at its neutral positions: K phi = omega^2 H phi on the
 // null space of the loop-constraint Jacobian (central differences of the residuals, which are smooth in q).
-inline double lumped_first_frequency(const MultibodyProvider& provider) {
-    const Eigen::VectorXd q0 = provider.neutral_positions();
+// The lowest elastic frequency at q0 (default the neutral positions); rigid modes (a carriage's free joint, omega^2
+// at round-off) are skipped. rad/s.
+inline double lumped_first_frequency(const MultibodyProvider& provider, const Eigen::VectorXd& at = Eigen::VectorXd()) {
+    Eigen::VectorXd q0 = provider.neutral_positions();
+    if (at.size() == q0.size()) {
+        q0 = at;
+    }
     const Eigen::Index nv = provider.velocity_size();
     DynamicsTerms terms;
     provider.evaluate(0.0, q0, Eigen::VectorXd::Zero(nv), terms);
@@ -97,7 +102,13 @@ inline double lumped_first_frequency(const MultibodyProvider& provider) {
     const Eigen::MatrixXd stiffness = basis.transpose() * terms.stiffness * basis;
     const Eigen::MatrixXd mass = basis.transpose() * terms.mass * basis;
     const Eigen::GeneralizedSelfAdjointEigenSolver<Eigen::MatrixXd> solver(stiffness, mass);
-    return std::sqrt(solver.eigenvalues()[0]);
+    const Eigen::VectorXd& omega_squared = solver.eigenvalues();
+    for (Eigen::Index k = 0; k < omega_squared.size(); ++k) {
+        if (omega_squared[k] > 1e-12 * omega_squared.maxCoeff()) {
+            return std::sqrt(omega_squared[k]);
+        }
+    }
+    return 0.0;
 }
 
 // Times of upward zero crossings of the world y of a point, linear interpolation between steps.

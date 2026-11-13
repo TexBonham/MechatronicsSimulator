@@ -501,6 +501,9 @@ Eigen::MatrixXd MultibodyProvider::mass_matrix(const Kinematics& kin) const {
         }
     }
     Eigen::MatrixXd full = lower.selfadjointView<Eigen::Lower>();
+    if (config_.carried_added_mass && !carried_.empty()) {
+        full += carried_mass_block(kin);
+    }
     return full;
 }
 
@@ -1318,7 +1321,19 @@ void MultibodyProvider::setup_members_and_ropes() {
                 throw InvalidModelError(0.0, label + "is carried by more than one member");
             }
             at(carried_by, c) = 1;
-            carried_.push_back(CarriedJoint{m, c});
+            CarriedJoint joint;
+            joint.member = m;
+            joint.body = c;
+            for (Eigen::Index b = 0; b < bodies; ++b) {
+                Eigen::Index up = b;
+                while (up >= 0 && up != c) {
+                    up = at(model_.bodies, up).parent;
+                }
+                if (up == c) {
+                    joint.subtree.push_back(b);
+                }
+            }
+            carried_.push_back(joint);
             carried_load_.emplace_back(Vector6d::Zero());
         }
     }
@@ -1409,6 +1424,73 @@ std::vector<Vector6d> MultibodyProvider::static_carried_loads(const Kinematics& 
         loads.push_back(load);
     }
     return loads;
+}
+
+// The carried mass (member_loads.hpp, Carried mass): G v = u'(p), the lever-weighted deflection rate of the
+// member at the foot point along the member frame y, relative to the parent at the same points.
+Eigen::RowVectorXd MultibodyProvider::carried_rate_row(const Kinematics& kin, const CarriedPair& pair) const {
+    const Eigen::Index parent = at(model_.members, pair.output.member).parent;
+    const Eigen::RowVector3d y = pair.axis_y.transpose();
+    const double w = pair.output.weight;
+    const Eigen::MatrixXd lower =
+        point_jacobian(kin, pair.body_lower, pair.point_lower) - point_jacobian(kin, parent, pair.point_lower);
+    const Eigen::MatrixXd upper =
+        point_jacobian(kin, pair.body_upper, pair.point_upper) - point_jacobian(kin, parent, pair.point_upper);
+    return (w * y * lower) + ((1.0 - w) * y * upper);
+}
+
+double MultibodyProvider::carried_mass(Eigen::Index joint) const {
+    double mass = 0.0;
+    for (const Eigen::Index b : at(carried_, joint).subtree) {
+        mass += at(model_.bodies, b).mass;
+    }
+    return mass;
+}
+
+// Sum over carried joints of m_c G^T G at the start-of-step configuration; each term is exactly symmetric.
+Eigen::MatrixXd MultibodyProvider::carried_mass_block(const Kinematics& kin) const {
+    Eigen::MatrixXd block = Eigen::MatrixXd::Zero(nv_, nv_);
+    if (!config_.carried_added_mass) {
+        return block;
+    }
+    const std::vector<CarriedPair> pairs =
+        carried_pairs(kin, std::vector<Vector6d>(carried_.size(), Vector6d::Zero()));
+    for (Eigen::Index i = 0; i < count(pairs.size()); ++i) {
+        const Eigen::RowVectorXd g = carried_rate_row(kin, at(pairs, i));
+        block.noalias() += carried_mass(i) * (g.transpose() * g);
+    }
+    return block;
+}
+
+// The block's inertial force in the recorded reactions: -m_c (G qdd) along y at the foot point, on the nodes by the
+// lever rule and the opposite on the parent, so the members' end loads include it (no moment: the force is along y
+// and the joint origin's offset from the foot point is normal to the member axis).
+void MultibodyProvider::add_carried_inertia_wrenches(const Kinematics& kin, const Eigen::VectorXd& qdd,
+                                                     std::vector<Vector6d>& wrenches) const {
+    if (!config_.carried_added_mass || carried_.empty()) {
+        return;
+    }
+    const std::vector<CarriedPair> pairs =
+        carried_pairs(kin, std::vector<Vector6d>(carried_.size(), Vector6d::Zero()));
+    std::vector<Vector6d> loads;
+    for (Eigen::Index i = 0; i < count(pairs.size()); ++i) {
+        const CarriedPair& pair = at(pairs, i);
+        const double acceleration = (carried_rate_row(kin, pair) * qdd).value();
+        Vector6d load = Vector6d::Zero();
+        load.tail<3>() = -carried_mass(i) * acceleration * pair.axis_y;
+        loads.push_back(load);
+    }
+    add_carried_wrenches(kin, loads, wrenches);
+}
+
+Eigen::MatrixXd MultibodyProvider::carried_mass_matrix(const Eigen::VectorXd& q) const {
+    if (q.size() != nq_) {
+        throw InvalidModelError(0.0, "the carried mass matrix needs q of the model's size");
+    }
+    if (carried_.empty()) {
+        return Eigen::MatrixXd::Zero(nv_, nv_);
+    }
+    return carried_mass_block(kinematics(q, Eigen::VectorXd::Zero(nv_)));
 }
 
 // Every step checks that each carried body's foot point lies on its member's span.
@@ -2192,6 +2274,7 @@ void MultibodyProvider::record_outputs(const State& before, const State& after, 
     Vector6d base = Vector6d::Zero();
     base.tail<3>() = -model_.gravity;
     const Eigen::VectorXd qdd = (after.v - before.v) / h;
+    add_carried_inertia_wrenches(kin, qdd, external);
     std::vector<Vector6d> forces;
     static_cast<void>(inverse_dynamics(kin, qdd, base, external, true, forces));
     outputs_.joints.clear();

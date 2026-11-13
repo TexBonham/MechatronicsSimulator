@@ -1,6 +1,7 @@
 #pragma once
 
 #include <Eigen/Core>
+#include <algorithm>
 #include <array>
 #include <cmath>
 #include <cstdint>
@@ -28,6 +29,11 @@ namespace mechsim::engine::test {
 // After 40 beta it is below 1e-15 of the load's deflection; backward Euler only adds damping. omega_1 is the
 // continuum closed form (beta_1 L)^2 sqrt(E I / (rho A L^4)): cantilever 1.87510^2, pinned-pinned pi^2, clamped-clamped
 // 4.73004^2; the chain's own first mode is within 2.5 % of it at N >= 8 (lumped_beam.hpp), a settling margin.
+// A carried carriage loads the member's inertia (brief M3-E7d): omega_1 is then the one-mode estimate at the most
+// compliant point, sqrt(k / (m_c + f m_beam)) (test_carried_mass.cpp: k = 48, 3, 192 E I / L^3 at midspan, tip,
+// midspan; f = 17/35, 33/140, 13/35), capped at the unloaded value. Settling needs only omega_1 >= omega / sqrt(2):
+// a mode with omega < 2 / beta is underdamped and decays at zeta omega = omega^2 beta / 2 >= 1 / beta exactly then, so
+// the bound e^(-t / beta) holds with a 29 % margin on the estimate (the carriage elsewhere only stiffens the mode).
 enum class ParentKind : std::uint8_t { World, Fixed, Sliding };
 
 struct CarriedRig {
@@ -37,6 +43,28 @@ struct CarriedRig {
     Eigen::Index carriage = -1;
     double beta = 0.0;  // node damping / node stiffness, s
 };
+
+// k L^3 / (E I) at the most compliant point and the one-mode effective share f of the member's mass there
+// (Rayleigh, the static deflection shape; derivation in test_carried_mass.cpp).
+inline double point_stiffness_factor(BeamEnds ends) {
+    if (ends == BeamEnds::Cantilever) {
+        return 3.0;
+    }
+    if (ends == BeamEnds::SimplySupported) {
+        return 48.0;
+    }
+    return 192.0;
+}
+
+inline double effective_mass_share(BeamEnds ends) {
+    if (ends == BeamEnds::Cantilever) {
+        return 33.0 / 140.0;
+    }
+    if (ends == BeamEnds::SimplySupported) {
+        return 17.0 / 35.0;
+    }
+    return 13.0 / 35.0;
+}
 
 inline double first_mode_factor(BeamEnds ends) {
     if (ends == BeamEnds::Cantilever) {
@@ -71,7 +99,13 @@ inline CarriedRig carried_rig(BeamEnds ends, int segments, double carriage_mass,
         rig.parent = 0;
     }
     rig.spec = steel_bar(1.0, ends, segments);
-    const double omega = first_mode_factor(ends) * frequency_scale(rig.spec);
+    double omega = first_mode_factor(ends) * frequency_scale(rig.spec);
+    if (carry) {
+        const double length = rig.spec.length;
+        const double stiffness = point_stiffness_factor(ends) * flexural_rigidity(rig.spec) / (length * length * length);
+        const double member = rig.spec.density * rig.spec.area * length;
+        omega = std::min(omega, std::sqrt(stiffness / (carriage_mass + (effective_mass_share(ends) * member))));
+    }
     rig.beta = 2.0 / omega;
     rig.spec.node_damping = damping_scale * rig.beta * flexural_rigidity(rig.spec) / (rig.spec.length / segments);
     static_cast<void>(add_lumped_beam(rig.model, rig.spec, rig.parent));

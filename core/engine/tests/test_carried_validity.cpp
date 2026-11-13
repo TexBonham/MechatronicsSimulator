@@ -37,31 +37,30 @@ using mechsim::engine::test::start_state;
 // The pair's work and the validity flag (ENG-052, brief M3-E7c; derivation in member_loads.hpp, Work and validity).
 //
 // Rigs: the pinned-pinned steel bar of carried_helpers (1 m, 10 mm square, 8 segments) on the world, gravity off, a
-// 1 kg carriage at midspan on the member axis (no moment arm), loaded by a force along y applied to the carriage each
-// step; its joint passes the force to the member one step late. The member's first mode at midspan: the continuum
-// share of the collocated static compliance is 96 / pi^4 = 0.9855 (pinned-pinned modes sin(n pi x / L), odd n only at
+// 1 g carriage at midspan on the member axis (no moment arm), loaded by a force along y applied to the carriage each
+// step; its joint passes the force to the member one step late. The carriage's mass loads the member's inertia
+// (brief M3-E7d); at 1 g, m_c / (17/35 m_beam) = 0.26 %, so the member's modes and shares below are the bare chain's
+// to 0.13 % in omega, inside every bound's slack; omega_1 is the loaded chain's own (the drive frequencies use it).
+// The member's first mode at midspan: the continuum share of the collocated static compliance is 96 / pi^4 = 0.9855 (pinned-pinned modes sin(n pi x / L), odd n only at
 // midspan, shares 1 / n^4 over sum 1 / n^4); the chain's differs by its frequency error (2.5 % at 8 segments, the
 // share goes as omega^-2) and its static error (2 %, ENG-022): s1 >= 0.9 is taken as the bound. The next mode with a
-// share at midspan is n = 3, omega_3 / omega_1 near 9. omega_1 is the chain's own (lumped_first_frequency of the bare
-// chain, the carriage's mass sits on the world).
+// share at midspan is n = 3, omega_3 / omega_1 near 9. omega_1 is the chain's own with the carriage's mass on it
+// (lumped_first_frequency of the rig at the carriage's position).
 
 namespace {
 
 constexpr double first_share_lower = 0.9;
 
 CarriedRig loaded_rig(double damping_scale) {
-    CarriedRig rig = carried_rig(BeamEnds::SimplySupported, 8, 1.0, 0.0, true, mechsim::engine::test::ParentKind::World,
-                                 damping_scale);
+    CarriedRig rig = carried_rig(BeamEnds::SimplySupported, 8, 1e-3, 0.0, true,
+                                 mechsim::engine::test::ParentKind::World, damping_scale);
     rig.model.gravity = Eigen::Vector3d::Zero();
     return rig;
 }
 
 double chain_first_frequency(const CarriedRig& rig) {
-    MultibodyModel bare;
-    bare.gravity = Eigen::Vector3d::Zero();
-    static_cast<void>(add_lumped_beam(bare, rig.spec, -1));
-    const MultibodyProvider provider(bare);
-    return lumped_first_frequency(provider);
+    const MultibodyProvider provider(rig.model);
+    return lumped_first_frequency(provider, start_state(provider, rig.carriage, 0.5).q);
 }
 
 struct Run {
@@ -225,21 +224,41 @@ namespace {
 
 // The finding's shape (ruling 69): member A on the world carries a frame T (fixed to the world at A's midspan, on
 // A's axis); member B, an identical bar, hangs on T 5 cm below A's axis and carries P (1 kg, prismatic along B, on
-// A's axis height, 5 cm above B's). Both undamped, equal chains, so equal frequencies; gravity off. P runs at 1 m/s
-// and a damper brakes it (time constant 1 / omega_1): the braking force along B, 5 cm above B's axis, bends B, and
-// B's ringing reaches A only through T's reaction, at A's own frequency, never the other way.
+// A's axis height, 5 cm above B's). Both undamped; gravity off. P runs at 1 m/s and a damper brakes it (time
+// constant 1 / omega_0, omega_0 the bare chain's first frequency): the braking force along B, 5 cm above B's axis,
+// bends B, and B's ringing reaches A only through T's reaction, never the other way.
+// With the carried mass (brief M3-E7d) the bare chains' equal frequencies no longer coincide: A carries T's whole
+// subtree (T, B and P, m_cA = 3.8 kg on a 0.785 kg bar) and rings near 0.3 omega_0, B carries P at s_P and rings near
+// 0.55 omega_0. The two loaded frequencies, each the engine's own: omega_A from A alone carrying one body of mass
+// m_cA at midspan (A's block and modes involve A's coordinates only: T is fixed to the world, so B's coordinates are
+// independent of A's in H and in B), omega_B from B alone on T with P at its braked position. That position is
+// exact for the scheme: P coasts 0.02 s at 1 m/s, then the implicit damper c = omega_0 on 1 kg gives v_{n+1} = v_n /
+// (1 + h c), a distance sum h v_n = 1 / c: s_P = 0.32 + 1 / omega_0. The matched rig scales A's Young's modulus by
+// (omega_B / omega_A)^2 (K is linear in E, M independent of it), which puts A's loaded frequency on B's.
 struct TwoMembers {
     MultibodyModel model;
     Eigen::Index frame = -1;
     Eigen::Index carriage = -1;
-    double omega = 0.0;
+    double omega = 0.0;           // omega_0, the bare chain's first frequency, rad/s
+    double carried_by_a = 0.0;    // m_cA, kg
+    double member_mass = 0.0;     // m_A, kg
 };
 
-TwoMembers two_members() {
+constexpr double coast = 0.02;
+constexpr double coast_start = 0.3;
+constexpr double push_amplitude = 10.0;  // N
+
+TwoMembers two_members(double a_stiffness_scale = 1.0, bool with_a = true) {
     TwoMembers rig;
     rig.model.gravity = Eigen::Vector3d::Zero();
     const mechsim::engine::BeamSpec spec = mechsim::engine::test::steel_bar(1.0, BeamEnds::SimplySupported, 8);
-    static_cast<void>(add_lumped_beam(rig.model, spec, -1));
+    mechsim::engine::BeamSpec spec_a = spec;
+    spec_a.youngs_modulus *= a_stiffness_scale;
+    rig.member_mass = spec.density * spec.area * spec.length;
+    if (with_a) {
+        static_cast<void>(add_lumped_beam(rig.model, spec_a, -1));
+    }
+    const auto first_body = static_cast<Eigen::Index>(rig.model.bodies.size());
     Body frame;
     frame.parent = -1;
     frame.joint.type = JointType::Fixed;
@@ -258,7 +277,12 @@ TwoMembers two_members() {
     carriage.inertia = 1e-3 * Eigen::Matrix3d::Identity();
     rig.model.bodies.push_back(carriage);
     rig.carriage = static_cast<Eigen::Index>(rig.model.bodies.size()) - 1;
-    rig.model.members.front().carried.push_back(rig.frame);
+    for (Eigen::Index b = first_body; b < static_cast<Eigen::Index>(rig.model.bodies.size()); ++b) {
+        rig.carried_by_a += rig.model.bodies[static_cast<std::size_t>(b)].mass;
+    }
+    if (with_a) {
+        rig.model.members.front().carried.push_back(rig.frame);
+    }
     rig.model.members.back().carried.push_back(rig.carriage);
     MultibodyModel bare;
     bare.gravity = Eigen::Vector3d::Zero();
@@ -267,23 +291,54 @@ TwoMembers two_members() {
     return rig;
 }
 
+// omega_A at scale 1: A alone carrying one fixed body of T's subtree mass at midspan.
+double loaded_a_frequency(const TwoMembers& rig) {
+    MultibodyModel alone;
+    alone.gravity = Eigen::Vector3d::Zero();
+    static_cast<void>(add_lumped_beam(alone, mechsim::engine::test::steel_bar(1.0, BeamEnds::SimplySupported, 8), -1));
+    Body lump;
+    lump.parent = -1;
+    lump.joint.type = JointType::Fixed;
+    lump.joint.position = Eigen::Vector3d(0.5, 0.0, 0.0);
+    lump.mass = rig.carried_by_a;
+    lump.inertia = 0.01 * Eigen::Matrix3d::Identity();
+    alone.bodies.push_back(lump);
+    alone.members.front().carried.push_back(static_cast<Eigen::Index>(alone.bodies.size()) - 1);
+    return lumped_first_frequency(MultibodyProvider(alone));
+}
+
+// omega_B: B alone on T with P at s (the stop: s_P = 0.32 + 1 / omega_0).
+double loaded_b_frequency(double s) {
+    const TwoMembers alone = two_members(1.0, false);
+    const MultibodyProvider provider(alone.model);
+    Eigen::VectorXd q = provider.neutral_positions();
+    q[provider.position_offset(alone.carriage)] = s;
+    return lumped_first_frequency(provider, q);
+}
+
 struct TwoRun {
     MemberOutput carrying;
     MemberOutput carried;
 };
 
-TwoRun run_two(double h, double duration) {
-    const TwoMembers rig = two_members();
+TwoRun run_two(double h, double duration, double a_stiffness_scale = 1.0, double drive = 0.0) {
+    const TwoMembers rig = two_members(a_stiffness_scale);
     MultibodyProvider provider(rig.model);
     State state{provider.neutral_positions(), Eigen::VectorXd::Zero(provider.velocity_size()), 0.0};
-    state.q[provider.position_offset(rig.carriage)] = 0.3;
-    state.v[provider.velocity_offset(rig.carriage)] = 1.0;
+    state.q[provider.position_offset(rig.carriage)] = coast_start;
+    if (drive == 0.0) {
+        state.v[provider.velocity_offset(rig.carriage)] = 1.0;
+    }
     SemiImplicitEuler integrator(StepConfig{h});
-    const double brake = 0.02;
     const auto steps = static_cast<int>(std::ceil(duration / h));
     for (int n = 0; n < steps; ++n) {
-        if (n == static_cast<int>(std::lround(brake / h))) {
+        if (drive == 0.0 && n == static_cast<int>(std::lround(coast / h))) {
             provider.set_joint_drive(rig.carriage, 0, 0.0, 0.0, rig.omega * 1.0);
+        }
+        if (drive > 0.0) {
+            Eigen::VectorXd push = Eigen::VectorXd::Zero(provider.velocity_size());
+            push[provider.velocity_offset(rig.carriage)] = push_amplitude * std::sin(drive * state.t);
+            provider.set_generalized_forces(push);
         }
         static_cast<void>(provider.step(integrator, state));
     }
@@ -292,23 +347,60 @@ TwoRun run_two(double h, double duration) {
 
 }  // namespace
 
-TEST_CASE("carried validity: a member driven by another carried member at its own frequency is flagged",
+TEST_CASE("carried validity: loaded, the carrying member's frequency drops as the one-mode estimate and B's ringing "
+          "no longer pumps it",
           "[ENG-052]") {
-    // A's load is B's ringing at A's own frequency, with no back-reaction: resonant growth, ratio ~ omega t / 2 times
-    // the ringing's share of A's largest load, so it passes 2.04 within the twenty periods run. W_A > 0: the pair
-    // pumps energy into A that B never loses.
+    // omega_A against the one-mode estimate sqrt(48 E I / L^3 / (m_cA + 17/35 m_A)) (test_carried_mass.cpp, 2 % at
+    // eight segments). Off resonance (omega_B / omega_A >= 1.5 asserted) B's ringing cannot grow A's response over
+    // the twenty periods the matched rig below needs to be flagged: not flagged.
     const TwoMembers rig = two_members();
-    const double h = 1e-4;
-    const double duration = 20.0 * 2.0 * std::numbers::pi / rig.omega;
+    const double omega_a = loaded_a_frequency(rig);
+    const double omega_b = loaded_b_frequency(coast_start + coast + (1.0 / rig.omega));
+    const double k = 48.0 * flexural_rigidity(mechsim::engine::test::steel_bar(1.0, BeamEnds::SimplySupported, 8));
+    const double estimate = std::sqrt(k / (rig.carried_by_a + ((17.0 / 35.0) * rig.member_mass)));
+    const double h = 5e-4;
+    const double duration = 20.0 * 2.0 * std::numbers::pi / omega_a;
     const TwoRun run = run_two(h, duration);
-    std::printf("two members: A (carrying) work %.6e J, peak ratio %.4f, flagged %d at %.4f s; B work %.6e J, peak "
-                "ratio %.4f, flagged %d\n",
-                run.carrying.carried_work, run.carrying.peak_ratio, static_cast<int>(run.carrying.unresolved),
-                run.carrying.unresolved_time, run.carried.carried_work, run.carried.peak_ratio,
-                static_cast<int>(run.carried.unresolved));
-    CHECK(run.carrying.unresolved);
-    CHECK(run.carrying.unresolved_time > 0.02);
-    CHECK(run.carrying.carried_work > 0.0);
+    std::printf("two members, loaded: omega_0 %.4f, omega_A %.4f (estimate %.4f), omega_B %.4f rad/s; A work %.6e J, "
+                "peak ratio %.4f, flagged %d; B peak ratio %.4f\n",
+                rig.omega, omega_a, estimate, omega_b, run.carrying.carried_work, run.carrying.peak_ratio,
+                static_cast<int>(run.carrying.unresolved), run.carried.peak_ratio);
+    CHECK(std::abs(omega_a / estimate - 1.0) <= 0.02);
+    CHECK(omega_b / omega_a >= 1.5);
+    CHECK_FALSE(run.carrying.unresolved);
+}
+
+TEST_CASE("carried validity: a member driven through another carried member at its own loaded frequency is flagged",
+          "[ENG-052]") {
+    // Measured on the stop rig: with the mass on both members, A's largest quasi-static load is the brake's first
+    // steps and B's ringing (BE-damped, x = omega_B h) reaches A at about 1/50 of it, so even matched it would need
+    // some hundred undamped periods to pass 2.04: the stop no longer shows the pumping. The flag is shown on the same
+    // two members with a sustained source instead: P pushed along B through its joint (a joint force, so P's
+    // reaction, 5 cm above B's axis, bends B) by 10 N sin(omega_B t), omega_B B's loaded frequency with P at 0.3 m
+    // (it moves by 10 / (1 kg omega_B^2) = 1.4 mm). B rings up at its own frequency and
+    // its ringing reaches A only through T's reaction. A matched (E scaled by (omega_B / omega_A)^2): resonant growth
+    // on top of a growing load, ratio ~ omega t / 2, flagged within twenty periods; A at its own loaded frequency,
+    // omega_B / omega_A >= 1.5 off it, follows the load with a gain near 1 / ((omega_B / omega_A)^2 - 1), under one,
+    // and is not flagged. W_A > 0 in the matched case: the pair pumps energy into A that B never loses.
+    const TwoMembers rig = two_members();
+    const double omega_b = loaded_b_frequency(coast_start);
+    const double omega_a = loaded_a_frequency(rig);
+    const double scale = std::pow(omega_b / omega_a, 2.0);
+    const double h = 2e-4;
+    const double duration = 20.0 * 2.0 * std::numbers::pi / omega_b;
+    const TwoRun matched = run_two(h, duration, scale, omega_b);
+    const TwoRun apart = run_two(h, duration, 1.0, omega_b);
+    std::printf("two members driven at omega_B %.4f rad/s (omega_A %.4f): matched (A's E x %.4f): A work %.6e J, peak "
+                "ratio %.4f, flagged %d at %.4f s; apart: A work %.6e J, peak ratio %.4f, flagged %d; B peak ratio %.4f, "
+                "flagged %d\n",
+                omega_b, omega_a, scale, matched.carrying.carried_work, matched.carrying.peak_ratio,
+                static_cast<int>(matched.carrying.unresolved), matched.carrying.unresolved_time,
+                apart.carrying.carried_work, apart.carrying.peak_ratio, static_cast<int>(apart.carrying.unresolved),
+                apart.carried.peak_ratio, static_cast<int>(apart.carried.unresolved));
+    CHECK(omega_b / omega_a >= 1.5);
+    CHECK(matched.carrying.unresolved);
+    CHECK(matched.carrying.carried_work > 0.0);
+    CHECK_FALSE(apart.carrying.unresolved);
 }
 
 TEST_CASE("carried validity: the work and the flag are deterministic", "[ENG-052]") {

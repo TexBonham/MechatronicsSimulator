@@ -90,7 +90,12 @@ struct MemberOutput {
 //   u_qs,i = e_i . d_g + sum_j (e_i^T C_f e_j F_j + e_i^T C_m e_j M_j),
 // the deflection the member would settle to under this step's loads held constant; quasi_static_deflection is the
 // largest |u_qs,i| of the member, peak_quasi_static the largest since load. Linear at the load configuration: the
-// compliance is in the member frame, so a parent's rigid motion does not change it.
+// compliance is in the member frame, so a parent's rigid motion does not change it. With the carried mass (Carried
+// mass, brief M3-E7d) the modes are those of K and H + B and both sums are unchanged in value, not only in form: for
+// a self-equilibrated load sum_p phi_p phi_p^T f / omega_p^2 solves K u = f up to a rigid motion, which no g_a
+// sees, whatever the mass; and B phi_r = 0 on every rigid mode (G phi_r = 0), so the rigid modes, their
+// normalisation and gravity's inertia relief are those of H. The validity bound below holds on the new modes as
+// written: the load and the measurement are the same, only the frequencies move.
 //
 // Validity. A linear undamped member under a load applied no faster than suddenly deflects at most twice the
 // quasi-static value: for one mode, u = u_s (1 - cos omega t). The scheme keeps the bound exactly: backward Euler on
@@ -144,7 +149,46 @@ inline constexpr double carried_ratio_limit = 2.0 * (1.0 + carried_validity_marg
 // Timing. The load applied in step n is the reaction recorded by step n - 1 (computed at step n - 1's start state
 // with its accelerations and row impulses). Before the first step there is none: the reaction is computed from the
 // first start state by Newton-Euler at zero acceleration, so a carried body at rest puts its static weight on the
-// member from the first step. The pair is explicit (lagged); it is not in K, D or the mass matrix.
+// member from the first step. The pair is explicit (lagged); it is not in K, D or the mass matrix. Its inertial
+// part for the member's own deflection is: Carried mass, next.
+//
+// Carried mass (brief M3-E7d, ruling 70 b). A body of mass m that rode the deflected member at the foot point would
+// move with the parent plus u(p) y, u(p) = w_k u_k + w_{k+1} u_{k+1} the lever-interpolated deflection the pair
+// already publishes; its kinetic energy (m / 2)|v_P(p) + u'(p) y|^2 has three parts. The first, (m / 2)|v_P|^2, is
+// already in the engine: C is a child of P, so C's inertia sits in P's rows of the mass matrix. The cross term m
+// v_P . u' y is the parent-side half of the two-way coupling: through it the member's deflection would accelerate
+// the parent, which is the position coupling ruling 63 keeps one-way (its other half, the force m a_P on the member,
+// is already the pair's inertial part). The third, (m / 2) u'(p)^2, is the member-side inertia the pair lacks: the
+// member is pushed by -m a_P but carries none of m's mass for its own motion, so it rang at its unloaded frequency
+// (ruling 70). It is added: with G the row of the deflection rate at the foot point,
+//   G v = u'(p) = sum_a w_a y . (J_a(p_a) - J_P(p_a)) v   (a = k, k + 1; the work rows g_a of Work and validity),
+// the mass matrix gains B = m_c G^T G per carried joint, m_c the mass of C and its tree descendants (bodies hanging
+// from C on ropes, welds, contacts or loop constraints are not in it: their loads reach C as forces, through their
+// own compliance). On the two nodes' transverse coordinates B is m_c [w_k^2, w_k w_{k+1}; w_k w_{k+1}, w_{k+1}^2],
+// the consistent mass of a point mass between two nodes; through the Jacobians it lands on the member's own joints.
+// Three properties follow from G and are tested, not assumed: (i) no added weight: B is inertia only, the gravity
+// and bias terms are unchanged, and the pair still carries m_c g once, so statics are unchanged; (ii) no added
+// inertia for the parent's own motion: a rigid motion of P with the member moves every node with P, G v = 0, so B
+// adds nothing to P's rows along it (on a rigid member the parent accelerates as m_p + m_c, not m_p + 2 m_c); (iii)
+// symmetric and positive semi-definite, so H + B stays positive definite and (1/2) v^T B v is the added kinetic
+// energy. Its force -B q'' is internal like the pair (on the nodes at their points and the opposite on the parent),
+// added to the recorded reactions so the end loads include it. With the unlagged pair, a lumped node of mass mu on a
+// parent fixed across the member then rings at sqrt(k / (mu + m_c)), the loaded member's frequency.
+// Within a step. B is evaluated with H at the start-of-step configuration (weights w at the start-of-step s, the
+// Jacobians at q_n) and held through the step like H. What freezing costs: B's dependence on q has no Coriolis or
+// centripetal companion in the bias (those are the moving-mass terms 2 c u'_x and c^2 u_xx of a mass crossing a beam
+// at speed c, and the slope terms of G's rotation with the member), so the energy (1/2) v^T B v is not conserved
+// to O(dB/dt) per unit time: from the moving weights about m_c u'(p)^2 c / l (zero for a standing carriage), and from
+// the member's own rotation a relative O(theta theta' h) per step. The energy oracle (standing carriages, no node
+// damping) measures the second against the scheme's own loss. The lever weights are piecewise linear in s, so a
+// carriage crossing a node meets a kink in B, not a jump.
+// Rotary inertia. Not included: the moment channel stays without mass. The relative rotation at the foot point is
+// the member's slope theta(p), and C's share of it would be the rotary inertia of the carried subtree about the
+// foot point, I_zz + m_c |d|^2. That is not a rigid property of a carried system with its own joints (a hook on a
+// rope does not follow the rail's slope; its m |d|^2 about the rail would be a large, wrong inertia), and for a
+// compact carriage its ratio to the translational part in a bending mode is (k_m rho)^2, rho the radius of
+// gyration, k_m the mode's wavenumber (pi / L at midspan of a pinned span): under 1 percent for rho below L / 30.
+// The moment channel's lag (ruling 68) is therefore unchanged and still not checked.
 //
 // Stability (brief M3-E7b). C's inertia sits in P's row of the mass matrix (implicit); the pair takes m_c a_{n-1}
 // (a the carried subtree's acceleration across the member, m_c its mass) off P and puts it on the nodes one step
@@ -177,6 +221,21 @@ inline constexpr double carried_ratio_limit = 2.0 * (1.0 + carried_validity_marg
 // (CarriedLoadOutput::lag_ratio, lag_omega_h) and the damped radius (lag_factor). The check is linear at the load
 // configuration (a carriage moving along the member changes r with phi(s)); the moment channel (C's rotary inertia
 // about z on a rotating parent) is not checked.
+// With the carried mass (brief M3-E7d). The equation gains B (Carried mass): with G = J_n - J_P along y,
+//   (H + B) q''_n + D v_{n+1} + K q_{n+1} = -m_c G^T J_c q''_{n-1}   (+ the feed-forward loads),
+// the same recursion on the modes of K and H + B (phi normalised in H + B), r = -m_c (J_c phi)(G phi) on them: the
+// cubic and the boundary r > (1 + x^2) / 2 hold unchanged in form. The mass keeps r below it. The carried subtree's
+// kinetic energy in phi is at least m_c (J_c phi)^2 / 2 (its mass at its centre of mass), so with
+// a = sqrt(m_c) |J_c phi| and b = sqrt(m_c) |G phi|, 1 = phi^T (H + B) phi >= a^2 + b^2 and
+//   |r| <= a b <= (a^2 + b^2) / 2 <= 1/2 < (1 + x^2) / 2   for every x > 0:
+// a single mode of the force channel is stable for any carried mass on any parent. The lumped node: r = m_c mu /
+// ((m_p + m_c)(mu + m_c) + mu m_c), below 1/2 since m_p + m_c > m_c (E7b's r = m_c / (m_p + m_c) crossed 1/2 at
+// m_c = m_p). Between modes the lag matrix B_pq = m_c (G phi_p)(J_c phi_q) is rank one per joint with norm below 1
+// by the same two bounds over all modes, which does not by itself bound the coupled step: the engine keeps the full
+// check (lag_spectral_radius on the modes of K and H + B) and the refusal as a guard, published per joint as before.
+// A parent fixed in the plane is unchanged (J_P = 0, feed-forward). The cost on a free parent: the lumped mode is
+// omega^2 = k (m_p + m_c + mu) / ((mu + m_c)(m_p + m_c)) against full coupling's k (m_p + m_c + mu) / ((mu + m_c)
+// m_p): without the cross term m_c is counted on both sides, omega^2 low by the factor 1 - m_c / (m_p + m_c).
 // Full (implicit) coupling is milestone 4. For a constant acceleration the reaction is constant after the first
 // step and the lag error is zero; a step change da in acceleration leaves the rerouted load off by m_c da for one
 // step only (m_c j h under a constant jerk j).

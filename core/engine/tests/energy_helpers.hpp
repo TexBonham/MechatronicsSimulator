@@ -24,11 +24,12 @@ inline Eigen::Vector3d point_velocity(const BodyOutput& body, const Eigen::Vecto
 
 // Total mechanical energy: kinetic and gravitational of every body (centre of mass), the transmissions' springs
 // k d^2 / 2 (d the deflection beyond the backlash, in contact), the rope segments' tension-only springs
-// (EA / l)(d - l)^2 / 2 when taut (l = rest / N), and a one-DOF model joint spring K (q - rest)^2 / 2.
+// (EA / l)(d - l)^2 / 2 when taut (l = rest / N), a one-DOF model joint spring K (q - rest)^2 / 2, and the carried
+// masses' deflection motion (1/2) v^T B v (member_loads.hpp, Carried mass; zero without carried joints).
 inline double mechanical_energy(const MultibodyProvider& provider, const State& state) {
     const MultibodyModel& model = provider.model();
     const std::vector<BodyOutput> bodies = provider.body_states(state.q, state.v);
-    double energy = 0.0;
+    double energy = 0.5 * state.v.dot(provider.carried_mass_matrix(state.q) * state.v);
     for (std::size_t b = 0; b < bodies.size(); ++b) {
         const Body& body = model.bodies[b];
         const BodyOutput& out = bodies[b];
