@@ -76,3 +76,4 @@ type live in the root `CLAUDE.md` dispatch table once measured.
 | 2026-11-12 | M3-X1b invariant audit: pass, one data note | invariant-auditor (sonnet) | 40K | 7 calls |
 | 2026-11-12 | M3-X1c acceptance fix round (wip/05-x1b 1b0c3f8) | module-writer (opus) | 243K | 113 calls |
 | 2026-11-12 | M3-X1b re-review after X1c: accept; ruling 62 | Fable review (general-purpose), resumed | ~25K | 6 calls |
+| 2026-11-13 | M3-X1a gantry G12 and G15 on native (wip/05-x1a fe7a386): stopped at the cap, not green; findings in rulings 63, 64 and briefs I3, E6 | module-writer (opus) | 316K | 164 calls |
