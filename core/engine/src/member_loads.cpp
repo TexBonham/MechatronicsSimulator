@@ -1,5 +1,7 @@
 #include "mechsim/engine/member_loads.hpp"
 
+#include <Eigen/Eigenvalues>
+#include <Eigen/LU>
 #include <cstddef>
 
 #include "mechsim/engine/multibody_provider.hpp"
@@ -136,5 +138,45 @@ CarriedPair carried_pair(const LumpedBeam& beam, Eigen::Index carried, const std
     out.deflection = (interpolated - (root + (s * axis_x))).dot(pair.axis_y);
     return pair;
 }
+
+double lag_growth_factor(double r, double x, double zeta) {
+    const double lead = 1.0 + (2.0 * zeta * x) + (x * x);
+    Eigen::Matrix3d companion = Eigen::Matrix3d::Zero();
+    companion(0, 0) = (2.0 + r + (2.0 * zeta * x)) / lead;
+    companion(0, 1) = -(1.0 + (2.0 * r)) / lead;
+    companion(0, 2) = r / lead;
+    companion(1, 0) = 1.0;
+    companion(2, 1) = 1.0;
+    const Eigen::EigenSolver<Eigen::Matrix3d> solver(companion, false);
+    return solver.eigenvalues().cwiseAbs().maxCoeff();
+}
+
+double lag_spectral_radius(const Eigen::MatrixXd& lag, const Eigen::VectorXd& omega_squared,
+                           const Eigen::MatrixXd& damping, double h) {
+    const Eigen::Index n = omega_squared.size();
+    if (n == 0) {
+        return 0.0;
+    }
+    const Eigen::MatrixXd stiffness = omega_squared.asDiagonal();
+    const Eigen::MatrixXd system = Eigen::MatrixXd::Identity(n, n) + (h * damping) + ((h * h) * stiffness);
+    const Eigen::PartialPivLU<Eigen::MatrixXd> lu(system);
+    // a_n = A^-1 (B a_{n-1} - K u_n - (D + h K) v_n) on the state (u_n, v_n, a_{n-1}).
+    Eigen::MatrixXd from(n, 3 * n);
+    from.leftCols(n) = -stiffness;
+    from.middleCols(n, n) = -(damping + (h * stiffness));
+    from.rightCols(n) = lag;
+    const Eigen::MatrixXd acceleration = lu.solve(from);
+    Eigen::MatrixXd step = Eigen::MatrixXd::Zero(3 * n, 3 * n);
+    step.topLeftCorner(n, n).setIdentity();
+    step.block(0, n, n, n) = h * Eigen::MatrixXd::Identity(n, n);
+    step.topRows(n) += (h * h) * acceleration;
+    step.block(n, n, n, n).setIdentity();
+    step.middleRows(n, n) += h * acceleration;
+    step.bottomRows(n) = acceleration;
+    const Eigen::EigenSolver<Eigen::MatrixXd> solver(step, false);
+    return solver.eigenvalues().cwiseAbs().maxCoeff();
+}
+
+double lag_stability_boundary(double x) { return 0.5 * (1.0 + (x * x)); }
 
 }  // namespace mechsim::engine

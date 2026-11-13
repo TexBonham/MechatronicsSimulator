@@ -39,7 +39,7 @@ from mechsim.physics.mujoco.translate import UnmappableElementError
 from mechsim.physics.native.prepare import prepare_model as prepare_native_model
 from mechsim.physics.native.translate import StartStateError as NativeStartStateError
 from mechsim.physics.native.translate import UnmappableElementError as NativeUnmappableElementError
-from mechsim.physics.native.translate import driven_mode_lines, member_node_names
+from mechsim.physics.native.translate import carried_member_lines, driven_mode_lines, member_node_names
 from mechsim.physics.neutral import PhysicsModel
 from mechsim.physics.neutral import Rope as NeutralRope
 from mechsim.record.archive import RunEnd, RunFault, RunIdentity, repository_commit, tool_version
@@ -514,8 +514,10 @@ class CoreDriver:
         if tier1 is not None and tier1.yield_offset:
             party.model_requests = MODEL_REQUESTS
         decay_record = None
+        carried_record = None
         if native:
             decay_record = adapter.scheme_decay_record()
+            carried_record = adapter.carried_record()
         physics = core.PhysicsParty(adapter, party)
         self._schedule_physics(physics, model)
         kernel.register_party(physics)
@@ -548,6 +550,8 @@ class CoreDriver:
         if decay_record is not None:
             decays = [(int(joint), float(decay)) for joint, decay in decay_record.values()]
             self.approximations = (*self.approximations, *driven_mode_lines(model, decays))
+        if carried_record is not None:
+            self.approximations = (*self.approximations, *carried_member_lines(model, carried_record.values()))
         if not native and self._build is not None and len(self._build.members) > 0:
             self.approximations = (*self.approximations, BRIDGE_NODE_POSES)
         recorder = Recorder(config.base_rate, model_columns(model, sorted(payloads)), bodies)

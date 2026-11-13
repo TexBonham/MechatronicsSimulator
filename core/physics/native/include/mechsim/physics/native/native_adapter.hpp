@@ -38,6 +38,19 @@ struct DrivenSchemeDecayRecord {
     std::vector<DrivenSchemeDecay> values;
 };
 
+// Per member, document order (ENG-052, PHY-035): the run's largest carried-joint deflection and the lag's stability
+// at load (the carried joint closest to its boundary: r, omega h; the largest per-step factor), shared like the decay
+// record so it outlives the adapter. A member that carries nothing, or whose parent is fixed across it, holds zeros.
+struct CarriedMemberRecord {
+    double deflection = 0.0;   // m
+    double lag_ratio = 0.0;
+    double lag_omega_h = 0.0;
+    double lag_factor = 0.0;
+};
+struct CarriedRecord {
+    std::vector<CarriedMemberRecord> members;
+};
+
 // Own-engine adapter (PHY-020, ADR 0013, ADR 0014): MultibodyProvider stepped by SemiImplicitEuler. load() parses
 // the engine model document mechsim/physics/native/translate.py writes into PreparedModel::neutral_model_json;
 // engine_artifact must be empty. Every engine error ends the run as AdapterError (PHY-009, invariant 7).
@@ -84,6 +97,9 @@ public:
     // Per member, in document order: the largest deflection of a carried joint's foot point over every engine step
     // since load, m (ENG-052: the position error the carried joint ignores; 0 for a member that carries none).
     [[nodiscard]] std::vector<double> carried_deflection() const;
+    // The same deflections with the lag's stability, as a shared record: take it before PhysicsParty takes the
+    // adapter, read it after the run.
+    [[nodiscard]] std::shared_ptr<const CarriedRecord> carried_record() const;
 
 private:
     struct Engine;
@@ -97,6 +113,7 @@ private:
     std::vector<std::string> supported_;
     std::unique_ptr<Engine> engine_;
     std::shared_ptr<DrivenSchemeDecayRecord> decay_record_ = std::make_shared<DrivenSchemeDecayRecord>();
+    std::shared_ptr<CarriedRecord> carried_record_ = std::make_shared<CarriedRecord>();
     kernel::PhysicsOutputs empty_;
 };
 

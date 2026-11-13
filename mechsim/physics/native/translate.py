@@ -378,8 +378,9 @@ def _member(member: LumpedMember, index: Mapping[str, int], h: float, report: li
             f"lumped member '{member.name}': carries {carried} by load-path coupling (ENG-052, ruling 63): their "
             "in-plane transverse force and bending moment reach the parent through the member's nodes (lever rule, "
             "one step lagged); the carried bodies move with the parent and do not ride the deflected member, a "
-            "position error equal to the member's deflection at each carried body (the run's largest is recorded "
-            "after the run)"
+            "position error equal to the member's deflection at each carried body; the lag is checked at load "
+            "against its stability boundary (refused above it, ruling 67); the run's largest deflection and the lag's "
+            "ratio and per-step factor are recorded after the run"
         )
     entry: dict[str, Any] = {
         "parent": index.get(member.parent, -1),
@@ -509,6 +510,28 @@ def _creep_line(transmission: Any, model: PhysicsModel, driven: Body) -> str | N
             f"path-dependent in [0, {band}]"
         )
     return text
+
+
+def carried_member_lines(model: PhysicsModel, values: Sequence[tuple[float, float, float, float]]) -> tuple[str, ...]:
+    """One line per carrying member at the end of a native run (ENG-052, PHY-035): the run's largest deflection at a
+    carried joint (the position error the carried bodies ignore) and the lag's stability at load, (deflection, r,
+    omega h, factor) per member in document order."""
+    lines: list[str] = []
+    for member, (deflection, ratio, omega_h, factor) in zip(model.lumped_members, values, strict=True):
+        if len(member.carries) == 0:
+            continue
+        lag = "parent fixed across the member, the lagged load is feed-forward"
+        if factor > 0.0:
+            boundary = 0.5 * (1.0 + omega_h * omega_h)
+            lag = (
+                f"lag ratio r {ratio:.6g} against its boundary (1 + x^2) / 2 = {boundary:.6g} at omega h "
+                f"{omega_h:.6g}, largest per-step factor {factor:.9g}"
+            )
+        lines.append(
+            f"lumped member '{member.name}': largest deflection at a carried joint over the run {deflection:.6g} m, "
+            f"the position error load-path coupling ignores; {lag} (ENG-052, PHY-035)"
+        )
+    return tuple(lines)
 
 
 def driven_mode_lines(model: PhysicsModel, decays: Sequence[tuple[int, float]]) -> tuple[str, ...]:

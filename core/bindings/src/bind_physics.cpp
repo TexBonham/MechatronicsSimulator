@@ -5,6 +5,7 @@
 #include <memory>
 #include <span>
 #include <string>
+#include <tuple>
 #include <utility>
 #include <vector>
 
@@ -251,6 +252,20 @@ void bind_adapter(py::module_& m) {
             },
             "A copy: [(joint, decay)] in joint order.");
 
+    py::class_<physics::native::CarriedRecord, py::smart_holder>(
+        m, "CarriedRecord", "The native run's carried-joint deflection and lag stability per member, shared (ENG-052).")
+        .def(
+            "values",
+            [](const physics::native::CarriedRecord& record) {
+                std::vector<std::tuple<double, double, double, double>> out;
+                out.reserve(record.members.size());
+                for (const physics::native::CarriedMemberRecord& r : record.members) {
+                    out.emplace_back(r.deflection, r.lag_ratio, r.lag_omega_h, r.lag_factor);
+                }
+                return out;
+            },
+            "A copy: [(largest deflection m, lag ratio r, omega h, largest per-step factor)] per member.");
+
     py::class_<physics::native::NativeAdapter, PhysicsAdapter, py::smart_holder>(
         m, "NativeAdapter", "The own engine behind the PhysicsAdapter interface (PHY-020); load the native translation.")
         .def(py::init<>())
@@ -273,6 +288,13 @@ void bind_adapter(py::module_& m) {
                 return std::const_pointer_cast<physics::native::DrivenSchemeDecayRecord>(adapter.scheme_decay_record());
             },
             "The same values as a shared record: take it before PhysicsParty takes the adapter, read it after the run.")
+        .def(
+            "carried_record",
+            [](const physics::native::NativeAdapter& adapter) {
+                return std::const_pointer_cast<physics::native::CarriedRecord>(adapter.carried_record());
+            },
+            "Per member: the run's largest carried deflection and the lag's stability at load, as a shared record: "
+            "take it before PhysicsParty takes the adapter, read it after the run (ENG-052, PHY-035).")
         .def("carried_deflection", &physics::native::NativeAdapter::carried_deflection,
              "Per member (document order): the largest carried-joint deflection of any engine step since load, m "
              "(ENG-052, PHY-035).");

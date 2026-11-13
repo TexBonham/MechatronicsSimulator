@@ -29,6 +29,7 @@ target_link_libraries(mechsim_engine PUBLIC Eigen3::Eigen PRIVATE mechsim_warnin
 
 add_executable(mechsim_engine_tests
     tests/test_carried_loads.cpp
+    tests/test_carried_stability.cpp
     tests/test_constraints.cpp
     tests/test_contact.cpp
     tests/test_energy.cpp
