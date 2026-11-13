@@ -568,8 +568,8 @@ def carried_validity_lines(model: PhysicsModel, values: Sequence[tuple[float, ..
                 f"lumped member '{member.name}': the one-way carried-load result is not valid from t = {since:.6g} s: "
                 f"the member deflects more than {CARRIED_RATIO_LIMIT:.6g} times the largest quasi-static deflection "
                 f"of its carried loads within the window, more than any load applied no faster than suddenly can "
-                f"cause, so the carried system drives it near its own frequency, where the missing back-reaction of the one-way coupling "
-                f"matters; full coupling is milestone 4 (ruling 69, ENG-052)"
+                f"cause, so the carried system drives it near its own frequency, where the missing back-reaction of "
+                f"the one-way coupling matters; full coupling is milestone 4 (ruling 69, ENG-052)"
             )
     return tuple(lines)
 
