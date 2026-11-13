@@ -7,6 +7,7 @@
 #include <functional>
 #include <memory>
 #include <numbers>
+#include <optional>
 #include <span>
 #include <string>
 #include <string_view>
@@ -393,6 +394,218 @@ TEST_CASE("a member without node poses is not evaluated for deflection", "[INT-0
     CHECK(std::isnan(r.trace->peak_deflection[0]));
 }
 
+// ===== Moment under a carried load (ruling 71; INT-005, INT-023) ========
+//
+// Samples of a member, L = 1 m, N = 8, l = 0.125 m: s = 0, (j + 1/2) l, L. A pinned-pinned member under P at a (world
+// -y) has, exactly by statics, the reactions R0 = P b / L and R1 = P a / L (b = L - a) and M(s) = R0 s for s <= a,
+// R1 (L - s) for s >= a, spring sense; the start wrench is F_y0 = R0, M_z0 = 0 (M(0) = -M_z0 + s F_y0) and the end
+// wrench F_y1 = R1, M_z1 = 0 (M(s) = M_z1 + (L - s) F_y1). The spring moments are M at the springs (the lever split
+// is statically equivalent outside the loaded segment, mechsim/integrity/beam.py header). The intersection of the
+// neighbouring segments' lines is then the tent's apex: P a b / L at s = a, to rounding (1e-12 relative: a few
+// operations on numbers of one magnitude).
+
+namespace {
+
+constexpr double span_length = 1.0;
+constexpr std::size_t span_segments = 8;
+constexpr double span_l = span_length / static_cast<double>(span_segments);
+
+integrity::MemberLimits span_member(bool carries, integrity::SupportCondition root) {
+    integrity::MemberLimits m = cantilever(span_length);
+    integrity::NodeChain chain;
+    chain.root = root;
+    chain.count = span_segments;
+    if (root == integrity::SupportCondition::pinned) {
+        chain.count = span_segments + 1;
+    }
+    chain.carries = carries;
+    m.nodes = chain;
+    return m;
+}
+
+std::vector<double> sampled(const std::function<double(double)>& moment) {
+    std::vector<double> out;
+    for (std::size_t j = 0; j < span_segments; ++j) {
+        out.push_back(moment((static_cast<double>(j) + 0.5) * span_l));
+    }
+    return out;
+}
+
+kernel::MemberEndLoads pinned_point(double load, double a) {
+    kernel::MemberEndLoads loads;
+    loads.start.force = {0.0, load * (span_length - a) / span_length, 0.0};
+    loads.end.force = {0.0, load * a / span_length, 0.0};
+    return loads;
+}
+
+double pinned_moment(double load, double a, double s) {
+    if (s <= a) {
+        return load * (span_length - a) / span_length * s;
+    }
+    return load * a / span_length * (span_length - s);
+}
+
+std::vector<integrity::CarriedMoment> found(const std::vector<std::optional<integrity::CarriedMoment>>& candidates) {
+    std::vector<integrity::CarriedMoment> out;
+    for (const std::optional<integrity::CarriedMoment>& candidate : candidates) {
+        if (candidate.has_value()) {
+            out.push_back(candidate.value());
+        }
+    }
+    return out;
+}
+
+// The largest candidate. A segment next to the loaded one may also give one: its line A (or B) is the loaded
+// segment's chord, which meets the other line at the shared spring, so rounding can put it just inside, at that
+// spring's moment; it never exceeds the apex.
+integrity::CarriedMoment largest(const std::vector<integrity::CarriedMoment>& candidates) {
+    REQUIRE(!candidates.empty());
+    integrity::CarriedMoment out = candidates.front();
+    for (const integrity::CarriedMoment& candidate : candidates) {
+        if (candidate.value > out.value) {
+            out = candidate;
+        }
+    }
+    return out;
+}
+
+// Pinned-pinned node bodies whose springs carry the given moments: node 0 the pin segment, node j + 1 turned by the sum
+// of the spring rotations up to spring j.
+std::vector<kernel::BodyState> pinned_nodes(const std::vector<double>& moments, double stiffness) {
+    std::vector<kernel::BodyState> bodies(moments.size() + 1);
+    double angle = 0.0;
+    for (std::size_t j = 0; j < moments.size(); ++j) {
+        angle += moments[j] / stiffness;
+        bodies[j + 1].orientation = about_z(angle);
+    }
+    return bodies;
+}
+
+}  // namespace
+
+TEST_CASE("the moment under a carried load between two springs is the intersection of the neighbours' lines",
+          "[INT-005][INT-023]") {
+    const integrity::MemberLimits m = span_member(true, integrity::SupportCondition::pinned);
+    const double load = 120.0;
+    // a in the start's half segment, inside interior segments (0.5 at the middle of [0.4375, 0.5625]), and in the
+    // end's half segment: one candidate, the apex.
+    for (const double a : {0.03, 0.1, 0.5, 0.77, 0.98}) {
+        CAPTURE(a);
+        const std::vector<double> moments = sampled([&](double s) { return pinned_moment(load, a, s); });
+        const integrity::CarriedMoment apex = largest(found(integrity::carried_moments(pinned_point(load, a), moments, m)));
+        CHECK_THAT(apex.value, WithinRel(load * a * (span_length - a) / span_length, 1e-12));
+        CHECK_THAT(apex.position, WithinRel(a, 1e-12));
+    }
+    // A load on a spring (0.3125 = 2.5 l): the lines meet at the spring, a sample already read; nothing is added.
+    const std::vector<double> on_spring = sampled([&](double s) { return pinned_moment(load, 0.3125, s); });
+    CHECK(found(integrity::carried_moments(pinned_point(load, 0.3125), on_spring, m)).empty());
+    // No load between the samples (end couples only: M linear, every line the chord up to rounding): a candidate,
+    // if rounding makes the slopes differ, lies on the chord, never above the larger sample by more than rounding.
+    kernel::MemberEndLoads couple;
+    couple.start.moment = {0.0, 0.0, -10.0};
+    couple.start.force = {0.0, -10.0, 0.0};
+    couple.end.force = {0.0, 10.0, 0.0};
+    const std::vector<double> linear = sampled([](double s) { return 10.0 - 10.0 * s; });
+    for (const integrity::CarriedMoment& apex : found(integrity::carried_moments(couple, linear, m))) {
+        CHECK(std::abs(apex.value) <= 10.0 * (1.0 + 1e-12));
+    }
+}
+
+TEST_CASE("the end segments take the end wrench's line for the missing neighbour", "[INT-005][INT-023]") {
+    // Free tip (cantilever, P at a = 0.98 in the tip's half segment): the end wrench is zero, its line M = 0; the
+    // moment between the load and the tip is 0, so the apex is M = 0 at the load (or nothing): never above the samples.
+    // Clamped root: start wrench F_y0 = P, M_z0 = P a (M(s) = -P a + P s up to a); with a = 0.03 in the root stub the
+    // lever share at x = 0 goes to the parent, so the recorded start wrench is the first spring's line: the two lines
+    // coincide and nothing is added (the stub's limitation, beam.py header).
+    const integrity::MemberLimits tip = span_member(true, integrity::SupportCondition::clamped);
+    const double load = 50.0;
+    const double a = 0.98;
+    kernel::MemberEndLoads loads;
+    loads.start.force = {0.0, load, 0.0};
+    loads.start.moment = {0.0, 0.0, load * a};
+    const std::vector<double> moments = sampled([&](double s) { return std::min(0.0, -load * (a - s)); });
+    for (const integrity::CarriedMoment& apex : found(integrity::carried_moments(loads, moments, tip))) {
+        CHECK_THAT(apex.value, WithinAbs(0.0, 1e-12 * load));
+    }
+    // The stub load: share w1 P = (a / (l / 2)) P on node 0 at its joint (no spring moment anywhere), w0 P on the
+    // parent; the root joint's reaction moved to x = 0: F_y0 = w1 P, M_z0 = (l / 2) w1 P. Line A (value -(l / 2) w1 P,
+    // slope w1 P) meets line B (M = 0) at x = l / 2, the first spring: not inside, nothing added.
+    const double stub = 0.03;
+    const double share = stub / (span_l / 2.0) * load;
+    kernel::MemberEndLoads stub_loads;
+    stub_loads.start.force = {0.0, share, 0.0};
+    stub_loads.start.moment = {0.0, 0.0, span_l / 2.0 * share};
+    const std::vector<double> flat(span_segments, 0.0);
+    CHECK(found(integrity::carried_moments(stub_loads, flat, tip)).empty());
+}
+
+TEST_CASE("own weight on a carrying member reads 3 w l^2 / 8 above the parabola at a segment's centre",
+          "[INT-005][INT-023]") {
+    // Spring moments on the parabola M = w s (L - s) / 2 (the lumped chain's springs read the continuum exactly);
+    // the neighbours' secants meet at the centre of [3.5 l, 4.5 l], s = L / 2, by symmetry: M* = w L^2 / 8 +
+    // 3 w l^2 / 8 (beam.py header), w L^2 / 8 (1 + 3 / N^2).
+    const integrity::MemberLimits m = span_member(true, integrity::SupportCondition::pinned);
+    const double w = 30.0;
+    kernel::MemberEndLoads loads;
+    loads.start.force = {0.0, w * span_length / 2.0, 0.0};
+    loads.end.force = {0.0, w * span_length / 2.0, 0.0};
+    const std::vector<double> moments = sampled([&](double s) { return w * s * (span_length - s) / 2.0; });
+    double largest = 0.0;
+    double where = 0.0;
+    for (const integrity::CarriedMoment& apex : found(integrity::carried_moments(loads, moments, m))) {
+        if (apex.value > largest) {
+            largest = apex.value;
+            where = apex.position;
+        }
+    }
+    CHECK_THAT(largest, WithinRel(w * span_length * span_length / 8.0 + 3.0 * w * span_l * span_l / 8.0, 1e-12));
+    CHECK_THAT(where, WithinRel(span_length / 2.0, 1e-12));
+}
+
+TEST_CASE("two loads of one sign in one segment read at or above the larger true peak", "[INT-005][INT-023]") {
+    // P1 at 0.46, P2 at 0.54 (both in [0.4375, 0.5625]), pinned-pinned: M by superposition; the outer lines are the
+    // tangents of the concave moment there, so their intersection is at or above its maximum.
+    const integrity::MemberLimits m = span_member(true, integrity::SupportCondition::pinned);
+    const auto moment = [](double s) { return pinned_moment(60.0, 0.46, s) + pinned_moment(40.0, 0.54, s); };
+    kernel::MemberEndLoads loads = pinned_point(60.0, 0.46);
+    const kernel::MemberEndLoads second = pinned_point(40.0, 0.54);
+    loads.start.force[1] += second.start.force[1];
+    loads.end.force[1] += second.end.force[1];
+    const integrity::CarriedMoment apex = largest(found(integrity::carried_moments(loads, sampled(moment), m)));
+    CHECK(apex.value >= std::max(moment(0.46), moment(0.54)));
+    CHECK(apex.position > 0.4375);
+    CHECK(apex.position < 0.5625);
+}
+
+TEST_CASE("only a carrying member adds the moment under the load to its peak stress", "[INT-005][INT-023]") {
+    // Pinned-pinned, P = 120 N at 0.5 (mid-segment): the larger spring moment is R0 (0.4375) = 26.25 N m, below the
+    // apex P a b / L = 30 N m; stress M c_y / I_z (no axial force, no M_y).
+    const double load = 120.0;
+    const double a = 0.5;
+    const std::vector<double> moments = sampled([&](double s) { return pinned_moment(load, a, s); });
+    const integrity::MemberLimits plain = span_member(false, integrity::SupportCondition::pinned);
+    const std::vector<kernel::BodyState> bodies = pinned_nodes(moments, plain.node_stiffness);
+    const double spring = pinned_moment(load, a, 0.4375) * plain.c_y / plain.i_z;
+    CHECK_THAT(integrity::peak_normal_stress(pinned_point(load, a), bodies, plain), WithinRel(spring, 1e-9));
+    const integrity::MemberLimits carrying = span_member(true, integrity::SupportCondition::pinned);
+    CHECK_THAT(integrity::peak_normal_stress(pinned_point(load, a), bodies, carrying),
+               WithinRel(load * a * (span_length - a) / span_length * plain.c_y / plain.i_z, 1e-9));
+}
+
+TEST_CASE("a yielded spring's moment is k times its elastic rotation", "[INT-005][INT-028]") {
+    const integrity::MemberLimits m = cantilever();
+    std::vector<kernel::BodyState> bodies(8);
+    for (kernel::BodyState& body : bodies) {
+        body.orientation = about_z(1e-3);
+    }
+    const std::vector<double> offsets{4e-4, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
+    const std::vector<double> moments = integrity::node_moments(bodies, m, offsets);
+    CHECK_THAT(moments[0], WithinRel(m.node_stiffness * 6e-4, 1e-12));
+    CHECK(moments[1] == 0.0);
+    const std::vector<double> short_offsets{1e-4};
+    CHECK_THROWS_AS(integrity::node_moments(bodies, m, short_offsets), integrity::LimitsError);
+}
+
 // ===== Events, halt and determinism (INT-024, INT-026, INT-027) ==========
 
 TEST_CASE("each element and quantity raises one event at its own first crossing", "[INT-024]") {
@@ -639,6 +852,37 @@ TEST_CASE("a value exactly at the limit is not a crossing and the next represent
     CHECK(r.crossings[0].limit == 250.0);
 }
 
+TEST_CASE("the party reads a yielded spring by its elastic rotation from the tick its offset applies",
+          "[INT-028][INT-023]") {
+    // Constant outputs: the start wrench gives the root spring M_n = -M_z0 = 500 N m = 2 M_y (M_y = 250 N m), so the
+    // first tick requests o = (500 - 250) / k (k = 16000 N m / rad); the node poses turn every node by theta with
+    // k theta = 750 N m (the poses need not match the wrench here: the test separates the two readings). From the
+    // second tick (physics applies the request before its next step) the root spring reads k (theta - o) = 500 N m,
+    // its stress 500 c_y / I_z = 5e8 Pa, equal to the start end's; the total rotation would read 7.5e8 Pa. Counting
+    // from the second tick isolates it.
+    integrity::Limits limits;
+    limits.stress = true;
+    limits.yield_offset = true;
+    limits.members.push_back(cantilever());
+    const integrity::MemberLimits& m = limits.members[0];
+    const double theta = 750.0 / m.node_stiffness;
+    const auto load = [theta](double /*t*/) {
+        kernel::PhysicsOutputs out;
+        kernel::MemberEndLoads loads;
+        loads.start.moment = {0.0, 0.0, -500.0};
+        out.members.push_back(loads);
+        out.bodies.resize(8);
+        for (kernel::BodyState& body : out.bodies) {
+            body.orientation = about_z(theta);
+        }
+        return out;
+    };
+    const Run r = run(limits, load, 5, false, kernel::SimTime{2});
+    REQUIRE(r.trace->requests.size() == 1);
+    CHECK_THAT(r.trace->requests[0].value, WithinRel(250.0 / m.node_stiffness, 1e-12));
+    CHECK_THAT(r.trace->peak_stress[0], WithinRel(500.0 * m.c_y / m.i_z, 1e-9));
+}
+
 // ===== Limits table ======================================================
 
 TEST_CASE("the limits table parses and refuses malformed entries", "[INT-023][INT-006]") {
@@ -647,7 +891,7 @@ TEST_CASE("the limits table parses and refuses malformed entries", "[INT-023][IN
         R"("length": 1.0, "elastic_modulus": 2e11, "effective_length_factor": 2.0, "allowable_stress": 1e8, )"
         R"("yield_strength": 2.5e8, "deflection_limit": null, "supports": [{"at": 0.0, "condition": "clamped"}], )"
         R"("first_spring": 2, "segments": 8, "segment_length": 0.125, "node_stiffness": 16000.0, "nodes": {"first_body": )"
-        R"(5, "count": 9, "root": "pinned", "parent_body": null, "position": [0, 1, 0], "orientation": [1, 0, 0, 0]}})";
+        R"(5, "count": 9, "root": "pinned", "parent_body": null, "position": [0, 1, 0], "orientation": [1, 0, 0, 0], "carries": false}})";
     const auto doc = [](const std::string& members, const std::string& checks = "true",
                         const std::string& bodies = R"(, "bodies": 14)") {
         return R"({"format": "mechsim-integrity-limits-1", "minimum_safety_factor": 1.5, "checks": {"stress": )" +

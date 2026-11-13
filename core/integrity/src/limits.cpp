@@ -351,6 +351,7 @@ NodeChain node_chain(const Value& entry, const std::string& where) {
     }
     chain.position = triple(entry, "position", where);
     chain.orientation = quaternion(entry, "orientation", where);
+    chain.carries = flag(entry, "carries", where);
     return chain;
 }
 

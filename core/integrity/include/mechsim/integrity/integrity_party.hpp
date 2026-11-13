@@ -91,6 +91,9 @@ private:
         bool early_deflection = false;
         double start_peak = 0.0;
         double end_peak = 0.0;
+        // Each node spring's yield offset in effect for the outputs read (INT-028): the party's own requests, applied
+        // by physics before its next step, so from the next tick on; empty until the first request.
+        std::vector<double> offsets;
     };
 
     struct FasteningState {
@@ -102,6 +105,7 @@ private:
     void crossed(kernel::SimTime t, bool counts, bool& counted, bool& early, const std::string& element,
                  std::string_view quantity, double value, double limit);
     void yield(const MemberLimits& member, const kernel::MemberEndLoads& loads, MemberState& state);
+    void apply_offset(const kernel::ModelChangeRequest& request);
 
     Limits limits_;
     IntegrityPartyConfig config_;

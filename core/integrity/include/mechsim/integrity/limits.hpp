@@ -33,6 +33,7 @@ struct NodeChain {
     std::optional<std::size_t> parent_body;
     std::array<double, 3> position{};
     std::array<double, 4> orientation{1.0, 0.0, 0.0, 0.0};  // w first
+    bool carries = false;  // the member carries a joint (ENG-052): strength adds the moment under the load (ruling 71)
 };
 
 // One structural member, SI, the member frame of ruling 24 (x start to end, y and z the section's principal axes).

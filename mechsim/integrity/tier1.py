@@ -19,7 +19,7 @@ import numpy as np
 from mechsim.integrity.beam import effective_length_factor
 from mechsim.integrity.checks.fastener import rating
 from mechsim.integrity.config import FILE_NAME, IntegrityConfig, load_config
-from mechsim.integrity.inputs import member_axes, node_chains, section_properties
+from mechsim.integrity.inputs import SPRINGS_PER_JOINT, member_axes, node_chains, section_properties
 from mechsim.integrity.plugin import IntegrityError, MaterialView, MemberInputs, NodeChain, Spread, Wrenches
 from mechsim.materials.database import MaterialSet
 from mechsim.testing.schema import DESIGNS_ROOT
@@ -28,7 +28,6 @@ FORMAT = "mechsim-integrity-limits-1"
 PARTY = "integrity"
 MODEL_REQUESTS = "integrity.model_requests"
 QUANTITIES = (("strength", "stress"), ("buckling", "buckling"), ("deflection", "deflection"), ("fastener", "fastener"))
-SPRINGS_PER_JOINT = {"revolute": 1, "prismatic": 1, "planar": 3, "fixed": 0, "spherical": 0, "free": 0}
 YIELD_RULE = (
     "integrity tier 2 yield: placeholder plasticity rule (ruling 35): at the member end with the larger bending moment "
     "the nearest node spring takes the permanent offset (peak |M_n| - M_y) / k, M_y = sigma_y I_z / c_y, k = E I / l, "

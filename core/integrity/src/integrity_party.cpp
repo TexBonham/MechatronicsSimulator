@@ -140,6 +140,22 @@ void IntegrityParty::crossed(kernel::SimTime t, bool counts, bool& counted, bool
     trace_->before_evaluation.push_back(std::move(crossing));
 }
 
+void IntegrityParty::apply_offset(const kernel::ModelChangeRequest& request) {
+    for (std::size_t m = 0; m < limits_.members.size(); ++m) {
+        const MemberLimits& member = limits_.members[m];
+        if (request.kind != kernel::ModelChangeKind::SpringOffset || !member.nodes.has_value() ||
+            request.index < member.first_spring ||
+            request.index >= member.first_spring + member.segments) {
+            continue;
+        }
+        std::vector<double>& offsets = members_[m].offsets;
+        if (offsets.empty()) {
+            offsets.assign(member.segments, 0.0);
+        }
+        offsets[request.index - member.first_spring] = request.value;
+    }
+}
+
 void IntegrityParty::yield(const MemberLimits& member, const kernel::MemberEndLoads& loads, MemberState& state) {
     const double l = member.segment_length;
     std::size_t spring = member.first_spring;
@@ -174,6 +190,9 @@ void IntegrityParty::step(kernel::SimTime t, kernel::Duration dt) {
     }
     const kernel::SimTime stamp = t + dt;
     const bool counts = !(stamp < config_.evaluate_from);
+    for (const kernel::ModelChangeRequest& request : requests_.requests) {
+        apply_offset(request);
+    }
     requests_.requests.clear();
     if (limits_.bodies.has_value() && outputs_.bodies.size() != limits_.bodies.value()) {
         throw LimitsError("integrity: physics publishes " + std::to_string(outputs_.bodies.size()) +
@@ -189,7 +208,7 @@ void IntegrityParty::step(kernel::SimTime t, kernel::Duration dt) {
         const kernel::MemberEndLoads& loads = outputs_.members[member.index];
         MemberState& state = members_[m];
         if (limits_.stress) {
-            const double stress = peak_normal_stress(loads, outputs_.bodies, member);
+            const double stress = peak_normal_stress(loads, outputs_.bodies, member, state.offsets);
             if (counts) {
                 trace_->peak_stress[m] = std::max(trace_->peak_stress[m], stress);
             }

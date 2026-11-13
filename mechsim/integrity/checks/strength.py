@@ -43,7 +43,9 @@ class Strength(IntegrityCheck):
             loads = member.loads.scaled(inputs.load_factor)
             if member.nodes is None:
                 notes.append(ENDS_ONLY.format(member=member.name))
-            normal = member_normal_stress(loads, member.section, member, inputs.bodies, inputs.load_factor)
+            normal = member_normal_stress(
+                loads, member.section, member, inputs.bodies, inputs.load_factor, member.spring_offsets
+            )
             value, time = peak(normal, inputs.times)
             margin = yield_strength.over(value)
             rows.append(

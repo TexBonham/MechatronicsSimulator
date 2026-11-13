@@ -172,8 +172,59 @@ def node_chains(model: Any, names: tuple[str, ...] = ()) -> dict[str, NodeChain]
             * float(lumped.section.second_moment_of_area)
             * int(lumped.segments)
             / float(lumped.section.length),
+            carries=len(tuple(getattr(lumped, "carries", ()))) > 0,
         )
         first += count
+    return out
+
+
+SPRING_OFFSET_EVENT = "spring_offset spring "
+SPRINGS_PER_JOINT = {"revolute": 1, "prismatic": 1, "planar": 3, "fixed": 0, "spherical": 0, "free": 0}
+
+
+def spring_offsets(model: Any, events: tuple[tuple[int, Any], ...], rows: int) -> dict[str, FloatArray]:
+    """Each lumped member's node spring offsets (rows, N) rad in effect at each row (INT-028, ruling 35), keyed by
+    structural member name, from the recorded `model_change` events `spring_offset spring <i> value <v>` (the adapter's
+    listing; the offset is absolute, rest = built + offset, applied before the step whose row lists it, so in effect
+    from that row on). Spring order is the native adapter's: every revolute and prismatic DOF (one each) and planar
+    joint (three) of the model's bodies in order, then each member's N node springs root to tip
+    (`core/physics/native/CLAUDE.md`). Only members with an offset appear. A spring index outside the members' springs
+    is an `IntegrityError`."""
+    out: dict[str, FloatArray] = {}
+    if model is None:
+        return out
+    changes = [
+        (int(row), str(event.detail))
+        for row, event in events
+        if str(event.kind) == "model_change" and str(event.detail).startswith(SPRING_OFFSET_EVENT)
+    ]
+    if len(changes) == 0:
+        return out
+    first = 0
+    for body in getattr(model, "bodies", ()):
+        joint = getattr(body, "joint", None)
+        if joint is not None:
+            first += SPRINGS_PER_JOINT[str(joint.type)]
+    blocks: list[tuple[str, int, int]] = []
+    for lumped in getattr(model, "lumped_members", ()):
+        name = str(lumped.name)
+        if lumped.structural_member is not None:
+            name = str(lumped.structural_member)
+        blocks.append((name, first, int(lumped.segments)))
+        first += int(lumped.segments)
+    for row, detail in changes:
+        index_text, _, value_text = detail[len(SPRING_OFFSET_EVENT) :].partition(" value ")
+        index = int(index_text)
+        owner = None
+        for name, start, count in blocks:
+            if start <= index < start + count:
+                owner = (name, index - start, count)
+        if owner is None:
+            raise IntegrityError(f"model change {detail!r}: spring {index} is no member node spring (INT-028)")
+        name, node, count = owner
+        if name not in out:
+            out[name] = np.zeros((rows, count), dtype=np.float64)
+        out[name][row:, node] = float(value_text)
     return out
 
 
@@ -258,6 +309,10 @@ def run_inputs(
     model = getattr(build, "physics", None)
     names = body_names(series)
     chains = node_chains(model, names)
+    events: tuple[tuple[int, Any], ...] = ()
+    if raw is not None:
+        events = tuple(getattr(raw, "events", ()))
+    offsets = spring_offsets(model, events, rows)
     members: list[MemberInputs] = []
     holder: dict[str, str] = {}
     for member in members_list:
@@ -278,6 +333,7 @@ def run_inputs(
                 axis_body=placements.get(name, (1.0, 0.0, 0.0)),
                 mounts=mounts,
                 nodes=chains.get(name),
+                spring_offsets=offsets.get(name),
             )
         )
     joints = _joints(build, series, holder, rows)

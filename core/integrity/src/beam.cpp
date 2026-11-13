@@ -122,7 +122,8 @@ double node_deflection(std::span<const kernel::BodyState> bodies, const MemberLi
     return peak;
 }
 
-std::vector<double> node_moments(std::span<const kernel::BodyState> bodies, const MemberLimits& member) {
+std::vector<double> node_moments(std::span<const kernel::BodyState> bodies, const MemberLimits& member,
+                                 std::span<const double> offsets) {
     if (!member.nodes.has_value()) {
         throw LimitsError("member '" + member.name + "': no node poses (built rigid); no node moments");
     }
@@ -148,28 +149,93 @@ std::vector<double> node_moments(std::span<const kernel::BodyState> bodies, cons
     }
     std::vector<double> moments;
     moments.reserve(chain.count - first);
+    if (!offsets.empty() && offsets.size() != chain.count - first) {
+        throw LimitsError("member '" + member.name + "': " + std::to_string(offsets.size()) + " spring offsets for " +
+                          std::to_string(chain.count - first) + " springs");
+    }
     for (std::size_t k = first; k < chain.count; ++k) {
         const kernel::Quat& current = bodies[chain.first_body + k].orientation;
-        moments.push_back(member.node_stiffness * bending_angle(previous, current));
+        double rotation = bending_angle(previous, current);
+        if (!offsets.empty()) {
+            rotation = rotation - offsets[k - first];
+        }
+        moments.push_back(member.node_stiffness * rotation);
         previous = current;
     }
     return moments;
 }
 
+std::vector<std::optional<CarriedMoment>> carried_moments(const kernel::MemberEndLoads& loads,
+                                                          std::span<const double> moments,
+                                                          const MemberLimits& member) {
+    const std::size_t springs = moments.size();
+    std::vector<double> s;
+    std::vector<double> m;
+    s.reserve(springs + 2);
+    m.reserve(springs + 2);
+    s.push_back(0.0);
+    m.push_back(-loads.start.moment[2]);
+    for (std::size_t j = 0; j < springs; ++j) {
+        s.push_back((static_cast<double>(j) + 0.5) * member.segment_length);
+        m.push_back(moments[j]);
+    }
+    s.push_back(member.length);
+    m.push_back(loads.end.moment[2]);
+    std::vector<double> chords;
+    chords.reserve(springs + 1);
+    for (std::size_t k = 0; k + 1 < s.size(); ++k) {
+        chords.push_back((m[k + 1] - m[k]) / (s[k + 1] - s[k]));
+    }
+    std::vector<std::optional<CarriedMoment>> out;
+    out.reserve(springs + 1);
+    for (std::size_t k = 0; k <= springs; ++k) {
+        const double h = s[k + 1] - s[k];
+        double slope_a = loads.start.force[1];
+        if (k > 0) {
+            slope_a = chords[k - 1];
+        }
+        double slope_b = -loads.end.force[1];
+        if (k < springs) {
+            slope_b = chords[k + 1];
+        }
+        const double difference = slope_a - slope_b;
+        if (difference == 0.0) {
+            out.emplace_back(std::nullopt);
+            continue;
+        }
+        const double u = (m[k + 1] - m[k] - slope_b * h) / difference;
+        if (std::isnan(u) || u <= 0.0 || u >= h) {
+            out.emplace_back(std::nullopt);
+            continue;
+        }
+        out.emplace_back(CarriedMoment{m[k] + slope_a * u, s[k] + u});
+    }
+    return out;
+}
+
 double peak_normal_stress(const kernel::MemberEndLoads& loads, std::span<const kernel::BodyState> bodies,
-                          const MemberLimits& member) {
+                          const MemberLimits& member, std::span<const double> offsets) {
     double peak = std::max(end_stress(loads.start, member), end_stress(loads.end, member));
     if (!member.nodes.has_value()) {
         return peak;
     }
-    const std::vector<double> moments = node_moments(bodies, member);
+    const std::vector<double> moments = node_moments(bodies, member, offsets);
     const double axial = std::max(std::abs(loads.start.force[0]), std::abs(loads.end.force[0])) / member.area;
+    const auto interior = [&](double share, double moment_z) {
+        const double moment_y = loads.start.moment[1] * (1.0 - share) - loads.end.moment[1] * share;
+        return axial + std::abs(moment_y) * member.c_z / member.i_y + std::abs(moment_z) * member.c_y / member.i_z;
+    };
     for (std::size_t j = 0; j < moments.size(); ++j) {
         const double share = (static_cast<double>(j) + 0.5) * member.segment_length / member.length;
-        const double moment_y = loads.start.moment[1] * (1.0 - share) - loads.end.moment[1] * share;
-        const double stress =
-            axial + std::abs(moment_y) * member.c_z / member.i_y + std::abs(moments[j]) * member.c_y / member.i_z;
-        peak = std::max(peak, stress);
+        peak = std::max(peak, interior(share, moments[j]));
+    }
+    if (!member.nodes.value().carries) {
+        return peak;
+    }
+    for (const std::optional<CarriedMoment>& candidate : carried_moments(loads, moments, member)) {
+        if (candidate.has_value()) {
+            peak = std::max(peak, interior(candidate.value().position / member.length, candidate.value().value));
+        }
     }
     return peak;
 }

@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 import math
 from collections.abc import Sequence
+from dataclasses import replace
 
 import numpy as np
 import pytest
@@ -571,6 +572,189 @@ def test_strength_clamped_own_weight_peak_moment_is_w_l2_over_12_at_the_ends() -
     ):
         report(label, target, abs(value))
         assert abs(abs(value) / target - 1.0) <= CHAIN
+
+
+# ===== Moment under a carried load (ruling 71) =============================
+#
+# The engine puts a carried load on the two lever nodes around it (`mechsim/integrity/beam.py`, section "Moment under
+# a carried load"): the samples (ends, springs) are exact, the moment between them is not. Both tiers take the
+# intersection of the neighbouring segments' moment lines, exact for one point load in a segment. The runs: the data-
+# only bar of `tests/unit/test_carried_members.py` (1 m, 20 mm square aluminium, pinned-roller or clamped-clamped,
+# N = 8, l = 0.125 m: springs at 0.0625 + 0.125 j) with its 40 mm cube carriage carried at a. Settling: the chain's
+# node damping D = 2 k / omega (k = E I / l, omega the first bending frequency) damps the first mode critically, the
+# higher ones overdamped; omega is about 290 rad/s (pinned) and 660 (clamped), so 600 ticks leave e^(-170) of the
+# start transient. Superposition isolates the carriage: carried run minus the same design carrying nothing (its
+# carriage then loads the rigid parent, not the beam), both under their own weight. Gravity 0.0981 m/s^2: the
+# deflection under own weight is 5 w L^4 / (384 E I) = 1.5e-6 m, and the geometric (second-order) part of the statics,
+# the roller's slide and the arms' change, is a few (delta / L)^2 = 2e-12 each (at 0.981 m/s^2 it is 2e-9: too
+# close), while the spring rotations (about 6e-7 rad) carry quaternion rounding of 1e-16 / 6e-7 = 2e-10 relative:
+# both below the 1e-9 of the oracle. Oracles:
+#   pinned-pinned, P = m g at a in {0.1, 0.3125, 0.5, 0.77} L: M* = P a b / L within 1e-9 relative (0.3125 L lies on
+#     spring 2 at N = 8, so the samples read it and the rule adds nothing above it; 0.5 L is mid-segment, the
+#     worst case before this rule: low by P l / 4).
+#   clamped-clamped, P at 0.5 L (mid-segment): 2 P a^2 b^2 / L^3 = P L / 8 within the chain's 2 percent row.
+# The two tiers agree on the total fields (own weight and carriage) within 1e-9.
+
+_CARRIED_TICKS = 600
+_CARRIED_GRAVITY = 0.0981
+
+
+def _carried_bar(carries: bool, a: float, supports: tuple[str, str]) -> tuple[MemberInputs, BodyPoses, float]:
+    """The bar after settling, as the check's member with its last row of poses, and the carriage's weight P."""
+    from mechsim.builder import build
+    from mechsim.design.schema import Design, shipped_materials
+    from mechsim.integrity.inputs import BODY_ORIENTATION, BODY_POSITION, MEMBER_SERIES, node_chains
+    from mechsim.library.registry import default_registry
+    from tests.unit.test_carried_members import _design_data, _record
+
+    carried: list[str] = []
+    if carries:
+        carried = ["slide"]
+    travel = min(a, 1.0 - a, 0.05)
+    data = _design_data(carried, position=a, limits=(-travel, travel))
+    data["environment"]["gravity"] = ["0 m/s**2", f"-{_CARRIED_GRAVITY} m/s**2", "0 m/s**2"]
+    data["bodies"][0]["flexible"]["segments"] = 8
+    data["bodies"][0]["flexible"]["supports"] = list(supports)
+    result = build(Design.model_validate(data), default_registry(), shipped_materials())
+    model = result.physics
+    assert model is not None
+    lumped = model.lumped_members[0]
+    section = lumped.section
+    ei = float(section.elastic_modulus) * float(section.second_moment_of_area)
+    rho_a = float(section.density) * float(section.area)
+    ends = "SimplySupported"
+    if supports[0] == "clamped":
+        ends = "Clamped"
+    omega = (BETA[ends] / float(section.length)) ** 2 * math.sqrt(ei / rho_a)
+    stiffness = ei * 8 / float(section.length)
+    damped = lumped.model_copy(update={"node_damping": 2.0 / omega * stiffness})
+    model = model.model_copy(update={"lumped_members": (damped,)})
+    recording = _record(model, _CARRIED_TICKS)
+    chain = replace(node_chains(model)["bar"], carries=carries)
+    count = len(model.bodies) + chain.count
+    positions = np.asarray(recording.series[BODY_POSITION].values, dtype=np.float64).reshape(-1, count, 3)[-1:]
+    orientations = np.asarray(recording.series[BODY_ORIENTATION].values, dtype=np.float64).reshape(-1, count, 4)[-1:]
+    wrenches = [
+        np.asarray(recording.series[path].values, dtype=np.float64).reshape(-1, 3)[-1:] for path in MEMBER_SERIES
+    ]
+    properties = SectionProperties(
+        float(section.area),
+        float(section.elastic_modulus),
+        float(section.density),
+        float(section.length),
+        float(section.second_moment_of_area),
+        float(section.second_moment_of_area),
+        0.01,
+        0.01,
+    )
+    supports_at = ((0.0, supports[0]), (float(section.length), supports[1]))
+    member_inputs = MemberInputs("bar", "fake", properties, supports_at, Wrenches(*wrenches), nodes=chain)
+    weight = float(next(body.mass for body in model.bodies if body.name == "carriage")) * _CARRIED_GRAVITY
+    return member_inputs, BodyPoses(positions, orientations), weight
+
+
+def _carriage_apex(
+    carried: tuple[MemberInputs, BodyPoses, float], plain: tuple[MemberInputs, BodyPoses, float]
+) -> float:
+    """The largest intersection moment of the carriage's own field (carried minus plain): moments and end loads."""
+    from mechsim.integrity.beam import carried_moments
+
+    loaded, plain_inputs = carried[0], plain[0]
+    assert loaded.loads is not None
+    assert plain_inputs.loads is not None
+    moments = node_moments(loaded, carried[1])[0] - node_moments(plain_inputs, plain[1])[0]
+    loads = Wrenches(
+        loaded.loads.start_force - plain_inputs.loads.start_force,
+        loaded.loads.start_moment - plain_inputs.loads.start_moment,
+        loaded.loads.end_force - plain_inputs.loads.end_force,
+        loaded.loads.end_moment - plain_inputs.loads.end_moment,
+    )
+    values, _, found = carried_moments(loaded, loads, moments)
+    samples = np.abs(moments).max()
+    apex = float(np.max(np.abs(np.where(found, values, 0.0))))
+    return max(apex, float(samples))
+
+
+def _tiers_agree(member_inputs: MemberInputs, bodies: BodyPoses) -> None:
+    run = RunInputs(np.zeros(1), (member_inputs,), {"fake": FakeMaterial()}, TEMPERATURE, bodies=bodies)
+    (row,) = Strength().evaluate(run, NoParameters(), 1).rows
+    stress, _ = _tier1(member_inputs, bodies)
+    assert stress == pytest.approx(row.value, rel=EXACT)
+
+
+@pytest.fixture(scope="module")
+def plain_pinned_bar() -> tuple[MemberInputs, BodyPoses, float]:
+    return _carried_bar(False, 0.5, ("pinned", "roller"))
+
+
+@pytest.mark.req("INT-005", "INT-023")
+@pytest.mark.parametrize("fraction", [0.1, 0.3125, 0.5, 0.77])
+def test_strength_carried_load_between_springs_reads_p_a_b_over_l_exactly(
+    fraction: float, plain_pinned_bar: tuple[MemberInputs, BodyPoses, float]
+) -> None:
+    carried = _carried_bar(True, fraction, ("pinned", "roller"))
+    length = carried[0].section.length
+    a = fraction * length
+    target = carried[2] * a * (length - a) / length
+    measured = _carriage_apex(carried, plain_pinned_bar)
+    report(f"pinned carried load at {fraction} L", target, measured)
+    assert measured == pytest.approx(target, rel=EXACT)
+    _tiers_agree(*carried[:2])
+
+
+@pytest.mark.req("INT-005", "INT-023")
+def test_strength_clamped_carried_load_at_mid_segment_reads_p_l_over_8_within_the_row() -> None:
+    carried = _carried_bar(True, 0.5, ("clamped", "clamped"))
+    plain = _carried_bar(False, 0.5, ("clamped", "clamped"))
+    target = carried[2] * carried[0].section.length / 8.0
+    measured = _carriage_apex(carried, plain)
+    report("clamped carried load at mid-segment", target, measured)
+    assert abs(measured / target - 1.0) <= CHAIN
+    _tiers_agree(*carried[:2])
+
+
+@pytest.mark.req("INT-005", "INT-023")
+def test_strength_of_a_member_carrying_nothing_is_unchanged_to_the_last_bit(
+    plain_pinned_bar: tuple[MemberInputs, BodyPoses, float],
+) -> None:
+    """The I4 formula (ends, then every spring) on the same inputs, written out: bit for bit."""
+    from mechsim.integrity.beam import member_normal_stress, normal_stress
+
+    member_inputs, bodies, _ = plain_pinned_bar
+    assert member_inputs.loads is not None
+    assert member_inputs.nodes is not None
+    assert not member_inputs.nodes.carries
+    loads, section = member_inputs.loads, member_inputs.section
+    moments, where = node_moments(member_inputs, bodies)
+    axial = np.maximum(np.abs(loads.start_force[:, 0]), np.abs(loads.end_force[:, 0])) / section.area
+    share = where / section.length
+    moment_y = np.outer(loads.start_moment[:, 1], 1.0 - share) - np.outer(loads.end_moment[:, 1], share)
+    interior = axial[:, None] + np.abs(moment_y) * section.c_z / section.i_y
+    interior = interior + np.abs(moments * 1.0) * section.c_y / section.i_z
+    expected = np.concatenate((normal_stress(loads, section), interior), axis=1)
+    measured = member_normal_stress(loads, section, member_inputs, bodies)
+    assert measured.tobytes() == expected.tobytes()
+
+
+@pytest.mark.req("INT-005", "INT-023")
+def test_strength_own_weight_on_a_carrying_member_stays_within_the_row() -> None:
+    """Own weight only, the rule on (`carries`): the neighbours' secants meet 3 w l^2 / 8 above the parabola at the
+    centre segment (beam.py header), so the peak reads w L^2 / 8 (1 + 3 / N^2): N = 16, +1.17 percent, inside the
+    2 percent row; the settled chain's springs sit on the parabola (each node's weight at its centre), so the value
+    holds within the settled residual (1e-6)."""
+    n, g = 16, 0.5
+    member_inputs, bodies = _settled_chain("SimplySupported", n, None, gravity=g)
+    assert member_inputs.nodes is not None
+    member_inputs = replace(member_inputs, nodes=replace(member_inputs.nodes, carries=True))
+    w = BEAM_DENSITY * BEAM_AREA * g
+    continuum = w * BEAM_LENGTH**2 / 8.0
+    run = RunInputs(np.zeros(1), (member_inputs,), {"fake": FakeMaterial()}, TEMPERATURE, bodies=bodies)
+    (row,) = Strength().evaluate(run, NoParameters(), 1).rows
+    measured = row.value * member_inputs.section.i_z / member_inputs.section.c_y
+    report("pinned own weight, carrying member", continuum * (1.0 + 3.0 / n**2), measured)
+    assert measured / continuum - 1.0 <= CHAIN
+    assert measured == pytest.approx(continuum * (1.0 + 3.0 / n**2), rel=SETTLED)
+    _tiers_agree(member_inputs, bodies)
 
 
 @pytest.mark.req("INT-005")

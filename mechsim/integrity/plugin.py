@@ -148,7 +148,9 @@ class NodeChain:
     `PhysicsOutputs.bodies`: the neutral bodies, then each lumped member's node bodies root to tip, a pinned root's
     pin segment as node 0), and its root frame: the parent body's index (None: the world) with the member's placement
     in it. `segment_length` l = L / N: the last node's far end lies l / 2 along its x (INT-006, ruling 28);
-    `stiffness` the node springs' k = E I / l of the simulated section (the node moments, INT-005)."""
+    `stiffness` the node springs' k = E I / l of the simulated section (the node moments, INT-005); `carries` whether
+    the member carries a joint (the neutral member's `carries`, ENG-052): its strength adds the moment under the load
+    between two springs (ruling 71)."""
 
     first_body: int
     count: int
@@ -158,9 +160,11 @@ class NodeChain:
     orientation: tuple[float, float, float, float]
     segment_length: float
     stiffness: float = 0.0
+    carries: bool = False
 
     def to_limits(self) -> dict[str, Any]:
         return {
+            "carries": self.carries,
             "count": self.count,
             "first_body": self.first_body,
             "orientation": list(self.orientation),
@@ -183,7 +187,8 @@ class MemberInputs:
     """One structural member (BLD-008) with its recorded end-loads; `loads` None when the member is built rigid and the
     run recorded none (rulings 29, 34, 60: every check reading them reports the member not evaluated). `axis_body` is
     the member axis in its body frame (the direction for direction-dependent strengths); `natural_frequency` the
-    calibrated first frequency (Hz) when the design records one (BLD-019)."""
+    calibrated first frequency (Hz) when the design records one (BLD-019); `spring_offsets` (rows, N) rad the permanent
+    rest offset of each node spring in effect at each sample (the tier 2 yield, INT-028; None: none requested)."""
 
     name: str
     material: str
@@ -194,6 +199,7 @@ class MemberInputs:
     natural_frequency: float | None = None
     mounts: tuple[str, ...] = ()
     nodes: NodeChain | None = None
+    spring_offsets: FloatArray | None = None
 
 
 @dataclass(frozen=True)
@@ -268,7 +274,10 @@ class RunInputs:
                 loads = Wrenches(
                     cut(loads.start_force), cut(loads.start_moment), cut(loads.end_force), cut(loads.end_moment)
                 )
-            members.append(replace(member, loads=loads))
+            offsets = member.spring_offsets
+            if offsets is not None:
+                offsets = cut(offsets)
+            members.append(replace(member, loads=loads, spring_offsets=offsets))
         joints = tuple(replace(joint, force=cut(joint.force), moment=cut(joint.moment)) for joint in self.joints)
         ropes = tuple(replace(rope, tension=cut(rope.tension)) for rope in self.ropes)
         bodies = self.bodies

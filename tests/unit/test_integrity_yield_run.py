@@ -89,3 +89,66 @@ def test_the_requests_payload_is_a_read_only_value() -> None:
         batch.requests = []  # type: ignore[misc]
     with pytest.raises(AttributeError):
         copy.value = 0.0  # type: ignore[misc]
+
+
+@pytest.mark.req("INT-028", "INT-005")
+def test_a_yielded_spring_reads_k_times_its_elastic_rotation(tmp_path: Path) -> None:
+    """Item 2 of brief I4b (ruling 35): the post-run check reads the offsets the party requested from the recorded
+    `model_change` events and takes k (total rotation - offset) at each spring. Oracle: the root spring's moment by
+    statics over the stub, M_n = -M_z0 + (l / 2) F_y0 from the recorded start wrench (the root joint's reaction: its
+    spring torque, no node damping in this design), equal to k times the elastic rotation at every row within 1e-9
+    relative; the total rotation reads k times the offset more. The placeholder rule (ruling 35) relieves no moment in
+    a statically determinate member: the root moment stays the statics w L^2 / 2, so the stress there stays
+    M_n c_y / I_z, above the yield stress by (|M_n| - M_y) c_y / I_z; the offset changes the shape, not the moment."""
+    import numpy as np
+
+    from mechsim.integrity.beam import node_moments
+    from mechsim.integrity.inputs import BODY_ORIENTATION, BODY_POSITION, MEMBER_SERIES, node_chains, spring_offsets
+    from mechsim.integrity.plugin import BodyPoses, MemberInputs, SectionProperties, Wrenches
+
+    folder = tmp_path / "designs" / "cantilever_yield"
+    folder.mkdir(parents=True)
+    (folder / "design.yaml").write_text(DESIGN, encoding="utf-8")
+    (folder / "integrity.yaml").write_text(
+        "schema_version: 1\nchecks:\n  - check: strength\n    tier: 2\n", encoding="utf-8"
+    )
+    case = tmp_path / "Y1.yaml"
+    case.write_text(CASE, encoding="utf-8")
+    designs = tmp_path / "designs"
+    driver = CoreDriver(designs_root=designs)
+    real = IntegrityService(designs)
+    seen: dict[str, Any] = {}
+
+    def integrity(build: Any, run: Any, recording: Any) -> Any:
+        seen["build"] = build
+        seen["recording"] = recording
+        return real(build, run, recording)
+
+    services = Services(lambda: driver, core_builder, RecordArchiver(designs), designs, integrity=integrity)
+    result: Any = run_case(case, services, None, tmp_path / "runs")
+    assert result.report is not None, result.score.error
+    assert not result.report.errored, result.report.error
+    model = seen["build"].physics
+    raw = seen["recording"].recording
+    rows = len(seen["recording"].times())
+    offsets = spring_offsets(model, tuple(raw.events), rows)
+    (name,) = offsets
+    chain = node_chains(model)[name]
+    count = len(model.bodies) + chain.count
+    poses = BodyPoses(
+        np.asarray(raw.series[BODY_POSITION].values, dtype=np.float64).reshape(rows, count, 3),
+        np.asarray(raw.series[BODY_ORIENTATION].values, dtype=np.float64).reshape(rows, count, 4),
+    )
+    wrenches = [np.asarray(raw.series[path].values, dtype=np.float64).reshape(rows, 3) for path in MEMBER_SERIES]
+    section = SectionProperties(1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0)
+    member = MemberInputs(name, "steel", section, ((0.0, "clamped"),), Wrenches(*wrenches), nodes=chain)
+    elastic, _ = node_moments(member, poses, offsets[name])
+    total, _ = node_moments(member, poses)
+    statics = -wrenches[1][:, 2] + 0.5 * chain.segment_length * wrenches[0][:, 1]
+    yielded = np.nonzero(offsets[name][:, 0])[0]
+    assert yielded.size > 0
+    first = int(yielded[0])
+    print(f"root spring after the first offset (row {first}): statics {statics[-1]!r}, elastic {elastic[-1, 0]!r}")
+    assert elastic[first:, 0] == pytest.approx(statics[first:], rel=1e-9)
+    assert total[first:, 0] - elastic[first:, 0] == pytest.approx(chain.stiffness * offsets[name][first:, 0], rel=1e-9)
+    assert not np.any(offsets[name][:, 1:])
