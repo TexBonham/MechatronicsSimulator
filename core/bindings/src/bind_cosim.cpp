@@ -154,6 +154,9 @@ py::object coupling_to_python(const CouplingValue& value) {
     if (const auto* p = payload_if<signals::OperatorCommands>(payload)) {
         return py::cast(*p);
     }
+    if (const auto* p = payload_if<kernel::ModelChangeRequests>(payload)) {
+        return py::cast(*p);
+    }
     throw std::invalid_argument("coupling payload '" + std::string(payload->kind()) + "' has no Python form");
 }
 
