@@ -708,8 +708,8 @@ TEST_CASE("Physics party model change requests: A request of a kind that is not 
         const RequestRun run = run_requests({{0, requests(1, {{kind, 0, 1.0}})}}, true, 4);
         CHECK(run.report.outcome == RunOutcome::run_error);
         REQUIRE(run.report.fault.has_value());
-        CHECK(run.report.fault->party() == "physics");
-        CHECK(run.report.fault->cause().find("is not a request (KER-028)") != std::string::npos);
+        CHECK(run.report.fault.value_or(PartyFault("none", SimTime(), "")).party() == "physics");
+        CHECK(cause(run.report).find("is not a request (KER-028)") != std::string::npos);
         CHECK(run.report.ticks == 1);
         CHECK(run.calls.empty());
     }
