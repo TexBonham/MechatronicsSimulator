@@ -56,7 +56,7 @@ def test_a_calibrated_clamped_clamped_member_below_sixteen_segments_is_a_build_e
     result = build(_bar(["clamped", "clamped"], calibration=CALIBRATION), default_registry(), shipped_materials())
     assert result.physics is not None
     assert result.physics.lumped_members[0].segments == 16
-    assert any("no calibration chain layout yet" in note for note in result.notes)
+    assert not any("no calibration chain layout yet" in note for note in result.notes)
 
 
 @pytest.mark.req("BLD-018")
