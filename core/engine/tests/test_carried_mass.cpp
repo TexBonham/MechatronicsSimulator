@@ -63,7 +63,7 @@ TEST_CASE("carried mass: the block is m_c G^T G, symmetric, rank one, zero along
         CHECK(std::abs(values[k]) <= 1e-12 * largest);
     }
     // G depends on the geometry only: the block scales with m_c.
-    CarriedRig heavier = carried_rig(BeamEnds::SimplySupported, 8, 2.0 * mass, 0.05, true, ParentKind::Sliding);
+    const CarriedRig heavier = carried_rig(BeamEnds::SimplySupported, 8, 2.0 * mass, 0.05, true, ParentKind::Sliding);
     const MultibodyProvider doubled(heavier.model);
     const Eigen::MatrixXd twice = doubled.carried_mass_matrix(start_state(doubled, heavier.carriage, 0.37).q);
     CHECK((twice - (2.0 * block)).norm() <= 1e-15 * block.norm());
