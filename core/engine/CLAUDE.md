@@ -19,7 +19,7 @@ Namespace `mechsim::engine`; q (nq), v (nv). Eigen only, dense (ENG-001).
 | `collision.hpp` | `ShapeKind`, `shape_kind(name)` (unknown throws, ENG-017), `Shape`, `Pose`, `ContactPoint{point, normal a->b, depth}`, `Aabb`, `bounds`, `broad_phase`, `collide(a, pa, b, pb)`, `support` |
 | `contact.hpp` | `ContactParameters{K_n, C_n, mu}`, `MaterialPair`, `Geometry` (neutral sizes, body -1 world), `ContactModel{geometries, default, pairs, exclusions, slip_velocity 1e-4}`, `contact_force`, `WeldAttachment`, `PayloadOutput` (derivations in the header) |
 | `lumped_beam.hpp` | `BeamSpec`, `add_lumped_beam(model, spec, parent, position, orientation)` (registers `model.members`), `beam_point(beam, x)` (ENG-022) |
-| `member_loads.hpp` | `LumpedBeam`, `member_nodes(beam)`, `MemberOutput` (start/end moment, force), `member_end_loads` (ENG-030) |
+| `member_loads.hpp` | `LumpedBeam` (+ `carried`), `member_nodes(beam)`, `MemberOutput` (start/end moment, force, `carried_deflection`), `member_end_loads` (ENG-030); `CarriedLoadOutput`, `load_nodes`, `carried_pair` (ENG-052, derivation in the header) |
 | `rope.hpp` | `Rope`, `RopeOutput`, `add_rope(model, rope, from_world, to_world)`, `rope_segment`, `validate_rope_parameters` (ENG-047, ADR 0016) |
 
 ## DynamicsProvider hooks
@@ -79,6 +79,14 @@ spring-damper) has T L > 0 (lowering: gain 0); two-sided only at omega == 0 with
 
 Members (ENG-030): `outputs().members` per `model.members`, support-on-member wrench at x = 0 and x = L, moments about
 the end point, member root frame axes, from the step's start state like `joints`.
+Carried joints (ENG-052, ruling 63): `LumpedBeam::carried` child bodies of the member's parent (validated at
+construction: in range, not a member body or roller, one member each). Load = -(previous step's `reaction_wrench`), the
+first step's from Newton-Euler at the start state with zero accelerations (`static_carried_loads`). Rerouted: only F . y
+and M_p . z (member frame, ruling 65); axial, out-of-plane and torsion stay on the parent. Lever rule onto `load_nodes`
+(x = 0: parent if clamped, pin segment if pinned; spring nodes; x = L: last segment tip), exact opposite on the parent
+at the same points, added in `applied_body_wrenches` (so `evaluate`, joint reactions and end loads see it). Explicit,
+one step lagged, not in K, D or H. `outputs().carried` per carried joint; `MemberOutput::carried_deflection` per member;
+`carried_generalized_forces(q)` for the energy oracle. Foot point off [0, L] by more than `drift_threshold_m`: InvalidModelError.
 Mid-run changes (ENG-031 to 034), next step on, each listed in the next step's `outputs().events` (`ModelChange`):
 `set_spring_offset(member, node, offset)` (rest = built + offset), `set_spring_stiffness(member, node, k)`,
 `disable_constraint(c)` / `release_load(c)` (zero rows; twice throws), `release_rope(r)` (same path); `constraint_enabled`, `rope_attached`.
@@ -104,10 +112,10 @@ collects the events after each step.
 | Construction | 302 |
 | Kinematics | 397 |
 | Dynamics | 469 |
-| Transmissions | 703 |
-| Constraints | 855 |
-| Members, ropes and model changes | 1091 |
-| Inputs and outputs | 1579 |
+| Transmissions | 704 |
+| Constraints | 856 |
+| Members, ropes and model changes | 1092 |
+| Inputs and outputs | 1722 |
 
 ## Section index, `src/collision.cpp`
 
@@ -155,7 +163,8 @@ Planar bending about root z; two-axis bending plus torsion: next tier. Derivatio
 ## Tests
 
 Unit: `mechsim_engine_tests`. Reference: `mechsim_engine_reference`, `ctest -L reference`. Contact helpers:
-`tests/contact_helpers.hpp`.
+`tests/contact_helpers.hpp`; energy oracle `tests/energy_helpers.hpp` (`mechanical_energy`); carried rigs and the
+lever-rule chain value `tests/carried_helpers.hpp`.
 
 ## Conventions
 

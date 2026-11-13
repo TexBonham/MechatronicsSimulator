@@ -347,6 +347,7 @@ struct NativeAdapter::Engine {
     kernel::PhysicsOutputs outputs;
     std::vector<ModelChangeRecord> events;
     int substeps = 1;                                        // engine steps per adapter step
+    std::vector<double> carried_deflection;                  // per member, largest over the run (ENG-052)
     kernel::PhysicsInputs inputs;                            // re-applied before each engine step of a tick
     std::vector<kernel::ModelChangeEvent> pending_changes;  // mid-run spring changes, listed in the next tick
     std::vector<Eigen::Index> node_bodies;  // member chain bodies, published after the neutral bodies, in order
@@ -534,6 +535,12 @@ void NativeAdapter::load(const kernel::PreparedModel& prepared, const kernel::Ra
                 eng::add_lumped_beam(model, spec, body_index(m.at("parent"), "member parent", doc_bodies, true),
                                      vec3(m.at("position"), "member position"),
                                      quat(m.at("orientation"), "member orientation"));
+            if (m.has("carried")) {
+                for (const json::Value& c : m.at("carried").array("member carried")) {
+                    model.members.back().carried.push_back(
+                        body_index(c, "member carried body", e->neutral_bodies, false));
+                }
+            }
             const std::vector<Eigen::Index> nodes = eng::member_nodes(beam);
             for (std::size_t node = 0; node < nodes.size(); ++node) {
                 member_springs.emplace_back(member_index, index_of(node));
@@ -714,6 +721,7 @@ void NativeAdapter::load(const kernel::PreparedModel& prepared, const kernel::Ra
         for (const eng::LumpedBeam& beam : model.members) {
             e->node_bodies.insert(e->node_bodies.end(), beam.bodies.begin(), beam.bodies.end());
         }
+        e->carried_deflection.assign(model.members.size(), 0.0);
         e->extras.dofs.assign(static_cast<std::size_t>(provider.velocity_size()), DofExtras{});
         for (std::size_t b = 0; b < doc_bodies; ++b) {
             const eng::Body& body = model.bodies[b];
@@ -1071,6 +1079,10 @@ void NativeAdapter::step() {
         converged = converged && e.last_health.converged;
         collect_events(provider.outputs().events, e.events, changes);
         keep_scheme_decay(e);
+        for (std::size_t m = 0; m < e.carried_deflection.size(); ++m) {
+            e.carried_deflection[m] =
+                std::max(e.carried_deflection[m], provider.outputs().members[m].carried_deflection);
+        }
     }
     e.last_health.max_constraint_drift = drift;
     e.last_health.iterations = iterations;
@@ -1234,6 +1246,10 @@ std::vector<DrivenSchemeDecay> NativeAdapter::driven_scheme_decay() const {
 }
 
 std::shared_ptr<const DrivenSchemeDecayRecord> NativeAdapter::scheme_decay_record() const { return decay_record_; }
+
+std::vector<double> NativeAdapter::carried_deflection() const {
+    return engine("carried_deflection").carried_deflection;
+}
 
 // ===== Mid-run changes ===================================================
 

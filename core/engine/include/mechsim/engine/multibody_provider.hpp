@@ -90,6 +90,7 @@ struct MultibodyOutputs {
     std::vector<MemberOutput> members;  // per model.members, at the step's start state like joints (ENG-030)
     std::vector<RopeOutput> ropes;      // per model.ropes, at the end state (PHY-004)
     std::vector<PayloadOutput> payloads;   // one per attachment, at the step's start state (ENG-035)
+    std::vector<CarriedLoadOutput> carried;  // per carried joint, member order, the pair applied this step (ENG-052)
     std::vector<ModelChangeEvent> events;  // changes applied in this step and snaps detected at its end
     double time = 0.0;  // end of the step, s
 };
@@ -167,6 +168,9 @@ public:
     // Rope rest length for the next step on (winch), m, finite and > 0 (ENG-047); not an event.
     void set_rope_rest_length(Eigen::Index rope, double length);
     [[nodiscard]] std::vector<RopeOutput> rope_states(const Eigen::VectorXd& q, const Eigen::VectorXd& v) const;
+    // Generalized force at q of the carried joints' rerouted pairs with the loads the next step applies (ENG-052);
+    // before the first step, the first step's static loads at (q, 0).
+    [[nodiscard]] Eigen::VectorXd carried_generalized_forces(const Eigen::VectorXd& q) const;
 
     StepHealth step(Integrator& integrator, State& state);
     [[nodiscard]] const MultibodyOutputs& outputs() const noexcept;
@@ -204,6 +208,12 @@ private:
     void add_rope_wrenches(const Kinematics& kin, std::vector<spatial::Vector6d>& wrenches) const;
     void add_rope_terms(const Kinematics& kin, DynamicsTerms& terms) const;
     void setup_members_and_ropes();
+    [[nodiscard]] std::vector<CarriedPair> carried_pairs(const Kinematics& kin,
+                                                         const std::vector<spatial::Vector6d>& loads) const;
+    void add_carried_wrenches(const Kinematics& kin, const std::vector<spatial::Vector6d>& loads,
+                              std::vector<spatial::Vector6d>& wrenches) const;
+    [[nodiscard]] std::vector<spatial::Vector6d> static_carried_loads(const Kinematics& kin) const;
+    void prepare_carried(const State& before);
     void record_members_and_ropes(const State& before, const State& after, double h);
     void check_constraint_change(Eigen::Index constraint) const;
     ModelChangeEvent release_load(LoadSource source, Eigen::Index target, double time);
@@ -259,6 +269,13 @@ private:
     std::vector<double> rope_rest_;                 // per rope, current rest length, m
     std::vector<std::uint8_t> rope_attached_;       // per rope, to_body attachment held
     std::vector<ModelChangeEvent> pending_events_;  // listed in the next step's outputs
+    struct CarriedJoint {
+        Eigen::Index member = 0;
+        Eigen::Index body = 0;
+    };
+    std::vector<CarriedJoint> carried_;               // member order, then each member's carried order
+    std::vector<spatial::Vector6d> carried_load_;     // per carried_, world-aligned [M about r_c; F] on the member
+    bool carried_ready_ = false;                      // carried_load_ holds a reaction (else computed at step start)
     // Written by the const step hooks for step(); single-threaded by ENG-023.
     mutable std::vector<Eigen::VectorXd> impulse_;
     mutable std::vector<ConstraintError> error_;

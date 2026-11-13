@@ -272,7 +272,10 @@ void bind_adapter(py::module_& m) {
             [](const physics::native::NativeAdapter& adapter) {
                 return std::const_pointer_cast<physics::native::DrivenSchemeDecayRecord>(adapter.scheme_decay_record());
             },
-            "The same values as a shared record: take it before PhysicsParty takes the adapter, read it after the run.");
+            "The same values as a shared record: take it before PhysicsParty takes the adapter, read it after the run.")
+        .def("carried_deflection", &physics::native::NativeAdapter::carried_deflection,
+             "Per member (document order): the largest carried-joint deflection of any engine step since load, m "
+             "(ENG-052, PHY-035).");
 
     py::class_<kernel::NullPhysicsAdapter, PhysicsAdapter, py::smart_holder>(m, "NullPhysicsAdapter")
         .def(py::init<>())

@@ -51,6 +51,9 @@ Neutral quantities are written `repr(value) unit` in SI, validated once. Element
   Clamped-clamped with calibration: a note, calibration chain layout owed (ruling 16). Segments: the design's, else
   `structure.default_segments` (8; 16 clamped-clamped, BLD-018), always written to the neutral member. Supports:
   root clamped or pinned, end free, roller or clamped (a clamped end needs a clamped root). Rigid builds calibrate nothing.
+- Carried joints (BLD-037, ENG-052): `flexible.carries` joints become `LumpedMember.carries` (their child bodies);
+  `_check_carried_travel` (not rigid) fails a joint whose origin over its travel leaves [0, L] along the member frame x
+  (prismatic between limits, an open limit unbounded; fixed, revolute, spherical at the placement; planar, free never).
 - Materials: callers pass `design.schema.design_materials(design)` (the design's overrides applied, MAT-020).
 - Fastenings (BLD-031): `PhysicsModel.fastenings`, one per fixed joint (`mount`, the joint's name) and per body
   fastener entry (`fastener`, `<body>_<kind>[_<index>]`); `PhysicsModel.fastening_index(name)`. Not an element kind.
@@ -61,15 +64,15 @@ Neutral quantities are written `repr(value) unit` in SI, validated once. Element
 
 ## Later
 
-Loops as constraints (BLD-004), clamped-clamped calibration layout; a joint travelling along a lumped member (a carriage on a flexible rail) loads the member's parent body, not its nodes (engine gap, M3-X1a).
+Loops as constraints (BLD-004), clamped-clamped calibration layout; full coupling of a carried joint (riding the deflected member, milestone 4).
 
 ## Section index
 
 | Section | File | Line |
 |---|---|---|
-| Checks | physics.py | 83 |
-| Bodies and joints | physics.py | 194 |
-| Overlap | physics.py | 320 |
-| Lumped members | physics.py | 376 |
-| Transmissions and signals | physics.py | 517 |
-| Physics model | physics.py | 653 |
+| Checks | physics.py | 132 |
+| Bodies and joints | physics.py | 295 |
+| Overlap | physics.py | 421 |
+| Lumped members | physics.py | 477 |
+| Transmissions and signals | physics.py | 673 |
+| Physics model | physics.py | 809 |

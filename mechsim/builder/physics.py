@@ -220,6 +220,57 @@ def _check_supports(design: Design, collector: Collector) -> None:
                 )
 
 
+def _check_carried_travel(design: Design, registry: Registry, collector: Collector) -> None:
+    """A carried joint's origin projects onto the member's span [0, L] over its whole travel (ENG-052, BLD-037).
+
+    The member frame is the flexible body's frame (the lumped chain's root, x along the member). A fixed, revolute
+    or spherical joint's origin is its placement; a prismatic joint's moves along its axis between its limits (an
+    open side is unbounded travel); planar and free joints have no bounded travel. Skipped while a value is open."""
+    joints = {joint.name: joint for joint in design.joints}
+    for body in design.bodies:
+        flexible = body.flexible
+        if flexible is None or len(flexible.carries) == 0:
+            continue
+        section = flexible.section
+        if section is None:
+            values = section_part_values(body, registry)
+            if values is None:
+                continue
+            length = values["length"]
+        elif isinstance(section.length, OpenValue):
+            continue
+        else:
+            length = _f(section.length)
+        for name in flexible.carries:
+            joint = joints.get(name)
+            if joint is None or isinstance(joint.placement, OpenValue) or isinstance(joint.axis, OpenValue):
+                continue
+            label = f"flexible body '{body.name}': carried joint '{name}'"
+            origin = _floats(joint.placement.position)
+            ends = [origin[0]]
+            if joint.type in ("planar", "free"):
+                collector.failures.append(f"{label}: a {joint.type} joint has no bounded travel along the member")
+                continue
+            if joint.type == "prismatic" and joint.axis is not None:
+                direction = mass.apply(mass.rotation(joint.placement.orientation), [float(v) for v in joint.axis])
+                along = direction[0]
+                limits = joint.linear[0].limits
+                if limits is None or isinstance(limits.lower, OpenValue) or isinstance(limits.upper, OpenValue):
+                    if abs(along) > 0.0:
+                        collector.failures.append(
+                            f"{label}: travel along the member is unbounded (no limits); the span is [0, {length}] m"
+                        )
+                    continue
+                ends = [origin[0] + along * _f(limits.lower), origin[0] + along * _f(limits.upper)]
+            low = min(ends)
+            high = max(ends)
+            if low < 0.0 or high > length:
+                collector.failures.append(
+                    f"{label}: origin travels over x in [{low:.6g}, {high:.6g}] m, outside the member's span "
+                    f"[0, {length:.6g}] m by {max(-low, high - length):.6g} m (ENG-052)"
+                )
+
+
 def _check_bindings(design: Design, registry: Registry, collector: Collector) -> None:
     """Every cross-domain binding resolves to an existing joint or body mount face (BLD-028)."""
     bodies = {body.name for body in design.bodies}
@@ -600,6 +651,9 @@ def _flexible(
         "end": end,
         "structural_member": body.name,
     }
+    if len(flexible.carries) > 0:
+        child_of = {joint.name: joint.child for joint in design.joints}
+        member["carries"] = [child_of[name] for name in flexible.carries]
     member["segments"] = segments
     length = constants["length"]
     supports = [{"at": _q(0.0, "m"), "condition": root}]
@@ -800,6 +854,7 @@ def build_physics(
     _check_bindings(design, registry, collector)
     if not rigid_members:
         _check_supports(design, collector)
+        _check_carried_travel(design, registry, collector)
     rotors = _rotor_inertias(design, registry)
     _check_one_actuator_per_shaft(rotors, collector)
     _check_rotor_bodies(design, rotors, collector)
