@@ -69,3 +69,6 @@ type live in the root `CLAUDE.md` dispatch table once measured.
 | 2026-11-12 | M3-I2 re-review after I2b: accept; 3 minor items carried to X1 | Fable review (general-purpose), resumed | ~20K | 5 calls |
 | 2026-11-12 | M3-E5 fix round (wip/05-e5 903a63d) and re-review: accept | module-writer (opus) and Fable review, both resumed | ~45K | 30 + 3 calls |
 | 2026-11-12 | M3-N4 adapter follow-up on the E5 engine (wip/05-n4 8f5ae5c) | module-writer (opus) | 249K | 120 calls |
+| 2026-11-12 | M3 review: N4 (wip/05-n4 8f5ae5c): accept after a short resume, 2 major, 3 minor | Fable review (general-purpose), resumed | ~40K | 6 calls |
+| 2026-11-12 | M3-N4 review fixes (wip/05-n4 854c012) and confirmation: accept | module-writer (opus) and Fable review, both resumed | ~50K | 19 + 4 calls |
+| 2026-11-12 | M3-X1b structural acceptance on native, node-pose deflection (wip/05-x1b 6c68248) | module-writer (opus) | 332K | 160 calls, over the 140 cap |
