@@ -90,3 +90,4 @@ type live in the root `CLAUDE.md` dispatch table once measured.
 | 2026-11-13 | M3-E7b carried-load stability: derived boundary, refusal, three rigs (wip/05-e7 98891e2) | module-writer (opus) | 207K | 85 calls, over the 70 cap |
 | 2026-11-13 | M3-E7b confirmation: accept; ruling 68 | Fable review (general-purpose), resumed | ~20K | 3 calls |
 | 2026-11-13 | M3-X1d gantry G12 and G15 on native with carried rails (wip/05-x1a 3775c76): ACC-025 converted; G15 findings | module-writer (opus) | 280K | 158 calls |
+| 2026-11-13 | M3 review: X1a and X1d gantry work (wip/05-x1a d456cfa): land after a fix round, 5 medium, 3 low; integrity findings confirmed; ruling 70 (review-m3-x1ad.md) | Fable review (general-purpose), resumed | ~90K | 13 calls |
