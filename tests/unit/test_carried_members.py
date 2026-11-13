@@ -359,10 +359,12 @@ def test_a_run_reports_each_carrying_member_s_work_ratio_and_validity() -> None:
     assert len(lines) == 1
     assert lines[0].startswith("lumped member 'bar_beam': the carried load-path pair did")
     assert f"{work:.6g} J" in lines[0]
-    assert f"so far) {ratio:.6g} against the limit 2.04" in lines[0]
+    assert f"first loaded mode) {ratio:.6g} against the limit 2.04" in lines[0]
+    assert "the deflection stayed within 2.04 times the windowed peak quasi-static value" in lines[0]
     flagged = translate.carried_validity_lines(model, [(1e-3, 0.0, 0.0, 0.0, 10.7, 50.0, 1e-3, 13.5, True, 2.125)])
     assert len(flagged) == 2
-    assert "so far) 13.5 against" in flagged[0]
+    assert "first loaded mode) 13.5 against" in flagged[0]
+    assert "quasi-static deflection of its carried loads within the window" in flagged[1]
     assert flagged[1].startswith(
         "lumped member 'bar_beam': the one-way carried-load result is not valid from t = 2.125 s"
     )

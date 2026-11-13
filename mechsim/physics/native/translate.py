@@ -383,7 +383,8 @@ def _member(member: LumpedMember, index: Mapping[str, int], h: float, report: li
             "one step lagged); the carried bodies move with the parent and do not ride the deflected member, a "
             "position error equal to the member's deflection at each carried body; their mass (each carried body "
             "and its tree descendants) loads the member's inertia at the foot point for its deflection motion, no "
-            "added weight and no rotary inertia (brief M3-E7d, ruling 70 b), so the member rings below the unloaded "
+            "added weight and no rotary inertia (brief M3-E7d, ruling 70 b), its momentum carried as a carriage "
+            "travels (brief M3-E7e), so the member rings below the unloaded "
             "first mode stated above; the lag is checked at load "
             "against its stability boundary (refused above it, ruling 67); the run's largest deflection and the lag's "
             "ratio and per-step factor are recorded after the run"
@@ -557,14 +558,16 @@ def carried_validity_lines(model: PhysicsModel, values: Sequence[tuple[float, ..
             f"lumped member '{member.name}': the carried load-path pair did {work:.6g} J of net work on the member "
             f"over the run (energy the carried bodies never lose: they do not ride the deflection); largest rerouted "
             f"force {force:.6g} N, largest quasi-static deflection {quasi_static:.6g} m, largest dynamic ratio "
-            f"(carried deflection over the largest quasi-static deflection so far) {ratio:.6g} against the limit "
-            f"{CARRIED_RATIO_LIMIT:.6g} (ENG-052, PHY-035)"
+            f"(carried deflection over the largest quasi-static deflection within the window of the member's "
+            f"first loaded mode) {ratio:.6g} against the limit {CARRIED_RATIO_LIMIT:.6g}; no flag bounds only this: "
+            f"the deflection stayed within {CARRIED_RATIO_LIMIT:.6g} times the windowed peak quasi-static value "
+            f"(ENG-052, PHY-035)"
         )
         if unresolved:
             lines.append(
                 f"lumped member '{member.name}': the one-way carried-load result is not valid from t = {since:.6g} s: "
                 f"the member deflects more than {CARRIED_RATIO_LIMIT:.6g} times the largest quasi-static deflection "
-                f"of its carried loads, more than any load applied no faster than suddenly can cause, so the carried "
+                f"of its carried loads within the window, more than any load applied no faster than suddenly can cause, so the carried "
                 f"system drives it near its own frequency, where the missing back-reaction of the one-way coupling "
                 f"matters; full coupling is milestone 4 (ruling 69, ENG-052)"
             )
