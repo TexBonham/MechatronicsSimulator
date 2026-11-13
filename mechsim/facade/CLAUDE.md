@@ -20,14 +20,14 @@ runner, recorder, scoring and viewer.
 |---|---|
 | `list_designs(root)` | `DesignList`: name, path, version, errors per `<root>/*/design.yaml` |
 | `validate(path)` | `ValidationResult` per YAML file of a folder or the file; missing path `not_found` |
-| `run_case(case, design, sets, out_dir, dry, seed, mode, listener, subscriptions)` | `RunResultSummary`: run id, case id, status, archive, end reason/time, `report_text`, `error: RunErrorReport(party, t, cause, requirement_id=INV-007)`, `dry`; never raises for a run error (FAC-014); seed/mode must equal the case's |
+| `run_case(case, design, sets, out_dir, dry, seed, mode, listener, subscriptions)` | `RunResultSummary`: run id, case id, status, archive, end reason/time, `report_text`, `error: RunErrorReport(party, t, cause, requirement_id=INV-007)`, `dry`, `notes` (the run report's notes, e.g. the integrity halt line, INT-026); never raises for a run error (FAC-014); seed/mode must equal the case's |
 | `run_id_of(case, design, sets)` | `<case id>-seed<seed>`, `-<adapter>` appended off the default adapter (case's own or `physics.adapter` in `sets`; unknown value `validation_failed` naming the field) (TST-040) |
 | `run_suite(suite, design, sets, out_dir, report_path, baseline_path)` | `SuiteResultSummary` (suite_id, text, diff entries and text, written paths, errors, runs); writes `<out>/<name>_report.txt` |
 | `report(suite_id)`, `diff(suite_id)` | text + Markdown; diff entries in report order (FAC-012) |
 | `replay_open(archive)` | `ReplayHandle` keyed by run id; archive reader only (FAC-008) |
 | `events`, `timeline`, `probe(run_id, kind, name)`, `geometry` | viewer results (VIE-002 to VIE-006, VIE-015) |
 | `member_stress(run_id)`, `swing_angle(run_id, load, attachment)` | `MemberStressResult` (unit Pa, times, members with area, second moments y and z, fibres y and z, start, end), `SwingAngleResult` (unit rad, times, values; down from the archived design's gravity, an unreadable archive `not_found`); VIE-010, VIE-011 |
-| `integrity_results(run_id)`, `load_case(run_id, format)` | FAC-013: `IntegrityResultsResult` (the archived per-member table; `not_found` without one), `LoadCaseResult` (`csv` or `json` text, design version); requests `integrity_results`, `load_case`; `files.py` kind `integrity` (`integrity.yaml`) |
+| `integrity_results(run_id)`, `load_case(run_id, format)` | FAC-013: `IntegrityResultsResult` (the archived per-member table; `not_found` without one; `peak_stress`, `deflection`, `safety_factor` are `None` with `<quantity>_evaluated` false when integrity did not evaluate them, never NaN), `LoadCaseResult` (`csv` or `json` text, design version); requests `integrity_results`, `load_case`; `files.py` kind `integrity` (`integrity.yaml`) |
 | `series(run_id, names, t_start, t_end, points)` | `SeriesWindow`, decimated; archive untouched (FAC-007) |
 | `value_at(run_id, ref, t)` | latest sample at or before t; refs `pose:`, `joint:`, `signal:`, `actuator:` |
 | `scrub`, `pause`, `step`, `advance` | `CursorResult` (index, t, paused, samples) |
@@ -115,6 +115,6 @@ column first, float64 little-endian; one sample means `t_start == t_end` (FAC-01
 | Facade server | server.py | 227 |
 | Static files | server.py | 469 |
 | Serve entry point | server.py | 518 |
-| Result models | service.py | 97 |
-| Helpers | service.py | 315 |
-| Facade | service.py | 404 |
+| Result models | service.py | 99 |
+| Helpers | service.py | 348 |
+| Facade | service.py | 438 |

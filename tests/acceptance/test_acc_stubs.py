@@ -643,12 +643,44 @@ def test_acc_036() -> None:
 
 
 @pytest.mark.req("ACC-037")
-@pytest.mark.xfail(strict=True, reason="stub")
 def test_acc_037() -> None:
     """Acceptance criterion 3, rewritten: the rope pendulum's period and swing decay shall match their
     closed-form values within tolerance.
+
+    Closed form (ADR 0016, `test_cases/rope_pendulum/R1_period.yaml`): T_N = 2 pi sqrt(I_N / (g S)) with the loaded
+    length L = L0 + g L0 (M + m_r / 2) / EA, I_N = M L^2 + m_r L^2 (1/3 + 1 / (6 N^2)), S = M L + m_r L / 2. The rope
+    damps only axially, so the undamped swing keeps its release amplitude L sin(0.02) but for the scheme's loss,
+    (1 + x^2)^(-pi / atan x) kept per period at x = omega h = 1.57e-4, 1 percent over 20 periods (ruling 45).
+    Tolerances (ACC-037 row, proposed): period 0.1 percent, amplitude after 20 periods 2 percent. The case's own
+    criteria carry both; a rope 5 percent longer (placed at its own loaded length) lengthens the period by
+    sqrt(1.05) - 1 = 2.5 percent and must fail the period criterion.
     """
-    raise NotImplementedError
+    m, m_r, l0, ea, g, n = 1.0, 0.035, 1.0, 5e5, 9.81, 8
+    length = l0 + g * l0 * (m + m_r / 2.0) / ea
+    inertia = m * length**2 + m_r * length**2 * (1.0 / 3.0 + 1.0 / (6.0 * n * n))
+    moment = m * length + m_r * length / 2.0
+    period_n = 2.0 * math.pi * math.sqrt(inertia / (g * moment))
+    release = length * math.sin(0.02)
+    result = _reference_run(ROPE_PENDULUM_CASE)
+    period = _criterion(result, "period")
+    amplitude = _criterion(result, "amplitude_after_20_periods")
+    print(f"ACC-037 period: closed form T_N {period_n!r} s, measured {period.measured!r} s")
+    print(f"ACC-037 amplitude after 20 periods: release {release!r} m, measured {amplitude.measured!r} m")
+    assert abs(float(period.measured) / period_n - 1.0) <= 1e-3
+    assert abs(float(amplitude.measured) / release - 1.0) <= 0.02
+    assert result.score.status == "pass", result.score
+    longer = 1.05 + g * 1.05 * (m + m_r * 1.05 / 2.0) / ea
+    perturbed = _reference_run(
+        ROPE_PENDULUM_CASE,
+        (
+            ("bob_x", f"{longer * math.sin(0.02)!r} m"),
+            ("bob_y", f"{-longer * math.cos(0.02)!r} m"),
+            ("rope_length", "1.05 m"),
+        ),
+    )
+    print(f"ACC-037 perturbed period: {_criterion(perturbed, 'period').measured!r} s")
+    assert _criterion(perturbed, "period").status == "fail"
+    assert perturbed.score.status == "fail"
 
 
 @pytest.mark.req("ACC-038")
@@ -661,48 +693,126 @@ def test_acc_038() -> None:
 
 
 @pytest.mark.req("ACC-039")
-@pytest.mark.xfail(strict=True, reason="stub")
 def test_acc_039() -> None:
     """Acceptance criterion 3, rewritten: the settle time of a step response shall match its closed-form
     value within tolerance.
+
+    Mass on a spring-damper (`designs/rope_spring`, `test_cases/rope_spring/S1_settle.yaml`): M = 1.0175 kg (bob plus
+    the rope's lower half-mass), k = EA / L0 = 500 kN/m, c = 50 N s / L0, released at the rest length under gravity
+    (the step), x_s = M g / k. Continuous closed form (ruling 59): t_s = ln(50) / (zeta omega_n) = 2 M ln(50) / c. The
+    run's step h = 1 us makes backward Euler's decay sigma_h = ln|1 - h s| / h faster by k h / c = 1 percent (ruling
+    45), inside the tolerance; that corrected value is printed beside it. The last exit from the band lies at a peak
+    under the envelope, at most half a damped period pi / omega_d before the envelope reaches the band. Tolerance
+    (ACC-039 row, proposed): t_s (1 - 0.02) - pi / omega_d <= measured <= t_s (1 + 0.02), both bounds in the case. A
+    rope 5 percent longer lowers k and c by 1 / 1.05: x_s grows 5 percent (2.5 band widths), so the series never
+    settles about the stated target and the upper settle criterion fails.
     """
-    raise NotImplementedError
+    m, k, c, h = 1.0175, 5e5, 50.0, 1e-6
+    omega = math.sqrt(k / m)
+    zeta = c / (2.0 * m * omega)
+    damped = omega * math.sqrt(1.0 - zeta * zeta)
+    sigma_h = math.log(abs(1.0 - h * complex(-zeta * omega, damped))) / h
+    continuous = math.log(50.0) / (zeta * omega)
+    corrected = math.log(50.0) / sigma_h
+    result = _reference_run(ROPE_SPRING_CASE)
+    late = _criterion(result, "settle_not_late")
+    measured = float(late.measured)
+    print(
+        f"ACC-039 settle time: closed form {continuous!r} s, scheme-corrected {corrected!r} s (x = omega_n h = "
+        f"{omega * h!r}), measured {measured!r} s"
+    )
+    assert abs(corrected / continuous - 1.0) <= 0.02
+    assert continuous * 0.98 - math.pi / damped <= measured <= continuous * 1.02
+    assert _criterion(result, "settle_not_early").measured == late.measured
+    assert result.score.status == "pass", result.score
+    perturbed = _reference_run(ROPE_SPRING_CASE, (("bob_y", "-1.05 m"), ("rope_length", "1.05 m")))
+    print(f"ACC-039 perturbed: {_criterion(perturbed, 'settle_not_late')}")
+    assert _criterion(perturbed, "settle_not_late").status == "fail"
+    assert perturbed.score.status == "fail"
+
+
+def _beam(case: Path, static: float, frequency: float, perturb: bool) -> None:
+    """Settled deflection and first frequency of the case against the closed forms within the lumped chain's 2
+    percent (rulings 31, 32); with `perturb`, a second moment 5 percent larger lowers the static deflection by
+    1 - 1 / 1.05 = 4.8 percent and must fail the settled-deflection criterion."""
+    result = _reference_run(case)
+    settled = _criterion(result, "settled_deflection")
+    first = _criterion(result, "first_frequency")
+    print(f"{case.stem}: static closed form {static!r} m, settled {settled.measured!r} m")
+    print(f"{case.stem}: first frequency closed form {frequency!r} Hz, measured {first.measured!r} Hz")
+    assert abs(float(settled.measured) / static - 1.0) <= 0.02
+    assert abs(float(first.measured) / frequency - 1.0) <= 0.02
+    assert result.score.status == "pass", result.score
+    if perturb:
+        stiffer = _reference_run(case, (("bar_second_moment", f"{BEAM_I * 1.05!r} m**4"),))
+        print(f"{case.stem} perturbed: settled {_criterion(stiffer, 'settled_deflection').measured!r} m")
+        assert _criterion(stiffer, "settled_deflection").status == "fail"
+        assert stiffer.score.status == "fail"
 
 
 @pytest.mark.req("ACC-040")
-@pytest.mark.xfail(strict=True, reason="stub")
 def test_acc_040() -> None:
     """Acceptance criterion 4, rewritten: a cantilever beam's static deflection shall match the closed-form
     value within tolerance.
+
+    Through the full stack on the native adapter (`test_cases/cantilever_beam/B1_cantilever.yaml`): the bar released
+    straight under its own weight w = rho A g settles under backward Euler's per-period decay (ruling 45); the case's
+    `settled_deflection` is the mean of the node-pose deflection (INT-006: distance from the root tangent) over the
+    final second (SCO-028). Closed form w L^4 / (8 E I); tolerance the lumped chain's 2 percent at N = 8 (rulings 31,
+    32; the chain's own value under the distributed load is 0.78 percent low).
     """
-    raise NotImplementedError
+    _beam(CANTILEVER_CASE, BEAM_W * BEAM_LENGTH**4 / (8.0 * BEAM_EI), _cantilever_frequency(), True)
 
 
 @pytest.mark.req("ACC-041")
-@pytest.mark.xfail(strict=True, reason="stub")
 def test_acc_041() -> None:
     """Acceptance criterion 4, rewritten: a cantilever beam's first natural frequency shall match the
     closed-form value within tolerance.
+
+    The case's `first_frequency` counts upward crossings of the deflection about its mean from 0.25 s to 1.75 s,
+    twelve periods (SCO-027). Step 1 ms: x = omega_1 h = 0.0519, frequency ratio atan(x) / x = 0.99910, inside 0.1
+    percent (ruling 45). Closed form omega_1 = 1.8751^2 sqrt(E I / (rho A L^4)); tolerance the lumped chain's 2
+    percent at N = 8 (rulings 31, 32).
     """
-    raise NotImplementedError
+    x = 2.0 * math.pi * _cantilever_frequency() * 1e-3
+    assert 1.0 - math.atan(x) / x <= 1e-3
+    _beam(CANTILEVER_CASE, BEAM_W * BEAM_LENGTH**4 / (8.0 * BEAM_EI), _cantilever_frequency(), False)
 
 
 @pytest.mark.req("ACC-042")
-@pytest.mark.xfail(strict=True, reason="stub")
 def test_acc_042() -> None:
-    """Acceptance criterion 4, rewritten: a simply supported beam's static deflection shall match the
-    closed-form value within tolerance.
+    """Acceptance criterion 4, rewritten: a simply supported beam's static deflection shall match the closed-form
+    value within tolerance.
+
+    Through the full stack on the native adapter (`test_cases/simple_beam/B2_simply_supported.yaml`): the case's
+    `settled_deflection` is the mean of the node-pose deflection (INT-006: distance from the chord through the pin and
+    the far end) over the final half second (SCO-028). Closed form 5 w L^4 / (384 E I); tolerance the lumped chain's 2
+    percent at N = 8 (rulings 31, 32; the chain's own value under the distributed load is 0.625 percent low).
     """
-    raise NotImplementedError
+    _beam(SIMPLE_BEAM_CASE, 5.0 * BEAM_W * BEAM_LENGTH**4 / (384.0 * BEAM_EI), _simple_frequency(), True)
 
 
 @pytest.mark.req("ACC-043")
-@pytest.mark.xfail(strict=True, reason="stub")
 def test_acc_043() -> None:
     """Acceptance criterion 4, rewritten: a simply supported beam's first natural frequency shall match the
     closed-form value within tolerance.
+
+    The case's `first_frequency` counts upward crossings of the deflection about its mean from 0.1 s to 0.7 s,
+    thirteen periods (SCO-027). Step 0.25 ms: x = omega_1 h = 0.0364, frequency ratio atan(x) / x = 0.99956, inside
+    0.1 percent (ruling 45). Closed form omega_1 = pi^2 sqrt(E I / (rho A L^4)); tolerance the lumped chain's 2 percent
+    at N = 8 (rulings 31, 32).
     """
-    raise NotImplementedError
+    x = 2.0 * math.pi * _simple_frequency() * 2.5e-4
+    assert 1.0 - math.atan(x) / x <= 1e-3
+    _beam(SIMPLE_BEAM_CASE, 5.0 * BEAM_W * BEAM_LENGTH**4 / (384.0 * BEAM_EI), _simple_frequency(), False)
+
+
+def _cantilever_frequency() -> float:
+    return 1.8751040687119611**2 * math.sqrt(BEAM_EI / (BEAM_RHO_A * BEAM_LENGTH**4)) / (2.0 * math.pi)
+
+
+def _simple_frequency() -> float:
+    return math.pi**2 * math.sqrt(BEAM_EI / (BEAM_RHO_A * BEAM_LENGTH**4)) / (2.0 * math.pi)
 
 
 @pytest.mark.req("ACC-044")
@@ -736,3 +846,30 @@ def test_phy_016(gantry: dict[str, RunResult]) -> None:
         assert not report.errored, f"{case}: {report.error}"
         failing = [criterion.name for criterion in result.score.criteria if criterion.status != "pass"]
         assert failing == [], f"{case}: {failing}"
+
+
+# ===== Native references (ACC-037, ACC-039 to ACC-043) =======================
+ROPE_PENDULUM_CASE = ROOT / "test_cases" / "rope_pendulum" / "R1_period.yaml"
+ROPE_SPRING_CASE = ROOT / "test_cases" / "rope_spring" / "S1_settle.yaml"
+CANTILEVER_CASE = ROOT / "test_cases" / "cantilever_beam" / "B1_cantilever.yaml"
+SIMPLE_BEAM_CASE = ROOT / "test_cases" / "simple_beam" / "B2_simply_supported.yaml"
+# The beam designs: a 10 mm square bar of steel_8_8_fastener, E 205 GPa and rho 7850 kg/m^3 typical, I = b^4 / 12,
+# A = 1e-4 m^2, L = 1 m.
+BEAM_I = 0.01**4 / 12.0
+BEAM_EI = 205e9 * BEAM_I
+BEAM_RHO_A = 7850.0 * 1e-4
+BEAM_LENGTH = 1.0
+BEAM_W = BEAM_RHO_A * 9.81
+_REFERENCE_RUNS: dict[tuple[Path, tuple[tuple[str, str], ...]], RunResult] = {}
+
+
+def _reference_run(case: Path, bindings: tuple[tuple[str, str], ...] = ()) -> RunResult:
+    """One run per case and `--set` bindings through the CLI's path (case file, builder, native adapter, kernel,
+    recorder, integrity, scoring) with the shipped services."""
+    key = (case, bindings)
+    if key not in _REFERENCE_RUNS:
+        result = run_case(case, core_services(), dict(bindings), None)
+        assert result.report is not None, result.score
+        assert not result.report.errored, result.report.error
+        _REFERENCE_RUNS[key] = result
+    return _REFERENCE_RUNS[key]

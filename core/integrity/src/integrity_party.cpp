@@ -60,9 +60,6 @@ IntegrityParty::IntegrityParty(Limits limits, IntegrityPartyConfig config, std::
         if (member.supports.empty()) {
             throw LimitsError("member '" + member.name + "': no supports");
         }
-        if (limits_.deflection) {
-            static_cast<void>(static_deflection(kernel::MemberEndLoads{}, member));
-        }
     }
     consumed_ = {config_.physics_outputs};
     if (limits_.yield_offset) {
@@ -72,6 +69,11 @@ IntegrityParty::IntegrityParty(Limits limits, IntegrityPartyConfig config, std::
     fastenings_.assign(limits_.fastenings.size(), false);
     trace_->peak_stress.assign(limits_.members.size(), 0.0);
     trace_->peak_deflection.assign(limits_.members.size(), 0.0);
+    for (std::size_t m = 0; m < limits_.members.size(); ++m) {
+        if (!limits_.members[m].nodes.has_value()) {
+            trace_->peak_deflection[m] = std::numeric_limits<double>::quiet_NaN();
+        }
+    }
     trace_->min_buckling_margin.assign(limits_.members.size(), std::numeric_limits<double>::infinity());
     trace_->peak_fastener_load.assign(limits_.fastenings.size(), 0.0);
 }
@@ -173,8 +175,8 @@ void IntegrityParty::step(kernel::SimTime t, kernel::Duration dt) {
                 cross(stamp, member.name, buckling_quantity, margin, limits_.minimum_safety_factor);
             }
         }
-        if (limits_.deflection) {
-            const double deflection = static_deflection(loads, member);
+        if (limits_.deflection && member.nodes.has_value()) {
+            const double deflection = node_deflection(outputs_.bodies, member);
             trace_->peak_deflection[m] = std::max(trace_->peak_deflection[m], deflection);
             if (!state.deflection && member.deflection_limit.has_value() &&
                 deflection > member.deflection_limit.value()) {

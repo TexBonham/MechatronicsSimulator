@@ -81,7 +81,7 @@ def test_a_single_axis_section_is_evaluated_and_flagged_never_refused() -> None:
     table = evaluate(IntegrityConfig(schema_version=1), run_inputs(build, view, _views()))
     assert table.member("rail").flags == (
         "approximation: single-axis section",
-        "approximation: static deflection from end loads",
+        "deflection_not_evaluated",
     )
     assert table.member("rail").peak_stress > 0.0
 

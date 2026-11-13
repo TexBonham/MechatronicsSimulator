@@ -498,6 +498,11 @@ def member_constants(body: Body, material: Material, registry: Registry) -> dict
                 "shear_area_z": properties.shear_area_z,
             }
         )
+        return constants
+    axes = flexible.section.bending_axes()
+    if axes is not None:
+        i_y, _, c_y, c_z = axes
+        constants.update({"second_moment_y": i_y, "fibre_y": c_y, "fibre_z": c_z})
     return constants
 
 

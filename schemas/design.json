@@ -2188,7 +2188,7 @@
     },
     "Section": {
       "additionalProperties": false,
-      "description": "Cross-section and span: a `shape` with its dimensions, or `area` and `second_moment` (DES-033); E and rho\ncome from the body's material.",
+      "description": "Cross-section and span (DES-033, ruling 25): a `shape` with its dimensions; or `area` with `second_moment` (the\nsymmetric shorthand: both axes equal, optional `fibre_y` and `fibre_z` together, else evaluated single-axis); or\n`area` with both axes explicit, `second_moment_y`, `second_moment_z`, `fibre_y`, `fibre_z` (member frame: z the\naxis of bending along y, so `second_moment_z` is the neutral member's `second_moment_of_area`). E and rho come from\nthe body's material.",
       "properties": {
         "area": {
           "anyOf": [
@@ -2206,6 +2206,40 @@
           ],
           "default": null,
           "title": "Area"
+        },
+        "fibre_y": {
+          "anyOf": [
+            {
+              "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s+\\S.*)?$",
+              "type": "string"
+            },
+            {
+              "pattern": "^\\$\\{[a-z][a-z0-9_]*\\}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Fibre Y"
+        },
+        "fibre_z": {
+          "anyOf": [
+            {
+              "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s+\\S.*)?$",
+              "type": "string"
+            },
+            {
+              "pattern": "^\\$\\{[a-z][a-z0-9_]*\\}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Fibre Z"
         },
         "length": {
           "anyOf": [
@@ -2236,6 +2270,40 @@
           ],
           "default": null,
           "title": "Second Moment"
+        },
+        "second_moment_y": {
+          "anyOf": [
+            {
+              "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s+\\S.*)?$",
+              "type": "string"
+            },
+            {
+              "pattern": "^\\$\\{[a-z][a-z0-9_]*\\}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Second Moment Y"
+        },
+        "second_moment_z": {
+          "anyOf": [
+            {
+              "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s+\\S.*)?$",
+              "type": "string"
+            },
+            {
+              "pattern": "^\\$\\{[a-z][a-z0-9_]*\\}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Second Moment Z"
         },
         "shape": {
           "anyOf": [

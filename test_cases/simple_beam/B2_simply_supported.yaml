@@ -1,0 +1,45 @@
+# Simply supported beam under its own weight (ACC-042, ACC-043), released straight at rest. Static midspan
+# deflection 5 w L^4 / (384 E I) = 5.869550e-4 m (w = 7.70085 N/m, E I = 170.8333 N m^2); first mode
+# f_1 = pi^2 sqrt(E I / (rho A L^4)) / (2 pi) = 23.172418 Hz. Physics step 0.25 ms: x = omega_1 h = 0.0364, frequency
+# ratio atan(x) / x = 0.99956 (inside 0.1 percent), amplitude kept per period 0.892 (ruling 45), so after 2.5 s (58
+# periods) the swing is below 1e-3 of the step and the mean over the final half second is the static value.
+# deflection:<member> is the node-pose deflection at every sample (INT-006, SCO-027): its mean over the final window is
+# the settled deflection; its frequency is counted about the mean from 0.1 s (the uniform load excites no antisymmetric
+# mode; the third, x = 0.33, keeps 0.37 per period: below 1e-8 by then) to 0.7 s, thirteen periods. Its maximum, the integrity table's peak, includes the release
+# overshoot, about twice the static value for a straight release, so it is not a static oracle. Tolerances (ACC-042,
+# ACC-043 rows): the lumped chain's 2 percent at eight segments (rulings 31, 32).
+id: B2
+title: Simply supported beam under its own weight
+design:
+  name: simple_beam
+  version: 1.0.0
+seed: 0
+initial_state:
+  joints: []
+rates:
+  physics_step: 0.25 ms
+physics:
+  adapter: native
+end:
+  at: 3 s
+  max_duration: 5 s
+criteria:
+  - name: settled_deflection
+    check: value
+    quantity: deflection:bar
+    statistic: mean
+    window:
+      start: 2.5 s
+    comparison: within
+    target: 5.869550e-4 m
+    relative_limit: "0.02"
+  - name: first_frequency
+    check: value
+    quantity: deflection:bar
+    statistic: frequency_about_mean
+    window:
+      start: 0.1 s
+      end: 0.7 s
+    comparison: within
+    target: 23.172418 Hz
+    relative_limit: "0.02"

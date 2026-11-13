@@ -18,8 +18,8 @@ import numpy as np
 
 from mechsim.integrity.beam import effective_length_factor
 from mechsim.integrity.config import FILE_NAME, IntegrityConfig, load_config
-from mechsim.integrity.inputs import member_axes, section_properties
-from mechsim.integrity.plugin import IntegrityError, MaterialView, MemberInputs, Spread, Wrenches
+from mechsim.integrity.inputs import member_axes, node_chains, section_properties
+from mechsim.integrity.plugin import IntegrityError, MaterialView, MemberInputs, NodeChain, Spread, Wrenches
 from mechsim.materials.database import MaterialSet
 from mechsim.testing.schema import DESIGNS_ROOT
 
@@ -118,6 +118,12 @@ def _effective_length(member: Any, section: Any, config: IntegrityConfig, buckli
         return 1.0
 
 
+def _nodes(chain: NodeChain | None) -> dict[str, Any] | None:
+    if chain is None:
+        return None
+    return chain.to_limits()
+
+
 def limits_table(
     build: Any,
     model: Any,
@@ -142,6 +148,7 @@ def limits_table(
     records = {str(record.member): record for record in getattr(build, "lumped", ())}
     axes = member_axes(build)
     springs = first_springs(native)
+    chains = node_chains(model)
     if len(springs) != len(model.lumped_members):
         raise IntegrityError(
             f"the native model lists {len(springs)} members, the physics model {len(model.lumped_members)}"
@@ -188,6 +195,7 @@ def limits_table(
                 "segments": segments,
                 "segment_length": segment_length,
                 "node_stiffness": stiffness,
+                "nodes": _nodes(chains.get(name)),
             }
         )
     fastenings: list[dict[str, Any]] = []

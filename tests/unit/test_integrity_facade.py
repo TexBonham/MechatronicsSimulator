@@ -54,11 +54,26 @@ def test_the_facade_serves_the_integrity_table(tmp_path: Path) -> None:
     assert [entry.member for entry in result.members] == ["rail_x", "rail_y"]
     assert result.members[1].flags == ["deflection_over_target", "safety_factor_below_minimum"]
     assert (result.members[0].peak_stress, result.members[0].safety_factor) == (2.0e6, 12.5)
+    assert (result.members[0].deflection, result.members[0].deflection_evaluated) == (0.004, True)
     bare = tmp_path / "bare"
     bare.mkdir()
     with pytest.raises(FacadeError) as raised:
         _facade(bare, None).integrity_results("S1-seed0")
     assert (raised.value.code, raised.value.requirement_id) == ("not_found", "FAC-013")
+
+
+@pytest.mark.req("FAC-013", "INT-006")
+def test_a_quantity_integrity_did_not_evaluate_is_an_explicit_state_not_a_nan(tmp_path: Path) -> None:
+    # A member built rigid has no node poses: its deflection is NaN in the table (INT-006); through the facade it is
+    # None with its flag false, so no client reads a NaN as a number (invariant 7). An evaluated zero stays a number.
+    rigid = MemberIntegrity("bridge", 0.0, 0.0, math.nan, 0.0, math.nan, 0.0, ("deflection_not_evaluated",))
+    result = _facade(tmp_path, IntegrityResults((rigid,))).integrity_results("S1-seed0")
+    (row,) = result.members
+    assert (row.deflection, row.deflection_evaluated) == (None, False)
+    assert (row.safety_factor, row.safety_factor_evaluated) == (None, False)
+    assert (row.peak_stress, row.peak_stress_evaluated) == (0.0, True)
+    assert row.flags == ["deflection_not_evaluated"]
+    assert "NaN" not in row.model_dump_json()
 
 
 @pytest.mark.req("FAC-013")

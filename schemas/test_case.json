@@ -1566,7 +1566,11 @@
             "minimum",
             "maximum",
             "peak_absolute",
-            "period"
+            "period",
+            "mean",
+            "amplitude",
+            "period_about_mean",
+            "frequency_about_mean"
           ],
           "title": "Statistic",
           "type": "string"

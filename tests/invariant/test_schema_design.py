@@ -31,8 +31,15 @@ def test_design_schema_declares_dialect_and_id() -> None:
 
 
 @pytest.mark.req("DES-011")
-def test_both_reference_designs_ship() -> None:
-    assert [path.parent.name for path in DESIGNS] == ["gantry", "pendulum"]
+def test_the_reference_designs_and_fixtures_ship() -> None:
+    assert [path.parent.name for path in DESIGNS] == [
+        "cantilever_beam",
+        "gantry",
+        "pendulum",
+        "rope_pendulum",
+        "rope_spring",
+        "simple_beam",
+    ]
 
 
 @pytest.mark.req("DES-011")

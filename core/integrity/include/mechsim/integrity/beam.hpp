@@ -1,5 +1,7 @@
 #pragma once
 
+#include <span>
+
 #include "mechsim/integrity/limits.hpp"
 #include "mechsim/kernel/physics_types.hpp"
 
@@ -20,9 +22,11 @@ namespace mechsim::integrity {
 // pi^2 E min(I_y, I_z) / (K L)^2.
 [[nodiscard]] double critical_load(const MemberLimits& member);
 
-// Peak static deflection magnitude over the 201-point grid (plus the supports), I1's end-load formula (ruling 28).
-// Throws LimitsError when the supports leave the member free.
-[[nodiscard]] double static_deflection(const kernel::MemberEndLoads& loads, const MemberLimits& member);
+// Deflection from the published node poses (ruling 28, INT-006): the largest perpendicular distance of the chain's node
+// origins and its far end (the last node plus l / 2 along its x) from the reference line. A clamped root's line is
+// the root tangent (the parent pose times the member placement, x); a pinned root's the chord from the pin (node 0)
+// to the far end. Throws LimitsError without nodes or with nodes outside the published bodies.
+[[nodiscard]] double node_deflection(std::span<const kernel::BodyState> bodies, const MemberLimits& member);
 
 // The moment the node spring nearest an end carries, by statics over the half segment between the end and the spring
 // (its inertia neglected, ruling 35): start -M_z + (l / 2) F_y, end M_z + (l / 2) F_y, the spring's own sense.

@@ -16,7 +16,7 @@ import pytest
 
 from mechsim.integrity import config as config_module
 from mechsim.integrity import registry as registry_module
-from mechsim.integrity.beam import deflection, effective_length_factor, first_frequency, peak
+from mechsim.integrity.beam import effective_length_factor, first_frequency, node_deflection, peak
 from mechsim.integrity.checks.buckling import Buckling, BucklingParameters
 from mechsim.integrity.checks.fastener import Fastener, FastenerParameters
 from mechsim.integrity.checks.fatigue import cycles_to_failure, rainflow, reversals
@@ -25,12 +25,15 @@ from mechsim.integrity.checks.resonance import Resonance, ResonanceParameters
 from mechsim.integrity.checks.strength import Strength
 from mechsim.integrity.config import IntegrityConfig, config_for, load_config, parse_config
 from mechsim.integrity.export import load_case, write_beside
-from mechsim.integrity.inputs import member_axes, run_inputs, section_properties
+from mechsim.integrity.inputs import member_axes, node_chains, recorded_body_count, run_inputs, section_properties
 from mechsim.integrity.plugin import (
+    BodyPoses,
     CheckResult,
     IntegrityCheck,
     IntegrityError,
     JointLoads,
+    MemberInputs,
+    NodeChain,
     NoParameters,
     RunInputs,
     Wrenches,
@@ -39,7 +42,7 @@ from mechsim.integrity.service import IntegrityService
 from mechsim.integrity.table import THERMAL_NOTE, IntegrityReport, evaluate
 from mechsim.record.layout import MEMBER_SERIES, Columns
 from mechsim.record.stream import Recorder
-from mechsim.record.tick import JointForce, MemberEndLoads, PhysicsOutputs, TickRecord, Wrench
+from mechsim.record.tick import BodyState, JointForce, MemberEndLoads, PhysicsOutputs, TickRecord, Wrench
 from mechsim.schema_base import StrictModel
 from mechsim.testing.driver import IntegrityResults, MemberSection, Series
 from tests.reference.test_integrity_checks import (
@@ -52,13 +55,14 @@ from tests.reference.test_integrity_checks import (
     TEMPERATURE,
     FakeMaterial,
     cantilever,
+    cantilever_poses,
     constant,
     inputs,
     member,
 )
 
 EXAMPLE = Path(__file__).resolve().parents[2] / "schemas" / "examples" / "integrity.yaml"
-STATIC = "approximation: static deflection from end loads"
+STATIC = "deflection_not_evaluated"
 SHIPPED = ("buckling", "deflection", "fastener", "fatigue", "impact", "resonance", "strength")
 
 
@@ -235,7 +239,8 @@ def test_a_higher_tier_adds_rows_and_never_changes_a_lower_tiers_rows() -> None:
     joint = JointLoads(
         "mount", "mount", "base", np.tile([1.0, 2.0, 3.0], (3, 1)), np.tile([0.1, 0.0, 0.0], (3, 1)), member="rail"
     )
-    run = inputs([member(cantilever(70.0))], 3, joints=(joint,), minimum_safety_factor=2.0)
+    (chain,), poses = cantilever_poses([[1e-3, 2e-3, 1e-3]])
+    run = inputs([member(cantilever(70.0), nodes=chain)], 3, joints=(joint,), minimum_safety_factor=2.0, bodies=poses)
     first = Strength().evaluate(run, NoParameters(), 1)
     second = Strength().evaluate(run, NoParameters(), 2)
     assert second.rows_of_tier(1) == first.rows
@@ -244,7 +249,7 @@ def test_a_higher_tier_adds_rows_and_never_changes_a_lower_tiers_rows() -> None:
     table_one = evaluate(parse_config({"schema_version": 1}, "c"), run)
     table_two = evaluate(parse_config({"schema_version": 1, "checks": [{"check": "strength", "tier": 2}]}, "c"), run)
     assert table_two.member("rail").peak_stress == table_one.member("rail").peak_stress
-    assert table_two.member("rail").deflection == table_one.member("rail").deflection
+    assert table_two.member("rail").deflection == table_one.member("rail").deflection == pytest.approx(2e-3, rel=1e-12)
 
 
 # ===== Design-load rule (INT-019) =======================================
@@ -332,9 +337,12 @@ def test_the_design_load_rule_comes_from_the_design_file() -> None:
     stress = evaluate(config, base).member("rail").peak_stress
     assert stress == pytest.approx(10.0 * LENGTH * C_Y / I_Z)
     assert evaluate(config, scaled).member("rail").peak_stress == pytest.approx(1.15 * stress)
-    assert evaluate(config, doubled).member("rail").deflection == pytest.approx(
-        2.0 * evaluate(config, base).member("rail").deflection
-    )
+    # Deflection scales with the design-load factor (linear elasticity) on the node-pose value.
+    (chain,), poses = cantilever_poses([[1e-3, 2e-3]])
+    once = evaluate(config, inputs([member(cantilever(10.0, 2), nodes=chain)], 2, bodies=poses))
+    twice = evaluate(config, inputs([member(cantilever(10.0, 2), nodes=chain)], 2, bodies=poses, load_factor=2.0))
+    assert once.member("rail").deflection == pytest.approx(2e-3, rel=1e-12)
+    assert twice.member("rail").deflection == pytest.approx(4e-3, rel=1e-12)
 
 
 @pytest.mark.req("INT-019")
@@ -354,9 +362,9 @@ def test_run_inputs_read_sections_supports_mounts_and_joint_reactions() -> None:
     reaction = Wrench((0.0, 0.0, 1.0), (3.0, 4.0, 0.0))
     view = _recorded(_cantilever_rows(1.0), joints=(Wrench(), reaction))
     bodies = (
-        SimpleNamespace(joint=None),
-        SimpleNamespace(joint=SimpleNamespace(name="slide")),
-        SimpleNamespace(joint=SimpleNamespace(name="base")),
+        SimpleNamespace(name="frame", joint=None),
+        SimpleNamespace(name="slider", joint=SimpleNamespace(name="slide")),
+        SimpleNamespace(name="rail_body", joint=SimpleNamespace(name="base")),
     )
     fastenings = (
         SimpleNamespace(name="base", kind="mount", body_a="frame", body_b="rail_body", joint="base"),
@@ -411,7 +419,7 @@ def test_run_inputs_errors_name_what_is_missing() -> None:
     with pytest.raises(IntegrityError, match="carries no member end-loads"):
         run_inputs(SimpleNamespace(design=_design("0"), members=(_member(),)), bare, _views())  # type: ignore[arg-type]
     physics = SimpleNamespace(
-        bodies=(SimpleNamespace(joint=None),),
+        bodies=(SimpleNamespace(name="a", joint=None),),
         fastenings=(SimpleNamespace(name="m", kind="mount", body_a="a", body_b="b", joint="ghost"),),
     )
     with pytest.raises(IntegrityError, match="joint 'ghost' has no recorded reaction"):
@@ -447,14 +455,12 @@ def test_members_and_mounts_below_the_minimum_safety_factor_are_flagged() -> Non
 def test_members_over_the_deflection_target_are_flagged() -> None:
     load = 50.0
     tip = load * LENGTH**3 / (3.0 * MODULUS * I_Z)
-    over = evaluate(
-        IntegrityConfig(schema_version=1), inputs([member(cantilever(load))], 2, deflection_limit=tip * 0.99)
-    )
-    assert over.member("rail").flags == (STATIC, "deflection_over_target")
-    under = evaluate(
-        IntegrityConfig(schema_version=1), inputs([member(cantilever(load))], 2, deflection_limit=tip * 1.01)
-    )
-    assert under.member("rail").flags == (STATIC,)
+    (chain,), poses = cantilever_poses([[tip, tip]])
+    rail = member(cantilever(load), nodes=chain)
+    over = evaluate(IntegrityConfig(schema_version=1), inputs([rail], 2, deflection_limit=tip * 0.99, bodies=poses))
+    assert over.member("rail").flags == ("deflection_over_target",)
+    under = evaluate(IntegrityConfig(schema_version=1), inputs([rail], 2, deflection_limit=tip * 1.01, bodies=poses))
+    assert under.member("rail").flags == ()
 
 
 # ===== Per-member table (INT-022) =======================================
@@ -471,9 +477,16 @@ def test_the_table_has_one_row_per_member_and_mount_in_the_results_shape() -> No
         "mount", "mount", "base", np.tile([5.0, 0.0, 0.0], (rows, 1)), np.zeros((rows, 3)), member="rail"
     )
     loose = JointLoads("loose", "mount", "x", np.zeros((rows, 3)), np.zeros((rows, 3)))
+    unit = 20.0 * LENGTH**3 / (3.0 * MODULUS * I_Z)
+    (rail_chain, idle_chain), poses = cantilever_poses([[unit, unit, 3.0 * unit, unit], [0.0] * rows])
     table = evaluate(
         IntegrityConfig(schema_version=1),
-        inputs([member(loads), member(constant(rows), name="idle")], rows, joints=(mount, loose)),
+        inputs(
+            [member(loads, nodes=rail_chain), member(constant(rows), name="idle", nodes=idle_chain)],
+            rows,
+            joints=(mount, loose),
+            bodies=poses,
+        ),
     )
     assert isinstance(table, IntegrityResults)
     assert [entry.member for entry in table.members] == ["rail", "idle", "mount"]
@@ -635,10 +648,59 @@ def test_fatigue_flags_damage_at_the_limit() -> None:
     assert quiet.member("rail").flags == (STATIC,)
 
 
+def _poses(points: list[tuple[float, float, float]], turns: dict[int, tuple[float, ...]] | None = None) -> BodyPoses:
+    orientations = np.zeros((1, len(points), 4))
+    orientations[0, :, 0] = 1.0
+    for index, turn in (turns or {}).items():
+        orientations[0, index] = turn
+    return BodyPoses(np.asarray([points], dtype=np.float64), orientations)
+
+
+def _chained(chain: NodeChain | None) -> MemberInputs:
+    return member(constant(1), nodes=chain)
+
+
 @pytest.mark.req("INT-006")
-def test_deflection_needs_supports_that_hold_the_member() -> None:
-    with pytest.raises(IntegrityError, match="free to move"):
-        deflection(member(constant(1), ((0.0, "pinned"),)), constant(1))
+def test_node_deflection_measures_from_the_root_tangent_through_the_parent_pose() -> None:
+    # Parent at (1, 1, 0) turned +90 degrees about z, placement (0.5, 0, 0): root point (1, 1.5, 0), tangent world +y.
+    # Nodes 0 and 0.3 off it; the last node (1.2, 2.2, 0) turned likewise reaches l / 2 = 0.1 along +y: far end
+    # (1.2, 2.3, 0), 0.2 off. Out of plane: a node 0.4 along z is 0.4 off (the distance is frame-free).
+    half = math.sqrt(0.5)
+    chain = NodeChain(1, 3, "clamped", 0, (0.5, 0.0, 0.0), (1.0, 0.0, 0.0, 0.0), 0.2)
+    turn = (half, 0.0, 0.0, half)
+    poses = _poses([(1.0, 1.0, 0.0), (1.0, 1.6, 0.0), (0.7, 1.8, 0.0), (1.2, 2.2, 0.0)], {0: turn, 3: turn})
+    assert node_deflection(_chained(chain), poses)[0] == pytest.approx(0.3, rel=1e-12)
+    poses = _poses([(1.0, 1.0, 0.0), (1.0, 1.6, 0.0), (1.1, 1.8, 0.0), (1.2, 2.2, 0.0)], {0: turn, 3: turn})
+    assert node_deflection(_chained(chain), poses)[0] == pytest.approx(0.2, rel=1e-12)
+    poses = _poses([(1.0, 1.0, 0.0), (1.0, 1.6, 0.4), (1.0, 1.8, 0.0), (1.2, 2.2, 0.0)], {0: turn, 3: turn})
+    assert node_deflection(_chained(chain), poses)[0] == pytest.approx(0.4, rel=1e-12)
+    world = NodeChain(1, 3, "clamped", None, (0.0, 0.0, 0.0), (1.0, 0.0, 0.0, 0.0), 0.2)
+    poses = _poses([(9.0, 9.0, 9.0), (1.0, 0.1, 0.0), (1.1, -0.4, 0.0), (1.2, 0.2, 0.0)])
+    assert node_deflection(_chained(world), poses)[0] == pytest.approx(0.4, rel=1e-12)
+
+
+@pytest.mark.req("INT-006")
+def test_node_deflection_of_a_pinned_root_measures_from_the_chord() -> None:
+    # Pin (node 0) at (1, 1.6, 0), far end (1.2, 2.3, 0): node (1.1, 1.8, 0) is |0.1 * 0.7 - 0.2 * 0.2| / sqrt(0.53)
+    # off the chord; the parent pose plays no part.
+    half = math.sqrt(0.5)
+    chain = NodeChain(1, 3, "pinned", 0, (5.0, 0.0, 0.0), (1.0, 0.0, 0.0, 0.0), 0.2)
+    turn = (half, 0.0, 0.0, half)
+    poses = _poses([(1.0, 1.0, 0.0), (1.0, 1.6, 0.0), (1.1, 1.8, 0.0), (1.2, 2.2, 0.0)], {3: turn})
+    assert node_deflection(_chained(chain), poses)[0] == pytest.approx(0.03 / math.sqrt(0.53), rel=1e-12)
+
+
+@pytest.mark.req("INT-006")
+def test_node_deflection_refuses_a_rigid_member_nodes_outside_the_recording_and_a_zero_chord() -> None:
+    poses = _poses([(0.0, 0.0, 0.0), (0.0, 0.0, 0.0)])
+    with pytest.raises(IntegrityError, match="built rigid"):
+        node_deflection(_chained(None), poses)
+    outside = NodeChain(1, 2, "clamped", None, (0.0, 0.0, 0.0), (1.0, 0.0, 0.0, 0.0), 0.2)
+    with pytest.raises(IntegrityError, match="outside the 2 recorded bodies"):
+        node_deflection(_chained(outside), poses)
+    collapsed = NodeChain(0, 2, "pinned", None, (0.0, 0.0, 0.0), (1.0, 0.0, 0.0, 0.0), 0.0)
+    with pytest.raises(IntegrityError, match="no chord"):
+        node_deflection(_chained(collapsed), poses)
 
 
 @pytest.mark.req("INT-007", "INT-012")
@@ -754,23 +816,156 @@ def test_impact_rows_carry_their_own_margin_flag() -> None:
 def test_the_member_axis_comes_from_the_lumped_placement() -> None:
     # Placement turned +90 deg about z: q = (cos 45, 0, 0, sin 45) maps x to y.
     half = math.sqrt(0.5)
+    section = SimpleNamespace(length=0.5)
     lumped = (
-        SimpleNamespace(name="rail_chain", structural_member="rail", orientation=(half, 0.0, 0.0, half)),
-        SimpleNamespace(name="other", structural_member=None, orientation=(1.0, 0.0, 0.0, 0.0)),
+        SimpleNamespace(
+            name="rail_chain",
+            structural_member="rail",
+            orientation=(half, 0.0, 0.0, half),
+            position=(0.1, 0.0, 0.0),
+            parent="carriage",
+            root="clamped",
+            segments=8,
+            section=section,
+        ),
+        SimpleNamespace(
+            name="other",
+            structural_member=None,
+            orientation=(1.0, 0.0, 0.0, 0.0),
+            position=(0.0, 0.0, 0.0),
+            parent="world",
+            root="pinned",
+            segments=4,
+            section=section,
+        ),
     )
     axes = member_axes(SimpleNamespace(physics=SimpleNamespace(lumped_members=lumped)))
     assert axes["rail"] == pytest.approx((0.0, 1.0, 0.0), abs=1e-15)
     assert axes["other"] == (1.0, 0.0, 0.0)
     assert member_axes(SimpleNamespace(physics=None)) == {}
+    bodies = (SimpleNamespace(name="frame"), SimpleNamespace(name="carriage"))
     build = SimpleNamespace(
         design=_design("0"),
         members=(_member(),),
-        physics=SimpleNamespace(lumped_members=lumped, bodies=(), fastenings=()),
+        physics=SimpleNamespace(lumped_members=lumped, bodies=bodies, fastenings=()),
     )
-    assert run_inputs(build, _recorded(_cantilever_rows(1.0)), _views()).members[0].axis_body == pytest.approx(
-        (0.0, 1.0, 0.0), abs=1e-15
-    )
+    posed = _posed(_cantilever_rows(1.0), _NAMES)
+    assert run_inputs(build, posed, _views()).members[0].axis_body == pytest.approx((0.0, 1.0, 0.0), abs=1e-15)
+    # Node chains follow the neutral bodies in lumped order; a pinned root adds its pin segment as node 0.
+    chains = node_chains(SimpleNamespace(lumped_members=lumped, bodies=bodies))
+    assert chains["rail"] == NodeChain(2, 8, "clamped", 1, (0.1, 0.0, 0.0), (half, 0.0, 0.0, half), 0.0625)
+    assert chains["other"] == NodeChain(10, 5, "pinned", None, (0.0, 0.0, 0.0), (1.0, 0.0, 0.0, 0.0), 0.125)
+    assert node_chains(None) == {}
     rigid = run_inputs(
         SimpleNamespace(design=_design("0"), members=(_member(),)), _recorded(_cantilever_rows(1.0)), _views()
     )
     assert rigid.members[0].axis_body == (1.0, 0.0, 0.0)
+
+
+# Two neutral bodies, then rail_chain's 8 nodes and other's 5 (a pinned root adds node 0), as the native adapter
+# publishes them (`member_node_names`).
+_NAMES = (
+    "frame",
+    "carriage",
+    *(f"rail_chain.node{k}" for k in range(8)),
+    *(f"other.node{k}" for k in range(5)),
+)
+
+
+def _posed(loads: list[tuple[Wrench, Wrench]], names: tuple[str, ...]) -> _View:
+    """End-loads for member `rail` plus a pose for every named body at each row."""
+    columns = {path: Columns(("rail",)) for path in MEMBER_SERIES}
+    recorder = Recorder(Fraction(1000), columns, names)
+    for tick, (start, end) in enumerate(loads):
+        physics = PhysicsOutputs(
+            steps=tick + 1,
+            members=(MemberEndLoads(start, end),),
+            bodies=tuple(BodyState() for _ in names),
+        )
+        recorder.write_row(TickRecord(time=tick, physics=physics))
+    return _View(recorder.recording())
+
+
+def _lumped(name: str, parent: str, root: str, segments: int) -> SimpleNamespace:
+    return SimpleNamespace(
+        name=name,
+        structural_member=None,
+        orientation=(1.0, 0.0, 0.0, 0.0),
+        position=(0.0, 0.0, 0.0),
+        parent=parent,
+        root=root,
+        segments=segments,
+        section=SimpleNamespace(length=1.0),
+    )
+
+
+_TWO = (SimpleNamespace(name="frame"), SimpleNamespace(name="carriage"))
+
+
+@pytest.mark.req("INT-006")
+def test_node_chains_are_found_by_the_recorded_names() -> None:
+    # The recorder's names locate each chain; with the names shuffled so other's nodes come first, the chains follow
+    # the names, not the layout.
+    lumped = (_lumped("rail_chain", "carriage", "clamped", 8), _lumped("other", "world", "pinned", 4))
+    model = SimpleNamespace(lumped_members=lumped, bodies=_TWO)
+    by_layout = node_chains(model)
+    by_name = node_chains(model, _NAMES)
+    assert (by_layout["rail_chain"].first_body, by_layout["other"].first_body) == (2, 10)
+    assert by_name == by_layout
+    shuffled = ("frame", "carriage", *_NAMES[10:], *_NAMES[2:10])
+    moved = node_chains(model, shuffled)
+    assert (moved["rail_chain"].first_body, moved["other"].first_body) == (7, 2)
+    assert (moved["rail_chain"].parent_body, moved["other"].parent_body) == (1, None)
+
+
+@pytest.mark.req("INT-006")
+@pytest.mark.parametrize(
+    ("parent", "names", "message"),
+    [
+        ("gantry", (), "unknown parent 'gantry', neither the world nor a body"),
+        ("", (), "unknown parent '', neither the world nor a body"),
+        ("other.node2", (), "parent 'other.node2' is another member's node"),
+        ("carriage", ("frame", "carriage"), "the recording names no body 'rail_chain.node0'"),
+        (
+            "carriage",
+            ("frame", "carriage", *(f"rail_chain.node{k}" for k in range(7)), "other.node0"),
+            "recorded node bodies",
+        ),
+    ],
+)
+def test_an_unknown_parent_or_a_misnamed_chain_is_an_error_never_the_world(
+    parent: str, names: tuple[str, ...], message: str
+) -> None:
+    lumped = (_lumped("rail_chain", parent, "clamped", 8), _lumped("other", "world", "pinned", 4))
+    with pytest.raises(IntegrityError, match=message):
+        node_chains(SimpleNamespace(lumped_members=lumped, bodies=_TWO), names)
+
+
+def _flexible_build() -> SimpleNamespace:
+    lumped = (_lumped("rail_chain", "carriage", "clamped", 8), _lumped("other", "world", "pinned", 4))
+    return SimpleNamespace(
+        design=_design("0"),
+        members=(_member(),),
+        physics=SimpleNamespace(lumped_members=lumped, bodies=_TWO, fastenings=()),
+    )
+
+
+@pytest.mark.req("INT-006")
+def test_the_recorded_body_count_must_equal_neutral_bodies_plus_member_nodes() -> None:
+    # 2 neutral bodies + 8 + 5 nodes = 15; a recording of 14 poses per sample (one neutral body short, every node
+    # named) names both counts.
+    assert recorded_body_count(_flexible_build().physics) == 15
+    assert run_inputs(_flexible_build(), _posed(_cantilever_rows(1.0), _NAMES), _views()).bodies is not None
+    with pytest.raises(IntegrityError, match="has 14 body poses per sample, the model 15"):
+        run_inputs(_flexible_build(), _posed(_cantilever_rows(1.0), _NAMES[1:]), _views())
+
+
+@pytest.mark.req("INT-006")
+def test_a_flexible_run_missing_the_body_series_is_an_error_not_built_rigid() -> None:
+    with pytest.raises(IntegrityError, match="recorded no body poses"):
+        run_inputs(_flexible_build(), _recorded(_cantilever_rows(1.0)), _views())
+    # A rigid build (no lumped members) without poses is evaluated as built rigid: no bodies, no error.
+    rigid = run_inputs(
+        SimpleNamespace(design=_design("0"), members=(_member(),)), _recorded(_cantilever_rows(1.0)), _views()
+    )
+    assert rigid.bodies is None
