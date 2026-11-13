@@ -102,6 +102,10 @@ struct MultibodyConfig {
     // Test seam only (brief M3-E7b): false runs a carried joint whose lagged load path grows instead of refusing it,
     // so a test can measure the growth the derivation in member_loads.hpp predicts. Never set by an adapter.
     bool refuse_unstable_carried = true;
+    // Test seam only (brief M3-E7d): false leaves the carried mass out of the member's inertia (the E7 to E7c one-way
+    // pair), so a test can compare the loaded member with the unloaded one and still reach the lag's refusal, which
+    // the carried mass puts out of reach of a single mode (member_loads.hpp, Carried mass). Never set by an adapter.
+    bool carried_added_mass = true;
 };
 
 }  // namespace mechsim::engine

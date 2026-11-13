@@ -13,13 +13,13 @@ Namespace `mechsim::engine`; q (nq), v (nv). Eigen only, dense (ENG-001).
 | `step_health.hpp` | `StepHealth { max_constraint_drift, converged, iterations, time, step }` (ENG-026) |
 | `engine_error.hpp` | `EngineError(time, cause)`; `NonFiniteStateError`, `SolverNonConvergenceError`, `DriftError` (+`constraint_index()`), `InvalidModelError`, `InvalidConfigError` |
 | `spatial.hpp` | Featherstone 6-vectors (angular first), `Transform` B_X_A (`motion`, `force`, `inverse_*`, `then_from`), `inertia`, `cross_motion/force` |
-| `multibody_model.hpp` | `JointType`, `Joint`, `Body`, `LoopConstraint` (Point 3, Hinge 5 rows), `MultibodyModel`, `MultibodyConfig` |
+| `multibody_model.hpp` | `JointType`, `Joint`, `Body`, `LoopConstraint` (Point 3, Hinge 5 rows), `MultibodyModel`, `MultibodyConfig` (test seams `refuse_unstable_carried`, `carried_added_mass`) |
 | `multibody_provider.hpp` | `MultibodyProvider`, output structs |
 | `transmission.hpp` | `Transmission` (belt, screw, gear), `TransmissionOutput`, `PowerFlow`, `couple` (derivation) |
 | `collision.hpp` | `ShapeKind`, `shape_kind(name)` (unknown throws, ENG-017), `Shape`, `Pose`, `ContactPoint{point, normal a->b, depth}`, `Aabb`, `bounds`, `broad_phase`, `collide(a, pa, b, pb)`, `support` |
 | `contact.hpp` | `ContactParameters{K_n, C_n, mu}`, `MaterialPair`, `Geometry` (neutral sizes, body -1 world), `ContactModel{geometries, default, pairs, exclusions, slip_velocity 1e-4}`, `contact_force`, `WeldAttachment`, `PayloadOutput` (derivations in the header) |
 | `lumped_beam.hpp` | `BeamSpec`, `add_lumped_beam(model, spec, parent, position, orientation)` (registers `model.members`), `beam_point(beam, x)` (ENG-022) |
-| `member_loads.hpp` | `LumpedBeam` (+ `carried`), `member_nodes(beam)`, `MemberOutput` (start/end moment, force, `carried_deflection`), `member_end_loads` (ENG-030); `CarriedLoadOutput`, `load_nodes`, `carried_pair` (ENG-052, derivation in the header) |
+| `member_loads.hpp` | `LumpedBeam` (+ `carried`), `member_nodes(beam)`, `MemberOutput` (start/end moment, force, `carried_deflection`, work and validity fields), `carried_ratio_limit`, `member_end_loads` (ENG-030); `CarriedLoadOutput`, `load_nodes`, `carried_pair` (ENG-052, derivation in the header) |
 | `rope.hpp` | `Rope`, `RopeOutput`, `add_rope(model, rope, from_world, to_world)`, `rope_segment`, `validate_rope_parameters` (ENG-047, ADR 0016) |
 
 ## DynamicsProvider hooks
@@ -91,6 +91,17 @@ Lag stability (brief M3-E7b, header Stability): at the first step, modes of K, M
 `CarriedLoadOutput::inverse_inertia`, `lag_ratio`, `lag_omega_h`, `lag_factor` (damped spectral radius,
 `lag_spectral_radius`; one mode `lag_growth_factor`, boundary `lag_stability_boundary` = (1 + x^2) / 2); undamped
 radius > 1 refused (InvalidModelError, ruling 67); `MultibodyConfig::refuse_unstable_carried` is a test seam only.
+Work and validity (brief M3-E7c, ruling 69, header Work and validity): per carrying member `MemberOutput::carried_work`
+(cumulative h Q_n . v_{n+1}), `carried_force`/`peak_carried_force`, `quasi_static_deflection`/`peak_quasi_static`
+(node compliances and gravity deflection from the elastic modes at load, `member_compliance_`), `dynamic_ratio`,
+`peak_ratio`, `unresolved` + `unresolved_time` above `carried_ratio_limit` = 2 (1 + `carried_validity_margin` 0.02);
+information only, nothing clamped.
+Carried mass (brief M3-E7d, ruling 70 b, header Carried mass): `mass_matrix` adds m_c G^T G per carried joint (G v the
+lever-weighted deflection rate at the foot point along member y relative to the parent, `carried_rate_row`; m_c the
+carried body's tree subtree, `carried_mass`), at the start-of-step configuration; no added weight, zero along the
+parent's rigid motion, no rotary inertia; its force -B q'' goes into the recorded reactions
+(`add_carried_inertia_wrenches`). `carried_mass_matrix(q)` for the energy oracle. Stability on the loaded modes:
+|r| <= 1/2, the refusal a guard. `MultibodyConfig::carried_added_mass` false (test seam only) is the E7c one-way pair.
 Mid-run changes (ENG-031 to 034), next step on, each listed in the next step's `outputs().events` (`ModelChange`):
 `set_spring_offset(member, node, offset)` (rest = built + offset), `set_spring_stiffness(member, node, k)`,
 `disable_constraint(c)` / `release_load(c)` (zero rows; twice throws), `release_rope(r)` (same path); `constraint_enabled`, `rope_attached`.

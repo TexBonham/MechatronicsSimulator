@@ -29,7 +29,9 @@ target_link_libraries(mechsim_engine PUBLIC Eigen3::Eigen PRIVATE mechsim_warnin
 
 add_executable(mechsim_engine_tests
     tests/test_carried_loads.cpp
+    tests/test_carried_mass.cpp
     tests/test_carried_stability.cpp
+    tests/test_carried_validity.cpp
     tests/test_constraints.cpp
     tests/test_contact.cpp
     tests/test_energy.cpp
@@ -53,6 +55,7 @@ catch_discover_tests(mechsim_engine_tests)
 add_executable(mechsim_engine_reference
     tests/test_reference_beam.cpp
     tests/test_reference_carried.cpp
+    tests/test_reference_carried_mass.cpp
     tests/test_reference_belt.cpp
     tests/test_reference_buckling.cpp
     tests/test_reference_contact.cpp

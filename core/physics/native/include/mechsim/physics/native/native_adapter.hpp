@@ -41,11 +41,21 @@ struct DrivenSchemeDecayRecord {
 // Per member, document order (ENG-052, PHY-035): the run's largest carried-joint deflection and the lag's stability
 // at load (the carried joint closest to its boundary: r, omega h; the largest per-step factor), shared like the decay
 // record so it outlives the adapter. A member that carries nothing, or whose parent is fixed across it, holds zeros.
+// The validity fields (brief M3-E7c, ruling 69; member_loads.hpp, Work and validity) are the engine's last
+// MemberOutput values: the pair's work since load, the largest rerouted force and quasi-static deflection, the
+// largest dynamic ratio, and whether and from when the one-way result is not valid. The kernel's types do not carry
+// them: this record is the only route out.
 struct CarriedMemberRecord {
     double deflection = 0.0;   // m
     double lag_ratio = 0.0;
     double lag_omega_h = 0.0;
     double lag_factor = 0.0;
+    double work = 0.0;               // J
+    double peak_force = 0.0;         // N
+    double peak_quasi_static = 0.0;  // m
+    double peak_ratio = 0.0;
+    bool unresolved = false;
+    double unresolved_time = 0.0;  // s, engine time of the first flagged step
 };
 struct CarriedRecord {
     std::vector<CarriedMemberRecord> members;

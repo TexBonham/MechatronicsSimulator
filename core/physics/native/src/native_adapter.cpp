@@ -1097,7 +1097,15 @@ void NativeAdapter::step() {
             record.lag_factor = std::max(record.lag_factor, c.lag_factor);
         }
         for (std::size_t m = 0; m < e.carried_deflection.size(); ++m) {
-            e.carried->members.at(m).deflection = e.carried_deflection[m];
+            CarriedMemberRecord& record = e.carried->members.at(m);
+            const eng::MemberOutput& member = provider.outputs().members[m];
+            record.deflection = e.carried_deflection[m];
+            record.work = member.carried_work;
+            record.peak_force = member.peak_carried_force;
+            record.peak_quasi_static = member.peak_quasi_static;
+            record.peak_ratio = member.peak_ratio;
+            record.unresolved = member.unresolved;
+            record.unresolved_time = member.unresolved_time;
         }
     }
     e.last_health.max_constraint_drift = drift;

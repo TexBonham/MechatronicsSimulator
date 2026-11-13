@@ -35,6 +35,10 @@ using mechsim::engine::test::start_state;
 
 // The lagged pair's stability (ENG-052, brief M3-E7b; derivation in member_loads.hpp, Stability): per bending mode
 // (z - r)(z - 1)^2 + 2 zeta x z^2 (z - 1) + x^2 z^3 = 0, growth exactly when r > (1 + x^2) / 2 undamped.
+// With the carried mass on the member (brief M3-E7d) the same cubic holds on the modes of K and H + B, and
+// |r| <= 1/2 below every boundary: the refusal is out of reach of a single mode. The E7b cases that reach and cross
+// the boundary therefore run the one-way pair without the carried mass (MultibodyConfig::carried_added_mass, a test
+// seam): they test the lag's recursion and the refusal, which the engine keeps as a guard.
 
 namespace {
 
@@ -48,15 +52,21 @@ CarriedRig free_rig(double carriage_mass) {
     return rig;
 }
 
-MultibodyConfig unchecked() {
+MultibodyConfig one_way() {
     MultibodyConfig config;
+    config.carried_added_mass = false;
+    return config;
+}
+
+MultibodyConfig unchecked() {
+    MultibodyConfig config = one_way();
     config.refuse_unstable_carried = false;
     return config;
 }
 
-CarriedLoadOutput lag_at(double carriage_mass) {
+CarriedLoadOutput lag_at(double carriage_mass, const MultibodyConfig& config = unchecked()) {
     const CarriedRig rig = free_rig(carriage_mass);
-    MultibodyProvider provider(rig.model, unchecked());
+    MultibodyProvider provider(rig.model, config);
     State state = start_state(provider, rig.carriage, 0.5);
     run_steps(provider, state, 1, step);
     return provider.outputs().carried.front();
@@ -156,7 +166,7 @@ TEST_CASE("carried: a parent fixed across the member is feed-forward and publish
 TEST_CASE("carried: a free parent above the boundary is refused naming member, joint and r", "[ENG-052]") {
     const double mass = mass_at_factor(1.01);
     const CarriedRig rig = free_rig(mass);
-    MultibodyProvider provider(rig.model);
+    MultibodyProvider provider(rig.model, one_way());
     State state = start_state(provider, rig.carriage, 0.5);
     SemiImplicitEuler integrator(StepConfig{step});
     try {
@@ -184,7 +194,7 @@ TEST_CASE("carried: a free parent just below the boundary stays within its deriv
                 "period %d steps\n",
                 mass, lag.inverse_inertia, lag.lag_ratio, boundary, lag.lag_omega_h, lag.lag_factor, period);
     REQUIRE(lag.lag_factor < 1.0);
-    const std::vector<double> amplitude = envelope(mass, MultibodyConfig{}, windows, period);
+    const std::vector<double> amplitude = envelope(mass, one_way(), windows, period);
     // Envelope, not a per-step inequality: window w starts (w - 1) periods after the end of window 0, so the
     // slowest eigenvector's amplitude there is at most A_0 factor^((w - 1) period), A_0 at most window 0's largest
     // sample divided by cos(theta / 2) (a sampled sinusoid with phase step theta = x / sqrt(1 - r) peaks within
@@ -217,4 +227,35 @@ TEST_CASE("carried: above the boundary, unchecked, the member grows at the deriv
                 mass, lag.lag_ratio, lag_stability_boundary(lag.lag_omega_h), lag.lag_omega_h, lag.lag_factor,
                 predicted, measured, amplitude[first], amplitude[windows - 1]);
     CHECK(std::abs(measured / predicted - 1.0) <= 0.05);
+}
+
+TEST_CASE("carried: with the carried mass a free parent's lag stays below one half for any mass and decays",
+          "[ENG-052]") {
+    // member_loads.hpp, Stability, with the carried mass: |r| <= a b <= (a^2 + b^2) / 2 <= 1/2 on every mode of K and
+    // H + B, so every published r is at most 1/2 (the bound, not a fit), below its boundary (1 + x^2) / 2, and the
+    // coupled undamped step (lag_factor, no node damping here) stays below 1. Masses from 1/500 to 200 times the
+    // parent's, through E7b's refusal at about one parent mass. A 20 kg carriage (four parent masses, E7b's growth
+    // well past the boundary) then runs a hundred periods of the E7b envelope check (window w bounded by window 0
+    // times factor^((w - 1) period), period from the root's phase).
+    for (const double mass : {0.01, 1.0, 5.0, 20.0, 100.0, 1000.0}) {
+        const CarriedLoadOutput lag = lag_at(mass, MultibodyConfig{});
+        std::printf("carried mass %.6g kg: r %.6g, x %.6g, boundary %.6g, undamped factor %.12g\n", mass,
+                    lag.lag_ratio, lag.lag_omega_h, lag_stability_boundary(lag.lag_omega_h), lag.lag_factor);
+        CAPTURE(mass, lag.lag_ratio, lag.lag_factor);
+        CHECK(lag.inverse_inertia > 0.0);
+        CHECK(std::abs(lag.lag_ratio) <= 0.5);
+        CHECK(lag.lag_ratio < lag_stability_boundary(lag.lag_omega_h));
+        CHECK(lag.lag_factor < 1.0);
+    }
+    const double mass = 20.0;
+    const CarriedLoadOutput lag = lag_at(mass, MultibodyConfig{});
+    const int period = period_steps(lag);
+    const int windows = 100;
+    const std::vector<double> amplitude = envelope(mass, MultibodyConfig{}, windows, period);
+    const double theta = lag.lag_omega_h / std::sqrt(1.0 - lag.lag_ratio);
+    const double start = amplitude.front() / std::cos(0.5 * theta);
+    for (int w = 1; w < windows; ++w) {
+        const double bound = start * std::pow(lag.lag_factor, static_cast<double>((w - 1) * period));
+        CHECK(amplitude[static_cast<std::size_t>(w)] <= bound);
+    }
 }

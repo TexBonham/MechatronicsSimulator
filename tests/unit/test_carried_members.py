@@ -317,21 +317,57 @@ def test_a_run_reports_each_carrying_member_s_deflection_and_lag_after_the_run()
     adapter = core.NativeAdapter()
     adapter.load(core.PreparedModel(prepared.model_json, "", prepared.version), core.Rate(1000))
     record = adapter.carried_record()
-    assert record.values() == [(0.0, 0.0, 0.0, 0.0)]
+    assert record.values() == [(0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, False, 0.0)]
     for _ in range(50):
         adapter.step()
     deflection = adapter.carried_deflection()[0]
     assert deflection > 0.0
-    assert record.values() == [(deflection, 0.0, 0.0, 0.0)]
+    assert record.values()[0][:4] == (deflection, 0.0, 0.0, 0.0)
     lines = translate.carried_member_lines(model, record.values())
     assert len(lines) == 1
     assert lines[0].startswith("lumped member 'bar_beam': largest deflection at a carried joint over the run")
     assert f"{deflection:.6g} m" in lines[0]
     assert "parent fixed across the member" in lines[0]
-    assert translate.carried_member_lines(_physics(_design([])), [(0.0, 0.0, 0.0, 0.0)]) == ()
+    assert translate.carried_member_lines(_physics(_design([])), [(0.0,) * 10]) == ()
     free = translate.carried_member_lines(model, [(1e-4, 0.25, 0.1, 0.999)])
     assert "lag ratio r 0.25 against its boundary (1 + x^2) / 2 = 0.505 at omega h 0.1" in free[0]
     assert "largest per-step factor 0.999" in free[0]
+
+
+@pytest.mark.req("PHY-035", "ENG-052")
+def test_a_run_reports_each_carrying_member_s_work_ratio_and_validity() -> None:
+    """Brief M3-E7c (ruling 69): the record carries the engine's work, largest force, quasi-static deflection and
+    ratio; the run-end lines state them per carrying member, and a flagged member gets the not-valid line with its
+    time. The resting carriage loads the member from rest: positive work, a ratio below the limit, not flagged."""
+    assert translate.CARRIED_RATIO_LIMIT == core.CARRIED_RATIO_LIMIT
+    model = _physics(_design(["slide"]))
+    prepared = prepare_model(model, None, 1e-3)
+    adapter = core.NativeAdapter()
+    adapter.load(core.PreparedModel(prepared.model_json, "", prepared.version), core.Rate(1000))
+    record = adapter.carried_record()
+    for _ in range(50):
+        adapter.step()
+    value = record.values()[0]
+    work, force, quasi_static, ratio, unresolved, since = value[4:]
+    assert work > 0.0
+    assert force > 0.0
+    assert quasi_static > 0.0
+    assert 0.0 < ratio < core.CARRIED_RATIO_LIMIT
+    assert unresolved is False
+    assert since == 0.0
+    lines = translate.carried_validity_lines(model, record.values())
+    assert len(lines) == 1
+    assert lines[0].startswith("lumped member 'bar_beam': the carried load-path pair did")
+    assert f"{work:.6g} J" in lines[0]
+    assert f"so far) {ratio:.6g} against the limit 2.04" in lines[0]
+    flagged = translate.carried_validity_lines(model, [(1e-3, 0.0, 0.0, 0.0, 10.7, 50.0, 1e-3, 13.5, True, 2.125)])
+    assert len(flagged) == 2
+    assert "so far) 13.5 against" in flagged[0]
+    assert flagged[1].startswith(
+        "lumped member 'bar_beam': the one-way carried-load result is not valid from t = 2.125 s"
+    )
+    assert "ruling 69" in flagged[1]
+    assert translate.carried_validity_lines(_physics(_design([])), [(0.0,) * 10]) == ()
 
 
 @pytest.mark.req("PHY-035")

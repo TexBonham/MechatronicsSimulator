@@ -1083,7 +1083,8 @@ struct CarriedBar {
     // and the eight segments, published after the neutral body), plus the carried weight's potential m_c g u(x_c), u
     // the lever-rule interpolation of the load nodes' heights (ENG-052: the pair's work with a constant load). The
     // roller (1e-3 of the member's mass, moving along x at second order in the deflection, about 1e-5 m/s here) holds
-    // below 1e-13 J and is left out.
+    // below 1e-13 J and is left out. The carried mass's kinetic energy m_c u'(x_c)^2 / 2 (brief M3-E7d: the carriage's
+    // mass loads the member's deflection motion), u' the same interpolation of the load nodes' vertical speeds.
     [[nodiscard]] double energy(const NativeAdapter& adapter) const {
         const auto& out = adapter.outputs();
         const double l = 1.0 / segments;
@@ -1092,6 +1093,7 @@ struct CarriedBar {
         std::vector<double> angles;
         std::vector<double> xs{0.0};
         std::vector<double> ys{out.bodies[1].position[1]};
+        std::vector<double> rates{out.bodies[1].linear_velocity[1]};
         for (std::size_t b = 1; b < out.bodies.size(); ++b) {
             const auto& pose = out.bodies[b];
             double span = l;
@@ -1110,10 +1112,12 @@ struct CarriedBar {
             if (b > 1) {
                 xs.push_back((static_cast<double>(b) - 1.5) * l);
                 ys.push_back(pose.position[1]);
+                rates.push_back(origin.y());
             }
             if (b + 1 == out.bodies.size()) {
                 xs.push_back(1.0);
                 ys.push_back(pose.position[1] + (2.0 * half.y()));
+                rates.push_back(origin.y() + (2.0 * omega.cross(half).y()));
             }
         }
         const double k = ei / l;
@@ -1128,6 +1132,8 @@ struct CarriedBar {
         }
         const double w = (xs[node + 1] - x) / (xs[node + 1] - xs[node]);
         total += carriage * g * ((w * ys[node]) + ((1.0 - w) * ys[node + 1]));
+        const double rate = (w * rates[node]) + ((1.0 - w) * rates[node + 1]);
+        total += 0.5 * carriage * rate * rate;
         return total;
     }
 };
