@@ -65,3 +65,6 @@ type live in the root `CLAUDE.md` dispatch table once measured.
 | 2026-11-12 | M3-E5 regularised efficiency switch, screw lock row (wip/05-e5 8beefd2) | module-writer (opus) | 220K | 94 calls; ctest debug-sanitize 509 |
 | 2026-11-12 | M3 review: E5 (wip/05-e5 8beefd2): accept after one small fix round, 2 major, 2 minor; ruling 55 (review-m3-e5.md) | Fable review (general-purpose) | 102K | 9 calls |
 | 2026-11-12 | M3-E5 invariant audit: clean | invariant-auditor (sonnet) | 30K | 5 calls |
+| 2026-11-12 | M3-I2b integrity fix round, facade run sets (wip/05-i2 0070358) | module-writer (opus) | 258K | 166 calls, over the 110 cap; ctest debug-sanitize 526 |
+| 2026-11-12 | M3-I2 re-review after I2b: accept; 3 minor items carried to X1 | Fable review (general-purpose), resumed | ~20K | 5 calls |
+| 2026-11-12 | M3-E5 fix round (wip/05-e5 903a63d) and re-review: accept | module-writer (opus) and Fable review, both resumed | ~45K | 30 + 3 calls |
