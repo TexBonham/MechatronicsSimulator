@@ -865,7 +865,7 @@ TEST_CASE("native adapter: a joint undriven in the previous tick takes the tick-
 TEST_CASE("native adapter: the scheme decay record outlives the adapter", "[PHY-031]") {
     std::shared_ptr<const mechsim::physics::native::DrivenSchemeDecayRecord> record;
     {
-        Doc doc = slider(1.0);
+        const Doc doc = slider(1.0);
         NativeAdapter adapter;
         load(adapter, doc);
         record = adapter.scheme_decay_record();

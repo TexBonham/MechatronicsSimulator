@@ -243,6 +243,7 @@ void bind_adapter(py::module_& m) {
             "values",
             [](const physics::native::DrivenSchemeDecayRecord& record) {
                 std::vector<std::pair<std::size_t, double>> out;
+                out.reserve(record.values.size());
                 for (const physics::native::DrivenSchemeDecay& d : record.values) {
                     out.emplace_back(d.joint, d.decay);
                 }
