@@ -224,6 +224,13 @@ private:
         double sign = 1.0;  // +1 lower (q >= bound), -1 upper (q <= bound)
     };
 
+    struct LockRow {
+        Eigen::Index transmission = 0;
+        Eigen::Index dof = 0;  // the shaft's velocity index
+        double sign = 1.0;     // s: s omega >= 0 (ruling 48)
+        bool bilateral = false;  // omega = 0, impulse of either sign
+    };
+
     MultibodyModel model_;
     MultibodyConfig config_;
     std::vector<Eigen::Index> q_offset_;
@@ -257,6 +264,8 @@ private:
     mutable std::vector<ConstraintError> error_;
     mutable std::vector<double> limit_impulse_;    // per limits_ row, >= 0
     mutable Eigen::VectorXd limit_overshoot_;      // per velocity DOF
+    mutable std::vector<LockRow> lock_rows_;       // from the last evaluate, transmission order (ruling 48)
+    mutable std::vector<double> lock_impulse_;     // per lock_rows_ row, >= 0
     ContactModel contact_model_;
     std::vector<Shape> contact_shapes_;
     std::vector<WeldAttachment> attachments_;
