@@ -45,9 +45,10 @@ def test_payload_body_hangs_below_its_carrier_with_box_inertia(built: object) ->
     assert (body.name, body.parent, body.joint.type) == ("payload", "world", "free")
     assert body.mass == 2.0
     assert body.inertia.ixx == pytest.approx(2.0 * PAYLOAD_EDGE**2 / 6.0, rel=1e-15)
-    # hook origin (0.1, 0.1, 0.34) at the reference configuration; hook box 0.04 m: extent sqrt(3) 0.02.
+    # hook origin (0.1, 0.1, 0.54) at the reference configuration (rail_x 1.2 m up, M3-X1a); hook box 0.04 m: extent
+    # sqrt(3) 0.02.
     drop = math.sqrt(3.0) * 0.02 + PAYLOAD_EDGE / 2.0 + PAYLOAD_CLEARANCE
-    assert body.joint.position == pytest.approx((0.1, 0.1, 0.34 - drop), abs=1e-12)
+    assert body.joint.position == pytest.approx((0.1, 0.1, 0.54 - drop), abs=1e-12)
 
 
 @pytest.mark.req("BLD-036")
