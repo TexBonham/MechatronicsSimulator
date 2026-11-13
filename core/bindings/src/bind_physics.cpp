@@ -2,6 +2,7 @@
 #include <pybind11/stl.h>
 
 #include <cstddef>
+#include <memory>
 #include <span>
 #include <string>
 #include <utility>
@@ -236,6 +237,19 @@ void bind_adapter(py::module_& m) {
         .def("integrator", &physics::mujoco::MujocoAdapter::integrator)
         .def("timestep", &physics::mujoco::MujocoAdapter::timestep);
 
+    py::class_<physics::native::DrivenSchemeDecayRecord, py::smart_holder>(
+        m, "DrivenSchemeDecayRecord", "The native run's largest scheme decay per driven joint, shared; outlives the adapter.")
+        .def(
+            "values",
+            [](const physics::native::DrivenSchemeDecayRecord& record) {
+                std::vector<std::pair<std::size_t, double>> out;
+                for (const physics::native::DrivenSchemeDecay& d : record.values) {
+                    out.emplace_back(d.joint, d.decay);
+                }
+                return out;
+            },
+            "A copy: [(joint, decay)] in joint order.");
+
     py::class_<physics::native::NativeAdapter, PhysicsAdapter, py::smart_holder>(
         m, "NativeAdapter", "The own engine behind the PhysicsAdapter interface (PHY-020); load the native translation.")
         .def(py::init<>())
@@ -251,7 +265,13 @@ void bind_adapter(py::module_& m) {
                 return out;
             },
             "Per driven joint (neutral index, joint order): the largest scheme decay pi omega h of the run (rulings "
-            "44, 45).");
+            "44, 45).")
+        .def(
+            "scheme_decay_record",
+            [](const physics::native::NativeAdapter& adapter) {
+                return std::const_pointer_cast<physics::native::DrivenSchemeDecayRecord>(adapter.scheme_decay_record());
+            },
+            "The same values as a shared record: take it before PhysicsParty takes the adapter, read it after the run.");
 
     py::class_<kernel::NullPhysicsAdapter, PhysicsAdapter, py::smart_holder>(m, "NullPhysicsAdapter")
         .def(py::init<>())

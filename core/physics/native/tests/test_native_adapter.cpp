@@ -9,6 +9,7 @@
 #include <cstddef>
 #include <cstdio>
 #include <limits>
+#include <memory>
 #include <numbers>
 #include <string>
 #include <vector>
@@ -538,10 +539,8 @@ struct SagCase {
     std::vector<double> forces;
 };
 
-void check_static_sag(const char* name, const SagCase& c, double k, double d) {
+long sag_settling(const SagCase& c, double k, double d) {
     const double h = 1e-3;
-    const double target = c.n * c.force / k;
-    REQUIRE(k * target / d < omega_s);
     Eigen::Matrix2d ab;
     ab << c.n * c.n, -c.n, -c.n, 1.0;
     long longest = 0;
@@ -554,7 +553,13 @@ void check_static_sag(const char* name, const SagCase& c, double k, double d) {
         longest = std::max(longest, settling_steps(Eigen::Vector2d(c.shaft_inertia, c.output_inertia).asDiagonal(),
                                                    stiffness, damping, h));
     }
-    const long derived = 1 + longest;
+    return 1 + longest;
+}
+
+void check_static_sag(const char* name, const SagCase& c, double k, double d) {
+    const double target = c.n * c.force / k;
+    REQUIRE(k * target / d < omega_s);
+    const long derived = sag_settling(c, k, d);
     NativeAdapter adapter;
     load(adapter, c.doc);
     long observed = -1;
@@ -574,6 +579,50 @@ void check_static_sag(const char* name, const SagCase& c, double k, double d) {
     std::printf("  %s static sag: n F / K %.15g measured %.15g; settling derived %ld steps, observed %ld\n", name,
                 target, lag, derived, observed);
     CHECK_THAT(lag, WithinRel(target, sag_tolerance));
+}
+
+// Move then stop (ruling 47): the rest ramps at u = 100 omega_s for `ramp` steps (the shaft runs at u, the gain at
+// n / eta exactly), then holds. Let L be the last step of the run whose shaft speed is at or above omega_s; from L on
+// every step is below omega_s, so the scheme is the linear backward Euler of sag_settling and its count N (rho^N <=
+// 1e-20, set by the creep tau = (n F (1 / eta - 1) / omega_s + D) / K) applies from the state at L, whose deviation
+// is at most of the order of the moving lag (D u + n F / eta) / K, about 1e2 of the sag, inside the 1e14 margin. The
+// run lasts ramp + 4 N steps and asserts L + N within it, then the sag n F / K (1e-6) at L + N and at the end.
+void check_stop_sag(const char* name, const SagCase& c, double k, double d, int ramp) {
+    const double h = 1e-3;
+    const double u = 100.0 * omega_s;
+    const double target = c.n * c.force / k;
+    const long derived = sag_settling(c, k, d);
+    const long horizon = ramp + (4 * derived);
+    NativeAdapter adapter;
+    load(adapter, c.doc);
+    std::vector<double> lags;
+    long last_fast = -1;
+    for (long i = 0; i < horizon; ++i) {
+        const double rest = u * h * static_cast<double>(std::min<long>(i + 1, ramp));
+        PhysicsInputs inputs;
+        inputs.generalized_forces = c.forces;
+        inputs.joint_drives.push_back(JointDrive{0, rest, k, d, true});
+        adapter.set_inputs(inputs);
+        adapter.step();
+        if (std::abs(adapter.outputs().bodies[0].angular_velocity[2]) >= omega_s) {
+            last_fast = i;
+        }
+        lags.push_back(rest - adapter.outputs().joint_positions[0]);
+    }
+    REQUIRE(last_fast >= ramp / 2);
+    REQUIRE(last_fast + derived < horizon);
+    long observed = -1;
+    for (long i = last_fast + 1; i < horizon && observed < 0; ++i) {
+        if (std::abs(lags[static_cast<std::size_t>(i)] - target) <= sag_tolerance * target) {
+            observed = i - last_fast;
+        }
+    }
+    const double settled = lags[static_cast<std::size_t>(last_fast + derived)];
+    std::printf("  %s stop sag: n F / K %.15g measured %.15g; last step above omega_s %ld, derived %ld more, "
+                "observed %ld\n",
+                name, target, settled, last_fast + 1, derived, observed);
+    CHECK_THAT(settled, WithinRel(target, sag_tolerance));
+    CHECK_THAT(lags.back(), WithinRel(target, sag_tolerance));
 }
 
 // Runs a drive on joint 0 at rest rate u (end-of-step rest u t_n) for steps; returns rest - q at the end.
@@ -621,6 +670,7 @@ TEST_CASE("native adapter: a belt drive is lossless at rest and follows the effi
         c.coupling_stiffness = 1e5;
         c.coupling_damping = 50.0;
         check_static_sag("belt", c, 1e5, 2500.0);
+        check_stop_sag("belt", c, 1e5, 2500.0, 1000);
     }
     {
         NativeAdapter adapter;
@@ -744,6 +794,7 @@ TEST_CASE("native adapter: a gear pair turns the output at the ratio and loses t
         c.coupling_damping = 1.0;
         c.forces = {0.0, -f};
         check_static_sag("gear", c, 1e5, 1500.0);
+        check_stop_sag("gear", c, 1e5, 1500.0, 1000);
     }
     NativeAdapter adapter;
     load(adapter, gear());
@@ -774,6 +825,55 @@ TEST_CASE("native adapter: substeps interpolate the drive rest so the steady lag
         std::printf("  substeps %d: lag %.15g closed form %.15g\n", substeps, lag, ((d * u) + (m * g)) / k);
         CHECK_THAT(lag, WithinRel(((d * u) + (m * g)) / k, 1e-6));
     }
+}
+
+TEST_CASE("native adapter: a joint undriven in the previous tick takes the tick-end rest on every substep",
+          "[PHY-034][PHY-031]") {
+    // Ruling 49, PHY-034 row. A 1 kg slider without gravity at 4 substeps (h = 2.5e-4): a tick without a drive, then
+    // a tick driven to r1 = 0.01 (no previous rest: r1 on all four substeps), then one driven to r2 = 0.02 (rest
+    // r1 + (r2 - r1) s / 4 on substep s). Each engine step is the scheme's own recurrence for a drive K = 100, D = 0:
+    // (m + h^2 K) dv = h K (r - q) - h^2 K v, v += dv, q += h v (1e-12).
+    const double m = 1.0;
+    const double k = 100.0;
+    const double h = 2.5e-4;
+    Doc doc = slider(m);
+    doc.gravity = "[0, 0, 0]";
+    doc.substeps = 4;
+    NativeAdapter adapter;
+    load(adapter, doc);
+    adapter.step();
+    double q = 0.0;
+    double v = 0.0;
+    const auto engine_step = [&](double rest) {
+        v += ((h * k * (rest - q)) - (h * h * k * v)) / (m + (h * h * k));
+        q += h * v;
+    };
+    drive(adapter, 0.01, k, 0.0);
+    adapter.step();
+    for (int s = 1; s <= 4; ++s) {
+        engine_step(0.01);
+    }
+    CHECK_THAT(adapter.outputs().joint_positions[0], WithinRel(q, 1e-12));
+    drive(adapter, 0.02, k, 0.0);
+    adapter.step();
+    for (int s = 1; s <= 4; ++s) {
+        engine_step(0.01 + (0.01 * s / 4.0));
+    }
+    CHECK_THAT(adapter.outputs().joint_positions[0], WithinRel(q, 1e-12));
+}
+
+TEST_CASE("native adapter: the scheme decay record outlives the adapter", "[PHY-031]") {
+    std::shared_ptr<const mechsim::physics::native::DrivenSchemeDecayRecord> record;
+    {
+        Doc doc = slider(1.0);
+        NativeAdapter adapter;
+        load(adapter, doc);
+        record = adapter.scheme_decay_record();
+        drive(adapter, 0.0, 1e4, 0.0);
+        adapter.step();
+    }
+    REQUIRE(record->values.size() == 1);
+    CHECK_THAT(record->values[0].decay, WithinRel(std::numbers::pi * 0.1, 1e-12));
 }
 
 TEST_CASE("native adapter: the largest scheme decay per driven joint is kept over the run", "[PHY-031][PHY-034]") {

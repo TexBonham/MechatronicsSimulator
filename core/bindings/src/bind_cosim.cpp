@@ -401,9 +401,6 @@ void bind_cosim(py::module_& m) {
         m, "PhysicsParty", "A loaded PhysicsAdapter as the physics party (KER-016); takes ownership of the adapter.")
         .def(py::init<std::unique_ptr<kernel::PhysicsAdapter>, kernel::PhysicsPartyConfig>(), py::arg("adapter"),
              py::arg("config") = kernel::PhysicsPartyConfig{})
-        .def_property_readonly(
-            "adapter", [](kernel::PhysicsParty& party) -> kernel::PhysicsAdapter& { return party.adapter(); },
-            py::return_value_policy::reference_internal, "The owned adapter, as its registered type.")
         .def("schedule_slip", &kernel::PhysicsParty::schedule_slip, py::arg("transmission"), py::arg("start"),
              py::arg("end"), py::arg("fraction"))
         .def(

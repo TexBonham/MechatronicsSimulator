@@ -351,7 +351,7 @@ struct NativeAdapter::Engine {
     std::vector<kernel::ModelChangeEvent> pending_changes;  // mid-run spring changes, listed in the next tick
     std::vector<Eigen::Index> node_bodies;  // member chain bodies, published after the neutral bodies, in order
     std::vector<std::pair<std::size_t, double>> previous_rests;  // last tick's enabled drives: joint, end rest
-    std::vector<DrivenSchemeDecay> scheme_decay;                  // joint order, largest over the run
+    std::shared_ptr<DrivenSchemeDecayRecord> scheme_decay;       // joint order, largest over the run
 };
 
 namespace {
@@ -450,6 +450,8 @@ void NativeAdapter::load(const kernel::PreparedModel& prepared, const kernel::Ra
         throw AdapterError(0, "load: the native adapter takes no engine artifact (the engine model is the JSON)");
     }
     auto e = std::make_unique<Engine>();
+    decay_record_->values.clear();
+    e->scheme_decay = decay_record_;
     e->rate = physics_rate;
     try {
         const json::Value doc = json::Value::parse(prepared.neutral_model_json);
@@ -951,10 +953,11 @@ void NativeAdapter::keep_scheme_decay(Engine& e) {
             continue;
         }
         const std::size_t neutral = static_cast<std::size_t>(joint);
-        auto at = std::ranges::find_if(e.scheme_decay,
+        std::vector<DrivenSchemeDecay>& kept = e.scheme_decay->values;
+        auto at = std::ranges::find_if(kept,
                                        [neutral](const DrivenSchemeDecay& d) { return d.joint >= neutral; });
-        if (at == e.scheme_decay.end() || at->joint != neutral) {
-            at = e.scheme_decay.insert(at, DrivenSchemeDecay{neutral, 0.0});
+        if (at == kept.end() || at->joint != neutral) {
+            at = kept.insert(at, DrivenSchemeDecay{neutral, 0.0});
         }
         at->decay = std::max(at->decay, decay.maxCoeff());
     }
@@ -1209,8 +1212,10 @@ std::vector<double> NativeAdapter::rope_load_end_tensions() const {
 }
 
 std::vector<DrivenSchemeDecay> NativeAdapter::driven_scheme_decay() const {
-    return engine("driven_scheme_decay").scheme_decay;
+    return engine("driven_scheme_decay").scheme_decay->values;
 }
+
+std::shared_ptr<const DrivenSchemeDecayRecord> NativeAdapter::scheme_decay_record() const { return decay_record_; }
 
 // ===== Mid-run changes ===================================================
 
