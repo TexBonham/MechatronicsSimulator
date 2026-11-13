@@ -81,3 +81,4 @@ type live in the root `CLAUDE.md` dispatch table once measured.
 | 2026-11-13 | M3 review: I3 (wip/05-i3 eef3732): fix round needed, 1 blocker (swing angle reads displacements), 2 major, 4 minor; rail_x zero deflection traced to the chain's single bending plane | Fable review (general-purpose), resumed | ~45K | 9 calls |
 | 2026-11-13 | M3-I3 invariant audit: pass, 2 minor | invariant-auditor (sonnet) | 48K | 4 calls |
 | 2026-11-13 | M3-E6 lift jump on a stop at a limit: adapter spring-law blend per substep, engine efficiency loss as implicit damping (wip/05-e6 715dab3) | module-writer (opus) | 211K | 97 calls |
+| 2026-11-13 | M3 review: E6 (wip/05-e6 715dab3): accept, 4 minor; ruling 66 amends 47 | Fable review (general-purpose), resumed | ~50K | 7 calls |
