@@ -60,7 +60,7 @@ def _bar_data(supports: list[str], **flexible: Any) -> dict[str, Any]:
         "version": "1.0.0",
         "source_hash": "unset",
         "status": "release",
-        "environment": {"gravity": ["0 m/s**2", "0 m/s**2", "-9.81 m/s**2"], "ambient_temperature": "293.15 K"},
+        "environment": {"gravity": ["0 m/s**2", "-9.81 m/s**2", "0 m/s**2"], "ambient_temperature": "293.15 K"},
         "bodies": [body],
         "joints": [
             {

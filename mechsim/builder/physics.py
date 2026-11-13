@@ -220,6 +220,11 @@ def _check_supports(design: Design, collector: Collector) -> None:
                 )
 
 
+# Rounding of a placement's rotation (a w-first quaternion of 1 / sqrt 2 entries is not exact) moves a travel end by
+# about 1e-16 m; a span end is reached when within this.
+TRAVEL_TOLERANCE = 1e-9
+
+
 def _check_carried_travel(design: Design, registry: Registry, collector: Collector) -> None:
     """A carried joint's origin projects onto the member's span [0, L] over its whole travel (ENG-052, BLD-037).
 
@@ -264,11 +269,44 @@ def _check_carried_travel(design: Design, registry: Registry, collector: Collect
                 ends = [origin[0] + along * _f(limits.lower), origin[0] + along * _f(limits.upper)]
             low = min(ends)
             high = max(ends)
-            if low < 0.0 or high > length:
+            if low < -TRAVEL_TOLERANCE or high > length + TRAVEL_TOLERANCE:
                 collector.failures.append(
                     f"{label}: origin travels over x in [{low:.6g}, {high:.6g}] m, outside the member's span "
                     f"[0, {length:.6g}] m by {max(-low, high - length):.6g} m (ENG-052)"
                 )
+
+
+PLANE_TOLERANCE = 1e-9
+
+
+def _check_bending_plane(design: Design, ordered: list[tuple[Body, Joint]], collector: Collector) -> None:
+    """A note per horizontal flexible member (frame x normal to gravity at the reference configuration) whose bending
+    plane, the frame's x-y plane, gravity misses entirely (gravity along the frame z): the lumped chain bends about
+    its frame z only, so such a member cannot sag (BLD-038, ruling 65). Tolerance on unit vectors: PLANE_TOLERANCE."""
+    gravity = _floats(design.environment.gravity)
+    magnitude = math.sqrt(sum(value * value for value in gravity))
+    if magnitude == 0.0:
+        return
+    down = tuple(value / magnitude for value in gravity)
+    poses: dict[str, tuple[mass.Vector, mass.Quaternion]] = {WORLD: (mass.ORIGIN, mass.IDENTITY)}
+    for body, joint in ordered:
+        placement = joint.placement
+        if isinstance(placement, OpenValue):
+            raise TypeError("open placement reached the bending-plane check")
+        poses[body.name] = mass.compose(poses[joint.parent], _floats(placement.position), placement.orientation)
+        if body.flexible is None:
+            continue
+        frame = mass.rotation(poses[body.name][1])
+        along = sum(frame[row][0] * down[row] for row in range(3))
+        in_plane = sum(frame[row][1] * down[row] for row in range(3))
+        if abs(along) > PLANE_TOLERANCE or abs(in_plane) > PLANE_TOLERANCE:
+            continue
+        collector.notes.append(
+            f"flexible body '{body.name}': horizontal, with gravity entirely outside its bending plane (along its "
+            "frame z at the reference configuration); the lumped member bends about its frame z only, so it cannot "
+            "sag under its weight or vertical loads: state the frame with y vertical for vertical bending (BLD-038, "
+            "ruling 65)"
+        )
 
 
 def _check_bindings(design: Design, registry: Registry, collector: Collector) -> None:
@@ -860,6 +898,8 @@ def build_physics(
     _check_rotor_bodies(design, rotors, collector)
     if len(collector.pending) > 0 or len(collector.failures) > 0:
         return empty
+    if not rigid_members:
+        _check_bending_plane(design, ordered, collector)
     child_joints = {joint.child: joint for joint in design.joints}
     bodies: list[dict[str, Any]] = []
     shapes: dict[str, list[dict[str, Any]]] = {}

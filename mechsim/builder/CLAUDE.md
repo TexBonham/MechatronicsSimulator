@@ -53,7 +53,11 @@ Neutral quantities are written `repr(value) unit` in SI, validated once. Element
   root clamped or pinned, end free, roller or clamped (a clamped end needs a clamped root). Rigid builds calibrate nothing.
 - Carried joints (BLD-037, ENG-052): `flexible.carries` joints become `LumpedMember.carries` (their child bodies);
   `_check_carried_travel` (not rigid) fails a joint whose origin over its travel leaves [0, L] along the member frame x
-  (prismatic between limits, an open limit unbounded; fixed, revolute, spherical at the placement; planar, free never).
+  (prismatic between limits, an open limit unbounded; fixed, revolute, spherical at the placement; planar, free never),
+  beyond `TRAVEL_TOLERANCE` (1e-9 m, a placement rotation's rounding).
+- Bending plane (BLD-038, ruling 65): `_check_bending_plane` (not rigid) adds a note per flexible body horizontal at
+  the reference configuration (frame x normal to gravity) with gravity along its frame z (`PLANE_TOLERANCE` 1e-9 on unit
+  vectors): the chain bends about frame z only, so state the frame with y vertical.
 - Materials: callers pass `design.schema.design_materials(design)` (the design's overrides applied, MAT-020).
 - Fastenings (BLD-031): `PhysicsModel.fastenings`, one per fixed joint (`mount`, the joint's name) and per body
   fastener entry (`fastener`, `<body>_<kind>[_<index>]`); `PhysicsModel.fastening_index(name)`. Not an element kind.
