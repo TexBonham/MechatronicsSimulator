@@ -11,9 +11,10 @@ PR #6). Plan of record `docs/briefs/round-05/plan.md` (signed off 2026-11-11, wi
 ctest debug-sanitize 426, Python 4252 passed and 130 xfail), N with its fix rounds N2 and N2b (30e8fd9: the native
 adapter over the own engine, opt-in through the run-configuration field `physics.adapter`, default `mujoco`; G3
 and P1 pass on it with flexible rails, beam references within 2 percent; ctest debug-sanitize 454, Python 4320
-passed and 117 xfail). Accepted, landing after a short follow-up: E4 (engine joint limits, friction, additive
-per-step drive; `wip/05-e4`). In flight: I2 (tier 1 integrity party, `wip/05-i2`). Next: N3 (the adapter adopts
-E4; after E4 lands), X1, X2, gate. Briefs of record
+passed and 117 xfail). E4 (a04a371: engine joint limits, joint friction, additive
+per-step joint drive, zero-stretch coupling fix; ctest debug-sanitize 491, Python 4325 passed and 115 xfail). In
+review: N3 (the adapter adopts E4; `wip/05-n3`). In flight: I2 (tier 1 integrity party, `wip/05-i2`). Next: X1, X2,
+gate. Briefs of record
 in `docs/briefs/round-05/`; worktrees `../MechatronicsSimulator-05-<letter>`. Round 4's rulings and gate report
 are below for reference; round 4's cost rows are in `docs/cost-log-archive.md`.
 

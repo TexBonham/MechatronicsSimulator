@@ -56,3 +56,4 @@ type live in the root `CLAUDE.md` dispatch table once measured.
 | 2026-11-12 | M3-E4 fix round: additive drive, anticipatory limit row, driven-only decay with the two-DOF root (wip/05-e4 0f38738) | module-writer (opus), resumed | ~60K | 26 calls; ctest debug-sanitize 478 |
 | 2026-11-12 | M3-E4 re-review: accept; zero-stretch coupling defect in the E2 transmission code found, fixed in a short E4 follow-up | Fable review (general-purpose), resumed | ~35K | 6 calls |
 | 2026-11-12 | M3-E4 follow-up: zero-stretch coupling, start on a bound (wip/05-e4 f6b9729); confirmed by the reviewer; E4 merged | module-writer (opus) and Fable review, both resumed | ~25K | 9 + 3 calls; ctest debug-sanitize 482 |
+| 2026-11-12 | M3-N3 adapter on the engine's limits, friction and drive (wip/05-n3 8e4d3f4); pose series naming and facade `sets` left for a follow-up | module-writer (opus) | 317K | 157 calls, over the 130 cap; ctest debug-sanitize 499 |
