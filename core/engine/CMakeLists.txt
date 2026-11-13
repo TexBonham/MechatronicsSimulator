@@ -40,6 +40,7 @@ add_executable(mechsim_engine_tests
     tests/test_rope.cpp
     tests/test_integrator.cpp
     tests/test_step_config.cpp
+    tests/test_transmission_locking.cpp
     tests/test_transmissions.cpp
 )
 target_link_libraries(mechsim_engine_tests PRIVATE mechsim_engine mechsim_warnings Catch2::Catch2WithMain)

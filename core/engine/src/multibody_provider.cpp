@@ -703,8 +703,9 @@ void MultibodyProvider::add_attachment_terms(const Kinematics& kin, const Eigen:
 // ===== Transmissions =====================================================
 
 // Transmissions (ENG-043 to ENG-048): f gets the shaft torque input, F on the output and -g F on the shaft; in
-// contact K += k a b^T and D += c a b^T, a = [g, -1], b = [n_eff, -1] over (shaft, output); derivation in
-// transmission.hpp.
+// contact K += k a b^T and D += c a b^T, a = [g_k, -1], b = [n_eff, -1] over (shaft, output), and the shaft gets the
+// regularised efficiency damping below omega_s (ruling 47); self-locking rows recorded for solve_constraints in
+// transmission order (ruling 48); derivation in transmission.hpp.
 TransmissionCoupling MultibodyProvider::coupling(Eigen::Index transmission, const Eigen::VectorXd& q,
                                                  const Eigen::VectorXd& v) const {
     const Transmission& t = at(model_.transmissions, transmission);
@@ -718,23 +719,38 @@ TransmissionCoupling MultibodyProvider::coupling(Eigen::Index transmission, cons
             drive += at(shaft_torque_, j);
         }
     }
+    if (t.self_locking) {
+        if (at(driven_, in_v) != 0) {
+            drive += -drive_stiffness_[in_v] * (q[in_q] - drive_rest_[in_v]) - drive_damping_[in_v] * v[in_v];
+        }
+        drive += joint_spring_forces(q, v)[in_v];
+        const Kinematics kin = kinematics(q, v);
+        std::vector<Vector6d> forces;
+        drive -= inverse_dynamics(kin, Eigen::VectorXd::Zero(nv_), Vector6d::Zero(), applied_body_wrenches(kin), false,
+                                  forces)[in_v];
+    }
     return couple(t, at(slip_, transmission), at(slip_offset_, transmission), q[in_q], v[in_v], q[out_q], v[out_v],
-                  drive);
+                  drive, config_.friction_slip_threshold);
 }
 
 void MultibodyProvider::add_transmission_terms(const Eigen::VectorXd& q, const Eigen::VectorXd& v,
                                                DynamicsTerms& terms) const {
+    lock_rows_.clear();
     for (Eigen::Index i = 0; i < count(model_.transmissions.size()); ++i) {
         const Transmission& t = at(model_.transmissions, i);
         const Eigen::Index in = at(v_offset_, t.input_body);
         const Eigen::Index out = at(v_offset_, t.output_body);
         const TransmissionCoupling c = coupling(i, q, v);
-        terms.force[in] += at(shaft_torque_, i) + c.output.shaft_load_torque;
+        terms.force[in] += at(shaft_torque_, i) + c.shaft_torque;
         terms.force[out] += c.output.force;
+        if (c.lock) {
+            lock_rows_.push_back(LockRow{i, in, c.lock_sign, c.lock_bilateral});
+        }
         if (!c.output.in_contact) {
             continue;
         }
-        const Eigen::Vector2d a(c.gain, -1.0);
+        terms.damping(in, in) += c.shaft_damping;
+        const Eigen::Vector2d a(c.stiffness_gain, -1.0);
         const Eigen::Vector2d b(c.n_eff, -1.0);
         const Eigen::Matrix2d ab = a * b.transpose();
         const std::array<Eigen::Index, 2> dof = {in, out};
@@ -915,14 +931,23 @@ std::vector<ConstraintError> MultibodyProvider::constraint_errors(const Eigen::V
 // J A^-1 J^T lambda = -J v exactly (pseudo-inverse, so rows with no reachable motion stay at zero), then every
 // travel-limit row (ENG-013, ruling 43) as an anticipatory projected scalar row: J = s e_k, lambda >= 0,
 // s v >= -max(gap, 0) / h with gap = s (q - bound) at the step start, so a step that would pass the bound lands on
-// it and a coordinate on or (within the drift threshold) past the bound gets s v >= 0 (push only, zero restitution). A binding row sets v_k to its target exactly.
+// it and a coordinate on or (within the drift threshold) past the bound gets s v >= 0 (push only, zero
+// restitution), then every self-locking screw row (ruling 48) in transmission order: J = s e_shaft, lambda >= 0,
+// s omega >= 0. A binding scalar row sets its velocity to its target exactly.
 // A start coordinate past its bound by more than the drift threshold is an invalid state, never moved silently.
 int MultibodyProvider::solve_constraints(double t, double h, const Eigen::VectorXd& q,
                                          const Eigen::MatrixXd& system, Eigen::VectorXd& v) const {
     const Eigen::Index constraints = count(model_.constraints.size());
     impulse_.clear();
     limit_impulse_.assign(limits_.size(), 0.0);
-    std::vector<double> target;
+    lock_impulse_.assign(lock_rows_.size(), 0.0);
+    struct ScalarRow {
+        Eigen::Index dof = 0;
+        double sign = 1.0;
+        double target = 0.0;
+        bool bilateral = false;
+    };
+    std::vector<ScalarRow> scalar;
     for (const LimitRow& row : limits_) {
         const double gap = row.sign * (q[row.position] - row.bound);
         double threshold = config_.drift_threshold_rad;
@@ -932,9 +957,12 @@ int MultibodyProvider::solve_constraints(double t, double h, const Eigen::Vector
         if (gap < -threshold) {
             throw InvalidModelError(t, body_label(row.body) + "joint coordinate is outside its travel limits");
         }
-        target.push_back(-std::max(gap, 0.0) / h);
+        scalar.push_back(ScalarRow{row.dof, row.sign, -std::max(gap, 0.0) / h, false});
     }
-    if (constraints == 0 && limits_.empty()) {
+    for (const LockRow& row : lock_rows_) {
+        scalar.push_back(ScalarRow{row.dof, row.sign, 0.0, row.bilateral});
+    }
+    if (constraints == 0 && scalar.empty()) {
         return 0;
     }
     const Eigen::PartialPivLU<Eigen::MatrixXd> lu(system);
@@ -950,50 +978,60 @@ int MultibodyProvider::solve_constraints(double t, double h, const Eigen::Vector
         block.emplace_back(r.jacobian * m);
         impulse_.emplace_back(Eigen::VectorXd::Zero(r.jacobian.rows()));
     }
-    std::vector<Eigen::VectorXd> limit_response;
-    std::vector<double> limit_compliance;
-    for (const LimitRow& row : limits_) {
+    std::vector<Eigen::VectorXd> scalar_response;
+    std::vector<double> scalar_compliance;
+    for (const ScalarRow& row : scalar) {
         const Eigen::VectorXd m = row.sign * lu.solve(Eigen::VectorXd::Unit(nv_, row.dof));
-        limit_compliance.push_back(row.sign * m[row.dof]);
-        limit_response.push_back(m);
+        scalar_compliance.push_back(row.sign * m[row.dof]);
+        scalar_response.push_back(m);
     }
     const Eigen::Index limit_rows = count(limits_.size());
+    const Eigen::Index scalar_rows = count(scalar.size());
+    std::vector<double> lambda_of(scalar.size(), 0.0);
     for (int iteration = 1; iteration <= config_.iteration_cap; ++iteration) {
         for (Eigen::Index c = 0; c < constraints; ++c) {
             const Eigen::VectorXd delta = -at(block, c).solve(at(rows, c).jacobian * v);
             at(impulse_, c) += delta;
             v += at(response, c) * delta;
         }
-        for (Eigen::Index r = 0; r < limit_rows; ++r) {
-            const LimitRow& row = at(limits_, r);
-            double& lambda = at(limit_impulse_, r);
-            const double rate = row.sign * v[row.dof] - at(target, r);
-            const double updated = std::max(0.0, lambda - rate / at(limit_compliance, r));
+        for (Eigen::Index r = 0; r < scalar_rows; ++r) {
+            const ScalarRow& row = at(scalar, r);
+            double& lambda = at(lambda_of, r);
+            const double rate = row.sign * v[row.dof] - row.target;
+            double updated = lambda - rate / at(scalar_compliance, r);
+            if (!row.bilateral) {
+                updated = std::max(0.0, updated);
+            }
             if (updated != lambda) {
-                v += at(limit_response, r) * (updated - lambda);
+                v += at(scalar_response, r) * (updated - lambda);
                 lambda = updated;
             }
-            if (lambda > 0.0) {
-                v[row.dof] = row.sign * at(target, r);
+            if (lambda > 0.0 || row.bilateral) {
+                v[row.dof] = row.sign * row.target;
             }
         }
         double residual = 0.0;
         for (const ConstraintRows& r : rows) {
             residual = std::max(residual, (r.jacobian * v).cwiseAbs().maxCoeff());
         }
-        for (Eigen::Index r = 0; r < limit_rows; ++r) {
-            const LimitRow& row = at(limits_, r);
-            const double rate = row.sign * v[row.dof] - at(target, r);
-            if (at(limit_impulse_, r) > 0.0) {
+        for (Eigen::Index r = 0; r < scalar_rows; ++r) {
+            const ScalarRow& row = at(scalar, r);
+            const double rate = row.sign * v[row.dof] - row.target;
+            if (at(lambda_of, r) > 0.0 || row.bilateral) {
                 residual = std::max(residual, std::abs(rate));
             } else {
                 residual = std::max(residual, -rate);
             }
         }
         if (residual <= config_.velocity_tolerance) {
-            for (Eigen::Index r = 0; r < limit_rows; ++r) {
-                if (at(limit_impulse_, r) > 0.0) {
-                    v[at(limits_, r).dof] = at(limits_, r).sign * at(target, r);
+            for (Eigen::Index r = 0; r < scalar_rows; ++r) {
+                if (at(lambda_of, r) > 0.0 || at(scalar, r).bilateral) {
+                    v[at(scalar, r).dof] = at(scalar, r).sign * at(scalar, r).target;
+                }
+                if (r < limit_rows) {
+                    at(limit_impulse_, r) = at(lambda_of, r);
+                } else {
+                    at(lock_impulse_, r - limit_rows) = at(lambda_of, r);
                 }
             }
             return iteration;
@@ -1330,7 +1368,7 @@ double MultibodyProvider::drive_omega_squared(Eigen::Index body, Eigen::Index do
             continue;
         }
         const std::array<Eigen::Index, 2> pair = {at(v_offset_, t.input_body), at(v_offset_, t.output_body)};
-        const Eigen::Vector2d a(c.gain, -1.0);
+        const Eigen::Vector2d a(c.stiffness_gain, -1.0);
         const Eigen::Vector2d b(c.n_eff, -1.0);
         Eigen::Matrix2d k2 = t.stiffness * a * b.transpose();
         Eigen::Matrix2d m2;
@@ -1396,7 +1434,7 @@ void MultibodyProvider::record_scheme_decay(const State& after, double h) {
         }
         Eigen::VectorXd a = Eigen::VectorXd::Zero(nv_);
         Eigen::VectorXd b = Eigen::VectorXd::Zero(nv_);
-        a[at(v_offset_, t.input_body)] = c.gain;
+        a[at(v_offset_, t.input_body)] = c.stiffness_gain;
         a[at(v_offset_, t.output_body)] = -1.0;
         b[at(v_offset_, t.input_body)] = c.n_eff;
         b[at(v_offset_, t.output_body)] = -1.0;
@@ -1680,6 +1718,11 @@ StepHealth MultibodyProvider::step(Integrator& integrator, State& state) {
     }
     record_outputs(before, state, integrator.config().h);
     outputs_.transmissions = transmission_states(state.q, state.v);
+    for (Eigen::Index r = 0; r < count(lock_impulse_.size()); ++r) {
+        const LockRow& row = at(lock_rows_, r);
+        at(outputs_.transmissions, row.transmission).lock_torque =
+            row.sign * at(lock_impulse_, r) / integrator.config().h;
+    }
     record_members_and_ropes(before, state, integrator.config().h);
     clear_inputs();
     return health;

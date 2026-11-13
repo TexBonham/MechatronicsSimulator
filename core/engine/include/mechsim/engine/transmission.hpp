@@ -18,29 +18,69 @@ namespace mechsim::engine {
 // contact, closed), else 0 (free, strictly inside). A coupling with b = 0 is always in contact, zero stretch too.
 //
 // Forces. In contact F = k d(E) + c dE/dt acts on the output joint; out of contact F = 0. The lossless reaction on
-// the shaft is r = -n F (tension times radius: slip dissipates sigma of the input power, it does not cut the torque).
-// Efficiency follows the power flow P = r omega, the power the coupling delivers to the shaft:
-//   P < 0, forward (shaft drives load):  reaction = r / eta_forward
-//   P > 0, backward (load drives shaft): reaction = r eta_backward; a self-locking lead screw passes 0 (Locked)
-//   P = 0, static (shaft at rest):       reaction = r (no motion, no loss); a self-locking screw whose drive torque
-//                                        does not oppose r (drive r >= 0, zero drive included) passes 0 (Locked)
-// so the shaft gain g (reaction = -g F) is n / eta_f, n eta_b, n or 0, frozen at the step start. Static and
-// backward reactions for a locked screw are zero: the load cannot turn the shaft; lowering it is an active drive.
-// Lowering a self-locking screw under an active drive is unresisted (no nut-friction model in this tier): the load
-// torque reads 0 while lowering, a documented limit, not a defect.
-// "drive" for the lock decision is the shaft DOF's generalized-force input (set_generalized_forces) plus every
-// set_shaft_torque on that shaft; joint spring torque and gravity on the shaft DOF are not part of it.
+// the shaft is L = -n F (tension times radius: slip dissipates sigma of the input power, it does not cut the torque).
 //
-// Implicit treatment (ADR 0013). With the gain frozen, -df/d(theta, x) = k a b^T and -df/d(omega, xdot) = c a b^T
-// with a = [g, -1], b = [n_eff, -1], added to K and D in contact. The only non-zero eigenvalue of H^-1 K is
-// k (g n_eff / J + 1 / m) > 0 for a shaft inertia J and an output mass m, so backward Euler is stable at any finite
-// stiffness and step. The coupling is the rigid limit only as k grows: the output lags n theta by F / k, so pick k
-// with F / k below the position accuracy. Infinite stiffness is rejected; a rigid coupling is a constraint (next
-// tier). The efficiency switch is a hard sign test with no threshold speed, so a lossy coupling at rest under load
-// may alternate between forward and backward gain; static friction proper is the next tier. A lossy coupling
-// holding a static load therefore alternates Forward and Backward gain on numerical sign chatter (no threshold
-// speed by spec); the load torque jumps by up to 1 / (eta_f eta_b), and the stepper consumer must not treat that
-// jump as a fault.
+// Efficiency (ruling 47), regularised through a threshold shaft speed omega_s (MultibodyConfig::
+// friction_slip_threshold, the joints' friction threshold, frozen at the step's start rate as ruling 38 does for
+// friction). P = L omega is the power the coupling delivers to the shaft, s_w = min(|omega| / omega_s, 1):
+//   P < 0, Forward (shaft drives load):  g = n (1 + s_w (1 / eta_f - 1))
+//   P > 0, Backward (load drives shaft): g = n (1 + s_w (eta_b - 1))
+//   P = 0, Static (omega = 0, or F = 0):  g = n
+// reaction -g F. At and above omega_s the gain is n / eta_f or n eta_b exactly, the hard switch of brief M3-E4, so
+// every moving case is unchanged (iii). Below omega_s, with alpha = 1 / eta_f - 1 (forward) or eta_b - 1 (backward)
+// and |omega| = sign(P) sign(L) omega on the side the step starts on, the loss term -n alpha s_w F equals
+// -c omega with c = |alpha L| / omega_s >= 0: a viscous shaft torque. It is applied as the joints' friction is,
+// implicitly with c frozen (f gets -g F at the start state, D gets c on the shaft) while the coupling keeps the
+// lossless gain n in K and D (a = [n, -1]); above omega_s, c = 0 and a = [g, -1] as before. At omega = 0 the gain is
+// n from both sides (continuous); the side the shaft will move to is not known at the step start, so c takes the
+// larger loss, max(1 / eta_f - 1, 1 - eta_b) |L| / omega_s, as the joints' friction takes its full c at zero rate.
+// With c = 0 there a screw lifted by a torque between n F and n F / eta_f would leave rest at a lossless step,
+// overshoot omega_s, reverse into the lock row and start again: a ratchet instead of the creep.
+//   (i) Static equilibrium. omega = 0 makes g = n and c = 0 whatever F is, so a shaft held by a drive spring K
+//       against an output force F rests only at K theta = n F: the sag theta = n F / K is unique (the hard switch
+//       made every K theta in [n eta_b F, n F / eta_f] a fixed point).
+//  (ii) Creep. Within the old band the drive's excess torque K e (e = theta - theta_static) is below |alpha L|, so
+//       the shaft speed stays below omega_s and, with inertia negligible against the drive, K e + (c + D_d) omega = 0
+//       with c = |alpha| n F / omega_s: e decays with time constant tau_f = (n F (1 / eta_f - 1) / omega_s + D_d) / K
+//       on the forward side (drive lifting the load toward the static sag) and tau_b = (n F (1 - eta_b) / omega_s +
+//       D_d) / K on the backward side (load back-driving the shaft); backward Euler contracts e by 1 / (1 + h / tau)
+//       per step. tau_f and tau_b are the approximation the adapter prints (ruling 47).
+// (iii) Above omega_s the gains are the old ones bit for bit; only motion slower than omega_s changes.
+// PowerFlow keeps its values; Static now means the shaft starts the step at exactly zero speed (or F = 0).
+//
+// Self-locking lead screw (rulings 48, 55, ENG-044). The drive T is the shaft's whole own torque at the step start:
+// its generalized-force input (set_generalized_forces), every set_shaft_torque on the shaft, body wrenches reduced
+// to the shaft DOF (apply_body_wrench), its joint drive's spring-damper torque (set_joint_drive) and the model joint
+// spring and damping; gravity on the shaft is not part of it (only a self-locking screw computes T). In
+// contact with L != 0 the load would back-drive the shaft along sign(L). Unless T L > 0 (the drive itself turns
+// the shaft the back-driving way: lowering), the provider adds a one-sided velocity row J = s e_shaft, s = -sign(L),
+// impulse lambda >= 0, s omega >= 0 at the step's end, in the velocity-level pass after the joint-limit rows, in
+// transmission order (the joint-limit pattern of ruling 43 with target 0; a binding row sets omega to 0 exactly).
+// Case analysis:
+//   - No positive work: lambda > 0 only where s omega_end = 0, so the row's power lambda s omega_end / h is zero; it
+//     only removes back-driving speed.
+//   - It cannot fight the drive: it is present only when T s >= 0 (drive zero or lifting) and pushes only along s.
+//     When T pushes along sign(L) (T L > 0) the row is absent and, with P >= 0, the applied gain is 0: lowering
+//     under a drive is unresisted (no nut-friction model in this tier; a zero load torque while lowering is a
+//     documented limit, ENG-044).
+//   - Held at rest with T s >= 0: the static gain n applies, so the load torque n F pushes back-driving and the row
+//     carries it (row torque n F - T s): omega stays exactly 0 and theta does not drift, at any shaft inertia.
+//     The old hold set the gain to 0 and relied on omega staying bitwise 0, true only while the LU of
+//     S = H + h D + h^2 K kept the shaft row as pivot, J > n (h^2 k + h c).
+//   - Lifting (P < 0) uses the forward gain; a lift that stops reverses into the row and is held.
+//   - F = 0 in contact with T = 0 and the shaft at rest (omega = 0 exactly; a load just coming onto a held screw):
+//     the back-driving side is not known at the step start, but the implicit coupling would still turn the shaft by
+//     the end-of-step force, so the row is two-sided there (ruling 55: omega = 0, impulse of either sign; zero work,
+//     no drive to fight). An unloaded shaft that is moving, or has any own torque, gets no row: it coasts, or turns
+//     the way its own torque pushes.
+// Locked (published load torque 0) whenever P >= 0 and T L >= 0: the screw, not the shaft, carries the load.
+//
+// Implicit treatment (ADR 0013). With the coupling gain g_k frozen (n below omega_s, g above), -df/d(theta, x) =
+// k a b^T and -df/d(omega, xdot) = c a b^T with a = [g_k, -1], b = [n_eff, -1], added to K and D in contact. The
+// only non-zero eigenvalue of H^-1 K is k (g_k n_eff / J + 1 / m) > 0 for a shaft inertia J and an output mass m, so
+// backward Euler is stable at any finite stiffness and step. The coupling is the rigid limit only as k grows: the
+// output lags n theta by F / k, so pick k with F / k below the position accuracy. Infinite stiffness is rejected; a
+// rigid coupling is a constraint (next tier). Static friction of the coupling proper is the next tier.
 enum class TransmissionType : std::uint8_t { BeltPulley, LeadScrew, GearPair };
 
 enum class PowerFlow : std::uint8_t { Static, Forward, Backward, Locked };
@@ -72,6 +112,7 @@ struct TransmissionOutput {
     bool slip_active = false;        // slip > 0
     double slip_offset = 0.0;        // s, m or rad at the output
     PowerFlow power_flow = PowerFlow::Static;
+    double lock_torque = 0.0;        // self-locking row torque on the shaft, s lambda / h, N m; step() outputs only
     // Ruling 21 approximation value: pi omega h, the amplitude fraction backward Euler removes per period of the
     // coupling mode (omega^2 = k b^T H^-1 a at the end state; 0 out of contact); set in step() outputs only.
     double scheme_decay = 0.0;
@@ -82,7 +123,13 @@ struct TransmissionCoupling {
     TransmissionOutput output;
     double n = 0.0;       // output travel per input radian
     double n_eff = 0.0;   // (1 - slip) n
-    double gain = 0.0;    // g: reaction = -g F
+    double gain = 0.0;              // g: reaction -g F at the step start (0 when lowering a locked screw)
+    double stiffness_gain = 0.0;    // g_k, the shaft entry of a in K and D: n below omega_s, else g
+    double shaft_damping = 0.0;     // c on the shaft below omega_s, N m s/rad
+    double shaft_torque = 0.0;      // -g F, applied to the shaft (output.shaft_load_torque reads 0 when Locked)
+    bool lock = false;              // self-locking screw: one-sided velocity row on the shaft
+    double lock_sign = 0.0;         // s: the row keeps s omega >= 0
+    bool lock_bilateral = false;    // F = 0 and T = 0 in contact: omega = 0 (impulse of either sign)
 };
 
 [[nodiscard]] double output_per_input(const Transmission& transmission);
@@ -90,8 +137,10 @@ struct TransmissionCoupling {
 // Throws InvalidModelError naming transmission `index` for a parameter outside its range.
 void validate_transmission_parameters(const Transmission& transmission, Eigen::Index index);
 
-// theta, omega: shaft; x, xdot: output joint; drive: generalized force applied to the shaft this step (N m).
+// theta, omega: shaft; x, xdot: output joint; drive: the shaft's own torque T at the step start (N m), see above;
+// slip_threshold: omega_s, finite and > 0 (rad/s).
 [[nodiscard]] TransmissionCoupling couple(const Transmission& transmission, double slip, double slip_offset,
-                                          double theta, double omega, double x, double xdot, double drive);
+                                          double theta, double omega, double x, double xdot, double drive,
+                                          double slip_threshold);
 
 }  // namespace mechsim::engine

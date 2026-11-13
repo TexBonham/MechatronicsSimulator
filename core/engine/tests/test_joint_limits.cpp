@@ -1000,14 +1000,14 @@ TEST_CASE("belt transmission backlash is in contact at exactly plus and minus b 
     t.backlash = 0.004;
     t.damping = 3.0;
     for (const double x : {-0.002, 0.002}) {
-        const auto c = mechsim::engine::couple(t, 0.0, 0.0, 0.0, 0.0, x, 0.0, 0.0);
+        const auto c = mechsim::engine::couple(t, 0.0, 0.0, 0.0, 0.0, x, 0.0, 0.0, 1e-4);
         REQUIRE(c.output.in_contact);
         REQUIRE(c.output.force == 0.0);
     }
-    REQUIRE_FALSE(mechsim::engine::couple(t, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0).output.in_contact);
-    REQUIRE_FALSE(mechsim::engine::couple(t, 0.0, 0.0, 0.0, 0.0, 0.0019, 0.0, 0.0).output.in_contact);
+    REQUIRE_FALSE(mechsim::engine::couple(t, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1e-4).output.in_contact);
+    REQUIRE_FALSE(mechsim::engine::couple(t, 0.0, 0.0, 0.0, 0.0, 0.0019, 0.0, 0.0, 1e-4).output.in_contact);
     t.backlash = 0.0;
-    REQUIRE(mechsim::engine::couple(t, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0).output.in_contact);
+    REQUIRE(mechsim::engine::couple(t, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1e-4).output.in_contact);
 }
 
 TEST_CASE("belt transmission crossing step from zero stretch matches the coupled backward-Euler step",

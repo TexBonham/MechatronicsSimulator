@@ -63,7 +63,15 @@ impulse, force, errors; `contacts`; `payloads`), clears inputs.
 Inputs: `set_generalized_forces(tau)`, `apply_body_wrench(body, torque, force)` world-aligned at the com.
 Also `constraint_errors(q)`, `body_states(q, v)`, `neutral_positions()`, `*_offset(b)`.
 Hooks write mutable `impulse_`/`error_`; single-threaded (ENG-023).
-Transmissions: Revolute shaft to Prismatic or (gear) Revolute output; K, D += k, c a b^T in contact.
+Transmissions: Revolute shaft to Prismatic or (gear) Revolute output; K, D += k, c a b^T in contact, a = [g_k, -1].
+Efficiency (ruling 47): gain n (1 + s_w alpha), s_w = min(|omega| / omega_s, 1), omega_s = `friction_slip_threshold`;
+exact n / eta_f, n eta_b at and above omega_s (g_k = g); below it g_k = n and the shaft gets implicit damping
+c = |alpha| n |F| / omega_s (larger loss at omega = 0). Static sag n F / K exact; creep tau_f = (n F (1 / eta_f - 1) /
+omega_s + D_d) / K, tau_b = (n F (1 - eta_b) / omega_s + D_d) / K. `Static` = shaft at exactly zero speed (or F = 0).
+Self-locking screw (ruling 48): `lock_rows_` from `evaluate` (transmission order), scalar row s omega >= 0 after the
+limit rows in `solve_constraints`, absent when the shaft's own torque T (tau, shaft torques, drive spring-damper) has
+T L > 0 (lowering: gain 0); `TransmissionOutput::lock_torque` = s lambda / h; Locked when P >= 0 and T L >= 0
+(published load torque 0). `TransmissionCoupling`: `gain`, `stiffness_gain`, `shaft_damping`, `shaft_torque`, `lock`.
 `set_shaft_torque(i, tau)` (per step), `set_slip(i, s)` (persists), `slip(i)`, `transmission_states(q, v)`.
 `outputs().transmissions`, `transmission_states`: end state, step's drive (next step's pre-image); `shaft_load_torque`
 = g F, the torque the shaft must supply along its + axis (PHY-033; `couple()` keeps the applied sign -g F internally);
@@ -97,9 +105,9 @@ collects the events after each step.
 | Kinematics | 397 |
 | Dynamics | 469 |
 | Transmissions | 703 |
-| Constraints | 839 |
-| Members, ropes and model changes | 1053 |
-| Inputs and outputs | 1541 |
+| Constraints | 855 |
+| Members, ropes and model changes | 1091 |
+| Inputs and outputs | 1579 |
 
 ## Section index, `src/collision.cpp`
 

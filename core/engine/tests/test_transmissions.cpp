@@ -161,8 +161,10 @@ TEST_CASE("belt-driven carriage holds a hanging mass at force = torque / r", "[E
 
 TEST_CASE("published shaft load torque and joint forces equal the hand-computed reaction", "[ENG-048][ENG-043]") {
     // Hand formulas (transmission.hpp): E = n theta - x - s, d(E) dead band, F = k d + c (n_eff omega - xdot),
-    // P = -n F omega, g = n / eta_f (P < 0), n eta_b (P > 0), n (P = 0); load torque -g F. f gets drive - g F on the
-    // shaft and F on the output. Only rounding separates the two evaluations: 1e-12 relative.
+    // P = -n F omega, s_w = min(|omega| / omega_s, 1), g = n (1 + s_w (1 / eta_f - 1)) (P < 0), n (1 + s_w (eta_b - 1))
+    // (P > 0), n (P = 0), exactly n / eta_f and n eta_b at s_w = 1 (ruling 47); load torque -g F. f gets drive - g F
+    // on the shaft and F on the output. Only rounding separates the two evaluations: 1e-12 relative.
+    const double omega_s = mechsim::engine::MultibodyConfig::default_friction_slip_threshold;
     Transmission t;
     t.ratio = 0.015;
     t.efficiency = 0.8;
@@ -195,12 +197,19 @@ TEST_CASE("published shaft load torque and joint forces equal the hand-computed 
             f = t.stiffness * d + t.damping * ((1.0 - t.slip) * n * state.v[0] - state.v[1]);
         }
         const double p = -n * f * state.v[0];
+        const double sw = std::min(std::abs(state.v[0]) / omega_s, 1.0);
         double g = n;
         if (p < 0.0) {
-            g = n / t.efficiency;
+            g = n * (1.0 + sw * (1.0 / t.efficiency - 1.0));
+            if (sw == 1.0) {
+                g = n / t.efficiency;
+            }
         }
         if (p > 0.0) {
-            g = n * t.back_efficiency;
+            g = n * (1.0 + sw * (t.back_efficiency - 1.0));
+            if (sw == 1.0) {
+                g = n * t.back_efficiency;
+            }
         }
         const double scale = std::max(1.0, std::abs(f));
         REQUIRE(std::abs(out.force - f) <= 1e-12 * scale);
@@ -524,47 +533,6 @@ TEST_CASE("carriage stays put until the shaft has taken up half the backlash", "
     }
     REQUIRE(onset > 0.5 * t.backlash);
     REQUIRE(onset <= 0.5 * t.backlash + t.ratio * omega * h * (1.0 + 1e-12));
-}
-
-TEST_CASE("self-locking lead screw holds a hanging load with zero drive torque", "[ENG-044]") {
-    // Locked: the shaft gain is 0, so the shaft row of f, K and D is zero and theta stays exactly 0. The carriage
-    // is a spring-damper on a fixed point: x -> -m g / k. A drive opposing the load unlocks the static gain n.
-    // Exactly 0 needs the LU not to pivot: |S11| = J = 1e-2 exceeds |S21| = n (h^2 k + h c) = 3.5e-3, so the zero
-    // first row and right-hand side solve to dv_0 = 0 with no rounding.
-    const double m = 5.0;
-    const double k = 1e6;
-    Transmission t;
-    t.type = TransmissionType::LeadScrew;
-    t.ratio = 4e-3;
-    t.self_locking = true;
-    t.efficiency = 0.4;
-    t.back_efficiency = 0.3;
-    t.stiffness = k;
-    t.damping = 2.0 * std::sqrt(k * m);
-    MultibodyModel model = pair_model(carriage(m, Eigen::Vector3d::UnitZ()), t, Eigen::Vector3d(0, 0, -gravity));
-    const double j = 1e-2;
-    model.bodies[0] = shaft(j);
-    MultibodyProvider provider(model);
-    SemiImplicitEuler integrator{StepConfig{}};
-    const double n = mechsim::engine::output_per_input(t);
-    const Eigen::Matrix2d ab = coupling_matrix(0.0, n);
-    const double h = integrator.config().h;
-    REQUIRE(j > n * (h * h * k + h * t.damping));
-    const long settle = settling_steps(Eigen::Vector2d(j, m).asDiagonal(), k * ab, t.damping * ab, h);
-    State state = rest_state(provider);
-    for (long i = 0; i < settle; ++i) {
-        provider.step(integrator, state);
-        REQUIRE(state.q[0] == 0.0);
-        REQUIRE(state.v[0] == 0.0);
-    }
-    const TransmissionOutput& o = provider.outputs().transmissions.at(0);
-    REQUIRE(o.power_flow == PowerFlow::Locked);
-    REQUIRE(o.shaft_load_torque == 0.0);
-    REQUIRE(close(state.q[1], -m * gravity / k, rel));
-    provider.set_shaft_torque(0, 1.0);
-    const TransmissionOutput lift = provider.transmission_states(state.q, state.v).at(0);
-    REQUIRE(lift.power_flow == PowerFlow::Static);
-    REQUIRE(lift.shaft_load_torque == n * lift.force);
 }
 
 TEST_CASE("a lead screw without self-locking is back-driven by the load", "[ENG-044]") {

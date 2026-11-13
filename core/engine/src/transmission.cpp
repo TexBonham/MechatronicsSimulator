@@ -1,5 +1,6 @@
 #include "mechsim/engine/transmission.hpp"
 
+#include <algorithm>
 #include <cmath>
 #include <numbers>
 #include <string>
@@ -62,7 +63,7 @@ void validate_transmission_parameters(const Transmission& transmission, Eigen::I
 }
 
 TransmissionCoupling couple(const Transmission& transmission, double slip, double slip_offset, double theta,
-                            double omega, double x, double xdot, double drive) {
+                            double omega, double x, double xdot, double drive, double slip_threshold) {
     TransmissionCoupling c;
     c.n = output_per_input(transmission);
     c.n_eff = (1.0 - slip) * c.n;
@@ -89,25 +90,62 @@ TransmissionCoupling couple(const Transmission& transmission, double slip, doubl
     }
     const double lossless = -c.n * out.force;
     const double power = lossless * omega;
+    const double speed = std::abs(omega);
+    double loss = 0.0;
+    double full_gain = c.n;
+    double damping_loss = std::max(1.0 / transmission.efficiency - 1.0, 1.0 - transmission.back_efficiency);
+    out.power_flow = PowerFlow::Static;
     if (power < 0.0) {
         out.power_flow = PowerFlow::Forward;
-        c.gain = c.n / transmission.efficiency;
+        loss = 1.0 / transmission.efficiency - 1.0;
+        full_gain = c.n / transmission.efficiency;
+        damping_loss = loss;
     } else if (power > 0.0) {
         out.power_flow = PowerFlow::Backward;
-        c.gain = c.n * transmission.back_efficiency;
-        if (transmission.self_locking) {
-            out.power_flow = PowerFlow::Locked;
-            c.gain = 0.0;
-        }
+        loss = transmission.back_efficiency - 1.0;
+        full_gain = c.n * transmission.back_efficiency;
+        damping_loss = -loss;
+    }
+    if (speed >= slip_threshold) {
+        c.gain = full_gain;
+        c.stiffness_gain = full_gain;
     } else {
-        out.power_flow = PowerFlow::Static;
-        c.gain = c.n;
-        if (transmission.self_locking && drive * lossless >= 0.0) {
+        c.gain = c.n * (1.0 + (speed / slip_threshold) * loss);
+        c.stiffness_gain = c.n;
+        c.shaft_damping = damping_loss * std::abs(lossless) / slip_threshold;
+    }
+    bool locked = false;
+    if (transmission.self_locking && out.in_contact && lossless == 0.0 && drive == 0.0 && omega == 0.0) {
+        c.lock = true;
+        c.lock_bilateral = true;
+        c.lock_sign = 1.0;
+        locked = true;
+        out.power_flow = PowerFlow::Locked;
+    }
+    if (transmission.self_locking && out.in_contact && lossless != 0.0) {
+        const double opposition = drive * lossless;
+        if (opposition <= 0.0) {
+            c.lock = true;
+            c.lock_sign = 1.0;
+            if (lossless > 0.0) {
+                c.lock_sign = -1.0;
+            }
+        }
+        if (power >= 0.0 && opposition >= 0.0) {
+            locked = true;
             out.power_flow = PowerFlow::Locked;
+        }
+        if (power >= 0.0 && opposition > 0.0) {
             c.gain = 0.0;
+            c.stiffness_gain = 0.0;
+            c.shaft_damping = 0.0;
         }
     }
-    out.shaft_load_torque = -c.gain * out.force;
+    c.shaft_torque = -c.gain * out.force;
+    out.shaft_load_torque = c.shaft_torque;
+    if (locked) {
+        out.shaft_load_torque = 0.0;
+    }
     return c;
 }
 
