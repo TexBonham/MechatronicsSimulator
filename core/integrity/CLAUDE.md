@@ -19,7 +19,7 @@ check rules rows "Tier 1 party" to "Tier 2 rope snap".
 - One event per (element, quantity) per run at the first tick strictly past the limit, no re-arm (ruling 34):
   quantities `stress`, `buckling_margin` (below `minimum_safety_factor`), `deflection`, `fastener_load`; order per tick
   members in table order (stress, buckling, deflection), then fastenings.
-- Evaluation start (TST-044): rows stamped before `evaluate_from` update no peak; their crossings raise one `integrity_before_evaluation` event per (element, quantity), never counted, never halting.
+- Evaluation start (TST-044): rows stamped before `evaluate_from` update no peak and issue no yield request (ruling 72); their crossings raise one `integrity_before_evaluation` event per (element, quantity), never counted, never halting.
 - Live loads, no design-load factor; allowable stress and fastener limits carry the minimum safety factor already.
 - Yield (ruling 35): end with the larger abs(M_z) (start on a tie), spring `first_spring` or `first_spring + N - 1`;
   when abs(M_n) passes its running peak and the peak exceeds M_y = sigma_y I_z / c_y, one `SpringOffset` request

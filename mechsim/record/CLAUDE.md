@@ -11,7 +11,8 @@ types. `reader.py` imports `mechsim.testing.driver` and `.runner` types (no cycl
 | `stream.py` | `Recorder(base_rate, columns=None, bodies=())` (`bodies` names the body series' columns, count checked at the first row): `write_row`, `subscribe(cb) -> int`, `unsubscribe`, `recording()`, `flush(path, identity, end)` |
 | `archive.py` | `RunIdentity` (controller_mode native, emulated, none; physics_adapter mujoco, native), `RunEnd`, `RunFault`, `write_archive(path, identity, end, recording, extra, columns)` (`extra` -> root attrs `meta_<key>`, read back as `RunArchive.extra`), `RunArchive(path)` reader, `coupling()`, `records()` replay, `repository_commit`, `tool_version` |
 | `export.py` | `export_csv`, `export_json`, `export_mat(archive, path, names)`; index-column series exported with per-column names and units (`series[name] [unit]`, JSON `names`/`units`, MAT `series_columns`/`series_column_units`) |
-| `reader.py` | Engine-free read side (ruling 17; nothing from `mechsim._core`): `Kinematics`/`JointKinematics` (`of(model)`, `to_json`, `from_json`), `RecordingView` (the `RecordView` scoring and replay read: `pose:`, `joint:`, `actuator:`, `signal:` refs, events by the label table), `RecordArchiveReader.open(path) -> (RunMetadata, RecordingView)` (metadata `members`, `material_overrides`, `variation`, `integrity` from the extras), `DriverError`; re-exported by `testing/core_driver.py` |
+| `reader.py` | Engine-free read side (ruling 17; nothing from `mechsim._core`): `Kinematics`/`JointKinematics` (`of(model)`, `to_json`, `from_json`), `RecordingView` (+ `validity`, `first_springs`; the `RecordView` scoring and replay read: `pose:`, `joint:`, `actuator:`, `signal:` refs, events by the label table), `RecordArchiveReader.open(path) -> (RunMetadata, RecordingView)` (metadata `members`, `material_overrides`, `variation`, `integrity` from the extras), `DriverError`; re-exported by `testing/core_driver.py` |
+| `validity.py` | `CarriedValidity(member, flagged, since, ratio, work)` (`reason()`, `covers(t)`: flagged and t > since), `flagged(records)`, `validity_json`/`validity_from_json`, `VALIDITY_KEY` = `carried_validity`, `NOT_VALID_KIND` = `integrity_not_valid`, `NOT_VALID_FLAG` = `not_valid` (rulings 69, 72) |
 | `compare.py` | `archives_identical(a, b) -> Report(identical, content_identical, first_difference)` |
 
 ## Archive layout (format version 2; reader accepts 1 and 2)
@@ -36,7 +37,7 @@ types. `reader.py` imports `mechsim.testing.driver` and `.runner` types (no cycl
 - Integrity events (REC-010): source and kind `integrity`, detail `IntegrityCrossing.detail()` (canonical JSON
   `limit, member, quantity, tier, value`). Extras written by `RecordArchiver`: `members` (`members_json`),
   `variation` (JSON or null), `material_overrides` + `material_overrides_sha256` (when the design names a file),
-  `integrity` (`IntegrityResults.to_json`, when attached).
+  `integrity` (`IntegrityResults.to_json`, when attached), `carried_validity` (`validity_json`, when the run has a carrying member; `CoreDriver.carried_validity`), read back onto `RecordingView.validity`.
 - Index-column series (`layout.COLUMN_SERIES`: members, ropes, transmissions, joint positions, drive torques, payloads) carry
   dataset attrs `names` and `units` (per column, REC-018) from `Columns(names, units)` the driver builds from the
   neutral model: `Recorder(base_rate, columns)` (counts checked at the first row) or

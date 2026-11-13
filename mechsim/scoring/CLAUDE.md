@@ -27,6 +27,7 @@ nothing.
   `runner.design_gravity(build.design)`); body origins are the view's `kinematics.reference` origin plus the `pose:`
   displacement (TST-038); no gravity input or no reference poses is unevaluable. Payload names:
   `testing.schema.case_payload_body(senses, joints)`.
+- Not valid (SCO-029, rulings 69, 72): `RecordingView.validity` flagged members: `safety_factor:` and a history-less `deflection:` unevaluable with `CarriedValidity.reason()`; a deflection history NaN after the flag time (`read_not_valid` names the reason); `integrity_not_valid` events are crossing lines with the reason and make an otherwise passing or errored case errored (`CaseScore.error` the reason).
 - Crossings (SCO-015): each `integrity` event whose detail states tier 1 (ruling 26) is a `crossings` line (report `integrity crossing:`); a passing case
   with one fails; not baselined.
 - Variations (SCO-019): titled `[variation seed <s>: <drawn>]`, a per-seed table after the sweep tables; not baselined.

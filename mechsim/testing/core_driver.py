@@ -67,7 +67,6 @@ from mechsim.record.reader import Kinematics as Kinematics
 from mechsim.record.reader import RecordArchiveReader as RecordArchiveReader
 from mechsim.record.reader import RecordingView as RecordingView
 from mechsim.record.stream import Recorder
-from mechsim.record.validity import NOT_VALID_KIND, VALIDITY_KEY, CarriedValidity, flagged, validity_json
 from mechsim.record.tick import (
     WORLD_BODY,
     BodyState,
@@ -86,6 +85,7 @@ from mechsim.record.tick import (
     Wrench,
 )
 from mechsim.record.tick import RecordedEvent as RowEvent
+from mechsim.record.validity import NOT_VALID_KIND, VALIDITY_KEY, CarriedValidity, flagged, validity_json
 from mechsim.testing.core_wiring import (
     OPERATOR_LINK_TYPE,
     WIRED_FAULTS,
@@ -863,9 +863,11 @@ def _canonical_crossings(
         if event.kind in kinds:
             crossing = IntegrityCrossing.parse(event.detail)
             event = replace(event, detail=crossing.detail())
-            if event.kind == INTEGRITY_KIND and not_valid is not None and crossing.member in not_valid:
-                if not_valid[crossing.member].covers(time):
-                    event = replace(event, kind=NOT_VALID_KIND)
+            found: CarriedValidity | None = None
+            if not_valid is not None:
+                found = not_valid.get(crossing.member)
+            if event.kind == INTEGRITY_KIND and found is not None and found.covers(time):
+                event = replace(event, kind=NOT_VALID_KIND)
         events.append(event)
     return replace(record, events=tuple(events))
 

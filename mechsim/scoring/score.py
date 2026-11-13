@@ -143,21 +143,22 @@ def score_run(
             results.append(_evaluate(criterion, recording, limit))
         except (_UnevaluableError, StatisticError, KeyError) as error:
             note = _reason(error)
-            if not isinstance(error, KeyError) and view.read_not_valid is not None:
-                note = view.read_not_valid
+            reason = view.not_valid_reason()
+            if not isinstance(error, KeyError) and reason is not None:
+                note = reason
             results.append(CriterionResult(criterion.name, "error", limit, note=note))
     status = _case_status(results)
     crossings = _crossings(recording)
     invalid = _not_valid_crossings(recording, not_valid)
-    error = report.error
+    case_error = report.error
     if (len(crossings) > 0 or report.reason == "integrity_halt") and status == "pass":
         status = "fail"
     if len(invalid) > 0 and status != "fail":
         status = "error"
-        error = "; ".join(dict.fromkeys(reason for _, reason in invalid))
+        case_error = "; ".join(dict.fromkeys(reason for _, reason in invalid))
     if report.errored:
         status = "error"
-        error = report.error
+        case_error = report.error
     return CaseScore(
         case_id=case.id,
         status=status,
@@ -168,7 +169,7 @@ def score_run(
         ran=True,
         end_reason=report.reason,
         end_time=report.end_time,
-        error=error,
+        error=case_error,
         sweep=sweep,
         run=run,
         approximations=report.approximations + _layer_approximations(recording),
@@ -312,6 +313,10 @@ class _StructuralView:
         self._not_valid = dict(not_valid or {})
         self.read_not_valid: str | None = None
 
+    def not_valid_reason(self) -> str | None:
+        """The not-valid reason of the flagged history the last criterion read, if any."""
+        return self.read_not_valid
+
     def times(self) -> Sequence[float]:
         return self._recording.times()
 
@@ -380,9 +385,7 @@ def _crossings(recording: RecordView) -> tuple[str, ...]:
     return tuple(lines)
 
 
-def _not_valid_crossings(
-    recording: RecordView, not_valid: dict[str, CarriedValidity]
-) -> tuple[tuple[str, str], ...]:
+def _not_valid_crossings(recording: RecordView, not_valid: dict[str, CarriedValidity]) -> tuple[tuple[str, str], ...]:
     """Each tier 1 crossing recorded as not valid (kind `integrity_not_valid`, rulings 69, 72) as (report line,
     reason): never counted, but a case whose only crossings they are is unevaluable."""
     out: list[tuple[str, str]] = []

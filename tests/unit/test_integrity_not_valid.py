@@ -105,9 +105,7 @@ def _flag(monkeypatch: pytest.MonkeyPatch, since: float) -> None:
     real = core_driver.carried_validity
 
     def flagged(model: Any, values: Any) -> tuple[CarriedValidity, ...]:
-        return tuple(
-            CarriedValidity(record.member, True, since, 3.5, record.work) for record in real(model, values)
-        )
+        return tuple(CarriedValidity(record.member, True, since, 3.5, record.work) for record in real(model, values))
 
     monkeypatch.setattr(core_driver, "carried_validity", flagged)
 
@@ -116,12 +114,16 @@ def _flag(monkeypatch: pytest.MonkeyPatch, since: float) -> None:
 def test_an_unflagged_run_stores_the_record_and_is_unchanged_bit_for_bit(tmp_path: Path) -> None:
     case, services, driver = _setup(tmp_path, "1 m")
     result: Any = run_case(case, services, None, tmp_path / "runs")
-    assert result.report is not None and not result.report.errored, result.score.error
+    assert result.report is not None, result.score.error
+    assert not result.report.errored, result.report.error
     assert result.score.status == "pass", result.score
     view = driver.recording()
     (record,) = view.validity
-    assert record.member == "bar" and not record.flagged and record.since == 0.0
-    assert 0.0 < record.ratio < 2.04 and record.work > 0.0
+    assert record.member == "bar"
+    assert not record.flagged
+    assert record.since == 0.0
+    assert 0.0 < record.ratio < 2.04
+    assert record.work > 0.0
     with RunArchive(result.archive) as archive:
         assert validity_from_json(archive.extra[VALIDITY_KEY]) == view.validity
     _, replayed = RecordArchiveReader().open(result.archive)
@@ -132,7 +134,8 @@ def test_an_unflagged_run_stores_the_record_and_is_unchanged_bit_for_bit(tmp_pat
     service = IntegrityService(tmp_path / "designs")
     with_record = service(build, None, view)  # type: ignore[arg-type]
     without = service(build, None, stripped)  # type: ignore[arg-type]
-    assert with_record is not None and without is not None
+    assert with_record is not None
+    assert without is not None
     assert with_record.report_json() == without.report_json()
     assert all(event.kind != NOT_VALID_KIND for event in view.events())
 
@@ -166,7 +169,8 @@ def test_a_flagged_member_is_not_valid_from_its_flag_time_end_to_end(
     assert results["bar_safety_factor"].note == f"safety_factor:bar: {reason}"
     with RunArchive(result.archive) as archive:
         stored = validity_from_json(archive.extra[VALIDITY_KEY])
-    assert stored[0].flagged and stored[0].since == 0.0
+    assert stored[0].flagged
+    assert stored[0].since == 0.0
     table = json.loads(result.metadata.integrity.to_json())
     (row,) = [item for item in table["members"] if item["member"] == "bar"]
     assert NOT_VALID_FLAG in row["flags"]
@@ -266,6 +270,8 @@ def test_a_flag_before_the_first_sample_leaves_nan_rows_never_zero() -> None:
 def test_the_validity_record_round_trips_and_refuses_non_finite_values() -> None:
     records = (CarriedValidity("a", True, 1.5, 2.5, 3.5), CarriedValidity("b", False, 0.0, 1.0, 0.25))
     assert validity_from_json(validity_json(records)) == records
-    assert records[0].covers(1.6) and not records[0].covers(1.5) and not records[1].covers(9.0)
+    assert records[0].covers(1.6)
+    assert not records[0].covers(1.5)
+    assert not records[1].covers(9.0)
     with pytest.raises(ValueError, match="not finite"):
         validity_from_json('[{"flagged": true, "member": "a", "ratio": NaN, "since": 0, "work": 0}]')

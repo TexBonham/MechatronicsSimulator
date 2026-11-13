@@ -933,7 +933,8 @@ def test_impact_on_a_pinned_member_reads_the_mid_span_peak() -> None:
 # ===== Unresolved carried loads (INT-005, ruling 72) =========================
 #
 # A pinned-pinned member (SECTION, L = 0.5 m, N = 8, l = 0.0625 m) carries a body at a = 0.2 m (between the samples
-# 0.15625 and 0.21875, s_j = (j - 1/2) l) at a height d = 0.02 m above its axis, loaded by its weight P = 30 N and an axial push H at that
+# 0.15625 and 0.21875, s_j = (j - 1/2) l) at a height d = 0.02 m above its axis, loaded by its weight P = 30 N
+# and an axial push H at that
 # height: the engine reroutes F . y = -P and the couple C = ((r_c - p) x F) . z = -d H (the push itself stays on the
 # parent, ENG-052). By statics (couple taken as a step +C in the spring-sense moment at a) R_0 = P b / L - C / L,
 # M(x) = R_0 x left of a, R_0 x - P (x - a) + C right of it; the spring moments and end wrenches are these exactly,
@@ -1024,7 +1025,7 @@ def test_strength_carried_couple_reads_conservatively_within_the_couple(push: fl
 
 
 @pytest.mark.req("INT-005")
-@pytest.mark.parametrize("first, second", [(0.225, 0.27), (0.195, 0.24)])
+@pytest.mark.parametrize(("first", "second"), [(0.225, 0.27), (0.195, 0.24)])
 def test_strength_opposite_loads_in_one_segment_read_conservatively(first: float, second: float) -> None:
     load1, load2 = 50.0, -20.0
     total = load1 + load2

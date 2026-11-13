@@ -43,7 +43,7 @@ proposed <value>)".
 | FAC-010 | The facade shall expose the validate, run, suite and replay operations the CLI commands use. | ADR 0006, Decision, First client; ADR 0012 (L9) | M1 | unit | n/a |
 | FAC-011 | The facade shall expose an archive's recorded series and events, and the value of any body, joint, pin or signal at any recorded time. | ADR 0006, Decision, Replay; Architecture doc, Modules: outputs, Viewer and replay row | M1 | unit | n/a |
 | FAC-012 | The facade shall expose pass/fail reports and regression diffs. | Architecture doc, Modules: outputs, Scoring row; ADR 0007, Consequences | M2 | unit | n/a |
-| FAC-013 | The facade shall expose integrity results and the load-case export. | Architecture doc, Modules: outputs, Structural analysis and Exports rows; ADR 0007, Consequences | M3 | unit | n/a |
+| FAC-013 | The facade shall expose integrity results and the load-case export.; each member row states `state` (`valid`, `not_valid`) and `not_valid_from` (rulings 69, 72, brief M3-I5) | Architecture doc, Modules: outputs, Structural analysis and Exports rows; ADR 0007, Consequences | M3 | unit | n/a |
 | FAC-014 | The facade shall return every run error (solver failure, drift, emulator fault) to the client as a structured error report. | Architecture doc, Repository starting point, invariant 7 | M1 | unit | n/a |
 | FAC-015 | A run started through the facade by any client shall produce the same archive as the same run started from the CLI. | Architecture doc, Repository starting point, invariant 4; ADR 0007, Consequences | M1 | unit | n/a |
 | FAC-016 | Client code shall hold no domain logic: every value a client shows comes from the facade. | ADR 0007, Decision, Client role; Ruling R-16 | M1 | invariant | n/a |

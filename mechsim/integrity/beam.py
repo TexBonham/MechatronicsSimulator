@@ -404,7 +404,7 @@ def unresolved_bound(member: MemberInputs, bodies: BodyPoses | None) -> tuple[Fl
         return bound, False, False
     length = member.section.length
     edges = np.concatenate(
-        (np.zeros(1), (np.arange(int(round(length / chain.segment_length))) + 0.5) * chain.segment_length, [length])
+        (np.zeros(1), (np.arange(round(length / chain.segment_length)) + 0.5) * chain.segment_length, [length])
     )
     rebuilt = [carried_couples(member, bodies, item) for item in member.carried]
     couple_seen = False
