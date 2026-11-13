@@ -76,7 +76,7 @@ TEST_CASE("carried: the parent's reaction from the world is the sum of the weigh
         std::array<double, 2> reactions{0.0, 0.0};
         double weight = 0.0;
         for (const bool carry : {false, true}) {
-            CarriedRig rig = carried_rig(ends, segments, 2.0, 0.05, carry, ParentKind::Fixed);
+            const CarriedRig rig = carried_rig(ends, segments, 2.0, 0.05, carry, ParentKind::Fixed);
             weight = total_mass(rig.model) * rig_gravity;
             MultibodyProvider provider(rig.model);
             State state = start_state(provider, rig.carriage, 0.4);
@@ -126,7 +126,7 @@ TEST_CASE("carried: a carriage exactly at a node loads that node alone; at a sup
 }
 
 TEST_CASE("carried: the first step already carries a resting carriage's static weight", "[ENG-052]") {
-    CarriedRig rig = carried_rig(BeamEnds::SimplySupported, 8, 2.0, 0.05, true);
+    const CarriedRig rig = carried_rig(BeamEnds::SimplySupported, 8, 2.0, 0.05, true);
     MultibodyProvider provider(rig.model);
     State state = start_state(provider, rig.carriage, 0.5);
     run_steps(provider, state, 1);
@@ -179,8 +179,8 @@ TEST_CASE("carried: the pair does no work on a rigid motion", "[ENG-052]") {
     // With everything at rest the pair's generalized force has no component along the parent's coordinate or the
     // carriage's (the rigid motions of this tree): its halves act at the same points. Round-off: the components are
     // sums of products of the 2 kg weight's 19.6 N with unit vectors and 1 m arms, 1e-15 relative each.
-    CarriedRig rig = carried_rig(BeamEnds::SimplySupported, 8, 2.0, 0.05, true, ParentKind::Sliding);
-    MultibodyProvider provider(rig.model);
+    const CarriedRig rig = carried_rig(BeamEnds::SimplySupported, 8, 2.0, 0.05, true, ParentKind::Sliding);
+    const MultibodyProvider provider(rig.model);
     const State state = start_state(provider, rig.carriage, 0.3);
     const Eigen::VectorXd q = provider.carried_generalized_forces(state.q);
     CHECK(std::abs(q[provider.velocity_offset(rig.parent)]) <= 1e-12);
@@ -222,7 +222,7 @@ TEST_CASE("carried: validation refuses a wrong parent, a joint carried twice, a 
     }
     {
         // Past the end by 1 mm (beyond the 1e-6 m drift threshold): the run ends with the excursion named.
-        CarriedRig rig = carried_rig(BeamEnds::SimplySupported, 8, 1.0, 0.0, true);
+        const CarriedRig rig = carried_rig(BeamEnds::SimplySupported, 8, 1.0, 0.0, true);
         MultibodyProvider provider(rig.model);
         State state = start_state(provider, rig.carriage, 1.001);
         SemiImplicitEuler integrator(StepConfig{1e-3});
