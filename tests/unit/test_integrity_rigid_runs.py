@@ -72,7 +72,7 @@ def test_the_same_case_on_the_native_adapter_evaluates_every_member(tmp_path: Pa
     assert "Case G8: PASS" in out
     report = _report(tmp_path)
     for note in report["notes"]:  # type: ignore[attr-defined]
-        assert note.startswith("strength of 'rail_x': conservative") and "carried couple" in note
+        assert note.startswith("strength of 'rail_") and ": conservative" in note and "carried couple" in note
     table = report["table"]["members"]  # type: ignore[index]
     for row in table:
         assert row["flags"] in ([], ["safety_factor_below_minimum"])
