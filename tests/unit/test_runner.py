@@ -14,10 +14,11 @@ import pytest
 from mechsim.builder import build
 from mechsim.design import schema as design_schema
 from mechsim.design.schema import shipped_materials, yaml_loader
+from mechsim.integrity.table import IntegrityReport
 from mechsim.library.registry import Registry, default_registry, load_registry
 from mechsim.library.schema import CATALOG_DIR
 from mechsim.testing.baseline import load_baseline
-from mechsim.testing.driver import MESSAGE_KIND, RecordedEvent
+from mechsim.testing.driver import MESSAGE_KIND, IntegrityResults, RecordedEvent
 from mechsim.testing.runner import (
     FAULT_OWNERS,
     RunnerError,
@@ -521,6 +522,34 @@ def test_a_run_writes_its_archive_with_the_run_identity(tmp_path: Path) -> None:
     assert len(result.score.run.archive_sha256) == 64
     ((_, metadata),) = archiver.written
     assert (metadata.seed, metadata.controller_mode, metadata.bindings) == (7, "native", (("link_mass", "1 kg"),))
+
+
+@pytest.mark.req("INT-026", "INT-005")
+def test_the_integrity_report_notes_reach_the_run_report_and_the_score(tmp_path: Path) -> None:
+    designs, case = machine(tmp_path)
+    note = "member 'arm': not evaluated, built rigid"
+
+    def integrity(build: Any, case: Any, recording: Any) -> IntegrityReport:
+        return IntegrityReport(members=(), notes=(note,))
+
+    result = run_case(case, services(designs, fake(), integrity=integrity), BIND)
+    assert result.report is not None
+    assert result.report.notes[-1] == note
+    assert result.metadata is not None
+    assert result.metadata.report.notes[-1] == note
+    assert result.score.notes[-1] == note
+
+
+@pytest.mark.req("INT-026")
+def test_integrity_results_without_notes_leave_the_run_report_notes_alone(tmp_path: Path) -> None:
+    designs, case = machine(tmp_path)
+
+    def integrity(build: Any, case: Any, recording: Any) -> IntegrityResults:
+        return IntegrityResults(members=())
+
+    plain = run_case(case, services(designs, fake()), BIND)
+    result = run_case(case, services(designs, fake(), integrity=integrity), BIND)
+    assert result.score.notes == plain.score.notes
 
 
 # ===== Suites and sweeps ===============================================

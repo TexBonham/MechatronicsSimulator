@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import math
 from collections.abc import Sequence
+from dataclasses import dataclass
 
 import pytest
 from pydantic import TypeAdapter, ValidationError
@@ -25,15 +26,25 @@ STEP = 1e-3
 ROWS = 10_001
 
 
+@dataclass(frozen=True)
+class _Kinematics:
+    bodies: tuple[str, ...]
+    reference: tuple[tuple[tuple[float, float, float], tuple[float, float, float, float]], ...]
+
+
 class _Pendulum:
+    """Like the record view (TST-038): `pose:<body>.<x,y,z>` is the displacement from the body's reference-configuration
+    origin (the bob hanging straight down), and `kinematics` gives those origins."""
+
     def __init__(self, pivot: tuple[float, float, float] = (0.0, 0.0, 0.0), bob_offset: float = L) -> None:
         self._times = tuple(index * STEP for index in range(ROWS))
         angles = [THETA_0 * math.cos(2.0 * math.pi * t / PERIOD) for t in self._times]
+        hanging = (pivot[0], pivot[1] - bob_offset, pivot[2])
+        identity = (1.0, 0.0, 0.0, 0.0)
+        self.kinematics = _Kinematics(("pivot", "bob"), ((pivot, identity), (hanging, identity)))
         self._poses = {
-            "pivot": [pivot] * ROWS,
-            "bob": [
-                (pivot[0] + bob_offset * math.sin(a), pivot[1] - bob_offset * math.cos(a), pivot[2]) for a in angles
-            ],
+            "pivot": [(0.0, 0.0, 0.0)] * ROWS,
+            "bob": [(bob_offset * math.sin(a), bob_offset * (1.0 - math.cos(a)), 0.0) for a in angles],
         }
 
     def times(self) -> Sequence[float]:
@@ -95,7 +106,7 @@ def test_the_unsigned_swing_is_the_angle_from_the_gravity_line() -> None:
 @pytest.mark.parametrize(
     ("reference", "gravity", "message"),
     [
-        ("swing:pivot.bob", None, "states no gravity direction"),
+        ("swing:pivot.bob", None, "no gravity input"),
         ("swing:pivot.bob", (0.0, 0.0, 0.0), "gravity is zero"),
         ("swing:pivot.bob.y", (0.0, -G, 0.0), "axis y is along gravity"),
         ("swing:pivot.pivot", (0.0, -G, 0.0), "origins coincide at 0 s"),
@@ -112,6 +123,29 @@ def test_a_swing_without_a_direction_or_a_line_is_unevaluable(
 def test_a_swing_of_an_unrecorded_body_is_not_recorded() -> None:
     with pytest.raises(KeyError):
         _swing("swing:pivot.ghost")
+
+
+class _Unplaced(_Pendulum):
+    def __init__(self) -> None:
+        super().__init__()
+        del self.kinematics
+
+
+@pytest.mark.req("SCO-030", "TST-038")
+def test_a_swing_needs_the_reference_poses_the_displacements_are_taken_from() -> None:
+    with pytest.raises(_UnevaluableError, match="no reference pose for body 'pivot'"):
+        _swing("swing:pivot.bob", view=_Unplaced())
+
+
+@pytest.mark.req("SCO-030", "TST-038")
+def test_the_swing_reads_world_origins_not_displacements() -> None:
+    # At the reference configuration every displacement is zero; the line is the reference origins' (straight down),
+    # so the angle is exactly zero, a value; the displacements alone would give coincident origins.
+    view = _Pendulum()
+    view._poses["bob"] = [(0.0, 0.0, 0.0)] * ROWS
+    series = _swing("swing:pivot.bob.x", view=view)
+    assert set(series.values) == {0.0}
+    assert set(_swing("swing:pivot.bob", view=view).values) == {0.0}
 
 
 @pytest.mark.req("SCO-030")

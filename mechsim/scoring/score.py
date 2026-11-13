@@ -169,12 +169,33 @@ SWING_KIND = "swing"
 _AXES = {"x": (1.0, 0.0, 0.0), "y": (0.0, 1.0, 0.0), "z": (0.0, 0.0, 1.0)}
 
 
+class _ReferencePoses(Protocol):
+    """The recording's body order and reference-configuration world poses (the record reader's `Kinematics`)."""
+
+    @property
+    def bodies(self) -> Sequence[str]: ...
+
+    @property
+    def reference(self) -> Sequence[tuple[Sequence[float], Sequence[float]]]: ...
+
+
+@runtime_checkable
+class _Placed(Protocol):
+    """A record view that also gives each body's reference pose, so `pose:` displacements become world origins."""
+
+    @property
+    def kinematics(self) -> _ReferencePoses: ...
+
+    def series(self, reference: str) -> Series: ...
+
+
 class _SwingView:
     """The record view plus `swing:<a>.<b>` (SCO-030): at each sample the angle (rad) between the line from body a's
     origin to body b's and the gravity direction g, acos(d . g / (|d| |g|)), unsigned in [0, pi]; and
     `swing:<a>.<b>.<axis>` (axis x, y or z), the signed angle of that line in the vertical plane through g and the
     world axis, atan2(d . e, d . g_hat) with e the axis made orthogonal to g, positive toward the axis: a planar swing's
-    angle, so its period and settle statistics read the swing itself. Body positions are the recorded `pose:` series.
+    angle, so its period and settle statistics read the swing itself. A body's origin is its reference-configuration
+    origin plus its recorded `pose:` displacement (TST-038); a view without reference poses is unevaluable.
     No gravity, a zero gravity, an axis along gravity or coincident origins is unevaluable (invariant 7)."""
 
     def __init__(self, recording: RecordView, gravity: Sequence[float] | None) -> None:
@@ -216,15 +237,27 @@ class _SwingView:
 
     def _down(self, reference: str) -> tuple[float, float, float]:
         if self._gravity is None:
-            raise _UnevaluableError(f"{reference}: the run states no gravity direction")
+            raise _UnevaluableError(f"{reference}: no gravity input: scoring was given no design gravity")
         x, y, z = (float(value) for value in self._gravity)
         norm = math.sqrt(x * x + y * y + z * z)
         if norm == 0.0:
             raise _UnevaluableError(f"{reference}: gravity is zero, no down direction")
         return (x / norm, y / norm, z / norm)
 
-    def _position(self, body: str) -> tuple[Sequence[float], Sequence[float], Sequence[float]]:
-        return tuple(self._recording.series(f"pose:{body}.{axis}").values for axis in ("x", "y", "z"))  # type: ignore[return-value]
+    def _position(self, body: str) -> tuple[list[float], list[float], list[float]]:
+        """Body origin in world: the reference-configuration origin plus the `pose:` displacement (TST-038)."""
+        if not isinstance(self._recording, _Placed):
+            raise _UnevaluableError(f"swing: the recording carries no reference pose for body {body!r}")
+        kinematics = self._recording.kinematics
+        if body not in kinematics.bodies:
+            raise KeyError(f"no body {body!r} in the recording")
+        origin = kinematics.reference[kinematics.bodies.index(body)][0]
+        displacement = [self._recording.series(f"pose:{body}.{axis}").values for axis in ("x", "y", "z")]
+        return (
+            [origin[0] + value for value in displacement[0]],
+            [origin[1] + value for value in displacement[1]],
+            [origin[2] + value for value in displacement[2]],
+        )
 
     @staticmethod
     def _across(reference: str, axis: str, down: tuple[float, float, float]) -> tuple[float, float, float]:
