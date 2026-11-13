@@ -236,40 +236,20 @@ kernel::BodyState body_state(const eng::BodyOutput& pose) {
 }
 
 // ===== Joint extras ======================================================
-// What the adapter adds to the engine's terms per velocity DOF, all implicit through K and D so the integrator solves
-// them at the step's end state (backward Euler, ADR 0013 A):
-// - joint drives (PHY-034): f = -K (q - rest) - D v, K and D on the diagonal, so the spring acts at q + h v' and the
-//   damper at v'; the applied torque is K (rest - q') - D v' with q' = q + h v' for a single-DOF joint (exact).
-// - joint spring changes (ENG-031, ENG-032 on joint springs): the engine applies -K0 (q - rest0); the change to K1 and
-//   rest0 + offset adds -(K1 - K0)(q - rest0) + K1 offset with stiffness K1 - K0 (the total stays K1 >= 0).
-// - Coulomb joint friction F (PHY-027, PHY-030): the constant -F sign(v) while sliding, so the deceleration is F / m
-//   exactly. Below |v| = h F / m (m the DOF's diagonal of H) that force would reverse the joint in one step, so it
-//   becomes the implicit damper F / max(v_s, |v|): its force F |v'| / max(v_s, |v|) never exceeds F, it stops the
-//   joint without overshoot, and below the slip threshold v_s it is the engine's regularised stick (F / v_s).
-// - joint limits (PHY-027): a one-sided implicit spring-damper critically damped at w = 1 / (2 h), the stability
-//   floor the bridge uses (solref 2 h): K = m w^2, D = 2 m w with m the DOF's diagonal of H; active when the start
-//   state or its prediction q + h v lies beyond the limit; static penetration m g / K = 4 g h^2 (4e-5 m at 1 ms).
+// Joint spring changes (ENG-031, ENG-032 on joint springs), implicit through K so the integrator solves them at the
+// step's end state (backward Euler, ADR 0013 A): the engine applies -K0 (q - rest0); the change to K1 and
+// rest0 + offset adds -(K1 - K0)(q - rest0) + K1 offset with stiffness K1 - K0 (the total stays K1 >= 0). Joint
+// limits, joint friction and joint drives are the engine's (ENG-013, ENG-014, ENG-051; ruling 37).
 struct DofExtras {
     Eigen::Index q_index = -1;
-    bool drive = false;
-    double drive_stiffness = 0.0;
-    double drive_damping = 0.0;
-    double drive_rest = 0.0;
     double base_stiffness = 0.0;
     double base_rest = 0.0;
     double stiffness = 0.0;
     double offset = 0.0;
-    double friction = 0.0;
-    bool has_lower = false;
-    double lower = 0.0;
-    bool has_upper = false;
-    double upper = 0.0;
 };
 
 struct Extras {
     std::vector<DofExtras> dofs;  // per engine velocity DOF
-    double slip_threshold = eng::MultibodyConfig::default_friction_slip_threshold;
-    double h = 1e-3;
 };
 
 class ExtendedProvider final : public eng::DynamicsProvider {
@@ -282,48 +262,16 @@ public:
     void evaluate(double t, const Eigen::VectorXd& q, const Eigen::VectorXd& v,
                   eng::DynamicsTerms& terms) const override {
         inner_.evaluate(t, q, v, terms);
-        const double h = extras_.h;
-        const double w = 1.0 / (2.0 * h);
         for (std::size_t i = 0; i < extras_.dofs.size(); ++i) {
             const DofExtras& d = extras_.dofs[i];
             const auto k = index_of(i);
             if (d.q_index < 0) {
                 continue;
             }
-            const double qk = q[d.q_index];
-            const double vk = v[k];
-            if (d.drive) {
-                terms.force[k] += -d.drive_stiffness * (qk - d.drive_rest) - d.drive_damping * vk;
-                terms.stiffness(k, k) += d.drive_stiffness;
-                terms.damping(k, k) += d.drive_damping;
-            }
             if (d.stiffness != d.base_stiffness || d.offset != 0.0) {
-                terms.force[k] += -(d.stiffness - d.base_stiffness) * (qk - d.base_rest) + d.stiffness * d.offset;
+                terms.force[k] += -(d.stiffness - d.base_stiffness) * (q[d.q_index] - d.base_rest) +
+                                  d.stiffness * d.offset;
                 terms.stiffness(k, k) += d.stiffness - d.base_stiffness;
-            }
-            const double m = terms.mass(k, k);
-            if (d.friction > 0.0) {
-                const double speed = std::abs(vk);
-                if (speed < h * d.friction / m) {
-                    const double c = d.friction / std::max(extras_.slip_threshold, speed);
-                    terms.force[k] += -c * vk;
-                    terms.damping(k, k) += c;
-                } else if (vk > 0.0) {
-                    terms.force[k] += -d.friction;
-                } else {
-                    terms.force[k] += d.friction;
-                }
-            }
-            const double predicted = qk + h * vk;
-            if (d.has_lower && (qk < d.lower || predicted < d.lower)) {
-                terms.force[k] += -m * w * w * (qk - d.lower) - 2.0 * m * w * vk;
-                terms.stiffness(k, k) += m * w * w;
-                terms.damping(k, k) += 2.0 * m * w;
-            }
-            if (d.has_upper && (qk > d.upper || predicted > d.upper)) {
-                terms.force[k] += -m * w * w * (qk - d.upper) - 2.0 * m * w * vk;
-                terms.stiffness(k, k) += m * w * w;
-                terms.damping(k, k) += 2.0 * m * w;
             }
         }
     }
@@ -395,6 +343,7 @@ struct NativeAdapter::Engine {
     std::vector<Eigen::Index> payload_bodies;
     std::vector<Eigen::Index> neutral_dof_to_engine;  // neutral velocity DOF -> engine velocity DOF
     std::vector<kernel::JointDrive> drives;           // this step's drives, input order
+    std::vector<Eigen::Index> driven;                 // joints carrying an engine drive (set_joint_drive)
     kernel::PhysicsOutputs outputs;
     std::vector<ModelChangeRecord> events;
     int substeps = 1;                                        // engine steps per adapter step
@@ -405,7 +354,7 @@ struct NativeAdapter::Engine {
 
 namespace {
 
-void parse_bodies(const json::Value& doc, eng::MultibodyModel& model, std::vector<std::vector<DofExtras>>& per_body) {
+void parse_bodies(const json::Value& doc, eng::MultibodyModel& model) {
     for (const json::Value& b : doc.at("bodies").array("bodies")) {
         eng::Body body;
         body.name = b.at("name").string("body name");
@@ -429,27 +378,34 @@ void parse_bodies(const json::Value& doc, eng::MultibodyModel& model, std::vecto
         body.joint.stiffness = vecx(j.at("stiffness"), "joint stiffness");
         body.joint.damping = vecx(j.at("damping"), "joint damping");
         body.joint.rest = vecx(j.at("rest"), "joint rest");
-        std::vector<DofExtras> dofs;
         const std::vector<json::Value>& friction = j.at("friction").array("joint friction");
         const std::vector<json::Value>& lower = j.at("lower").array("joint lower");
         const std::vector<json::Value>& upper = j.at("upper").array("joint upper");
         if (lower.size() != friction.size() || upper.size() != friction.size()) {
             throw json::ParseError("body '" + body.name + "': friction, lower and upper differ in length");
         }
+        // Engine form (ENG-013, ENG-014): friction per DOF, empty when all zero so a frictionless run is bitwise the
+        // engine's; a bound per side, empty when open (the document's null); the engine refuses what it cannot carry.
+        Eigen::VectorXd rubbing(index_of(friction.size()));
+        bool rubs = false;
         for (std::size_t k = 0; k < friction.size(); ++k) {
-            DofExtras d;
-            d.friction = friction[k].number("joint friction");
+            rubbing[index_of(k)] = friction[k].number("joint friction");
+            rubs = rubs || rubbing[index_of(k)] != 0.0;
+        }
+        if (rubs) {
+            body.joint.friction = rubbing;
+        }
+        for (std::size_t k = 0; k < friction.size(); ++k) {
+            if ((!lower[k].is_null() || !upper[k].is_null()) && friction.size() != 1) {
+                throw json::ParseError("body '" + body.name + "': limits act on a single-DOF joint only (ENG-013)");
+            }
             if (!lower[k].is_null()) {
-                d.has_lower = true;
-                d.lower = lower[k].number("joint lower");
+                body.joint.lower = Eigen::VectorXd::Constant(1, lower[k].number("joint lower"));
             }
             if (!upper[k].is_null()) {
-                d.has_upper = true;
-                d.upper = upper[k].number("joint upper");
+                body.joint.upper = Eigen::VectorXd::Constant(1, upper[k].number("joint upper"));
             }
-            dofs.push_back(d);
         }
-        per_body.push_back(std::move(dofs));
         model.bodies.push_back(std::move(body));
     }
 }
@@ -526,8 +482,7 @@ void NativeAdapter::load(const kernel::PreparedModel& prepared, const kernel::Ra
 
         eng::MultibodyModel& model = e->model;
         model.gravity = vec3(doc.at("gravity"), "gravity");
-        std::vector<std::vector<DofExtras>> per_body;
-        parse_bodies(doc, model, per_body);
+        parse_bodies(doc, model);
         const std::size_t doc_bodies = model.bodies.size();
         const int neutral = doc.at("neutral_bodies").integer("neutral_bodies");
         if (neutral < 0 || static_cast<std::size_t>(neutral) > model.bodies.size()) {
@@ -659,7 +614,6 @@ void NativeAdapter::load(const kernel::PreparedModel& prepared, const kernel::Ra
 
         e->provider = std::make_unique<eng::MultibodyProvider>(model, config);
         eng::MultibodyProvider& provider = *e->provider;
-        config.friction_slip_threshold = provider.config().friction_slip_threshold;
 
         if (!doc.at("contact").is_null()) {
             const json::Value& c = doc.at("contact");
@@ -700,6 +654,23 @@ void NativeAdapter::load(const kernel::PreparedModel& prepared, const kernel::Ra
         }
 
         Eigen::VectorXd q = start_q(provider);
+        for (std::size_t b = 0; b < doc_bodies; ++b) {
+            const eng::Joint& joint = model.bodies[b].joint;
+            if (joint.lower.size() == 0 && joint.upper.size() == 0) {
+                continue;
+            }
+            double tolerance = config.drift_threshold_m;
+            if (joint.type == eng::JointType::Revolute) {
+                tolerance = config.drift_threshold_rad;
+            }
+            const double coordinate = q[provider.position_offset(index_of(b))];
+            const bool below = joint.lower.size() == 1 && coordinate < joint.lower[0] - tolerance;
+            const bool above = joint.upper.size() == 1 && coordinate > joint.upper[0] + tolerance;
+            if (below || above) {
+                throw AdapterError(0, "load: body '" + model.bodies[b].name + "': start coordinate " +
+                                          std::to_string(coordinate) + " outside its joint limits (ruling 43)");
+            }
+        }
         const std::vector<json::Value>& payloads = doc.at("payloads").array("payloads");
         if (!starts.empty() && !payloads.empty()) {
             const Eigen::VectorXd zero = Eigen::VectorXd::Zero(provider.velocity_size());
@@ -739,38 +710,30 @@ void NativeAdapter::load(const kernel::PreparedModel& prepared, const kernel::Ra
         for (const eng::LumpedBeam& beam : model.members) {
             e->node_bodies.insert(e->node_bodies.end(), beam.bodies.begin(), beam.bodies.end());
         }
-        e->extras.h = e->h;
-        e->extras.slip_threshold = config.friction_slip_threshold;
         e->extras.dofs.assign(static_cast<std::size_t>(provider.velocity_size()), DofExtras{});
-        for (std::size_t b = 0; b < per_body.size(); ++b) {
+        for (std::size_t b = 0; b < doc_bodies; ++b) {
             const eng::Body& body = model.bodies[b];
-            const std::vector<DofExtras>& dofs = per_body[b];
             const Eigen::Index v0 = provider.velocity_offset(index_of(b));
             const Eigen::Index q0 = provider.position_offset(index_of(b));
             const bool coordinate = body.joint.type == eng::JointType::Revolute ||
                                     body.joint.type == eng::JointType::Prismatic ||
                                     body.joint.type == eng::JointType::Planar;
-            for (std::size_t k = 0; k < dofs.size(); ++k) {
-                DofExtras d = dofs[k];
-                const Eigen::Index vk = v0 + index_of(k);
-                if (coordinate) {
-                    d.q_index = q0 + index_of(k);
-                    if (k < static_cast<std::size_t>(body.joint.stiffness.size())) {
-                        d.base_stiffness = body.joint.stiffness[index_of(k)];
-                    }
-                    if (k < static_cast<std::size_t>(body.joint.rest.size())) {
-                        d.base_rest = body.joint.rest[index_of(k)];
-                    }
-                    d.stiffness = d.base_stiffness;
-                } else if (d.friction > 0.0 || d.has_lower || d.has_upper) {
-                    throw AdapterError(0, "load: body '" + body.name +
-                                              "': friction and limits act on revolute, prismatic and planar DOFs only");
-                }
-                item(e->extras.dofs, vk) = d;
+            if (!coordinate) {
+                continue;
             }
-            if (b < e->neutral_bodies && coordinate) {
-                const auto count = static_cast<std::size_t>(body.joint.type == eng::JointType::Planar) * 2 + 1;
-                for (std::size_t k = 0; k < count; ++k) {
+            const auto count = static_cast<std::size_t>(body.joint.type == eng::JointType::Planar) * 2 + 1;
+            for (std::size_t k = 0; k < count; ++k) {
+                DofExtras d;
+                d.q_index = q0 + index_of(k);
+                if (k < static_cast<std::size_t>(body.joint.stiffness.size())) {
+                    d.base_stiffness = body.joint.stiffness[index_of(k)];
+                }
+                if (k < static_cast<std::size_t>(body.joint.rest.size())) {
+                    d.base_rest = body.joint.rest[index_of(k)];
+                }
+                d.stiffness = d.base_stiffness;
+                item(e->extras.dofs, v0 + index_of(k)) = d;
+                if (b < e->neutral_bodies) {
                     e->springs.emplace_back(v0 + index_of(k), -1);
                 }
             }
@@ -913,10 +876,7 @@ void NativeAdapter::apply_inputs(Engine& e, const kernel::PhysicsInputs& inputs)
                                    Eigen::Vector3d(w.wrench.moment[0], w.wrench.moment[1], w.wrench.moment[2]),
                                    Eigen::Vector3d(w.wrench.force[0], w.wrench.force[1], w.wrench.force[2]));
     }
-    for (DofExtras& d : e.extras.dofs) {
-        d.drive = false;
-    }
-    e.drives = inputs.joint_drives;
+    std::vector<Eigen::Index> driven;
     for (const kernel::JointDrive& drive : inputs.joint_drives) {
         if (drive.joint >= e.neutral_bodies) {
             throw AdapterError(e.steps, "set_inputs: drive on joint " + std::to_string(drive.joint) +
@@ -935,15 +895,28 @@ void NativeAdapter::apply_inputs(Engine& e, const kernel::PhysicsInputs& inputs)
         if (!drive.enabled) {
             continue;
         }
-        DofExtras& d = item(e.extras.dofs, provider.velocity_offset(index_of(drive.joint)));
-        if (d.drive) {
+        if (std::ranges::find(driven, index_of(drive.joint)) != driven.end()) {
             throw AdapterError(e.steps, "set_inputs: two drives on joint " + std::to_string(drive.joint));
         }
-        d.drive = true;
-        d.drive_stiffness = drive.stiffness;
-        d.drive_damping = drive.damping;
-        d.drive_rest = drive.rest;
+        driven.push_back(index_of(drive.joint));
     }
+    // The engine's drive persists (ENG-051) and adds to the model spring (ruling 42); a kernel drive lasts one tick,
+    // so every drive of the previous inputs is cleared and this tick's set. The rest is the end-of-step rest (PHY-034).
+    clear_drives(e);
+    for (const kernel::JointDrive& drive : inputs.joint_drives) {
+        if (drive.enabled) {
+            provider.set_joint_drive(index_of(drive.joint), 0, drive.rest, drive.stiffness, drive.damping);
+        }
+    }
+    e.driven = std::move(driven);
+    e.drives = inputs.joint_drives;
+}
+
+void NativeAdapter::clear_drives(Engine& e) {
+    for (const Eigen::Index joint : e.driven) {
+        e.provider->clear_joint_drive(joint, 0);
+    }
+    e.driven.clear();
 }
 
 // ===== Step and outputs ==================================================
@@ -1151,9 +1124,8 @@ void NativeAdapter::step() {
         o.joint_drive_torques.push_back(torque);
     }
     e.drives.clear();
-    for (DofExtras& d : e.extras.dofs) {
-        d.drive = false;
-    }
+    e.inputs = kernel::PhysicsInputs{};
+    clear_drives(e);
     o.payloads.clear();
     for (const Eigen::Index body : e.payload_bodies) {
         kernel::PayloadState p;

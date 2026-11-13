@@ -5,13 +5,14 @@ Stepping is `core/physics/native/`. The only Python importer of `mechsim._core_e
 
 | Name | Does |
 |---|---|
-| `translate(model, step=None, payloads=None, starts=None) -> Translation(document, report)` | `.text` is the JSON (sorted keys, deterministic); `report` one line per approximation (SCO-013) |
-| `prepare.prepare_model(model, starts, step, payloads) -> NativeArtifacts(model_json, version, report)` | `PreparedModel(model_json, "", version)` |
+| `translate(model, step=None, payloads=None, starts=None, substeps=1) -> Translation(document, report)` | `.text` is the JSON (sorted keys, deterministic); `report` one line per approximation (SCO-013), at h / substeps; `substeps` written when above 1 |
+| `scheme_mode(x) -> (kept, ratio)`, `mode_text(x)` | Ruling 45: amplitude kept per period (1 + x^2)^(-pi / atan x), frequency ratio atan(x) / x; the text flags x above 0.2 unresolved; every member, rope swing and belt mode line uses it; drive and gear lines state the form with x from the engine's scheme decay |
+| `prepare.prepare_model(model, starts, step, payloads, substeps=1) -> NativeArtifacts(model_json, version, report)` | `PreparedModel(model_json, "", version)` |
 | `supported_elements()`, `SUPPORTED_ELEMENTS` | Mirrors `supported_kinds` in `core/physics/native/src/native_adapter.cpp` (test-checked) |
 | `element_kinds(model)` | Kinds present, written as `elements` |
 | `member_node_names(model)` | Names of the member node poses after the neutral bodies: `<member>.node<k>`, chain root to tip (pinned root: pin segment first) |
 | `output_per_input(transmission)` | n: r, lead / 2 pi, 1 / ratio (signed) |
-| `UnmappableElementError(element, reason)`, `StartStateError` | Refusals (PHY-019): also friction, stiffness or limits on a spherical or free joint |
+| `UnmappableElementError(element, reason)`, `StartStateError` | Refusals (PHY-019): also friction, stiffness or limits on a spherical or free joint, limits on a planar joint (ENG-013) |
 | `adapter.py` | Engine type re-exports for tests |
 
 ## Document (`mechsim-native-1`)
@@ -31,7 +32,7 @@ Stepping is `core/physics/native/`. The only Python importer of `mechsim._core_e
 
 | Section | Line |
 |---|---|
-| Joints | 122 |
-| Shapes and contacts | 208 |
-| Members, ropes and transmissions | 290 |
-| Model | 450 |
+| Joints | 141 |
+| Shapes and contacts | 242 |
+| Members, ropes and transmissions | 324 |
+| Model | 501 |

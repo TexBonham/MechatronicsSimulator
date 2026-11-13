@@ -126,9 +126,14 @@ def test_phy_029() -> None:
 def test_phy_030() -> None:
     """A body on a prismatic joint with Coulomb friction shall decelerate at the closed-form rate on an adapter.
 
-    A 3 kg slider, joint friction F = 1.5 N, pushed to speed and released: while sliding, the constant -F gives a
-    deceleration F / m = 0.5 m/s^2 exactly per step; it stops within (v / (F / m)) + one step, and stays.
+    A 3 kg slider, joint friction F = 1.5 N (a = F / m = 0.5 m/s^2), pushed to about 1 m/s and released, on the
+    engine's friction (ENG-014, ruling 38): c = F / max(|v|, v_s) frozen at the step start, so with u = |v| / (a h) a
+    step gives u' = u^2 / (u + 1), a speed drop a h u / (u + 1). Bounds (PHY-030 row): since each drop d = u / (u + 1)
+    < 1 and 1 - d = d / u is at most the integral of du / u over the step, the steps from u_0 to below u_s = v_s / (a h)
+    number N in [u_0 - u_s, u_0 - u_s + ln(u_0 / u_s) + 1]; the distance h sum v' = a h^2 sum u d = a h^2 sum
+    ((u^2 - u'^2) / 2 + d^2 / 2) exceeds (v_0^2 - v_N^2) / (2 a) by a value in [0, h (v_0 - v_N) / 2].
     """
+    h, a, vs = 1e-3, 0.5, 1e-4
     data = base(("0 m/s**2", "0 m/s**2", "0 m/s**2"))
     joint = {
         "name": "rail",
@@ -145,13 +150,31 @@ def test_phy_030() -> None:
         physics.set_inputs(inputs)
         physics.step()
     v0 = physics.outputs().bodies[0].linear_velocity[0]
-    physics.step()
-    v1 = physics.outputs().bodies[0].linear_velocity[0]
-    print(f"friction: deceleration target 0.5 m/s^2 measured {(v0 - v1) / 1e-3:.9f} m/s^2")
-    assert (v0 - v1) / 1e-3 == pytest.approx(1.5 / 3.0, rel=1e-9)
-    for _ in range(int(v1 / 0.5 / 1e-3) + 2):
+    x0 = physics.outputs().joint_positions[0]
+    v = v0
+    steps = 0
+    worst = 0.0
+    while v >= vs and steps < 10000:
         physics.step()
-    assert abs(physics.outputs().bodies[0].linear_velocity[0]) < 1e-4
+        steps += 1
+        following = physics.outputs().bodies[0].linear_velocity[0]
+        u = v / (a * h)
+        expected = a * h * u / (u + 1.0)
+        worst = max(worst, abs((v - following) / expected - 1.0))
+        v = following
+    u0, us = v0 / (a * h), vs / (a * h)
+    excess = (physics.outputs().joint_positions[0] - x0) - (v0 * v0 - v * v) / (2.0 * a)
+    print(
+        f"friction: per-step drop a h u / (u + 1), worst relative miss {worst:.3e}; stop after {steps} steps, bounds "
+        f"[{u0 - us:.3f}, {u0 - us + math.log(u0 / us) + 1.0:.3f}]; distance excess {excess:.6e} m in "
+        f"[0, {h * (v0 - v) / 2.0:.6e}] m"
+    )
+    assert worst < 1e-9
+    assert u0 - us <= steps <= u0 - us + math.log(u0 / us) + 1.0
+    assert -1e-12 <= excess <= h * (v0 - v) / 2.0 + 1e-12
+    for _ in range(100):
+        physics.step()
+    assert abs(physics.outputs().bodies[0].linear_velocity[0]) < vs
 
 
 @pytest.mark.req("PHY-022", "PHY-007")

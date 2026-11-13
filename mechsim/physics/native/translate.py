@@ -62,6 +62,7 @@ WORLD_ANCHOR = "world.anchor"
 SLIP_VELOCITY = 1e-4
 WELD_FREQUENCY = 1000.0
 SNATCH_LIMIT = 0.2
+MODE_RESOLUTION = 0.2
 CLAMPED_MIN_SEGMENTS = 8
 
 
@@ -109,6 +110,24 @@ def element_kinds(model: PhysicsModel) -> tuple[str, ...]:
     if len(model.ropes) > 0:
         kinds.append("rope")
     return tuple(dict.fromkeys(kinds))
+
+
+def scheme_mode(x: float) -> tuple[float, float]:
+    """Backward Euler on an oscillatory mode with x = omega h (ruling 45): the amplitude kept per period
+    (1 + x^2)^(-pi / atan x) and the frequency ratio atan(x) / x; (1, 1) at x = 0."""
+    if x <= 0.0:
+        return (1.0, 1.0)
+    angle = math.atan(x)
+    return ((1.0 + x * x) ** (-math.pi / angle), angle / x)
+
+
+def mode_text(x: float) -> str:
+    """The published form of one oscillatory mode (ruling 45), flagged unresolved above x = 0.2."""
+    kept, ratio = scheme_mode(x)
+    text = f"x = omega h = {x:.3g}: amplitude kept per period {kept:.3g}, frequency ratio {ratio:.3g}"
+    if x > MODE_RESOLUTION:
+        text += f"; unresolved at this step (x above {MODE_RESOLUTION})"
+    return text
 
 
 def _floats(values: Sequence[float]) -> list[float]:
@@ -161,11 +180,14 @@ def _joint(body: Body) -> dict[str, Any]:
                 f"stiffness on a {joint.type} joint: the own engine's joint springs act on revolute, prismatic and "
                 "planar coordinates only (PHY-019)",
             )
-        elif any(dof.lower is not None or dof.upper is not None for dof in dofs):
+        if any(dof.lower is not None or dof.upper is not None for dof in dofs) and joint.type not in (
+            "revolute",
+            "prismatic",
+        ):
             raise UnmappableElementError(
                 f"joint '{joint.name}'",
-                f"limits on a {joint.type} joint: the own engine's joint limits act on revolute, prismatic and planar "
-                "coordinates only (PHY-019)",
+                f"limits on a {joint.type} joint: the own engine's joint limits act on revolute and prismatic "
+                "coordinates only (ENG-013, PHY-019)",
             )
         if not any(value != 0.0 for value in damping):
             damping = []
@@ -344,8 +366,7 @@ def _member(member: LumpedMember, parent: int, h: float, report: list[str]) -> d
     x = omega * h
     report.append(
         f"lumped member '{member.name}': {member.segments} segments, {ends}; first mode {omega / (2 * math.pi):.6g} Hz "
-        f"integrates as backward Euler: amplitude loss pi omega h = {math.pi * x:.3g} per period, frequency "
-        f"{x * x / 3:.3g} low (ruling 21)"
+        f"integrates as backward Euler: {mode_text(x)} (rulings 21, 45)"
     )
     return {
         "parent": parent,
@@ -368,9 +389,8 @@ def _rope(rope: Rope, index: Mapping[str, int], model: PhysicsModel, h: float, r
     length = float(rope.rest_length)
     swing = math.sqrt(gravity / length) * h
     report.append(
-        f"rope '{rope.name}': lumped chain of {rope.segments} segments (ADR 0016); swing mode pi omega h = "
-        f"{math.pi * swing:.3g} amplitude loss per period, frequency {swing * swing / 3:.3g} low, omega = sqrt(g / L) "
-        "(ruling 21); the neutral rope carries no attachment damping or friction: 0"
+        f"rope '{rope.name}': lumped chain of {rope.segments} segments (ADR 0016); swing mode omega = sqrt(g / L), "
+        f"{mode_text(swing)} (rulings 21, 45); the neutral rope carries no attachment damping or friction: 0"
     )
     if rope.to_body != WORLD:
         load = next(body.mass for body in model.bodies if body.name == rope.to_body)
@@ -432,18 +452,17 @@ def _transmission(
     driven = model.bodies[joints[transmission.driven_joint]]
     stiffness = float(transmission.stiffness)
     if isinstance(transmission, GearPair):
-        mode = "the output inertia"
+        mode = (
+            "the output inertia: x = omega h from the engine's scheme decay pi x at run time, amplitude kept per "
+            "period (1 + x^2)^(-pi / atan x), frequency ratio atan(x) / x, unresolved above x = 0.2"
+        )
     else:
         omega = math.sqrt(stiffness / _subtree_mass(model, driven.name))
-        x = omega * h
-        mode = (
-            f"omega = sqrt(k / m) = {omega:.6g} rad/s on the driven mass: amplitude loss pi omega h = "
-            f"{math.pi * x:.3g} per period, frequency {x * x / 3:.3g} low"
-        )
+        mode = f"omega = sqrt(k / m) = {omega:.6g} rad/s on the driven mass: {mode_text(omega * h)}"
     report.append(
         f"transmission '{transmission.name}': compliant, stiffness {stiffness:.6g} at the output, no damping (ruling "
         f"10); efficiency {float(transmission.efficiency):.6g} both directions; mode on {mode} (backward Euler, "
-        "ruling 21)"
+        "rulings 21, 45)"
     )
     return {
         "type": transmission.type,
@@ -487,12 +506,17 @@ def translate(
     step: float | None = None,
     payloads: Mapping[str, str] | None = None,
     starts: Mapping[str, float] | None = None,
+    substeps: int = 1,
 ) -> Translation:
     """The engine model document and the approximation report (SCO-013); `step` (s) is the run's physics step when
-    it is not the model's, `payloads` maps payload bodies to carriers, `starts` single-DOF joints to coordinates."""
+    it is not the model's, `payloads` maps payload bodies to carriers, `starts` single-DOF joints to coordinates,
+    `substeps` the engine steps per adapter step (written when above one; every line then uses h / substeps)."""
+    if substeps < 1:
+        raise UnmappableElementError(f"substeps {substeps}", "at least one engine step per adapter step")
     h = float(model.run.step)
     if step is not None:
         h = float(step)
+    h /= substeps
     report: list[str] = [
         f"native adapter: own engine, backward Euler on springs, dampers and contact (SemiImplicitEuler, ADR 0013) "
         f"at {h:.6g} s"
@@ -524,20 +548,26 @@ def translate(
         if joint is None:
             continue
         dofs = _dofs(body)
-        if any(dof.friction > 0.0 for dof in dofs):
-            report.append(f"joint '{joint.name}': Coulomb friction regularised below {SLIP_VELOCITY} m/s or rad/s")
+        for dof in dofs:
+            if dof.friction > 0.0:
+                report.append(
+                    f"joint '{joint.name}': Coulomb friction F = {float(dof.friction):.6g} regularised below v_s = "
+                    f"{SLIP_VELOCITY} m/s or rad/s (ENG-014, ruling 38): a load L below F creeps at v_s L / F = "
+                    f"{SLIP_VELOCITY / float(dof.friction):.3g} L, never faster than v_s"
+                )
         if any(dof.lower is not None or dof.upper is not None for dof in dofs):
             report.append(
-                f"joint '{joint.name}': limits as an implicit one-sided spring-damper critically damped at "
-                f"w = 1 / (2 h); static penetration under gravity 4 g h^2 = {4 * _gravity(model) * h * h:.3g} m"
+                f"joint '{joint.name}': limits as the engine's one-sided velocity rows (ENG-013, ruling 43): the "
+                "crossing step lands on the bound, zero restitution, no penetration"
             )
     drivable = [transmission.shaft_joint for transmission in model.transmissions] + list(model.signals.drive_joints)
     for name in dict.fromkeys(drivable):
         report.append(
-            f"joint drive on '{name}': implicit spring-damper (backward Euler, no stability limit, PHY-034); with "
-            "x = omega h, omega = sqrt(K / m), the drive mode runs x^2 / 3 slow and loses about pi x of its "
-            f"amplitude per period (keeps (1 + x^2)^(-pi / atan x), about e^(-pi x); h = {h:.6g} s; K is the "
-            "controller's, so x is known only at run time; ruling 21)"
+            f"joint drive on '{name}': the engine's additive implicit spring-damper (backward Euler, no stability "
+            "limit, PHY-034, ruling 42); x = omega h from the engine's per-step scheme decay pi x on the driven DOF "
+            "(ruling 44: total stiffness over effective inertia, a compliant transmission's lower root): amplitude "
+            "kept per period (1 + x^2)^(-pi / atan x), frequency ratio atan(x) / x, unresolved above x = 0.2 "
+            f"(h = {h:.6g} s; K is the controller's, so x is known only at run time; ruling 45)"
         )
     members = [_member(member, index.get(member.parent, -1), h, report) for member in model.lumped_members]
     ropes = [_rope(rope, index, model, h, report) for rope in model.ropes]
@@ -591,6 +621,8 @@ def translate(
         "payloads": payload_entries,
         "starts": start_entries,
     }
+    if substeps > 1:
+        document["substeps"] = substeps
     for kind in document["elements"]:
         if kind not in SUPPORTED_ELEMENTS:
             raise UnmappableElementError(kind, "not mapped by the native adapter (PHY-019)")

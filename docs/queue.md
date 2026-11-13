@@ -8,10 +8,13 @@ Round 5 (milestone 3) in flight on `round/05-milestone-3`, cut from main at cf5c
 PR #6). Plan of record `docs/briefs/round-05/plan.md` (signed off 2026-11-11, with the owner's amendment: milestone
 3 retires MuJoCo in favour of the own C++ engine). Landed on the round branch: A (ADR 0016), M+D (f85803d), R
 (163ad24), I1 (dafaa6c), E3 (bef4841: engine contact, members, ropes, mid-run changes, bindings, clamped far end;
-ctest debug-sanitize 426, Python 4252 passed and 130 xfail). N (native adapter, `wip/05-n` 530e55b) passes G3, P1
-and the reference tier on the own engine; its review asked for a fix round before the stage commit (rulings 37 to
-41). In flight: N2 (run-configuration adapter field, clamped members, kernel rope and event outputs) and E4 (engine
-joint limits, friction, per-step drive), then N3 (adapter adopts E4), I2, X1, X2, gate. Briefs of record
+ctest debug-sanitize 426, Python 4252 passed and 130 xfail), N with its fix rounds N2 and N2b (30e8fd9: the native
+adapter over the own engine, opt-in through the run-configuration field `physics.adapter`, default `mujoco`; G3
+and P1 pass on it with flexible rails, beam references within 2 percent; ctest debug-sanitize 454, Python 4320
+passed and 117 xfail). E4 (a04a371: engine joint limits, joint friction, additive
+per-step joint drive, zero-stretch coupling fix; ctest debug-sanitize 491, Python 4325 passed and 115 xfail). In
+review: N3 (the adapter adopts E4; `wip/05-n3`). In flight: I2 (tier 1 integrity party, `wip/05-i2`). Next: X1, X2,
+gate. Briefs of record
 in `docs/briefs/round-05/`; worktrees `../MechatronicsSimulator-05-<letter>`. Round 4's rulings and gate report
 are below for reference; round 4's cost rows are in `docs/cost-log-archive.md`.
 
@@ -65,6 +68,14 @@ are below for reference; round 4's cost rows are in `docs/cost-log-archive.md`.
 | 44 | E4 review: `scheme_decay` is published for driven joint DOFs only, each step, with omega from the total stiffness and the effective inertia; a DOF coupled through a compliant transmission uses the lower root of the two-DOF pair; beam nodes and undriven sprung joints publish nothing. Per-joint friction, damping, limit and drive values are model values under ENG-049 (`InvalidModelError`). | as stated | planned default |
 | 45 | N re-review (rewords the published line of ruling 21): a run's approximation line for an oscillatory mode publishes x = omega h, the amplitude kept per period (1 + x^2)^(-pi / atan x) and the frequency ratio atan(x) / x, never the small-x form pi omega h (a gantry flexible rail at 1 ms has x = 1.30: 3.4 percent of the amplitude kept per period, frequency 30 percent low); a mode with x above 0.2 is flagged unresolved at this step. | as stated | planned default |
 | 46 | N re-review: the contact rest penetration and friction stop references (PHY-029, PHY-030) hold on the native adapter only; the bridge differs by its model (its normal stiffness is not a spring, its friction loss is a soft constraint), recorded as a bridge approximation, with the adapter-neutral assertions (rest, drift, summed force m g) still run on the bridge. | as stated | planned default |
+| 47 | N3 review: ruling 39 is unachievable as worded (the engine switches the transmission gain on the sign of the power, so a settling shaft never sits at exactly zero speed and every sag in [n eta, n / eta] F / K is an equilibrium; measured +3.2 % belt, +0.28 % gear). Options: reword ruling 39 to the band and publish it, or regularise the switch. | Regularise: the gain passes linearly through n inside a threshold shaft speed (the engine's `friction_slip_threshold`, frozen at the step's start rate, as ruling 38 does for friction), so the static sag is exactly n F / K and the approach creep is published; brief E5 | planned default |
+| 48 | N3 review: the self-locking lead screw holds only while the shaft velocity stays bitwise zero (inertia condition J > n (h^2 k + h c)); a realistic rotor coasts once round-off moves it: an engine defect against ENG-044. | The engine holds a self-locking screw by a one-sided velocity row on the shaft (no motion in the back-driving direction unless the shaft's own drive or applied torque pushes that way); lowering under a drive stays unresisted in this tier (ENG-044 as written); brief E5 | planned default |
+| 49 | N3 review: the adapter's `substeps` has a producer and a test but no run-configuration field sets it; with substeps above one every substep gets the tick-end drive rest, so steady lag is not exact. | `substeps` stays (the small-step rope and belt cases of ruling 21 use it); the rest is interpolated per substep; a run-configuration field for it is X1's when a case needs it; brief N4 | planned default |
+| 50 | I2 review: the writer let the `integrity.yaml` halt value apply when a case leaves `integrity.halt_on_crossing` unset, so a case can halt without saying so. | Ruling 4 stands: halt is the test case's field, default false; no fallback to `integrity.yaml`; brief I2b | planned default |
+| 51 | I2 review: a halted run reports end reason `end_time` with the halt line among the approximations. | A real end reason `integrity_halt` through the driver, archive, facade and scoring; the halt line is a report line, not an approximation (INT-026, invariant 7); brief I2b | planned default |
+| 52 | I2 review: tier 1 evaluates live loads with no design-load factor. | As INT-023 to 025 are written: no factor in the party; a case that tests the design load carries it (rated load + 15 % on the gantry is the case's data) | planned default |
+| 53 | I2 review: rope snap is not gated by `integrity.yaml`. | Rope snap is a tier 2 entry of `integrity.yaml` like yield: absent = no snap (ruling 27); brief I2b | planned default |
+| 54 | I2 review: the yield oracle is asserted at 1e-3 against a derived bound of 2.3e-4 and no spec row carries it. | The INT tolerance row carries the derived bound 2.3e-4 (measured 8.1e-5), the crossing ticks exact, the cross-check and free fall 1e-9 (T4); the yield offset follows the running peak (sign of the peak; a larger reversed peak replaces it), stated in the row as the ruling 35 placeholder; brief I2b | planned default |
 
 ## Round 4 rulings, reference (owner 2026-11-11: every ruling confirmed at its planned default; ruling 2 stays a placeholder with I2C and SPI peripheral modes added to the milestone 4 scope)
 

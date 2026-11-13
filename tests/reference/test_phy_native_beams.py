@@ -13,7 +13,9 @@ are below 1e-7 relative.
 Chain values (the lumped error inside the 2 percent of rulings 20 and 32):
 - cantilever, tip load P, springs at segment midpoints: delta = P l^3 / (E I) sum_{k=0}^{N-1} (k + 1/2)^2
   = P L^3 / (3 E I) (1 - 1 / (4 N^2)), -0.39 percent at N = 8;
-- clamped-clamped, midspan load: P L^3 / (192 E I) (1 - 4 / N^2), -1.56 percent at N = 16 (engine contract).
+- clamped-clamped, midspan load: P L^3 / (192 E I) (1 - 4 / N^2), -1.56 percent at N = 16 (engine contract);
+- pinned-roller, midspan load: P L^3 / (48 E I) within 2 percent at N = 8 (BLD-017), first mode
+  (pi^2 / L^2) sqrt(E I / (rho A)), that is pi / 2 sqrt(E I / (rho A L^4)) Hz.
 First modes: lumped +2.49 percent clamped-clamped at N = 8 and +0.61 percent at 16 (engine contract); backward Euler
 runs (omega h)^2 / 3 slow: cantilever omega = 178 rad/s at 10 kHz is 1e-4, clamped-clamped 1133 rad/s at 50 kHz is
 1.7e-4. Higher modes contract by (1 + (omega_k h)^2)^(-1/2) per step and are gone before the counted crossings.
@@ -43,7 +45,7 @@ MU = RHO * AREA
 TOLERANCE = 0.02
 
 
-def beam_model(end: str, segments: int, node_damping: float) -> PhysicsModel:
+def beam_model(end: str, segments: int, node_damping: float, root: str = "clamped") -> PhysicsModel:
     data = base(("0 m/s**2", "0 m/s**2", "0 m/s**2"))
     data["bodies"] = [block("base", 1.0, {"name": "mount", "type": "fixed", "position": ORIGIN})]
     data["lumped_members"] = [
@@ -58,7 +60,7 @@ def beam_model(end: str, segments: int, node_damping: float) -> PhysicsModel:
                 "area": f"{AREA} m**2",
                 "length": f"{LENGTH} m",
             },
-            "root": "clamped",
+            "root": root,
             "end": end,
             "segments": segments,
             "node_damping": f"{node_damping} N*m*s/rad",
@@ -87,15 +89,17 @@ def _cross(a: tuple[float, float, float], b: tuple[float, float, float]) -> tupl
 class Beam:
     """The member on the native adapter with a point load along y held at x_load; `point_y` reads that point."""
 
-    def __init__(self, end: str, segments: int, hz: int, node_damping: float, x_load: float, load: float) -> None:
-        model = beam_model(end, segments, node_damping)
+    def __init__(
+        self, end: str, segments: int, hz: int, node_damping: float, x_load: float, load: float, root: str = "clamped"
+    ) -> None:
+        model = beam_model(end, segments, node_damping, root)
         prepared = prepare_model(model, None, 1.0 / hz)
         self.adapter = core.make_physics_adapter("native")
         self.adapter.load(core.PreparedModel(prepared.model_json, "", prepared.version), core.Rate(hz))
         names = translate.member_node_names(model)
-        assert len(names) == segments
+        assert len(names) == segments + int(root == "pinned")
         assert len(self.adapter.outputs().bodies) == 1 + len(names)
-        chain = chain_layout("clamped", end, segments, LENGTH)
+        chain = chain_layout(root, end, segments, LENGTH)
         node = max(k for k, start in enumerate(chain.starts) if start <= x_load + 1e-12)
         self.body = 1 + node
         self.offset = x_load - chain.starts[node]
@@ -127,23 +131,25 @@ def omega_closed(end: str) -> float:
     beta_l_squared = 3.516015
     if end == "clamped":
         beta_l_squared = 22.37329
+    if end == "roller":
+        beta_l_squared = math.pi**2
     return beta_l_squared * math.sqrt(EI / (MU * LENGTH**4))
 
 
-def settle(end: str, segments: int, x_load: float, load: float) -> Beam:
+def settle(end: str, segments: int, x_load: float, load: float, root: str = "clamped") -> Beam:
     stiffness = EI / (LENGTH / segments)
-    beam = Beam(end, segments, 1000, 2.0 / omega_closed(end) * stiffness, x_load, load)
+    beam = Beam(end, segments, 1000, 2.0 / omega_closed(end) * stiffness, x_load, load, root)
     for _ in range(3000):
         beam.step()
     return beam
 
 
 def first_frequency(
-    end: str, segments: int, hz: int, x_load: float, load: float, centre: float, seconds: float
+    end: str, segments: int, hz: int, x_load: float, load: float, centre: float, seconds: float, root: str = "clamped"
 ) -> float:
     """Undamped, under the held load from rest: the point oscillates about the chain's static value `centre`; the
     period is the mean interval of upward crossings after the first two."""
-    beam = Beam(end, segments, hz, 0.0, x_load, load)
+    beam = Beam(end, segments, hz, 0.0, x_load, load, root)
     h = 1.0 / hz
     times: list[float] = []
     previous = beam.point_y() - centre
@@ -223,4 +229,28 @@ def test_member_end_loads_balance_the_load_in_the_member_frame() -> None:
     assert loads.start.force[1] == pytest.approx(-load / 2.0, rel=1e-6)
     assert loads.end.force[1] == pytest.approx(-load / 2.0, rel=1e-6)
     assert loads.start.moment[2] + loads.end.moment[2] == pytest.approx(0.0, abs=1e-6 * load * LENGTH)
-    assert abs(loads.start.moment[2]) > 0.0
+    # The chain's fixed-end moment is P L / 8 exactly: with zero slope at midspan by symmetry, the hinge rotations of
+    # one half sum to zero, sum_j M(x_j) l / (E I) = 0 with M(x) = M0 + P x / 2 linear and the hinges at the segment
+    # midpoints of [0, L / 2], whose mean is L / 4: M0 = -P L / 8 (the continuum value; the N = 16 chain has no error).
+    assert abs(loads.start.moment[2]) == pytest.approx(load * LENGTH / 8.0, rel=1e-6)
+    assert abs(loads.end.moment[2]) == pytest.approx(load * LENGTH / 8.0, rel=1e-6)
+
+
+@pytest.mark.req("BLD-017", "PHY-022")
+def test_simply_supported_midspan_deflection_at_eight_segments() -> None:
+    load = 48.0 * EI * 1e-4 / LENGTH**2
+    target = load * LENGTH**3 / (48.0 * EI)
+    measured = settle("roller", 8, LENGTH / 2.0, load, "pinned").point_y()
+    print(f"simply supported midspan: target {target:.9e} m measured {measured:.9e} m")
+    assert measured == pytest.approx(target, rel=TOLERANCE)
+
+
+@pytest.mark.req("BLD-017", "PHY-022")
+def test_simply_supported_first_frequency_at_eight_segments() -> None:
+    """omega = 499 rad/s at 20 kHz: backward Euler's (omega h)^2 / 3 is 2e-4; 0.1 s holds eight periods."""
+    load = 48.0 * EI * 1e-4 / LENGTH**2
+    centre = settle("roller", 8, LENGTH / 2.0, load, "pinned").point_y()
+    target = math.pi / 2.0 * math.sqrt(EI / (MU * LENGTH**4))
+    measured = first_frequency("roller", 8, 20000, LENGTH / 2.0, load, centre, 0.1, "pinned") / (2.0 * math.pi)
+    print(f"simply supported first mode: target {target:.6f} Hz measured {measured:.6f} Hz")
+    assert measured == pytest.approx(target, rel=TOLERANCE)

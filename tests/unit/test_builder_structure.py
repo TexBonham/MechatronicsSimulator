@@ -526,8 +526,38 @@ def test_clamped_clamped_calibration_is_noted_as_owed_in_a_rigid_free_check() ->
     assert any("supports (pinned, clamped) have no lumped beam" in failure for failure in failures)
 
 
+@pytest.mark.req("BLD-019", "BLD-017")
+def test_clamped_clamped_chain_matches_the_engine_closed_forms() -> None:
+    """The clamped-clamped chain the calibration uses is the engine's (ruling 16): midspan deflection
+    P L^3 / (192 E I) (1 - 4 / N^2) exactly (the chain's closed form), and its first mode 22.3733 / L^2 sqrt(E I / mu)
+    +0.61 percent at N = 16 (engine contract). Calibrating to the chain's own deflection gives a stiffness scale of
+    exactly one; to the continuous first mode a mass scale (1.0061)^2 within the rounding of the stated 0.61 percent."""
+    from mechsim.builder.physics import clamped_calibration
+
+    length, rigidity, mu, load = 2.0, 1.0e4, 3.0, 100.0
+    chain = load * length**3 / (192.0 * rigidity) * (1.0 - 4.0 / 16**2)
+    continuous = 22.3733 / length**2 * math.sqrt(rigidity / mu) / (2.0 * math.pi)
+    scales = clamped_calibration(16, length, rigidity, mu, load, chain, continuous)
+    assert scales.stiffness_scale == pytest.approx(1.0, rel=1e-9)
+    assert scales.mass_scale == pytest.approx(1.0061**2, rel=2e-4)
+    halved = clamped_calibration(16, length, rigidity, mu, load, chain / 2.0, continuous)
+    assert halved.stiffness_scale == pytest.approx(2.0, rel=1e-9)
+
+
 @pytest.mark.req("BLD-019")
-def test_clamped_clamped_calibration_note_names_the_owed_layout() -> None:
+@pytest.mark.parametrize("segments", [8, 15])
+def test_calibrated_clamped_clamped_member_below_sixteen_segments_fails_the_build(segments: int) -> None:
+    failures = _failures(_bar(["clamped", "clamped"], calibration=CALIBRATION, segments=segments))
+    assert failures == [
+        f"flexible body 'bar': calibrated member has {segments} segments; calibration needs at least 16 for supports "
+        "(clamped, clamped) (the 2 percent tolerance holds for N >= 8, and N >= 16 clamped-clamped, rulings 20 and 32; "
+        "BLD-018, BLD-019)"
+    ]
+
+
+@pytest.mark.req("BLD-019")
+def test_clamped_clamped_calibration_applies_at_sixteen_segments() -> None:
+    """Ruling 32: at sixteen segments (the clamped-clamped default) the calibration scales E and density."""
     from mechsim.builder.physics import Collector, _flexible
 
     design = _bar(["clamped", "clamped"], calibration=CALIBRATION)
@@ -535,11 +565,11 @@ def test_clamped_clamped_calibration_note_names_the_owed_layout() -> None:
     _member, _entry, scales = _flexible(
         design.bodies[0], shipped_materials()[MATERIAL], design, default_registry(), collector, False
     )
-    assert scales is None
-    assert collector.notes == [
-        "flexible body 'bar': supports (clamped, clamped) have no calibration chain layout yet (owed, ruling 16); its "
-        "calibration data is not applied (BLD-019)"
-    ]
+    assert scales is not None
+    assert not any("no calibration chain layout" in note for note in collector.notes)
+    record = _build(design).lumped[0]
+    assert record.stiffness_scale == scales.stiffness_scale
+    assert record.mass_scale == scales.mass_scale
 
 
 @pytest.mark.req("BLD-032")

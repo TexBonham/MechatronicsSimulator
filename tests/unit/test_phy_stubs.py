@@ -287,12 +287,16 @@ def test_phy_025() -> None:
 def test_phy_027() -> None:
     """Every adapter shall apply the design's gravity, joint friction and joint limits."""
     rig = native_rig("2 N", "-0.001 m")
-    # The limit spring m w^2 (w = 1 / (2 h)) holds m g at 4 g h^2 below the limit; the stick damper F / v_s slows the
-    # approach (time constant (F / v_s) / (m w^2) = 0.08 s), so 2 s settle it to e^-25.
+    # Gravity 9.81 down the slider's axis exceeds its friction F = 2 N, so the 1 kg slider slides onto its lower bound;
+    # the engine's limit row (ENG-013, ruling 43) lands it on the bound with no penetration, and at rest the joint's
+    # generalized force is the load it carries, m g - F at most and m g once the friction's frozen rate is the slip
+    # threshold at zero speed (a body at rest on the bound: the friction damper sees v = 0 and carries nothing).
     for _ in range(2000):
         rig.step()
     out = rig.outputs()
-    assert out.joint_positions[1] == pytest.approx(-0.001 - 4.0 * 9.81 * 1e-6, rel=1e-6)
+    assert out.joint_positions[1] == pytest.approx(-0.001, abs=1e-12)
+    assert out.bodies[1].linear_velocity[1] == pytest.approx(0.0, abs=1e-12)
+    assert out.joints[1].generalized_force[0] == pytest.approx(9.81, rel=1e-9)
     assert out.bodies[0].angular_velocity[2] != 0.0
 
 
@@ -374,7 +378,6 @@ def test_phy_032(adapter: str) -> None:
 
 
 @pytest.mark.req("PHY-034")
-@pytest.mark.xfail(strict=True, reason="brief N3")
 def test_phy_034_native_joint_drive_on_a_belt_shaft_moves_the_driven_joint() -> None:
     """A drive toward 0.5 rad on the rotor of `driven()` (pulley radius 0.02 m, no load along the slide) must carry
     the carriage to 0.5 x 0.02 = 0.01 m. Reflected inertia J = 0.001 + 1 x 0.02^2 = 0.0014 kg m^2, K = 1 N m/rad,

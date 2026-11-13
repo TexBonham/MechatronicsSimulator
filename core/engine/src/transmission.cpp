@@ -74,12 +74,11 @@ TransmissionCoupling couple(const Transmission& transmission, double slip, doubl
     const double half = 0.5 * transmission.backlash;
     double deflection = 0.0;
     out.backlash_position = out.stretch;
-    if (out.stretch > half) {
+    if (out.stretch >= half) {
         deflection = out.stretch - half;
         out.backlash_position = half;
         out.in_contact = true;
-    }
-    if (out.stretch < -half) {
+    } else if (out.stretch <= -half) {
         deflection = out.stretch + half;
         out.backlash_position = -half;
         out.in_contact = true;
