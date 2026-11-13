@@ -1276,6 +1276,15 @@
       "additionalProperties": false,
       "description": "Multi-segment lumped beam (R-13) rooted on `parent` at the given placement, along the root frame's x axis.\n\n`segments` defaults to 8, and to 16 for a clamped-clamped member (rulings 17 and 31: the chain's clamped-clamped\ndeflection error is -4 / N^2). A clamped far end (ruling 16) locks the end rotation and the transverse\ntranslation; it needs a clamped root.",
       "properties": {
+        "carries": {
+          "default": [],
+          "items": {
+            "pattern": "^[a-z][a-z0-9_]*$",
+            "type": "string"
+          },
+          "title": "Carries",
+          "type": "array"
+        },
         "end": {
           "enum": [
             "free",

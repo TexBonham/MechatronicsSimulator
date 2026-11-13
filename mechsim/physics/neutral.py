@@ -525,6 +525,9 @@ class LumpedMember(_Model):
     roller_mass_fraction: PositiveNumber = DEFAULT_ROLLER_MASS_FRACTION
     node_damping: NonNegativeRotationalDamping = 0.0
     structural_member: Name | None = None
+    # Bodies whose joint to `parent` the member carries (ENG-052, ruling 63): their in-plane transverse load and
+    # bending moment reach `parent` through the member's nodes; each a child of `parent`, carried by one member only.
+    carries: tuple[Name, ...] = ()
 
     @model_validator(mode="before")
     @classmethod
@@ -741,6 +744,19 @@ class PhysicsModel(_Model):
                 problems.append(
                     f"lumped member '{member.name}': unknown structural member '{member.structural_member}'"
                 )
+        parents = {body.name: body.parent for body in self.bodies}
+        carried = [name for member in self.lumped_members for name in member.carries]
+        for name in _duplicates(carried):
+            problems.append(f"body '{name}' is carried by more than one lumped member (ENG-052)")
+        for member in self.lumped_members:
+            for name in member.carries:
+                if name not in parents:
+                    problems.append(f"lumped member '{member.name}': unknown carried body '{name}'")
+                elif parents[name] != member.parent:
+                    problems.append(
+                        f"lumped member '{member.name}': carried body '{name}' is a child of '{parents[name]}', "
+                        f"not of the member's parent '{member.parent}' (ENG-052)"
+                    )
         for transmission in self.transmissions:
             problems += _transmission_problems(transmission, joints)
         for rope in self.ropes:

@@ -23,6 +23,9 @@ struct LumpedBeam {
     Eigen::Index roller_constraint = -1;  // SimplySupported: point constraint of the far end onto the roller;
                                           // Clamped: hinge constraint (point plus rotation lock about z and y)
     bool pinned_root = false;             // SimplySupported: bodies[0] is the spring-free pin segment
+    // Carried joints (ENG-052, ruling 63): child bodies whose joint to the member's parent the member carries; each
+    // is a child of `parent`, carried by at most one member, never a member's own body or roller.
+    std::vector<Eigen::Index> carried;
 };
 
 // Spring nodes of a member, root to tip: the bodies whose joint carries E I / l (a SimplySupported pin carries none).
@@ -41,11 +44,94 @@ struct MemberOutput {
     Eigen::Vector3d start_force = Eigen::Vector3d::Zero();   // N
     Eigen::Vector3d end_moment = Eigen::Vector3d::Zero();    // N m
     Eigen::Vector3d end_force = Eigen::Vector3d::Zero();     // N
+    // Largest |deflection| of a carried joint's foot point this step (ENG-052): the position error the carried
+    // joint ignores by moving with the parent instead of riding the deflected member; 0 without carried joints. m
+    double carried_deflection = 0.0;
 };
 
 // poses at the configuration the reactions were computed at (the step's start state, as record_outputs uses).
 [[nodiscard]] MemberOutput member_end_loads(const LumpedBeam& beam, const std::vector<BodyOutput>& poses,
                                             const std::vector<JointOutput>& joints,
                                             const std::vector<ConstraintOutput>& constraints);
+
+// Load-path coupling (ENG-052, ruling 63; milestone 4 replaces it with the carried body riding the deflected beam).
+// The joint of a carried child body C stays a joint to the member's parent P, so C moves as if the member were
+// rigid; its load on the member is rerouted through the member's nodes.
+//
+// Load. The joint's reaction, parent on child, is [m about the child origin r_c; f], world-aligned
+// (JointOutput::reaction_wrench, from the subtree's Newton-Euler at the step's accelerations, so the travel-limit
+// and transmission lock rows' impulses are in it: they act along the joint's own axes, inside the subtree's motion).
+// C's load on the member is its negative, F = -f, M = -m about r_c. With the member root frame (x along the member,
+// ruling 24), s = (r_c - r_root) . x, foot point p = r_root + s x, d = r_c - p, the moment about p is M_p = M + d x F.
+//
+// Rerouted components. The lumped chain bends in one plane only, about the member frame z (rulings 16, 65): only
+// the in-plane transverse force F_y = F . y and the bending moment M_z = M_p . z are rerouted. The axial force, the
+// out-of-plane force, the out-of-plane bending moment and the torsion stay on P through C's own joint (the chain
+// has no such freedom: out-of-plane bending is rigid, the twist and the axial slide are rigid or free at the ends,
+// ruling 33). Each end condition keeps its own node: a clamped root's node at x = 0 is P itself (that share stays
+// on P), a pinned root's is the pin segment's origin (straight into the pin), a roller end's node at x = L is the
+// last segment's tip (straight into the roller), a free tip's is the tip itself.
+//
+// Lever rule. Nodes at x_0 = 0, the spring nodes (j + 1/2) l, and x_n = L. For x_k <= s <= x_{k+1}, l_k = x_{k+1} -
+// x_k: w_k = (x_{k+1} - s) / l_k, w_{k+1} = (s - x_k) / l_k; w_k F_y y at node k's point (statically equivalent
+// to F_y at p: w_k + w_{k+1} = 1 and w_k x_k + w_{k+1} x_{k+1} = s), w_k M_z z on node k's body. P gets the exact
+// opposite at the same points, so the pair is internal: zero net force and moment, and P receives the load
+// through the member's supports. A load at an end node of a supported end bends nothing.
+//
+// Timing. The load applied in step n is the reaction recorded by step n - 1 (computed at step n - 1's start state
+// with its accelerations and row impulses). Before the first step there is none: the reaction is computed from the
+// first start state by Newton-Euler at zero acceleration, so a carried body at rest puts its static weight on the
+// member from the first step. The pair is explicit (lagged); it is not in K, D or the mass matrix.
+//
+// Stability. Along a direction in which P moves (a translation across the member), C's inertia is in P's row of
+// the mass matrix (implicit) and the pair returns m_c a_{n-1} to P one step late while taking it from the nodes.
+// For P rigidly holding the nodes the update of P's acceleration is the fixed-point iteration
+//   (m_p + m_c) a_n = R + m_c a_{n-1}   (R the rest of P's load)
+// with factor r = m_c / (m_p + m_c) < 1 for any mass ratio: it converges, the error shrinking by r per step. For a
+// constant acceleration the reaction is constant after the first step and the lag error is zero; a step change da
+// in acceleration leaves the rerouted load off by m_c da for one step only (m_c j h under a constant jerk j).
+// Energy. The pair does work only through the members' deflection (its two halves act at the same points), so on
+// a rigid configuration it does none; with a constant load it is the potential -F_y u(p) - M_z theta(p) of the
+// deflection under the load, and the scheme's energy E (kinetic, gravitational, elastic) satisfies
+//   E(n + 1) - E(n) <= Q_n . (q_{n+1} - q_n),   Q_n the pair's generalized force (carried_generalized_forces),
+// the backward Euler inequality of the energy oracle with the pair as an explicit applied force.
+// The approximation: C ignores the member's deflection u(p) at its foot point, published per carried joint as
+// CarriedLoadOutput::deflection and per member as MemberOutput::carried_deflection.
+struct CarriedLoadOutput {
+    Eigen::Index member = -1;
+    Eigen::Index body = -1;      // the carried child body
+    double position = 0.0;       // s along the member, m
+    double force = 0.0;          // F_y on the member, member frame y, N
+    double moment = 0.0;         // M_z on the member about the foot point, member frame z, N m
+    Eigen::Index node = 0;       // k: the load is on nodes k and k + 1 (0 = the root node, x = 0)
+    double weight = 1.0;         // w_k; node k + 1 takes 1 - w_k
+    double deflection = 0.0;     // (w_k p_k + w_{k+1} p_{k+1} - p) . y, m
+};
+
+// The member's load nodes, root to tip: x along the member, the body holding the point (-1 the world) and the point
+// in that body's frame.
+struct LoadNode {
+    double x = 0.0;
+    Eigen::Index body = -1;
+    Eigen::Vector3d point = Eigen::Vector3d::Zero();
+};
+[[nodiscard]] std::vector<LoadNode> load_nodes(const LumpedBeam& beam);
+
+// The pair for one carried body: world points and axes from body_from_world (per body, body_X_world: rotation world
+// to body, translation the body origin in the world), load the world-aligned [M about r_c; F] on the member.
+struct CarriedPair {
+    CarriedLoadOutput output;
+    Eigen::Index body_lower = -1;
+    Eigen::Index body_upper = -1;
+    Eigen::Vector3d point_lower = Eigen::Vector3d::Zero();  // world, m
+    Eigen::Vector3d point_upper = Eigen::Vector3d::Zero();
+    Eigen::Vector3d axis_y = Eigen::Vector3d::UnitY();       // member frame y, world
+    Eigen::Vector3d axis_z = Eigen::Vector3d::UnitZ();       // member frame z, world
+    double excursion = 0.0;  // distance of s outside [0, L], m (0 on the span)
+};
+[[nodiscard]] CarriedPair carried_pair(const LumpedBeam& beam, Eigen::Index carried,
+                                       const std::vector<Eigen::Matrix3d>& rotation,
+                                       const std::vector<Eigen::Vector3d>& origin,
+                                       const Eigen::Matrix<double, 6, 1>& load);
 
 }  // namespace mechsim::engine

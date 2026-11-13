@@ -81,6 +81,9 @@ public:
     [[nodiscard]] std::vector<DrivenSchemeDecay> driven_scheme_decay() const;
     // The same values as a shared record that outlives the adapter; reset by each load.
     [[nodiscard]] std::shared_ptr<const DrivenSchemeDecayRecord> scheme_decay_record() const;
+    // Per member, in document order: the largest deflection of a carried joint's foot point over every engine step
+    // since load, m (ENG-052: the position error the carried joint ignores; 0 for a member that carries none).
+    [[nodiscard]] std::vector<double> carried_deflection() const;
 
 private:
     struct Engine;

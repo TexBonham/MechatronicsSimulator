@@ -1,17 +1,20 @@
 #include <Eigen/Core>
 #include <Eigen/Geometry>
 #include <catch2/catch_test_macros.hpp>
+#include <algorithm>
 #include <cmath>
+#include <cstdint>
 #include <limits>
 #include <vector>
 
+#include "carried_helpers.hpp"
+#include "energy_helpers.hpp"
 #include "mechsim/engine/integrator.hpp"
 #include "mechsim/engine/multibody_provider.hpp"
 #include "mechsim/engine/rope.hpp"
 #include "mechsim/engine/transmission.hpp"
 
 using mechsim::engine::Body;
-using mechsim::engine::BodyOutput;
 using mechsim::engine::JointType;
 using mechsim::engine::MultibodyModel;
 using mechsim::engine::MultibodyProvider;
@@ -20,8 +23,8 @@ using mechsim::engine::SemiImplicitEuler;
 using mechsim::engine::State;
 using mechsim::engine::StepConfig;
 using mechsim::engine::Transmission;
-using mechsim::engine::TransmissionOutput;
 using mechsim::engine::TransmissionType;
+using mechsim::engine::test::mechanical_energy;
 
 // Energy oracle (brief M3-E6): with no drive and no input the scheme is backward Euler on a conservative system
 // (gravity, the transmission's spring, the rope segments' springs) plus dissipation (dampers, the efficiency loss as
@@ -85,75 +88,6 @@ Transmission screw() {
     t.stiffness = 1e6;
     t.damping = 0.0;
     return t;
-}
-
-Eigen::Vector3d world_point(const BodyOutput& body, const Eigen::Vector3d& local) {
-    return body.position + (body.orientation * local);
-}
-
-Eigen::Vector3d point_velocity(const BodyOutput& body, const Eigen::Vector3d& local) {
-    const Eigen::Vector3d omega = body.spatial_velocity.head<3>();
-    return body.origin_velocity + omega.cross(body.orientation * local);
-}
-
-// Total mechanical energy: kinetic and gravitational of every body (centre of mass), the transmissions' springs
-// k d^2 / 2 (d the deflection beyond the backlash, in contact), the rope segments' tension-only springs
-// (EA / l)(d - l)^2 / 2 when taut (l = rest / N), and a one-DOF model joint spring K (q - rest)^2 / 2.
-double mechanical_energy(const MultibodyProvider& provider, const State& state) {
-    const MultibodyModel& model = provider.model();
-    const std::vector<BodyOutput> bodies = provider.body_states(state.q, state.v);
-    double energy = 0.0;
-    for (std::size_t b = 0; b < bodies.size(); ++b) {
-        const Body& body = model.bodies[b];
-        const BodyOutput& out = bodies[b];
-        const Eigen::Vector3d omega = out.spatial_velocity.head<3>();
-        const Eigen::Vector3d com = world_point(out, body.com);
-        const Eigen::Vector3d v = point_velocity(out, body.com);
-        const Eigen::Matrix3d r = out.orientation.toRotationMatrix();
-        const Eigen::Matrix3d inertia = r * body.inertia * r.transpose();
-        energy += (0.5 * body.mass * v.squaredNorm()) + (0.5 * omega.dot(inertia * omega)) -
-                  (body.mass * model.gravity.dot(com));
-    }
-    for (std::size_t b = 0; b < bodies.size(); ++b) {
-        const Body& body = model.bodies[b];
-        if (body.joint.stiffness.size() == 1) {
-            const double q = state.q[provider.position_offset(static_cast<Eigen::Index>(b))];
-            double rest = 0.0;
-            if (body.joint.rest.size() == 1) {
-                rest = body.joint.rest[0];
-            }
-            energy += 0.5 * body.joint.stiffness[0] * (q - rest) * (q - rest);
-        }
-    }
-    const std::vector<TransmissionOutput> transmissions = provider.transmission_states(state.q, state.v);
-    for (std::size_t i = 0; i < transmissions.size(); ++i) {
-        const TransmissionOutput& t = transmissions[i];
-        if (t.in_contact) {
-            const double deflection = t.stretch - t.backlash_position;
-            energy += 0.5 * model.transmissions[i].stiffness * deflection * deflection;
-        }
-    }
-    for (const Rope& rope : model.ropes) {
-        std::vector<Eigen::Vector3d> points;
-        if (rope.from_body < 0) {
-            points.push_back(rope.from_point);
-        } else {
-            points.push_back(world_point(bodies[static_cast<std::size_t>(rope.from_body)], rope.from_point));
-        }
-        for (const Eigen::Index node : rope.nodes) {
-            points.push_back(bodies[static_cast<std::size_t>(node)].position);
-        }
-        points.push_back(world_point(bodies[static_cast<std::size_t>(rope.to_body)], rope.to_point));
-        const double rest = rope.rest_length / rope.segments;
-        const double k = rope.axial_rigidity / rest;
-        for (std::size_t s = 0; s + 1 < points.size(); ++s) {
-            const double stretch = (points[s + 1] - points[s]).norm() - rest;
-            if (stretch > 0.0) {
-                energy += 0.5 * k * stretch * stretch;
-            }
-        }
-    }
-    return energy;
 }
 
 // Belt (or screw) shaft and a carriage on its lower limit at 0, optionally with a 1 kg bob on a 2-segment rope 0.5 m
@@ -305,5 +239,103 @@ TEST_CASE("energy: a limit, a lossy belt and a stiff shaft spring with no drive 
         CAPTURE(run.worst_rise);
         CHECK(run.worst_rise <= round_off);
         CHECK(run.seated);
+    }
+}
+
+// Carried joints (ENG-052, brief M3-E7). The rerouted pair is an explicit applied force: with Q_n its generalized
+// force in step n (MultibodyProvider::carried_generalized_forces at the step's start state, the load the step
+// applies), the backward Euler inequality above becomes
+//   E(n + 1) - E(n) <= Q_n . (q_{n+1} - q_n)
+// (every joint here is Revolute, Prismatic or Fixed, so q and v align and q_{n+1} - q_n = h v_{n+1}). The pair's
+// two halves act at the same points, so Q_n has no component along a rigid motion (the parent's coordinate or the
+// carriage's): its work is the member's deflection under the load. The members carry no node damping (the strictest
+// case: only the scheme and the rows dissipate). Rigs: a carriage at rest, one seated on its lower limit by an
+// impact, one locked (lower == upper), all on a pinned-pinned member under gravity on the world; and one on a
+// parent that slides across the member on a spring, so the carriage's load is its weight plus its inertia, lagged
+// one step. That last coupling (node load -m_c (a_P + g) from the parent's acceleration, the parent relieved of
+// the same) is not reciprocal, so E alone is not conserved even in continuous time; its two-mode system
+// det(K - lambda M) = 0 has m_n m_p lambda^2 - (k_p m_n + k M) lambda + k_p k = 0 with discriminant
+// (k_p m_n + k M)^2 - 4 m_n m_p k_p k >= 0 (M >= m_p, AM-GM): real roots, no flutter, E bounded. Asserted: the
+// per-step inequality, and over 1 s the largest E in the last quarter not above the largest in the first (the
+// sliding parent's mode, k_p = 2e4 N/m on about 8 kg, has a 0.13 s period, so each window holds about two).
+namespace {
+
+struct CarriedEnergy {
+    double worst_excess = -std::numeric_limits<double>::infinity();  // max E(n+1) - E(n) - Q_n . dq
+    double early_peak = -std::numeric_limits<double>::infinity();
+    double late_peak = -std::numeric_limits<double>::infinity();
+};
+
+CarriedEnergy run_carried_energy(MultibodyProvider& provider, State& state, double h, int steps) {
+    const int window = steps / 4;
+    SemiImplicitEuler integrator(StepConfig{h});
+    CarriedEnergy run;
+    double before = mechanical_energy(provider, state);
+    for (int n = 0; n < steps; ++n) {
+        const Eigen::VectorXd q = state.q;
+        const Eigen::VectorXd applied = provider.carried_generalized_forces(q);
+        static_cast<void>(provider.step(integrator, state));
+        const double after = mechanical_energy(provider, state);
+        run.worst_excess = std::max(run.worst_excess, after - before - applied.dot(state.q - q));
+        if (n < window) {
+            run.early_peak = std::max(run.early_peak, after);
+        }
+        if (n >= steps - window) {
+            run.late_peak = std::max(run.late_peak, after);
+        }
+        before = after;
+    }
+    return run;
+}
+
+}  // namespace
+
+TEST_CASE("energy: carried joints on a member with no drive and no input add no energy beyond the pair's work",
+          "[ENG-052][ENG-013][ENG-022]") {
+    using mechsim::engine::BeamEnds;
+    using mechsim::engine::test::carried_rig;
+    using mechsim::engine::test::CarriedRig;
+    using mechsim::engine::test::ParentKind;
+    using mechsim::engine::test::start_state;
+    enum class Case : std::uint8_t { Resting, Seated, Locked, SlidingParent };
+    for (const Case c : {Case::Resting, Case::Seated, Case::Locked, Case::SlidingParent}) {
+        for (const double h : {1e-3, 1e-4}) {
+            CAPTURE(static_cast<int>(c), h);
+            ParentKind kind = ParentKind::World;
+            if (c == Case::SlidingParent) {
+                kind = ParentKind::Sliding;
+            }
+            CarriedRig rig = carried_rig(BeamEnds::SimplySupported, 8, 2.0, 0.05, true, kind);
+            for (mechsim::engine::Body& body : rig.model.bodies) {
+                if (body.joint.damping.size() == 1) {
+                    body.joint.damping[0] = 0.0;
+                }
+            }
+            mechsim::engine::Body& carriage = rig.model.bodies.back();
+            if (c == Case::Seated) {
+                carriage.joint.lower = Eigen::VectorXd::Constant(1, 0.3);
+            }
+            if (c == Case::Locked) {
+                carriage.joint.lower = Eigen::VectorXd::Constant(1, 0.3);
+                carriage.joint.upper = Eigen::VectorXd::Constant(1, 0.3);
+            }
+            if (c == Case::SlidingParent) {
+                rig.model.bodies.front().joint.stiffness = Eigen::VectorXd::Constant(1, 20000.0);
+                rig.model.bodies.front().joint.damping = Eigen::VectorXd::Constant(1, 0.0);
+            }
+            MultibodyProvider provider(rig.model);
+            State state = start_state(provider, rig.carriage, 0.3);
+            if (c == Case::Seated) {
+                state.v[provider.velocity_offset(rig.carriage)] = -0.1;
+            }
+            if (c == Case::SlidingParent) {
+                state.q[provider.position_offset(rig.parent)] = 0.01;
+            }
+            const int steps = static_cast<int>(1.0 / h);
+            const CarriedEnergy run = run_carried_energy(provider, state, h, steps);
+            CAPTURE(run.worst_excess, run.early_peak, run.late_peak);
+            CHECK(run.worst_excess <= round_off);
+            CHECK(run.late_peak <= run.early_peak + round_off);
+        }
     }
 }

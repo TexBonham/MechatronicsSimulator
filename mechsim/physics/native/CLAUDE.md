@@ -24,7 +24,7 @@ Stepping is `core/physics/native/`. The only Python importer of `mechsim._core_e
 | `bodies` | Neutral order (index = neutral body = joint = payload index), then `world.anchor` (fixed) when a constraint names the world; joint `type`, placement, axis, per-DOF `stiffness`/`rest` (coordinate joints), `damping`, `friction`, `lower`/`upper` (null = none) in engine order (free: angular then linear); inertia 9 numbers row major |
 | `neutral_bodies` | Count of neutral bodies |
 | `constraints` | Point/hinge, body indices, anchors, axes |
-| `members` | `ends`: cantilever (clamped, free), simply_supported (pinned, roller), clamped (clamped, clamped); others refused |
+| `members` | `ends`: cantilever (clamped, free), simply_supported (pinned, roller), clamped (clamped, clamped); others refused; `carried` (neutral body indices of `LumpedMember.carries`) only when present; report: per member the ruling 65 out-of-plane line, per carrying member the ENG-052 approximation line |
 | `transmissions` | Engine fields; efficiency both directions; damping 0 |
 | `ropes` | Engine fields; world ends -1; attachment damping and friction 0 (neutral rope has none) |
 | `contact` | null without `contacts`; geometries (world -1), material pairs, exclusions + parent-child pairs on non-free joints (as the bridge), slip velocity 1e-4 |
@@ -37,4 +37,4 @@ Stepping is `core/physics/native/`. The only Python importer of `mechsim._core_e
 | Joints | 141 |
 | Shapes and contacts | 242 |
 | Members, ropes and transmissions | 324 |
-| Model | 501 |
+| Model | 598 |

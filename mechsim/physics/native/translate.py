@@ -352,7 +352,7 @@ def member_node_names(model: PhysicsModel) -> tuple[str, ...]:
     return tuple(names)
 
 
-def _member(member: LumpedMember, parent: int, h: float, report: list[str]) -> dict[str, Any]:
+def _member(member: LumpedMember, index: Mapping[str, int], h: float, report: list[str]) -> dict[str, Any]:
     section = member.section
     ends = _ends(member)
     flexural = float(section.elastic_modulus) * float(section.second_moment_of_area)
@@ -368,8 +368,21 @@ def _member(member: LumpedMember, parent: int, h: float, report: list[str]) -> d
         f"lumped member '{member.name}': {member.segments} segments, {ends}; first mode {omega / (2 * math.pi):.6g} Hz "
         f"integrates as backward Euler: {mode_text(x)} (rulings 21, 45)"
     )
-    return {
-        "parent": parent,
+    report.append(
+        f"lumped member '{member.name}': bends in one plane only, about its frame z; out-of-plane bending and "
+        "torsion are rigid (ruling 65)"
+    )
+    if len(member.carries) > 0:
+        carried = ", ".join(f"'{name}'" for name in member.carries)
+        report.append(
+            f"lumped member '{member.name}': carries {carried} by load-path coupling (ENG-052, ruling 63): their "
+            "in-plane transverse force and bending moment reach the parent through the member's nodes (lever rule, "
+            "one step lagged); the carried bodies move with the parent and do not ride the deflected member, a "
+            "position error equal to the member's deflection at each carried body (the run's largest is recorded "
+            "after the run)"
+        )
+    entry: dict[str, Any] = {
+        "parent": index.get(member.parent, -1),
         "position": _floats(member.position),
         "orientation": _floats(member.orientation),
         "youngs_modulus": float(section.elastic_modulus),
@@ -382,6 +395,9 @@ def _member(member: LumpedMember, parent: int, h: float, report: list[str]) -> d
         "ends": ends,
         "roller_mass_fraction": float(member.roller_mass_fraction),
     }
+    if len(member.carries) > 0:
+        entry["carried"] = [index[name] for name in member.carries]
+    return entry
 
 
 def _rope(rope: Rope, index: Mapping[str, int], model: PhysicsModel, h: float, report: list[str]) -> dict[str, Any]:
@@ -650,7 +666,7 @@ def translate(
             "kept per period (1 + x^2)^(-pi / atan x), frequency ratio atan(x) / x, unresolved above x = 0.2 "
             f"(h = {h:.6g} s; K is the controller's, so x is known only at run time; ruling 45)"
         )
-    members = [_member(member, index.get(member.parent, -1), h, report) for member in model.lumped_members]
+    members = [_member(member, index, h, report) for member in model.lumped_members]
     ropes = [_rope(rope, index, model, h, report) for rope in model.ropes]
     transmissions = [_transmission(item, model, joints, h, report) for item in model.transmissions]
     contact = _contact(model, index, report)

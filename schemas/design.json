@@ -1051,6 +1051,15 @@
           "default": null,
           "title": "Calibration"
         },
+        "carries": {
+          "description": "joints the member carries (DES-033, ENG-052, ruling 63): each joint's parent is this body, the lumped chain's parent; its in-plane load reaches the body through the chain",
+          "items": {
+            "pattern": "^[a-z][a-z0-9_]*$",
+            "type": "string"
+          },
+          "title": "Carries",
+          "type": "array"
+        },
         "section": {
           "anyOf": [
             {

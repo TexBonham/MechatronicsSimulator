@@ -550,6 +550,7 @@ std::vector<Vector6d> MultibodyProvider::applied_body_wrenches(const Kinematics&
         out.push_back(to_body(x, world_point(x, at(model_.bodies, i).com), w.head<3>(), w.tail<3>()));
     }
     add_rope_wrenches(kin, out);
+    add_carried_wrenches(kin, carried_load_, out);
     return out;
 }
 
@@ -1288,6 +1289,37 @@ void MultibodyProvider::setup_members_and_ropes() {
             throw InvalidModelError(0.0, label + "references a missing parent or constraint");
         }
     }
+    std::vector<std::uint8_t> member_body(static_cast<std::size_t>(bodies), 0);
+    for (const LumpedBeam& beam : model_.members) {
+        for (const Eigen::Index b : beam.bodies) {
+            at(member_body, b) = 1;
+        }
+        if (beam.roller >= 0 && beam.roller < bodies) {
+            at(member_body, beam.roller) = 1;
+        }
+    }
+    std::vector<std::uint8_t> carried_by(static_cast<std::size_t>(bodies), 0);
+    for (Eigen::Index m = 0; m < count(model_.members.size()); ++m) {
+        const LumpedBeam& beam = at(model_.members, m);
+        for (const Eigen::Index c : beam.carried) {
+            const std::string label = "member " + std::to_string(m) + ": carried body " + std::to_string(c) + " ";
+            if (c < 0 || c >= bodies) {
+                throw InvalidModelError(0.0, label + "is missing");
+            }
+            if (at(member_body, c) != 0) {
+                throw InvalidModelError(0.0, label + "is a member's own body");
+            }
+            if (at(model_.bodies, c).parent != beam.parent) {
+                throw InvalidModelError(0.0, label + "is not a child of the member's parent");
+            }
+            if (at(carried_by, c) != 0) {
+                throw InvalidModelError(0.0, label + "is carried by more than one member");
+            }
+            at(carried_by, c) = 1;
+            carried_.push_back(CarriedJoint{m, c});
+            carried_load_.emplace_back(Vector6d::Zero());
+        }
+    }
     for (Eigen::Index r = 0; r < count(model_.ropes.size()); ++r) {
         const Rope& rope = at(model_.ropes, r);
         validate_rope_parameters(rope, r);
@@ -1308,14 +1340,125 @@ void MultibodyProvider::setup_members_and_ropes() {
     }
 }
 
+// Load-path coupling (ENG-052); the derivation is in member_loads.hpp.
+std::vector<CarriedPair> MultibodyProvider::carried_pairs(const Kinematics& kin,
+                                                          const std::vector<Vector6d>& loads) const {
+    std::vector<CarriedPair> out;
+    if (carried_.empty()) {
+        return out;
+    }
+    std::vector<Eigen::Matrix3d> rotation;
+    std::vector<Eigen::Vector3d> origin;
+    for (const Transform& x : kin.world) {
+        rotation.emplace_back(x.rotation.transpose());
+        origin.push_back(x.translation);
+    }
+    for (Eigen::Index i = 0; i < count(carried_.size()); ++i) {
+        const CarriedJoint& c = at(carried_, i);
+        CarriedPair pair = carried_pair(at(model_.members, c.member), c.body, rotation, origin, at(loads, i));
+        pair.output.member = c.member;
+        out.push_back(pair);
+    }
+    return out;
+}
+
+void MultibodyProvider::add_carried_wrenches(const Kinematics& kin, const std::vector<Vector6d>& loads,
+                                             std::vector<Vector6d>& wrenches) const {
+    const auto apply = [&](Eigen::Index body, const Eigen::Vector3d& point, const Eigen::Vector3d& torque,
+                           const Eigen::Vector3d& force) {
+        if (body >= 0) {
+            at(wrenches, body) += to_body(at(kin.world, body), point, torque, force);
+        }
+    };
+    for (const CarriedPair& pair : carried_pairs(kin, loads)) {
+        const Eigen::Index parent = at(model_.members, pair.output.member).parent;
+        const double w_lower = pair.output.weight;
+        const double w_upper = 1.0 - w_lower;
+        const Eigen::Vector3d force = pair.output.force * pair.axis_y;
+        const Eigen::Vector3d torque = pair.output.moment * pair.axis_z;
+        apply(pair.body_lower, pair.point_lower, w_lower * torque, w_lower * force);
+        apply(pair.body_upper, pair.point_upper, w_upper * torque, w_upper * force);
+        apply(parent, pair.point_lower, -w_lower * torque, -w_lower * force);
+        apply(parent, pair.point_upper, -w_upper * torque, -w_upper * force);
+    }
+}
+
+// The first step's load: the reaction at the start state with zero accelerations (a body at rest: its static
+// weight), from the subtree's Newton-Euler with the applied wrenches (the pairs themselves left out: they act on no
+// carried subtree from outside it).
+std::vector<Vector6d> MultibodyProvider::static_carried_loads(const Kinematics& kin) const {
+    Vector6d base = Vector6d::Zero();
+    base.tail<3>() = -model_.gravity;
+    std::vector<Vector6d> external;
+    for (Eigen::Index i = 0; i < count(model_.bodies.size()); ++i) {
+        const Transform& x = at(kin.world, i);
+        const Vector6d& w = at(wrench_, i);
+        external.push_back(to_body(x, world_point(x, at(model_.bodies, i).com), w.head<3>(), w.tail<3>()));
+    }
+    add_rope_wrenches(kin, external);
+    std::vector<Vector6d> forces;
+    static_cast<void>(inverse_dynamics(kin, Eigen::VectorXd::Zero(nv_), base, external, true, forces));
+    std::vector<Vector6d> loads;
+    for (const CarriedJoint& c : carried_) {
+        const Eigen::Matrix3d r = at(kin.world, c.body).rotation.transpose();
+        Vector6d load;
+        load.head<3>() = -(r * at(forces, c.body).head<3>());
+        load.tail<3>() = -(r * at(forces, c.body).tail<3>());
+        loads.push_back(load);
+    }
+    return loads;
+}
+
+// Every step checks that each carried body's foot point lies on its member's span.
+void MultibodyProvider::prepare_carried(const State& before) {
+    if (carried_.empty()) {
+        return;
+    }
+    const Kinematics kin = kinematics(before.q, before.v);
+    if (!carried_ready_) {
+        carried_load_ = static_carried_loads(kin);
+        carried_ready_ = true;
+    }
+    for (const CarriedPair& pair : carried_pairs(kin, carried_load_)) {
+        if (pair.excursion > config_.drift_threshold_m) {
+            throw InvalidModelError(before.t, "member " + std::to_string(pair.output.member) + ": carried body " +
+                                                  std::to_string(pair.output.body) + " left the span by " +
+                                                  std::to_string(pair.excursion) + " m");
+        }
+    }
+}
+
+Eigen::VectorXd MultibodyProvider::carried_generalized_forces(const Eigen::VectorXd& q) const {
+    if (q.size() != nq_) {
+        throw InvalidModelError(0.0, "carried forces need q of the model's size");
+    }
+    const Kinematics kin = kinematics(q, Eigen::VectorXd::Zero(nv_));
+    std::vector<Vector6d> loads = carried_load_;
+    if (!carried_ready_) {
+        loads = static_carried_loads(kin);
+    }
+    std::vector<Vector6d> wrenches(model_.bodies.size(), Vector6d::Zero());
+    add_carried_wrenches(kin, loads, wrenches);
+    std::vector<Vector6d> forces;
+    return -inverse_dynamics(kin, Eigen::VectorXd::Zero(nv_), Vector6d::Zero(), wrenches, false, forces);
+}
+
 void MultibodyProvider::record_members_and_ropes(const State& before, const State& after, double h) {
     outputs_.events = pending_events_;
     pending_events_.clear();
     outputs_.members.clear();
+    outputs_.carried.clear();
     if (!model_.members.empty()) {
         const std::vector<BodyOutput> poses = body_states(before.q, before.v);
         for (const LumpedBeam& beam : model_.members) {
             outputs_.members.push_back(member_end_loads(beam, poses, outputs_.joints, outputs_.constraints));
+        }
+        if (!carried_.empty()) {
+            for (const CarriedPair& pair : carried_pairs(kinematics(before.q, before.v), carried_load_)) {
+                outputs_.carried.push_back(pair.output);
+                double& largest = at(outputs_.members, pair.output.member).carried_deflection;
+                largest = std::max(largest, std::abs(pair.output.deflection));
+            }
         }
     }
     outputs_.ropes = rope_states(after.q, after.v);
@@ -1706,6 +1849,7 @@ StepHealth MultibodyProvider::step(Integrator& integrator, State& state) {
     const State before = state;
     StepHealth health;
     try {
+        prepare_carried(before);
         health = integrator.step(*this, state);
     } catch (...) {
         clear_inputs();
@@ -1724,6 +1868,9 @@ StepHealth MultibodyProvider::step(Integrator& integrator, State& state) {
             row.sign * at(lock_impulse_, r) / integrator.config().h;
     }
     record_members_and_ropes(before, state, integrator.config().h);
+    for (Eigen::Index i = 0; i < count(carried_.size()); ++i) {
+        at(carried_load_, i) = -at(outputs_.joints, at(carried_, i).body).reaction_wrench;
+    }
     clear_inputs();
     return health;
 }

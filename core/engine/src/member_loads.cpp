@@ -50,4 +50,91 @@ MemberOutput member_end_loads(const LumpedBeam& beam, const std::vector<BodyOutp
     return out;
 }
 
+std::vector<LoadNode> load_nodes(const LumpedBeam& beam) {
+    std::vector<LoadNode> nodes;
+    if (beam.bodies.empty()) {
+        return nodes;
+    }
+    LoadNode root;
+    root.body = beam.parent;
+    root.point = beam.position;
+    if (beam.pinned_root) {
+        root.body = beam.bodies.front();
+        root.point = Eigen::Vector3d::Zero();
+    }
+    nodes.push_back(root);
+    for (std::size_t k = 0; k < beam.bodies.size(); ++k) {
+        if (beam.starts[k] > 0.0) {
+            nodes.push_back(LoadNode{beam.starts[k], beam.bodies[k], Eigen::Vector3d::Zero()});
+        }
+    }
+    LoadNode tip;
+    tip.x = beam.length;
+    tip.body = beam.bodies.back();
+    tip.point = Eigen::Vector3d(beam.length - beam.starts.back(), 0.0, 0.0);
+    nodes.push_back(tip);
+    return nodes;
+}
+
+CarriedPair carried_pair(const LumpedBeam& beam, Eigen::Index carried, const std::vector<Eigen::Matrix3d>& rotation,
+                         const std::vector<Eigen::Vector3d>& origin, const Eigen::Matrix<double, 6, 1>& load) {
+    const auto world_point = [&](Eigen::Index body, const Eigen::Vector3d& local) -> Eigen::Vector3d {
+        if (body < 0) {
+            return local;
+        }
+        const auto b = static_cast<std::size_t>(body);
+        return origin.at(b) + (rotation.at(b) * local);
+    };
+    Eigen::Matrix3d parent_rotation = Eigen::Matrix3d::Identity();
+    if (beam.parent >= 0) {
+        parent_rotation = rotation.at(static_cast<std::size_t>(beam.parent));
+    }
+    const Eigen::Matrix3d root_rotation = parent_rotation * beam.orientation.toRotationMatrix();
+    const Eigen::Vector3d root = world_point(beam.parent, beam.position);
+    const Eigen::Vector3d axis_x = root_rotation.col(0);
+
+    CarriedPair pair;
+    pair.axis_y = root_rotation.col(1);
+    pair.axis_z = root_rotation.col(2);
+    const Eigen::Vector3d r_c = origin.at(static_cast<std::size_t>(carried));
+    const double s_raw = (r_c - root).dot(axis_x);
+    double s = s_raw;
+    if (s < 0.0) {
+        pair.excursion = -s;
+        s = 0.0;
+    }
+    if (s > beam.length) {
+        pair.excursion = s - beam.length;
+        s = beam.length;
+    }
+    const Eigen::Vector3d foot = root + (s_raw * axis_x);
+    const Eigen::Vector3d force = load.tail<3>();
+    const Eigen::Vector3d moment = load.head<3>() + (r_c - foot).cross(force);
+
+    const std::vector<LoadNode> nodes = load_nodes(beam);
+    std::size_t k = 0;
+    while (k + 2 < nodes.size() && nodes[k + 1].x <= s) {
+        ++k;
+    }
+    const LoadNode& lower = nodes[k];
+    const LoadNode& upper = nodes[k + 1];
+    const double weight = (upper.x - s) / (upper.x - lower.x);
+
+    pair.body_lower = lower.body;
+    pair.body_upper = upper.body;
+    pair.point_lower = world_point(lower.body, lower.point);
+    pair.point_upper = world_point(upper.body, upper.point);
+
+    CarriedLoadOutput& out = pair.output;
+    out.body = carried;
+    out.position = s;
+    out.force = force.dot(pair.axis_y);
+    out.moment = moment.dot(pair.axis_z);
+    out.node = static_cast<Eigen::Index>(k);
+    out.weight = weight;
+    const Eigen::Vector3d interpolated = (weight * pair.point_lower) + ((1.0 - weight) * pair.point_upper);
+    out.deflection = (interpolated - (root + (s * axis_x))).dot(pair.axis_y);
+    return pair;
+}
+
 }  // namespace mechsim::engine
