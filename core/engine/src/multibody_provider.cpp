@@ -719,8 +719,15 @@ TransmissionCoupling MultibodyProvider::coupling(Eigen::Index transmission, cons
             drive += at(shaft_torque_, j);
         }
     }
-    if (at(driven_, in_v) != 0) {
-        drive += -drive_stiffness_[in_v] * (q[in_q] - drive_rest_[in_v]) - drive_damping_[in_v] * v[in_v];
+    if (t.self_locking) {
+        if (at(driven_, in_v) != 0) {
+            drive += -drive_stiffness_[in_v] * (q[in_q] - drive_rest_[in_v]) - drive_damping_[in_v] * v[in_v];
+        }
+        drive += joint_spring_forces(q, v)[in_v];
+        const Kinematics kin = kinematics(q, v);
+        std::vector<Vector6d> forces;
+        drive -= inverse_dynamics(kin, Eigen::VectorXd::Zero(nv_), Vector6d::Zero(), applied_body_wrenches(kin), false,
+                                  forces)[in_v];
     }
     return couple(t, at(slip_, transmission), at(slip_offset_, transmission), q[in_q], v[in_v], q[out_q], v[out_v],
                   drive, config_.friction_slip_threshold);

@@ -115,7 +115,7 @@ TransmissionCoupling couple(const Transmission& transmission, double slip, doubl
         c.shaft_damping = damping_loss * std::abs(lossless) / slip_threshold;
     }
     bool locked = false;
-    if (transmission.self_locking && out.in_contact && lossless == 0.0 && drive == 0.0) {
+    if (transmission.self_locking && out.in_contact && lossless == 0.0 && drive == 0.0 && omega == 0.0) {
         c.lock = true;
         c.lock_bilateral = true;
         c.lock_sign = 1.0;

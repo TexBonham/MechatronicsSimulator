@@ -589,3 +589,113 @@ TEST_CASE("a self-locking screw lift, stop and hold is bitwise identical when re
     };
     REQUIRE(run() == run());
 }
+
+namespace {
+
+// Unloaded screw for ruling 55: gravity off, lead 2 pi / 256 so that n = 1 / 256 exactly (a power of two: n theta
+// and x accumulate the same roundings, so a matched motion keeps the stretch, and F, exactly 0), coupling undamped.
+MultibodyModel unloaded_screw() {
+    MultibodyModel model = screw_model(1e-5, true);
+    model.gravity = Eigen::Vector3d::Zero();
+    model.transmissions[0].ratio = 2.0 * std::numbers::pi / 256.0;
+    model.transmissions[0].damping = 0.0;
+    return model;
+}
+
+State at_rest(const MultibodyProvider& provider) {
+    State state;
+    state.q = provider.neutral_positions();
+    state.v = Eigen::VectorXd::Zero(provider.velocity_size());
+    return state;
+}
+
+}  // namespace
+
+TEST_CASE("an unloaded self-locking screw that is moving coasts", "[ENG-044]") {
+    // Ruling 55: the two-sided row needs omega = 0 exactly. Shaft at 1 rad/s and carriage at n rad/s: E and dE/dt stay
+    // exactly 0, so F = 0, no row and no torque: omega stays 1 bitwise and theta advances h per step.
+    MultibodyProvider provider(unloaded_screw());
+    REQUIRE(mechsim::engine::output_per_input(provider.model().transmissions[0]) == 1.0 / 256.0);
+    SemiImplicitEuler integrator{StepConfig{}};
+    State state = at_rest(provider);
+    state.v[0] = 1.0;
+    state.v[1] = 1.0 / 256.0;
+    for (int i = 0; i < 100; ++i) {
+        provider.step(integrator, state);
+        REQUIRE(provider.outputs().transmissions.at(0).force == 0.0);
+        REQUIRE(state.v[0] == 1.0);
+        REQUIRE(provider.outputs().transmissions.at(0).lock_torque == 0.0);
+    }
+    REQUIRE(state.q[0] > 0.09);
+}
+
+TEST_CASE("a body-wrench torque turns an unloaded self-locking screw either way", "[ENG-044]") {
+    // Ruling 55: T includes apply_body_wrench reduced to the shaft DOF; with T != 0 and F = 0 there is no row, so the
+    // shaft turns the way the torque pushes, in both directions.
+    for (const double sign : {1.0, -1.0}) {
+        MultibodyProvider provider(unloaded_screw());
+        SemiImplicitEuler integrator{StepConfig{}};
+        State state = at_rest(provider);
+        provider.apply_body_wrench(0, Eigen::Vector3d(0.0, 0.0, sign * 1e-3), Eigen::Vector3d::Zero());
+        provider.step(integrator, state);
+        REQUIRE(sign * state.v[0] > 0.0);
+        REQUIRE(provider.outputs().transmissions.at(0).lock_torque == 0.0);
+    }
+}
+
+TEST_CASE("a model joint spring on the shaft counts as the screw's own torque", "[ENG-044]") {
+    // Spring K_s = 1 N m/rad, rest 0.1 rad: own torque +0.1 N m at theta = 0, F = 0, so no row: the shaft turns
+    // positive on the first step.
+    MultibodyModel model = unloaded_screw();
+    model.bodies[0].joint.stiffness = Eigen::VectorXd::Constant(1, 1.0);
+    model.bodies[0].joint.damping = Eigen::VectorXd::Zero(1);
+    model.bodies[0].joint.rest = Eigen::VectorXd::Constant(1, 0.1);
+    MultibodyProvider provider(model);
+    SemiImplicitEuler integrator{StepConfig{}};
+    State state = at_rest(provider);
+    provider.step(integrator, state);
+    REQUIRE(state.v[0] > 0.0);
+}
+
+TEST_CASE("an unloaded self-locking screw at rest holds when the load arrives later", "[ENG-044]") {
+    // 10 steps unloaded at rest (two-sided row, nothing to hold), then a force -m g on the carriage from step 10:
+    // that step starts at F = 0, T = 0, omega = 0, so the two-sided row holds the shaft against the end-of-step
+    // coupling force; afterwards F > 0 and the one-sided row holds. theta stays exactly 0 throughout.
+    MultibodyProvider provider(unloaded_screw());
+    SemiImplicitEuler integrator{StepConfig{}};
+    State state = at_rest(provider);
+    for (int i = 0; i < 1000; ++i) {
+        if (i >= 10) {
+            provider.set_generalized_forces(Eigen::Vector2d(0.0, -screw_mass * gravity));
+        }
+        provider.step(integrator, state);
+        REQUIRE(state.q[0] == 0.0);
+        REQUIRE(state.v[0] == 0.0);
+    }
+    REQUIRE(state.q[1] < 0.0);
+}
+
+TEST_CASE("a self-locking screw lifted between n F and n F / eta_f creeps without ratcheting", "[ENG-044]") {
+    // The larger-loss damping at omega = 0 in isolation. Leaving rest with c = max(1 / eta_f - 1, 1 - eta_b) n F /
+    // omega_s (1.5 here, the forward side) the first step reaches omega = (T - n F) / (c + J_eff / h) < omega_s, and
+    // from then on the forward creep holds omega in (0, omega_s): omega never returns to 0 (the row never re-binds)
+    // and theta rises every step. With c = 0 at rest the lossless first step would reach h (T - n F) / J_eff, above
+    // omega_s, reverse under n F / eta_f into the row and repeat.
+    for (const double j : {1e-5, 1e-2}) {
+        MultibodyProvider provider(screw_model(j, true));
+        SemiImplicitEuler integrator{StepConfig{}};
+        const double n = screw_n();
+        const double f = screw_mass * gravity;
+        const double drive = n * f * (1.0 + 0.5 * (1.0 / 0.4 - 1.0));
+        State state = hanging(provider);
+        double previous = state.q[0];
+        for (int i = 0; i < 500; ++i) {
+            provider.set_shaft_torque(0, drive);
+            provider.step(integrator, state);
+            REQUIRE(state.v[0] > 0.0);
+            REQUIRE(state.v[0] < omega_s);
+            REQUIRE(state.q[0] > previous);
+            previous = state.q[0];
+        }
+    }
+}

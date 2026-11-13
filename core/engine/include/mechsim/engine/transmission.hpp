@@ -48,9 +48,10 @@ namespace mechsim::engine {
 // (iii) Above omega_s the gains are the old ones bit for bit; only motion slower than omega_s changes.
 // PowerFlow keeps its values; Static now means the shaft starts the step at exactly zero speed (or F = 0).
 //
-// Self-locking lead screw (ruling 48, ENG-044). The drive T is the shaft's own torque at the step start: its
-// generalized-force input (set_generalized_forces), every set_shaft_torque on the shaft and its joint drive's
-// spring-damper torque (set_joint_drive); the model joint spring and gravity on the shaft are not part of it. In
+// Self-locking lead screw (rulings 48, 55, ENG-044). The drive T is the shaft's whole own torque at the step start:
+// its generalized-force input (set_generalized_forces), every set_shaft_torque on the shaft, body wrenches reduced
+// to the shaft DOF (apply_body_wrench), its joint drive's spring-damper torque (set_joint_drive) and the model joint
+// spring and damping; gravity on the shaft is not part of it (only a self-locking screw computes T). In
 // contact with L != 0 the load would back-drive the shaft along sign(L). Unless T L > 0 (the drive itself turns
 // the shaft the back-driving way: lowering), the provider adds a one-sided velocity row J = s e_shaft, s = -sign(L),
 // impulse lambda >= 0, s omega >= 0 at the step's end, in the velocity-level pass after the joint-limit rows, in
@@ -67,10 +68,11 @@ namespace mechsim::engine {
 //     The old hold set the gain to 0 and relied on omega staying bitwise 0, true only while the LU of
 //     S = H + h D + h^2 K kept the shaft row as pivot, J > n (h^2 k + h c).
 //   - Lifting (P < 0) uses the forward gain; a lift that stops reverses into the row and is held.
-//   - F = 0 in contact with T = 0 (a load just coming onto the screw): the back-driving side is not known at the
-//     step start, but the implicit coupling would still turn the shaft by the end-of-step force, so the row is
-//     bilateral there (omega = 0, impulse of either sign; zero work, no drive to fight). With T != 0 and F = 0 there
-//     is no row: the drive turns an unloaded screw either way.
+//   - F = 0 in contact with T = 0 and the shaft at rest (omega = 0 exactly; a load just coming onto a held screw):
+//     the back-driving side is not known at the step start, but the implicit coupling would still turn the shaft by
+//     the end-of-step force, so the row is two-sided there (ruling 55: omega = 0, impulse of either sign; zero work,
+//     no drive to fight). An unloaded shaft that is moving, or has any own torque, gets no row: it coasts, or turns
+//     the way its own torque pushes.
 // Locked (published load torque 0) whenever P >= 0 and T L >= 0: the screw, not the shaft, carries the load.
 //
 // Implicit treatment (ADR 0013). With the coupling gain g_k frozen (n below omega_s, g above), -df/d(theta, x) =
