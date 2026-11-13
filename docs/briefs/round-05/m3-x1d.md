@@ -65,6 +65,23 @@ command; do not patch). Invariant 2: nothing gantry-specific in code.
    rerun it); the BLD row for the payload on its rope on native and the stand-in on the bridge, with a test of
    the bridge's approximation line; every placeholder in `docs/gantry-team-inputs.md`.
 
+## From the E7 review (read before item 1)
+
+- At eight segments a carried load reads low by L^2 / (4 N^2 a b) of the continuum value (the chain's own error at
+  a segment boundary): the 2 percent row holds only for a carriage within about [0.27 L, 0.73 L]; the absolute
+  error is at most 1 / N^2 of the mid-span deflection. Judge `rail_y` (pinned-roller, eight segments) with that
+  formula where the trolley is off-centre, or give it sixteen segments in the data and say which you chose.
+- A rail whose parent cannot move in the bending plane is pure feed-forward (safe): check that holds for both
+  rails with the frames of item 1 (the x carriage is held vertically by its joint). The engine will refuse a
+  carried joint on a parent that is free in the plane with a large carried mass (brief E7b, landing after you
+  start: if a build error names a mass ratio, that is this check).
+- A drive force acting above the member axis reroutes a couple d F as well as the weight: include it in the
+  stress oracle for the acceleration case.
+- The carriage does not descend with the beam, so the beam's elastic energy is not taken from the carriage: do
+  not expect an energy balance between them.
+- The carried deflection reaches the run's lines with E7b; until then read it from the node-pose deflection.
+- Check the rails' node damping: it sets the settle window of item 4.
+
 ## Report
 
 Under 300 words: commits, filtered test counts, item 1's four static checks, G12's peaks against limit and

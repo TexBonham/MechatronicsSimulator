@@ -85,3 +85,5 @@ type live in the root `CLAUDE.md` dispatch table once measured.
 | 2026-11-13 | M3-I3b swing angle and runner fixes (wip/05-i3 87621f6) | module-writer (opus) | 183K | 119 calls, over the 70 cap |
 | 2026-11-13 | M3-I3 confirmation after I3b: accept, 2 low items to X1d | Fable review (general-purpose), resumed | ~15K | 4 calls |
 | 2026-11-13 | M3-E7 moving load on a flexible member, load-path coupling (wip/05-e7 5ab0704) | module-writer (opus), resumed once after an API error | 351K | about 150 calls |
+| 2026-11-13 | M3 review: E7 (wip/05-e7 5ab0704): accept after a small fix round, 2 major, 3 minor; ruling 67 | Fable review (general-purpose), resumed (cut once by an API error) | ~70K | 9 calls |
+| 2026-11-13 | M3-E7 invariant audit: clean | invariant-auditor (sonnet) | 34K | 6 calls |
