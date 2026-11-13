@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import json
 import math
+import re
 from fractions import Fraction
 from pathlib import Path
 from types import SimpleNamespace
@@ -25,7 +26,17 @@ from mechsim.integrity.checks.resonance import Resonance, ResonanceParameters
 from mechsim.integrity.checks.strength import Strength
 from mechsim.integrity.config import IntegrityConfig, config_for, load_config, parse_config
 from mechsim.integrity.export import load_case, write_beside
-from mechsim.integrity.inputs import member_axes, node_chains, recorded_body_count, run_inputs, section_properties
+from mechsim.integrity.inputs import (
+    MEMBER_SERIES as LOAD_SERIES,
+)
+from mechsim.integrity.inputs import (
+    _member_loads,
+    member_axes,
+    node_chains,
+    recorded_body_count,
+    run_inputs,
+    section_properties,
+)
 from mechsim.integrity.plugin import (
     BodyPoses,
     CheckResult,
@@ -1058,3 +1069,30 @@ def test_a_flexible_member_or_a_build_without_a_model_still_needs_its_end_loads(
     # A rigid member whose end-loads were recorded is evaluated from them.
     recorded = run_inputs(_rigid_build(), _recorded(_cantilever_rows(1.0)), _views())
     assert recorded.members[0].loads is not None
+
+
+@pytest.mark.req("INT-005")
+@pytest.mark.parametrize("recorded", [1, 2, 3])
+def test_a_rigid_member_with_only_some_end_load_series_is_a_partial_recording(recorded: int) -> None:
+    values = np.zeros((2, 1, 3))
+    series: dict[str, Any] = {path: SimpleNamespace(names=("rail",), values=values) for path in LOAD_SERIES}
+    for path in LOAD_SERIES[recorded:]:
+        series[path] = SimpleNamespace(names=("other",), values=values)
+    with pytest.raises(IntegrityError, match="member 'rail': partial end-load recording"):
+        _member_loads(series, "rail", 2, True)
+    for path in LOAD_SERIES[recorded:]:
+        del series[path]
+    with pytest.raises(IntegrityError, match=re.escape(f"lacks {list(LOAD_SERIES[recorded:])}")):
+        _member_loads(series, "rail", 2, True)
+
+
+@pytest.mark.req("INT-005")
+def test_a_rigid_member_with_no_or_all_end_load_series_is_not_evaluated_or_read() -> None:
+    values = np.zeros((2, 1, 3))
+    assert _member_loads({}, "rail", 2, True) is None
+    others = {path: SimpleNamespace(names=("other",), values=values) for path in LOAD_SERIES}
+    assert _member_loads(others, "rail", 2, True) is None
+    full = {path: SimpleNamespace(names=("rail",), values=values) for path in LOAD_SERIES}
+    loads = _member_loads(full, "rail", 2, True)
+    assert loads is not None
+    assert loads.start_force.shape == (2, 3)

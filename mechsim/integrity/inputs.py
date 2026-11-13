@@ -83,11 +83,15 @@ def _column(series: Mapping[str, Any], path: str, name: str, rows: int) -> Float
 
 def _member_loads(series: Mapping[str, Any], name: str, rows: int, rigid: bool) -> Wrenches | None:
     """A rigid member (the build has a physics model and no lumped record for it, BLD-033) with no recorded end-loads
-    gives None: not evaluated (rulings 29, 34). A flexible member, or a build without a physics model, needs them."""
+    gives None: not evaluated (rulings 29, 34). Some of its end-load series recorded and others not is a partial
+    recording, an error (INT-005). A flexible member, or a build without a physics model, needs them all."""
     if rigid:
-        for path in MEMBER_SERIES:
-            if path not in series or name not in tuple(series[path].names):
-                return None
+        recorded = [path for path in MEMBER_SERIES if path in series and name in tuple(series[path].names)]
+        if len(recorded) == 0:
+            return None
+        if len(recorded) < len(MEMBER_SERIES):
+            missing = [path for path in MEMBER_SERIES if path not in recorded]
+            raise IntegrityError(f"member {name!r}: partial end-load recording, has {recorded}, lacks {missing}")
     return Wrenches(*(_column(series, path, name, rows) for path in MEMBER_SERIES))
 
 
