@@ -27,7 +27,7 @@ FORMAT = "mechsim-integrity-limits-1"
 PARTY = "integrity"
 MODEL_REQUESTS = "integrity.model_requests"
 QUANTITIES = (("strength", "stress"), ("buckling", "buckling"), ("deflection", "deflection"), ("fastener", "fastener"))
-SPRINGS_PER_JOINT = {"revolute": 1, "prismatic": 1, "planar": 3}
+SPRINGS_PER_JOINT = {"revolute": 1, "prismatic": 1, "planar": 3, "fixed": 0, "spherical": 0, "free": 0}
 YIELD_RULE = (
     "integrity tier 2 yield: placeholder plasticity rule (ruling 35): at the member end with the larger bending moment "
     "the nearest node spring takes the permanent offset (peak |M_n| - M_y) / k, M_y = sigma_y I_z / c_y, k = E I / l, "
@@ -41,12 +41,11 @@ NOT_EVALUATED = (
 
 @dataclass(frozen=True)
 class Tier1Setup:
-    """What the driver registers: the limits table (JSON), whether the party publishes yield requests, the halt
-    setting `integrity.yaml` mirrors (the test case's field wins, ruling 4) and the run's approximation lines."""
+    """What the driver registers: the limits table (JSON), whether the party publishes yield requests and the run's
+    approximation lines. Halting is the test case's field (rulings 4, 50), never this file's."""
 
     limits: str
     yield_offset: bool
-    halt_on_crossing: bool
     approximations: tuple[str, ...]
 
 
@@ -63,17 +62,22 @@ def tier1_enabled(config: IntegrityConfig) -> bool:
     return any(flags[quantity] for _, quantity in QUANTITIES)
 
 
-def first_springs(model: Any) -> list[int]:
-    """Each lumped member's first node spring in the native adapter's spring order: every revolute and prismatic DOF
-    (one each) and planar joint (three), body by body, then each member's N node springs root to tip."""
+def first_springs(native: Mapping[str, Any]) -> list[int]:
+    """Each lumped member's first node spring, read from the prepared native model document (the adapter's own spring
+    order, `core/physics/native/CLAUDE.md`): every revolute and prismatic DOF (one each) and planar joint (three) of the
+    neutral bodies in document order, then each member's N node springs root to tip. A joint type the order does not
+    name is an error, never a zero."""
     count = 0
-    for body in model.bodies:
-        if body.joint is not None:
-            count += SPRINGS_PER_JOINT.get(str(body.joint.type), 0)
+    bodies = native["bodies"]
+    for body in bodies[: int(native["neutral_bodies"])]:
+        kind = str(body["joint"]["type"])
+        if kind not in SPRINGS_PER_JOINT:
+            raise IntegrityError(f"body {body['name']!r}: joint type {kind!r} has no place in the spring order")
+        count += SPRINGS_PER_JOINT[kind]
     out: list[int] = []
-    for member in model.lumped_members:
+    for member in native["members"]:
         out.append(count)
-        count += int(member.segments)
+        count += int(member["segments"])
     return out
 
 
@@ -115,10 +119,15 @@ def _effective_length(member: Any, section: Any, config: IntegrityConfig, buckli
 
 
 def limits_table(
-    build: Any, model: Any, config: IntegrityConfig, materials: Mapping[str, MaterialView]
+    build: Any,
+    model: Any,
+    config: IntegrityConfig,
+    materials: Mapping[str, MaterialView],
+    native: Mapping[str, Any],
 ) -> dict[str, Any]:
     """The limits table: one record per lumped member the build lists as a structural member (index in
-    `PhysicsOutputs.members` = its place in `model.lumped_members`), one per rated fastening."""
+    `PhysicsOutputs.members` = its place in `model.lumped_members`), one per rated fastening. `native` is the prepared
+    native model document the run loads; its member list must match the model's."""
     flags = enabled(config)
     design = build.design
     structural = design.structural
@@ -132,7 +141,11 @@ def limits_table(
     structural_members = {str(member.name): member for member in build.members}
     records = {str(record.member): record for record in getattr(build, "lumped", ())}
     axes = member_axes(build)
-    springs = first_springs(model)
+    springs = first_springs(native)
+    if len(springs) != len(model.lumped_members):
+        raise IntegrityError(
+            f"the native model lists {len(springs)} members, the physics model {len(model.lumped_members)}"
+        )
     members: list[dict[str, Any]] = []
     for index, lumped in enumerate(model.lumped_members):
         name = str(lumped.name)
@@ -212,8 +225,9 @@ def limits_table(
 
 
 class Tier1Service:
-    """`(build, model) -> Tier1Setup | None`: None without `integrity.yaml` beside the design file (ruling 27) or
-    when it turns no tier 1 quantity on. `config` replaces the file; `design_dir` maps a design to its folder."""
+    """`configuration(build)`: the design's `integrity.yaml` (None without the file, ruling 27); `(build, model,
+    native) -> Tier1Setup | None`: None without the file or when it turns no tier 1 quantity on. `config` replaces the
+    file; `design_dir` maps a design to its folder (default `<designs_root>/<design name>`)."""
 
     def __init__(
         self,
@@ -230,16 +244,19 @@ class Tier1Service:
             return self.design_dir(design)
         return self.designs_root / str(design.name)
 
-    def __call__(self, build: Any, model: Any) -> Tier1Setup | None:
+    def configuration(self, build: Any) -> IntegrityConfig | None:
+        if self.config is not None:
+            return self.config
+        path = self._folder(build.design) / FILE_NAME
+        if not path.is_file():
+            return None
+        return load_config(path)
+
+    def __call__(self, build: Any, model: Any, native: Mapping[str, Any]) -> Tier1Setup | None:
         design = build.design
         folder = self._folder(design)
-        config = self.config
-        if config is None:
-            path = folder / FILE_NAME
-            if not path.is_file():
-                return None
-            config = load_config(path)
-        if not tier1_enabled(config):
+        config = self.configuration(build)
+        if config is None or not tier1_enabled(config):
             return None
         overrides: Path | None = None
         if design.materials is not None and design.materials.overrides is not None:
@@ -248,13 +265,12 @@ class Tier1Service:
         views: dict[str, MaterialView] = {}
         for member in build.members:
             views[str(member.material)] = materials.integrity_view(str(member.material))
-        table = limits_table(build, model, config, views)
+        table = limits_table(build, model, config, views, native)
         approximations: tuple[str, ...] = ()
         if table["checks"]["yield_offset"]:
             approximations = (YIELD_RULE,)
         return Tier1Setup(
             json.dumps(table, sort_keys=True),
             bool(table["checks"]["yield_offset"]),
-            config.halt_on_crossing,
             approximations,
         )

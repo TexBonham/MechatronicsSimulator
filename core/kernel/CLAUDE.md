@@ -86,8 +86,10 @@ boundaries (`tests/test_physics_party.cpp`, 1 kHz physics with a 500 Hz controll
 
 | Section | File | Line |
 |---|---|---|
-| Fixtures | tests/test_physics_party.cpp | 29 |
-| Exchange and config errors | tests/test_physics_party.cpp | 99 |
-| Scheduling (KER-023) | tests/test_physics_party.cpp | 263 |
-| Fault fixtures | tests/test_physics_party.cpp | 315 |
-| Scheduled faults | tests/test_physics_party.cpp | 365 |
+| Fixtures | tests/test_physics_party.cpp | 31 |
+| Exchange and config errors | tests/test_physics_party.cpp | 129 |
+| Scheduling (KER-023) | tests/test_physics_party.cpp | 293 |
+| Fault fixtures | tests/test_physics_party.cpp | 345 |
+| Scheduled faults | tests/test_physics_party.cpp | 397 |
+| Model change events (ruling 26, ruling 40) | tests/test_physics_party.cpp | 570 |
+| Model change requests (KER-028; `CountingAdapter` entries log and list once) | tests/test_physics_party.cpp | 615 |

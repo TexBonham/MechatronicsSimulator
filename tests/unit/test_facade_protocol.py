@@ -32,7 +32,13 @@ def _envelope(kind: str, payload: dict[str, Any]) -> dict[str, Any]:
 VALID: dict[str, dict[str, Any]] = {
     "list_designs": {},
     "validate_design": {"design": "designs/example/design.yaml"},
-    "run_case": {"design": "d.yaml", "test_case": "t.yaml", "seed": 0, "mode": "native"},
+    "run_case": {
+        "design": "d.yaml",
+        "test_case": "t.yaml",
+        "seed": 0,
+        "mode": "native",
+        "sets": {"physics.adapter": "native"},
+    },
     "run_suite": {"design": "d.yaml", "suite": "s.yaml"},
     "replay_open": {"archive": "runs/run-0001.h5"},
     "subscribe_series": {"run_id": "r", "series": ["a.b"], "t_start": 0.0, "t_end": 1.0, "points": 1},
@@ -69,6 +75,7 @@ OPTIONAL: dict[str, set[str]] = {
     "error": {"requirement_id", "run_id", "report"},
     "run_progress": {"t_end"},
     "run_ended": {"requirement_id"},
+    "run_case": {"sets"},
 }
 
 WRONG_TYPES: dict[str, dict[str, Any]] = {

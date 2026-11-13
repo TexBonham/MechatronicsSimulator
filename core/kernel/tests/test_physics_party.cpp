@@ -4,8 +4,10 @@
 #include <functional>
 #include <limits>
 #include <memory>
+#include <optional>
 #include <span>
 #include <string>
+#include <string_view>
 #include <utility>
 #include <variant>
 #include <vector>
@@ -53,7 +55,8 @@ public:
         pending_ = PhysicsInputs{};
         ++outputs_.steps;
         outputs_.bodies[0].position[0] = static_cast<double>(outputs_.steps);
-        outputs_.model_changes.clear();
+        outputs_.model_changes = entry_changes_;
+        entry_changes_.clear();
         for (const auto& [at, change] : shared_->changes) {
             if (at == outputs_.steps) {
                 outputs_.model_changes.push_back(change);
@@ -67,10 +70,21 @@ public:
         return health;
     }
     void set_inputs(const PhysicsInputs& inputs) override { pending_ = inputs; }
-    void set_spring_offset(std::size_t /*spring*/, double /*offset*/) override {}
-    void set_spring_stiffness(std::size_t /*spring*/, double /*stiffness*/) override {}
-    void disable_constraint(std::size_t /*constraint*/) override {}
-    void release_load(std::size_t /*load*/) override {}
+    // Mid-run entries log their call and list the change once in the next step's outputs, as the adapters do.
+    void set_spring_offset(std::size_t spring, double offset) override {
+        entry("offset", {ModelChangeKind::SpringOffset, ModelChangeSource::Spring, signed_index(spring), offset});
+    }
+    void set_spring_stiffness(std::size_t spring, double stiffness) override {
+        entry("stiffness",
+              {ModelChangeKind::SpringStiffness, ModelChangeSource::Spring, signed_index(spring), stiffness});
+    }
+    void disable_constraint(std::size_t constraint) override {
+        entry("disable",
+              {ModelChangeKind::ConstraintDisabled, ModelChangeSource::Constraint, signed_index(constraint), 0.0});
+    }
+    void release_load(std::size_t load) override {
+        entry("release", {ModelChangeKind::LoadReleased, ModelChangeSource::Payload, signed_index(load), 0.0});
+    }
     void set_payload_mass(std::size_t payload, double mass) override {
         log("mass " + std::to_string(payload) + " " + std::to_string(mass));
     }
@@ -89,10 +103,18 @@ private:
     void log(const std::string& call) {
         shared_->calls.push_back(call + " @" + std::to_string(outputs_.steps));
     }
+    static std::int64_t signed_index(std::size_t index) {
+        return static_cast<std::int64_t>(index);
+    }
+    void entry(const std::string& operation, const ModelChangeEvent& change) {
+        log(operation + " " + std::to_string(change.index) + " " + std::to_string(change.value));
+        entry_changes_.push_back(change);
+    }
 
     std::shared_ptr<Shared> shared_;
     PhysicsOutputs outputs_;
     PhysicsInputs pending_;
+    std::vector<ModelChangeEvent> entry_changes_;
 };
 
 PhysicsInputs force(std::vector<double> generalized, std::size_t wrench_body) {
@@ -588,4 +610,145 @@ TEST_CASE("Recording one step twice lists its model changes once", "[PHY-008]") 
     CHECK(first.events.size() == 1);
     CHECK(second.events.empty());
     CHECK(second.physics.model_changes.size() == 1);
+}
+
+// ===== Model change requests (KER-028, ruling 40) =====================================================================
+namespace {
+
+constexpr std::string_view requests_name = "requester.model_requests";
+
+struct RequestRun {
+    RunReport report;
+    std::vector<std::string> calls;
+    // Each row's PhysicsOutputs.model_changes as model_change_detail texts, row time first.
+    std::vector<std::string> listed;
+};
+
+// A requester party publishes, from the end of its step at tick t on, the list scheduled at t (the last scheduled
+// list stays published, the same sequence number every tick). `wired` gives the physics party the request name.
+RequestRun run_requests(const std::vector<std::pair<std::int64_t, ModelChangeRequests>>& schedule, bool wired,
+                        std::int64_t ticks) {
+    auto shared = std::make_shared<CountingAdapter::Shared>();
+    PhysicsPartyConfig config;
+    config.inputs = {};
+    if (wired) {
+        config.model_requests = std::string(requests_name);
+    }
+    CoSimKernel kernel{RunConfig{}};
+    kernel.register_party(std::make_unique<PhysicsParty>(std::make_unique<CountingAdapter>(shared), config));
+    std::vector<std::string> log;
+    auto requester = std::make_unique<ScriptedParty>("requester", Rate(1000), log);
+    requester->published_names = {std::string(requests_name)};
+    auto current = std::make_shared<std::optional<ModelChangeRequests>>();
+    requester->on_write = [schedule, current](SimTime t, CouplingWriter& outputs) {
+        for (const auto& [at, requests] : schedule) {
+            if (at == t.count()) {
+                *current = requests;
+            }
+        }
+        if (current->has_value()) {
+            outputs.set(requests_name, make_payload(current->value(), std::string(model_requests_kind)));
+        }
+    };
+    kernel.register_party(std::move(requester));
+    InMemoryRecorderSink sink;
+    RequestRun result;
+    result.report = kernel.run(EndCondition{Seconds(ticks, 1000), {}}, sink);
+    result.calls = shared->calls;
+    for (const TickRecord& row : sink.rows()) {
+        for (const ModelChangeEvent& change : row.physics.model_changes) {
+            result.listed.push_back(std::to_string(row.time.count()) + " " + model_change_detail(change));
+        }
+    }
+    return result;
+}
+
+ModelChangeRequests requests(std::int64_t sequence, std::vector<ModelChangeRequest> list) {
+    ModelChangeRequests out;
+    out.sequence = sequence;
+    out.requests = std::move(list);
+    return out;
+}
+
+}  // namespace
+
+// Timeline: the requester publishes at the end of tick t's step; the physics party reads it at tick t + 1 and applies
+// it before that step, which has completed t + 1 steps; the change is listed in that step's outputs, the row t + 2.
+TEST_CASE("Physics party model change requests: A requested spring offset reaches the adapter before the next physics step", "[KER-028]") {
+    const RequestRun run = run_requests({{0, requests(1, {{ModelChangeKind::SpringOffset, 3, 0.25}})}}, true, 4);
+    REQUIRE(run.report.outcome == RunOutcome::end_condition_met);
+    CHECK(run.calls == std::vector<std::string>{"offset 3 0.250000 @1"});
+    CHECK(run.listed == std::vector<std::string>{"2 spring_offset spring 3 value 0.25"});
+}
+
+TEST_CASE("Physics party model change requests: A requested spring stiffness change reaches the adapter", "[KER-028]") {
+    const RequestRun run = run_requests({{0, requests(1, {{ModelChangeKind::SpringStiffness, 0, 40.0}})}}, true, 4);
+    REQUIRE(run.report.outcome == RunOutcome::end_condition_met);
+    CHECK(run.calls == std::vector<std::string>{"stiffness 0 40.000000 @1"});
+    CHECK(run.listed == std::vector<std::string>{"2 spring_stiffness spring 0 value 40"});
+}
+
+TEST_CASE("Physics party model change requests: A requested constraint disable reaches the adapter", "[KER-028]") {
+    const RequestRun run = run_requests({{1, requests(1, {{ModelChangeKind::ConstraintDisabled, 2, 0.0}})}}, true, 5);
+    REQUIRE(run.report.outcome == RunOutcome::end_condition_met);
+    CHECK(run.calls == std::vector<std::string>{"disable 2 0.000000 @2"});
+    CHECK(run.listed == std::vector<std::string>{"3 constraint_disabled constraint 2 value 0"});
+}
+
+TEST_CASE("Physics party model change requests: A requested load release reaches the adapter", "[KER-028]") {
+    const RequestRun run = run_requests({{0, requests(1, {{ModelChangeKind::LoadReleased, 1, 0.0}})}}, true, 4);
+    REQUIRE(run.report.outcome == RunOutcome::end_condition_met);
+    CHECK(run.calls == std::vector<std::string>{"release 1 0.000000 @1"});
+    CHECK(run.listed == std::vector<std::string>{"2 load_released payload 1 value 0"});
+}
+
+TEST_CASE("Physics party model change requests: A request of a kind that is not a request is a typed error that ends the run", "[KER-028]") {
+    for (const ModelChangeKind kind :
+         {ModelChangeKind::RopeSnapped, ModelChangeKind::PayloadAttached, ModelChangeKind::PayloadMass}) {
+        const RequestRun run = run_requests({{0, requests(1, {{kind, 0, 1.0}})}}, true, 4);
+        CHECK(run.report.outcome == RunOutcome::run_error);
+        REQUIRE(run.report.fault.has_value());
+        CHECK(run.report.fault->party() == "physics");
+        CHECK(run.report.fault->cause().find("is not a request (KER-028)") != std::string::npos);
+        CHECK(run.report.ticks == 1);
+        CHECK(run.calls.empty());
+    }
+}
+
+TEST_CASE("Physics party model change requests: Requests the physics party is not wired to, or a wired name never published, change nothing", "[KER-028]") {
+    const RequestRun unwired = run_requests({{0, requests(1, {{ModelChangeKind::SpringOffset, 3, 0.25}})}}, false, 4);
+    CHECK(unwired.report.outcome == RunOutcome::end_condition_met);
+    CHECK(unwired.calls.empty());
+    CHECK(unwired.listed.empty());
+    const RequestRun silent = run_requests({}, true, 4);
+    CHECK(silent.report.outcome == RunOutcome::end_condition_met);
+    CHECK(silent.calls.empty());
+    CHECK(silent.listed.empty());
+}
+
+TEST_CASE("Physics party model change requests: Several requests in one list apply once each, in list order", "[KER-028]") {
+    const RequestRun run = run_requests({{0, requests(1,
+                                                      {{ModelChangeKind::SpringOffset, 5, -0.5},
+                                                       {ModelChangeKind::ConstraintDisabled, 0, 0.0},
+                                                       {ModelChangeKind::SpringStiffness, 5, 12.0},
+                                                       {ModelChangeKind::LoadReleased, 2, 0.0}})}},
+                                        true, 4);
+    REQUIRE(run.report.outcome == RunOutcome::end_condition_met);
+    CHECK(run.calls == std::vector<std::string>{"offset 5 -0.500000 @1", "disable 0 0.000000 @1",
+                                                "stiffness 5 12.000000 @1", "release 2 0.000000 @1"});
+    CHECK(run.listed == std::vector<std::string>{
+                            "2 spring_offset spring 5 value -0.5", "2 constraint_disabled constraint 0 value 0",
+                            "2 spring_stiffness spring 5 value 12", "2 load_released payload 2 value 0"});
+}
+
+TEST_CASE("Physics party model change requests: A list stays published but applies once; a new sequence number applies the new list once",
+          "[KER-028]") {
+    // Ruling 40: each change is listed exactly once in PhysicsOutputs.model_changes, read here row by row.
+    const RequestRun run = run_requests({{0, requests(1, {{ModelChangeKind::SpringOffset, 3, 0.25}})},
+                                         {3, requests(2, {{ModelChangeKind::SpringOffset, 3, 0.5}})}},
+                                        true, 8);
+    REQUIRE(run.report.outcome == RunOutcome::end_condition_met);
+    CHECK(run.calls == std::vector<std::string>{"offset 3 0.250000 @1", "offset 3 0.500000 @4"});
+    CHECK(run.listed ==
+          std::vector<std::string>{"2 spring_offset spring 3 value 0.25", "5 spring_offset spring 3 value 0.5"});
 }

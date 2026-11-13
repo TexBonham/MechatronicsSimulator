@@ -22,7 +22,8 @@ check rules rows "Tier 1 party" to "Tier 2 rope snap".
 - Live loads, no design-load factor; allowable stress and fastener limits carry the minimum safety factor already.
 - Yield (ruling 35): end with the larger abs(M_z) (start on a tie), spring `first_spring` or `first_spring + N - 1`;
   when abs(M_n) passes its running peak and the peak exceeds M_y = sigma_y I_z / c_y, one `SpringOffset` request
-  sign(M_n) (peak - M_y) / k; requests of a tick go out under a new sequence number (KER-028). The party never emits a
+  sign(M_n) (peak - M_y) / k (a larger reversed peak takes its own sign; none while abs(M_n) stays at or below the
+  peak); requests of a tick go out under a new sequence number (KER-028). The party never emits a
   model_change event: the physics party records the adapter's listing (ruling 26).
 - No unordered containers, threads or wall clock.
 
@@ -30,9 +31,9 @@ check rules rows "Tier 1 party" to "Tier 2 rope snap".
 
 | Section | File | Line |
 |---|---|---|
-| Fixtures | tests/test_integrity_party.cpp | 34 |
-| Crossing oracles (INT-023, INT-024) | tests/test_integrity_party.cpp | 138 |
-| Events, halt and determinism | tests/test_integrity_party.cpp | 274 |
-| Yield requests (INT-028) | tests/test_integrity_party.cpp | 343 |
-| Limits table | tests/test_integrity_party.cpp | 396 |
+| Fixtures | tests/test_integrity_party.cpp | 35 |
+| Crossing oracles (INT-023, INT-024) | tests/test_integrity_party.cpp | 139 |
+| Events, halt and determinism | tests/test_integrity_party.cpp | 275 |
+| Yield requests (INT-028; at-limit boundary, INT-024) | tests/test_integrity_party.cpp | 345 |
+| Limits table | tests/test_integrity_party.cpp | 474 |
 | Cantilever on the native adapter (yield oracle, additivity) | tests/test_integrity_native.cpp | 33 |

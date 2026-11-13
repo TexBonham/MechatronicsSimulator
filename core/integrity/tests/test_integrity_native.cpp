@@ -168,15 +168,16 @@ TEST_CASE("a yielded cantilever keeps the tip offset of its peak root-spring mom
     // omega_1 = 1.875^2 sqrt(E I / (rho A)) / L^2 = 178 rad/s: 3.9e-5 of M_n, 1.2e-4 of phi (M_n / (M_n - M_y) = 3);
     // (2) the world-aligned load's arm shortens by about theta_tip^2 L / 3 = 3.3e-5 m (theta_tip = P L^2 / 2 E I =
     // 0.01): 1.1e-4 of phi; (3) after 1 s unloaded the first mode keeps (1 + x^2)^(-28 pi / atan x) < 1e-6 of its
-    // amplitude under backward Euler (x = omega_1 h = 0.178, ruling 21). Sum 2.3e-4; asserted at 1e-3.
+    // amplitude under backward Euler (x = omega_1 h = 0.178, ruling 21). Sum 2.3e-4, the INT tolerance row's bound
+    // (ruling 54); the request carries (1) and (2) as well.
     const Result r = run(false, true);
     const double phi = -(peak_load * (length - segment / 2.0) - yield_moment) / stiffness;
     const double expected = (length - segment / 2.0) * std::sin(phi);
     std::cout << "yield oracle: tip y " << r.tip_y << " m, closed form " << expected << " m, residual "
               << std::abs(r.tip_y - expected) / std::abs(expected) << " relative\n";
-    CHECK_THAT(r.tip_y, WithinRel(expected, 1e-3));
+    CHECK_THAT(r.tip_y, WithinRel(expected, 2.3e-4));
     REQUIRE_FALSE(r.trace->requests.empty());
-    CHECK_THAT(r.trace->requests.back().value, WithinRel(phi, 1e-3));
+    CHECK_THAT(r.trace->requests.back().value, WithinRel(phi, 2.3e-4));
     for (const kernel::ModelChangeRequest& request : r.trace->requests) {
         CHECK(request.index == 0);
     }

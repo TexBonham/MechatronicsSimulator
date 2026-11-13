@@ -130,10 +130,10 @@ def test_a_tier_a_check_does_not_offer_is_an_error() -> None:
 
 CONFIG_TEXT = """\
 schema_version: 1
-halt_on_crossing: true
 checks:
   - check: strength
     tier: 2
+  - check: rope_snap
   - check: impact
     parameters:
       impact_factor: 2.0
@@ -153,7 +153,7 @@ def test_checks_tiers_and_parameters_come_from_the_configuration_file(tmp_path: 
     path = tmp_path / "integrity.yaml"
     path.write_text(CONFIG_TEXT, encoding="utf-8")
     config = load_config(path)
-    assert config.halt_on_crossing is True
+    assert config.rope_snap()
     entries = {check.name: (tier, parameters) for check, tier, parameters in config.entries()}
     assert list(entries) == ["deflection", "strength", "impact", "resonance"]
     assert entries["strength"][0] == 2
@@ -168,7 +168,7 @@ def test_a_design_without_a_configuration_runs_the_table_checks_only(tmp_path: P
     config = config_for(tmp_path)
     assert config == IntegrityConfig(schema_version=1)
     assert [(check.name, tier) for check, tier, _ in config.entries()] == [("strength", 1), ("deflection", 1)]
-    assert config.halt_on_crossing is False
+    assert not config.rope_snap()
 
 
 @pytest.mark.req("INT-002")
@@ -193,6 +193,13 @@ def test_a_design_without_a_configuration_runs_the_table_checks_only(tmp_path: P
         ({"schema_version": 1, "checks": [{"check": "fatigue"}, {"check": "fatigue"}]}, "more than once: fatigue"),
         ({"schema_version": 2}, "schema_version"),
         ({"schema_version": 1, "extra": 1}, "extra"),
+        ({"schema_version": 1, "halt_on_crossing": True}, "halt_on_crossing"),
+        ({"schema_version": 1, "checks": [{"check": "rope_snap", "tier": 1}]}, "tier"),
+        ({"schema_version": 1, "checks": [{"check": "rope_snap", "parameters": {}}]}, "parameters"),
+        (
+            {"schema_version": 1, "checks": [{"check": "rope_snap"}, {"check": "rope_snap"}]},
+            "more than once: rope_snap",
+        ),
         ({"schema_version": 1, "checks": [{"check": "resonance", "parameters": {"band": 1.5}}]}, "band"),
     ],
 )

@@ -4,8 +4,10 @@ INT-025, INT-026, ruling 34)."""
 
 from __future__ import annotations
 
+import itertools
 import json
 import math
+import re
 from fractions import Fraction
 from pathlib import Path
 from types import SimpleNamespace
@@ -16,13 +18,18 @@ import numpy as np
 import pytest
 
 from mechsim import _core as core
+from mechsim.facade.protocol import RunEndedPayload
+from mechsim.facade.server import run_end_reason
+from mechsim.facade.service import Facade, FacadeServices
 from mechsim.integrity.checks.strength import Strength
 from mechsim.integrity.config import IntegrityConfig, parse_config
 from mechsim.integrity.inputs import run_inputs
 from mechsim.integrity.plugin import IntegrityError
 from mechsim.integrity.tier1 import (
     FORMAT,
+    MODEL_REQUESTS,
     NOT_EVALUATED,
+    PARTY,
     YIELD_RULE,
     Tier1Service,
     enabled,
@@ -34,11 +41,20 @@ from mechsim.materials.database import MaterialSet
 from mechsim.physics.native.prepare import prepare_model
 from mechsim.physics.neutral import PhysicsModel, from_yaml
 from mechsim.record.layout import MEMBER_SERIES
+from mechsim.record.reader import RecordArchiveReader
 from mechsim.record.stream import Recorder
-from mechsim.testing.core_driver import CoreDriver, core_builder, model_columns, tick_record
+from mechsim.testing.core_driver import (
+    ROPE_SNAP_OFF,
+    CoreDriver,
+    RecordArchiver,
+    _rope_snap_gate,
+    core_builder,
+    model_columns,
+    tick_record,
+)
 from mechsim.testing.driver import INTEGRITY_KIND, EndSpec, IntegrityCrossing, RunReport
 from mechsim.testing.runner import Services, run_case
-from mechsim.testing.schema import Case
+from mechsim.testing.schema import DESIGNS_ROOT, Case
 from tests.unit.test_integrity import _View
 from tests.unit.test_native_model_changes import BREAKING, G, record, snapping_rope
 from tests.unit.test_test_case_schema import accepted, pendulum_case, rejected
@@ -100,6 +116,11 @@ def build_of(model: PhysicsModel, structural: Any = None) -> Any:
     return SimpleNamespace(design=design, members=(arm,), lumped=(), physics=model)
 
 
+def native_of(model: PhysicsModel) -> dict[str, Any]:
+    document: dict[str, Any] = json.loads(prepare_model(model, None, 1e-3).model_json)
+    return document
+
+
 def views() -> dict[str, Any]:
     return {MATERIAL: MaterialSet.from_files(None).integrity_view(MATERIAL)}
 
@@ -129,22 +150,43 @@ def test_listed_checks_turn_the_tier_1_quantities_on(entries: tuple[dict[str, An
     assert tier1_enabled(config(*entries)) == any(name != "yield_offset" for name in on)
 
 
+def _document(kinds: tuple[str, ...], neutral: int, segments: tuple[int, ...]) -> dict[str, Any]:
+    bodies = [{"name": f"b{i}", "joint": {"type": kind}} for i, kind in enumerate(kinds)]
+    return {"bodies": bodies, "neutral_bodies": neutral, "members": [{"segments": n} for n in segments]}
+
+
 @pytest.mark.req("INT-023")
-def test_first_springs_count_joint_dofs_then_member_nodes() -> None:
-    # Spring order of the native adapter: revolute and prismatic one each, planar three, others none; then N per member.
-    bodies = [SimpleNamespace(joint=SimpleNamespace(type=kind)) for kind in ("revolute", "fixed", "planar", "free")]
-    bodies.append(SimpleNamespace(joint=None))
-    members = [SimpleNamespace(segments=8), SimpleNamespace(segments=16), SimpleNamespace(segments=4)]
-    model = SimpleNamespace(bodies=bodies, lumped_members=members)
-    assert first_springs(model) == [4, 12, 28]
-    assert first_springs(cantilever_model("revolute")) == [1]
+def test_first_springs_come_from_the_prepared_native_model() -> None:
+    # Spring order of the native adapter (core/physics/native/CLAUDE.md): revolute and prismatic one each, planar
+    # three, fixed, spherical and free none, neutral bodies only (the world anchor after them adds nothing); then N
+    # per member. Expected [0 + 1 + 0 + 3 + 0 + 1 + 0, +8, +16] = [5, 13, 29].
+    kinds = ("revolute", "fixed", "planar", "free", "prismatic", "spherical", "revolute")
+    assert first_springs(_document(kinds, 6, (8, 16, 4))) == [5, 13, 29]
+    assert first_springs(_document((), 0, ())) == []
+    assert first_springs(native_of(cantilever_model("revolute"))) == [1]
+    assert first_springs(native_of(cantilever_model())) == [0]
+
+
+@pytest.mark.req("INT-023")
+def test_an_unknown_joint_type_in_the_spring_order_is_an_error() -> None:
+    with pytest.raises(IntegrityError, match="'b1': joint type 'helical'"):
+        first_springs(_document(("revolute", "helical"), 2, (8,)))
+
+
+@pytest.mark.req("INT-023")
+def test_a_native_member_list_that_differs_from_the_model_is_an_error() -> None:
+    model = cantilever_model()
+    native = native_of(model)
+    native["members"] = []
+    with pytest.raises(IntegrityError, match="native model lists 0 members, the physics model 1"):
+        limits_table(build_of(model), model, config({"check": "strength"}), views(), native)
 
 
 @pytest.mark.req("INT-023")
 def test_the_limits_table_carries_the_member_data_and_conservative_allowable() -> None:
     model = cantilever_model()
     structural = SimpleNamespace(minimum_safety_factor=2.0, accuracy_target=0.01)
-    table = limits_table(build_of(model, structural), model, config({"check": "strength"}), views())
+    table = limits_table(build_of(model, structural), model, config({"check": "strength"}), views(), native_of(model))
     assert table["format"] == FORMAT
     (member,) = table["members"]
     yield_min = MaterialSet.from_files(None).integrity_view(MATERIAL).strength_spread("yield", 293.15, (1, 0, 0)).min
@@ -170,10 +212,9 @@ def test_a_fastening_without_a_rating_is_a_build_error() -> None:
     data["fastenings"] = [{"name": "bolts", "kind": "fastener", "body_a": "link", "body_b": "link", "joint": "pivot"}]
     rated = PhysicsModel.model_validate(data)
     with pytest.raises(IntegrityError, match="bolts"):
-        limits_table(build_of(rated), rated, config({"check": "fastener"}), views())
-    table = limits_table(
-        build_of(rated), rated, config({"check": "fastener", "parameters": {"ratings": {"bolts": "500 N"}}}), views()
-    )
+        limits_table(build_of(rated), rated, config({"check": "fastener"}), views(), native_of(rated))
+    rating = config({"check": "fastener", "parameters": {"ratings": {"bolts": "500 N"}}})
+    table = limits_table(build_of(rated), rated, rating, views(), native_of(rated))
     assert table["fastenings"] == [{"name": "bolts", "joint": 0, "load_limit": 500.0}]
 
 
@@ -183,17 +224,19 @@ def test_the_service_needs_the_file_and_a_tier_1_check(tmp_path: Path) -> None:
     build = build_of(model)
     folder = tmp_path / "bench"
     folder.mkdir()
+    native = native_of(model)
     service = Tier1Service(tmp_path)
-    assert service(build, model) is None
+    assert service.configuration(build) is None
+    assert service(build, model, native) is None
     (folder / "integrity.yaml").write_text("schema_version: 1\nchecks:\n  - check: fatigue\n", encoding="utf-8")
-    assert service(build, model) is None
+    assert service.configuration(build) is not None
+    assert service(build, model, native) is None
     (folder / "integrity.yaml").write_text(
-        "schema_version: 1\nhalt_on_crossing: true\nchecks:\n  - check: strength\n    tier: 2\n", encoding="utf-8"
+        "schema_version: 1\nchecks:\n  - check: strength\n    tier: 2\n", encoding="utf-8"
     )
-    setup = service(build, model)
+    setup = service(build, model, native)
     assert setup is not None
     assert setup.yield_offset
-    assert setup.halt_on_crossing
     assert setup.approximations == (YIELD_RULE,)
     assert json.loads(setup.limits)["checks"]["yield_offset"] is True
 
@@ -229,7 +272,7 @@ def test_the_party_peak_stress_equals_the_post_run_strength_peak() -> None:
     the party's peak equals strength.py's peak over the recorded end-loads (load factor 1, no structural section)."""
     model = cantilever_model()
     build = build_of(model)
-    table = limits_table(build, model, config({"check": "strength"}), views())
+    table = limits_table(build, model, config({"check": "strength"}), views(), native_of(model))
     trace, recording = _run_party(model, json.dumps(table), 400)
     assert all(path in recording.series for path in MEMBER_SERIES)
     inputs = run_inputs(build, _View(recording), views())
@@ -240,6 +283,73 @@ def test_the_party_peak_stress_equals_the_post_run_strength_peak() -> None:
     # Static sag stress at the root, rho A g L^2 / 2 c_y / I_z, is below the vibrating peak (dynamic factor up to 2).
     static = 2700.0 * AREA * 9.81 * LENGTH**2 / 2.0 * FIBRE_Y / I_Z
     assert static < row.value < 2.0 * static * 1.01
+
+
+# ===== Yielding cantilever on the native adapter (INT-024, INT-027, INT-028) =====
+
+
+def yielding_cantilever() -> tuple[PhysicsModel, str]:
+    """The cantilever with I_z / 100 and a fastener rated 1 N on the link's fixed joint, with strength at tier 2 and
+    the fastener check: released straight under gravity, the mount reaction (the link and beam weight, about 9.9 N)
+    crosses at tick 1, and the root stress (static sag rho A g L^2 c_y / (2 I_z) = 2.1e8 Pa, dynamic up to twice that)
+    passes the 1.1e8 Pa allowable and then the root spring's moment passes M_y, so the yield offset grows each tick
+    while the first swing deepens. Returns the model and its limits table (JSON)."""
+    data = cantilever_model().model_dump(mode="json")
+    data["lumped_members"][0]["section"]["second_moment_of_area"] = f"{I_Z / 100} m**4"
+    data["fastenings"] = [{"name": "bolts", "kind": "fastener", "body_a": "link", "body_b": "link", "joint": "pivot"}]
+    model = PhysicsModel.model_validate(data)
+    checks = config(
+        {"check": "strength", "tier": 2}, {"check": "fastener", "parameters": {"ratings": {"bolts": "1 N"}}}
+    )
+    table = limits_table(build_of(model), model, checks, views(), native_of(model))
+    return model, json.dumps(table)
+
+
+def run_yielding(ticks: int) -> tuple[Any, list[tuple[int, str, str, str]]]:
+    """The yielding cantilever through the kernel with the physics party wired to the party's requests (KER-028);
+    every recorded event as (row tick, source, kind, detail)."""
+    model, limits = yielding_cantilever()
+    prepared = prepare_model(model, None, 1e-3)
+    adapter = core.make_physics_adapter("native")
+    adapter.load(core.PreparedModel(prepared.model_json, "", prepared.version), core.Rate(1000))
+    physics = core.PhysicsPartyConfig()
+    physics.rate = core.Rate(1000)
+    physics.inputs = []
+    physics.model_requests = MODEL_REQUESTS
+    kernel = core.make_kernel(core.RunConfig())
+    kernel.register_party(core.PhysicsParty(adapter, physics))
+    trace = core.IntegrityTrace()
+    settings = core.IntegrityPartyConfig()
+    settings.name = PARTY
+    settings.rate = core.Rate(1000)
+    kernel.register_party(core.IntegrityParty(limits, settings, trace))
+    sink = core.InMemoryRecorderSink()
+    kernel.run(core.EndCondition(core.Seconds(ticks, 1000)), sink)
+    events = [
+        (int(row.time.count()), event.source, event.kind, event.detail) for row in sink.drain() for event in row.events
+    ]
+    return trace, events
+
+
+@pytest.mark.req("INT-028", "KER-028")
+def test_a_rising_peak_gives_one_model_change_per_request_with_a_monotone_offset() -> None:
+    """Ruling 35: the offset grows only with the running peak, so under the deepening first swing every request is
+    larger in magnitude than the one before, keeps one sign, goes to the root spring 0, and comes back exactly once as
+    a model_change event in the row after the request's (applied before the next step, ruling 40)."""
+    trace, events = run_yielding(300)
+    requests = list(trace.requests)
+    assert len(requests) > 1
+    changes = [(tick, detail) for tick, _, kind, detail in events if kind == "model_change"]
+    assert len(changes) == len(requests)
+    values = [request.value for request in requests]
+    assert all(value < 0.0 for value in values)
+    assert all(abs(b) > abs(a) for a, b in itertools.pairwise(values))
+    for request, (_, detail) in zip(requests, changes, strict=True):
+        assert request.index == 0
+        assert detail.startswith("spring_offset spring 0 value ")
+        assert float(detail.rsplit(" ", 1)[1]) == request.value
+    ticks = [tick for tick, _ in changes]
+    assert ticks == sorted(set(ticks))
 
 
 # ===== Case field (INT-026, TST-041) =====================================
@@ -390,36 +500,142 @@ def test_a_native_crossing_is_one_integrity_event_and_fails_the_case(tmp_path: P
     assert result.report.end_tick == TICKS
 
 
-@pytest.mark.req("INT-026", "TST-041", "KER-017")
+def archived_run(tmp_path: Path, tier1: IntegrityConfig, extra: str) -> Any:
+    """A native gantry run with the archiver, its case written beside the archives the archiver searches."""
+    path = tmp_path / "cases" / G1.name
+    path.parent.mkdir()
+    path.write_text(G1.read_text(encoding="utf-8").rstrip() + "\n" + extra + "\n", encoding="utf-8")
+
+    def factory() -> CoreDriver:
+        return ShortDriver(tier1=Tier1Service(config=tier1))
+
+    services = Services(factory, core_builder, RecordArchiver(DESIGNS_ROOT, path.parent))
+    return path, services
+
+
+HALT_LINE = re.compile(
+    r"^integrity halt: the run ended at 0\.001 s on the fastener_load of 'rail_x_mount' at (\S+) against the limit "
+    r"(\S+) at 0\.001 s \(INT-026\)$"
+)
+
+
+@pytest.mark.req("INT-026", "TST-041", "KER-017", "SCO-015")
 @pytest.mark.parametrize(
     ("extra", "halts"),
-    [("", False), ("integrity:\n  halt_on_crossing: false", False), ("integrity:\n  halt_on_crossing: true", True)],
+    [
+        ("", False),
+        ("integrity: {}", False),
+        ("integrity:\n  halt_on_crossing: false", False),
+        ("integrity:\n  halt_on_crossing: true", True),
+    ],
 )
-def test_halting_ends_the_run_at_the_crossing(tmp_path: Path, extra: str, halts: bool) -> None:
+def test_only_the_case_field_true_halts_at_the_crossing(tmp_path: Path, extra: str, halts: bool) -> None:
+    # Section absent, empty or false: the run goes to its end time and fails on the crossing (INT-025); true: it ends
+    # at the crossing row with end reason integrity_halt and the halt line among the report notes, never among the
+    # approximations (rulings 50, 51).
     result, driver = gantry_run(tmp_path, "native", mount_config(), extra)
     assert len(integrity_events(driver)) == 1
     assert result.score.status == "fail"
-    halt_lines = [line for line in result.report.approximations if line.startswith("integrity halt:")]
+    assert not any(line.startswith("integrity halt") for line in result.report.approximations)
     if halts:
         assert result.report.end_tick == 1
-        assert result.report.reason == "end_time"
-        assert halt_lines == ["integrity halt: the run ended at 0.001 s on its first tier 1 crossing (INT-026)"]
+        assert result.report.reason == "integrity_halt"
+        assert result.score.end_reason == "integrity_halt"
+        (line,) = result.report.notes
+        match = HALT_LINE.match(line)
+        assert match is not None, line
+        crossing = driver.integrity_trace.crossings[0]
+        assert float(match.group(1)) == pytest.approx(crossing.value, rel=1e-11)
+        assert float(match.group(2)) == pytest.approx(1e-9 / 1.5, rel=1e-11)
     else:
         assert result.report.end_tick == TICKS
-        assert halt_lines == []
+        assert result.report.reason == "end_time"
+        assert result.report.notes == ()
+
+
+@pytest.mark.req("INT-026", "REC-010", "FAC-005")
+def test_the_halt_end_reason_reaches_the_archive_and_the_facade(tmp_path: Path) -> None:
+    path, services = archived_run(tmp_path, mount_config(), "integrity:\n  halt_on_crossing: true")
+    facade = Facade(FacadeServices(runner=services, reader=RecordArchiveReader()))
+    summary = facade.run_case(path, None, {"physics.adapter": "native"}, tmp_path / "runs")
+    assert summary.end_reason == "integrity_halt"
+    assert run_end_reason(summary) == "integrity_halt"
+    ended = RunEndedPayload(run_id="G1-seed1", t=0.001, reason=run_end_reason(summary), message="run ended")
+    assert ended.reason == "integrity_halt"
+    assert summary.archive is not None
+    metadata, _ = RecordArchiveReader().open(Path(summary.archive))
+    assert metadata.report.reason == "integrity_halt"
+    assert len(metadata.report.notes) == 1
+    assert HALT_LINE.match(metadata.report.notes[0]) is not None
 
 
 @pytest.mark.req("INT-026")
-def test_the_file_mirror_halts_when_the_case_says_nothing(tmp_path: Path) -> None:
-    mirrored = parse_config(
-        {
-            "schema_version": 1,
-            "halt_on_crossing": True,
-            "checks": [{"check": "fastener", "parameters": {"ratings": {"rail_x_mount": "1e-9 N"}}}],
-        },
-        "test",
-    )
-    result, _ = gantry_run(tmp_path, "native", mirrored)
-    assert result.report.end_tick == 1
-    kept, _ = gantry_run(tmp_path, "native", mirrored, "integrity:\n  halt_on_crossing: false")
-    assert kept.report.end_tick == TICKS
+def test_a_halt_value_in_integrity_yaml_is_refused() -> None:
+    with pytest.raises(IntegrityError, match="halt_on_crossing"):
+        parse_config({"schema_version": 1, "halt_on_crossing": True, "checks": []}, "test")
+
+
+class _CountingService(Tier1Service):
+    def __init__(self, config: IntegrityConfig) -> None:
+        super().__init__(config=config)
+        self.tables = 0
+
+    def __call__(self, build: Any, model: Any, native: Any) -> Any:
+        self.tables += 1
+        raise IntegrityError("fastener 'bolts': no load rating")
+
+
+@pytest.mark.req("INT-023")
+def test_the_bridge_never_builds_the_limits_table(tmp_path: Path) -> None:
+    """Ruling 34: tier 1 runs on the native adapter only, so a table error (an unrated fastener) cannot fail a bridge
+    run, which carries the not-evaluated line instead; the same configuration on the native adapter is a run error."""
+    services_of: list[_CountingService] = []
+
+    def factory() -> CoreDriver:
+        service = _CountingService(mount_config())
+        services_of.append(service)
+        return ShortDriver(tier1=service)
+
+    bridge = run_case(G1, Services(factory, core_builder, None), {"physics.adapter": "mujoco"})
+    assert bridge.report is not None
+    assert not bridge.report.errored
+    assert NOT_EVALUATED in bridge.report.approximations
+    assert services_of[-1].tables == 0
+    native = run_case(G1, Services(factory, core_builder, None), {"physics.adapter": "native"})
+    assert native.score.status == "error"
+    assert native.score.error is not None
+    assert "integrity tier 1: fastener 'bolts': no load rating" in native.score.error
+    assert services_of[-1].tables == 1
+
+
+# ===== Rope snap gating (INT-031, ruling 53) =============================
+
+
+@pytest.mark.req("INT-031")
+def test_without_a_rope_snap_entry_no_rope_snaps() -> None:
+    model = snapping_rope()
+    for integrity in (None, config(), config({"check": "strength", "tier": 2})):
+        gated, lines = _rope_snap_gate(model, integrity)
+        assert [rope.breaking_tension for rope in gated.ropes] == [None]
+        assert lines == (ROPE_SNAP_OFF.format("line"),)
+        recording = record(gated, 300)
+        assert [event for _, event in recording.events if event.kind == "model_change"] == []
+
+
+@pytest.mark.req("INT-031")
+def test_a_rope_snap_entry_keeps_the_breaking_tension_and_the_rope_snaps() -> None:
+    model = snapping_rope()
+    gated, lines = _rope_snap_gate(model, config({"check": "rope_snap"}))
+    assert gated == model
+    assert lines == ()
+    recording = record(gated, 300)
+    kinds = [event.detail.split(" ")[0] for _, event in recording.events if event.kind == "model_change"]
+    assert kinds == ["rope_snapped", "load_released"]
+
+
+@pytest.mark.req("INT-031")
+def test_a_rope_without_a_breaking_tension_adds_no_line() -> None:
+    model = cantilever_model()
+    gated, lines = _rope_snap_gate(model, None)
+    assert gated is model
+    assert lines == ()

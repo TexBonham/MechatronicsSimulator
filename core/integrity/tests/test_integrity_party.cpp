@@ -1,5 +1,6 @@
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers_floating_point.hpp>
+#include <algorithm>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
@@ -392,6 +393,82 @@ TEST_CASE("the yield rule takes the end with the larger moment", "[INT-028]") {
     REQUIRE(r.trace->requests.size() == 1);
     CHECK(r.trace->requests[0].index == m.first_spring + 7);
     CHECK_THAT(r.trace->requests[0].value, WithinRel((400.0 + 0.0625 * 80.0 - 250.0) / m.node_stiffness, 1e-12));
+}
+
+TEST_CASE("the yield offset makes no request while the load stays below its running peak", "[INT-028]") {
+    // P rises as 400 t to 0.8 s (peak |M_n| = 320 arm), falls to 160 N at 1.2 s, rises again to 300 N (below the
+    // peak) and holds: the second rise never passes the running peak, so the requests stop at tick 800 (ruling 35).
+    integrity::Limits limits;
+    limits.yield_offset = true;
+    limits.members.push_back(cantilever());
+    const auto load = [](double t) {
+        double p = 400.0 * t;
+        if (t > 0.8 && t <= 1.2) {
+            p = 400.0 * (1.6 - t);
+        }
+        if (t > 1.2) {
+            p = 400.0 * std::min(t - 0.8, 0.75);
+        }
+        return tip_loaded(p, 1.0);
+    };
+    const Run r = run(limits, load, 1800);
+    REQUIRE(r.trace->requests.size() == 800 - 667 + 1);
+    const integrity::MemberLimits& m = limits.members[0];
+    const double arm = m.length - m.segment_length / 2.0;
+    CHECK_THAT(r.trace->requests.back().value, WithinRel(-(400.0 * 0.8 * arm - 250.0) / m.node_stiffness, 1e-12));
+}
+
+TEST_CASE("a larger reversed peak replaces the yield offset with the new peak's sign", "[INT-028]") {
+    // Ruling 35 placeholder (spec row Tier 2 yield): the offset is sign(M_n) (peak - M_y) / k with the running peak
+    // of abs(M_n), so a reversed load whose magnitude passes the old peak sets the offset to the reversed sign. P
+    // rises to 320 N at tick 800, then runs linearly to -400 N at tick 1000 and holds.
+    integrity::Limits limits;
+    limits.yield_offset = true;
+    limits.members.push_back(cantilever());
+    const integrity::MemberLimits& m = limits.members[0];
+    const auto load = [](double t) {
+        double p = 400.0 * t;
+        if (t > 0.8) {
+            p = 320.0 - 3600.0 * (std::min(t, 1.0) - 0.8);
+        }
+        return tip_loaded(p, 1.0);
+    };
+    const Run r = run(limits, load, 1100);
+    const double arm = m.length - m.segment_length / 2.0;
+    const std::size_t first_rise = 800 - 667 + 1;
+    REQUIRE(r.trace->requests.size() > first_rise);
+    CHECK(r.trace->requests[first_rise - 1].value < 0.0);
+    const kernel::ModelChangeRequest& last = r.trace->requests.back();
+    CHECK(last.index == m.first_spring);
+    CHECK_THAT(last.value, WithinRel((400.0 * arm - 250.0) / m.node_stiffness, 1e-12));
+    for (std::size_t k = first_rise; k < r.trace->requests.size(); ++k) {
+        CHECK(r.trace->requests[k].value > 0.0);
+        CHECK(std::abs(r.trace->requests[k].value) > std::abs(r.trace->requests[k - 1].value));
+    }
+}
+
+TEST_CASE("a value exactly at the limit is not a crossing and the next representable value above is", "[INT-024]") {
+    // |F| = sqrt(fl(F^2)) = F exactly for a single nonzero component (correctly rounded square and root), so the load
+    // equals the limit 250 N bit for bit on ticks 1 to 5 and is nextafter(250, +inf) from tick 6.
+    integrity::Limits limits;
+    limits.fastener = true;
+    limits.fastenings.push_back(integrity::FasteningLimits{"bolts", 0, 250.0});
+    const double above = std::nextafter(250.0, 1e9);
+    const auto load = [above](double t) {
+        kernel::PhysicsOutputs out;
+        out.joints.resize(1);
+        double f = 250.0;
+        if (t > 0.0055) {
+            f = above;
+        }
+        out.joints[0].reaction.force = {0.0, f, 0.0};
+        return out;
+    };
+    const Run r = run(limits, load, 10);
+    REQUIRE(r.crossings.size() == 1);
+    CHECK(r.crossings[0].time.count() == 6);
+    CHECK(r.crossings[0].value == above);
+    CHECK(r.crossings[0].limit == 250.0);
 }
 
 // ===== Limits table ======================================================

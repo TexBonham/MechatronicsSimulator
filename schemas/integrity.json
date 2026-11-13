@@ -282,6 +282,29 @@
       "title": "ResonanceParameters",
       "type": "object"
     },
+    "RopeSnapEntry": {
+      "additionalProperties": false,
+      "description": "Tier 2 rope snap (INT-031, round 5 ruling 53): a rope whose tension passes its breaking tension snaps and drops\nits load. Absent: no rope snaps, whatever breaking tension the design states.",
+      "properties": {
+        "check": {
+          "const": "rope_snap",
+          "title": "Check",
+          "type": "string"
+        },
+        "tier": {
+          "const": 2,
+          "default": 2,
+          "description": "Fidelity tier (INT-003); rope snap is tier 2 only.",
+          "title": "Tier",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "check"
+      ],
+      "title": "RopeSnapEntry",
+      "type": "object"
+    },
     "StrengthCheckEntry": {
       "additionalProperties": false,
       "properties": {
@@ -341,6 +364,7 @@
             "fatigue": "#/$defs/FatigueCheckEntry",
             "impact": "#/$defs/ImpactCheckEntry",
             "resonance": "#/$defs/ResonanceCheckEntry",
+            "rope_snap": "#/$defs/RopeSnapEntry",
             "strength": "#/$defs/StrengthCheckEntry"
           },
           "propertyName": "check"
@@ -366,16 +390,14 @@
           },
           {
             "$ref": "#/$defs/StrengthCheckEntry"
+          },
+          {
+            "$ref": "#/$defs/RopeSnapEntry"
           }
         ]
       },
       "title": "Checks",
       "type": "array"
-    },
-    "halt_on_crossing": {
-      "default": false,
-      "title": "Halt On Crossing",
-      "type": "boolean"
     },
     "schema_version": {
       "const": 1,

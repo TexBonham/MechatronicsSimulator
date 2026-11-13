@@ -816,6 +816,25 @@
           "minLength": 1,
           "title": "Mode",
           "type": "string"
+        },
+        "sets": {
+          "anyOf": [
+            {
+              "additionalProperties": {
+                "type": "string"
+              },
+              "propertyNames": {
+                "minLength": 1
+              },
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Run-configuration settings by dotted name, as `--set` gives them (TST-040), e.g. physics.adapter.",
+          "title": "Sets"
         }
       },
       "required": [
@@ -912,7 +931,8 @@
             "message",
             "controller_state",
             "max_duration",
-            "run_error"
+            "run_error",
+            "integrity_halt"
           ],
           "title": "Reason",
           "type": "string"
