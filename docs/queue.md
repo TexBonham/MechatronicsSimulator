@@ -12,9 +12,11 @@ ctest debug-sanitize 426, Python 4252 passed and 130 xfail), N with its fix roun
 adapter over the own engine, opt-in through the run-configuration field `physics.adapter`, default `mujoco`; G3
 and P1 pass on it with flexible rails, beam references within 2 percent; ctest debug-sanitize 454, Python 4320
 passed and 117 xfail). E4 (a04a371: engine joint limits, joint friction, additive
-per-step joint drive, zero-stretch coupling fix; ctest debug-sanitize 491, Python 4325 passed and 115 xfail). In
-review: N3 (the adapter adopts E4; `wip/05-n3`). In flight: I2 (tier 1 integrity party, `wip/05-i2`). Next: X1, X2,
-gate. Briefs of record
+per-step joint drive, zero-stretch coupling fix; ctest debug-sanitize 491, Python 4325 passed and 115 xfail). N3 (the adapter on the engine's limits, friction and drive; Python
+4340 passed), I2 with its fix round I2b (bb27093: tier 1 integrity party, tier 2 yield and rope snap, end reason
+`integrity_halt`; ctest debug-sanitize 526, Python 4377 passed and 107 xfail). Landing: E5 (regularised
+efficiency switch, screw lock row). In flight: N4 (adapter follow-up, `wip/05-n4`), X1b (structural acceptance on
+native, `wip/05-x1b`). Next: X1a (gantry G12 and G15), X2, gate. Briefs of record
 in `docs/briefs/round-05/`; worktrees `../MechatronicsSimulator-05-<letter>`. Round 4's rulings and gate report
 are below for reference; round 4's cost rows are in `docs/cost-log-archive.md`.
 
