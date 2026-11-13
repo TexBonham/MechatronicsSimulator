@@ -3,11 +3,13 @@
 
 from __future__ import annotations
 
+import importlib.util
 import json
 import shutil
 import subprocess
 import sys
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -82,3 +84,38 @@ def test_an_unparsable_file_is_a_parse_error(tmp_path: Path) -> None:
     result = _hook(path, root)
     assert result.returncode == 2
     assert "YAML parse error" in result.stderr
+
+
+def _hook_module() -> Any:
+    spec = importlib.util.spec_from_file_location("yaml_check_hook", HOOK)
+    assert spec is not None
+    assert spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+@pytest.mark.req("INT-002")
+@pytest.mark.parametrize(
+    ("text", "encoding"),
+    [("checks: [\n", "utf-8"), ("name: é\n", "latin-1")],
+)
+def test_the_cli_kind_of_an_unreadable_file_is_none(tmp_path: Path, text: str, encoding: str) -> None:
+    path = tmp_path / "broken.yaml"
+    path.write_bytes(text.encode(encoding))
+    assert _hook_module().cli_kind(path) is None
+    assert _hook_module().cli_kind(tmp_path / "missing.yaml") is None
+
+
+@pytest.mark.req("INT-002")
+def test_an_unexpected_file_kind_failure_surfaces(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from mechsim.facade import files
+
+    def broken(path: Path) -> str | None:
+        raise RuntimeError("defect in file_kind")
+
+    monkeypatch.setattr(files, "file_kind", broken)
+    path = tmp_path / "design.yaml"
+    path.write_text("bodies: []\njoints: []\n", encoding="utf-8")
+    with pytest.raises(RuntimeError, match="defect in file_kind"):
+        _hook_module().cli_kind(path)

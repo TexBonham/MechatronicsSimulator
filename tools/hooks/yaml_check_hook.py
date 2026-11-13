@@ -49,12 +49,18 @@ SCHEMA_OF = {"case": "test_case", "catalog": "component"}
 
 
 def cli_kind(path: Path) -> str | None:
-    """The schema name of `mechsim.facade.files.file_kind(path)`; None when it names no kind or cannot read it."""
+    """The schema name of `mechsim.facade.files.file_kind(path)`; None when it names no kind, when mechsim is not
+    importable here, or when the file cannot be read or parsed (`main` then reports the parse error). Any other
+    failure is a defect and surfaces."""
     try:
-        from mechsim.facade.files import file_kind
+        from ruamel.yaml.error import YAMLError
 
+        from mechsim.facade.files import file_kind
+    except ImportError:
+        return None
+    try:
         kind = file_kind(path)
-    except Exception:
+    except (OSError, UnicodeDecodeError, YAMLError):
         return None
     if kind is None:
         return None
