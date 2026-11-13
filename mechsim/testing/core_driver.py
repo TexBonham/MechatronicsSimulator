@@ -288,7 +288,6 @@ BRIDGE_NODE_POSES = (
 )
 
 
-
 def payload_stand_in_line(rope: NeutralRope, carrier: str) -> str:
     """The bridge's approximation line for a case payload whose design rope it does not model (BLD-032)."""
     return (

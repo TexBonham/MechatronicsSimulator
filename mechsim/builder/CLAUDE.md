@@ -16,6 +16,7 @@ to source_hash, zeros when unset; `rigid_members` builds flexible bodies rigid, 
 | `chip` | name, placeholder, bindings, `channels_header` (`channels.h`) |
 | `members`, `lumped` | structural members (BLD-008: the field brief R records; each with `mounts`, the fixed joints on it); `LumpedRecord` (spans, masses, E I / l of the calibrated section, `calibrated`, recorded calibration, `stiffness_scale`, `mass_scale`) |
 | `pending`, `notes` | open-value paths (sorted); non-fatal notes |
+| `payload_ropes` | neutral `Rope` of each design rope ending at a case payload (`to_body` = the payload's name, `to_point` = the design's point, from the payload's top face centre); empty without physics (BLD-032) |
 
 `to_json()` is canonical: run-twice byte equality (BLD-026).
 
@@ -30,7 +31,7 @@ to source_hash, zeros when unset; `rigid_members` builds flexible bodies rigid, 
 
 ## Files
 
-`build.py` (`build`, `module_order`); `payload.py` (`with_payload(model, name, carrier, mass, fixed=False)`, BLD-036: box body below the carrier, a fixed child `<name>_fixed` of it when `fixed` (attached at t = 0, never released, ruling 24), else free under world and welded by the adapter); `physics.py` (`build_physics`, `primitive_mass`, `lumped_record`,
+`build.py` (`build`, `module_order`); `payload.py` (`with_payload(model, name, carrier, mass, fixed=False, rope=None, starts=None)`, BLD-036: box body below the carrier, a fixed child `<name>_fixed` of it when `fixed` (attached at t = 0, never released, ruling 24), else free under world and welded by the adapter; with `rope` (BLD-032) a shackle `<name>_shackle` (`SHACKLE_MASS` 1 g, no shapes) on `<name>_fixed` at the rope's from point, the payload free on `<name>_free` with its top face centre the rest length below it at the `starts` pose, the rope from the shackle to that point, never welded); `physics.py` (`build_physics`, `primitive_mass`, `lumped_record`,
 `element_kinds`, `member_constants`); `mass.py` (closed forms, frames, `z_to`); `structure.py` (`chain_layout`,
 `chain_deflection`, `chain_first_frequency`, `calibrate` -> `CalibrationScales`, `load_point`, `fastenings`,
 `member_mounts`, `rope_element`, `lumped_section`; the linearized engine chain in hinge angles, numpy/scipy);
@@ -54,12 +55,13 @@ Neutral quantities are written `repr(value) unit` in SI, validated once. Element
 - Fastenings (BLD-031): `PhysicsModel.fastenings`, one per fixed joint (`mount`, the joint's name) and per body
   fastener entry (`fastener`, `<body>_<kind>[_<index>]`); `PhysicsModel.fastening_index(name)`. Not an element kind.
 - Ropes (BLD-032): a design rope with both ends on bodies becomes a neutral `Rope`; a `to` end at a case payload is
-  a note, not an element (X1 places it).
+  a note, not an element, and is listed in `payload_ropes`; the native run hangs the case payload on it
+  (`with_payload(..., rope=, starts=)`, M3-X1a), the bridge keeps the payload fixed to its carrier with a line.
 - Reference tests: `tests/reference/lumped_beam_support.py` steps the built lumped member on `_engine` (tests only).
 
 ## Later
 
-Loops as constraints (BLD-004), clamped-clamped calibration layout, ropes to a case payload (X1).
+Loops as constraints (BLD-004), clamped-clamped calibration layout; a joint travelling along a lumped member (a carriage on a flexible rail) loads the member's parent body, not its nodes (engine gap, M3-X1a).
 
 ## Section index
 
