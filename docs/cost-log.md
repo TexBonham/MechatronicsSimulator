@@ -68,3 +68,4 @@ type live in the root `CLAUDE.md` dispatch table once measured.
 | 2026-11-12 | M3-I2b integrity fix round, facade run sets (wip/05-i2 0070358) | module-writer (opus) | 258K | 166 calls, over the 110 cap; ctest debug-sanitize 526 |
 | 2026-11-12 | M3-I2 re-review after I2b: accept; 3 minor items carried to X1 | Fable review (general-purpose), resumed | ~20K | 5 calls |
 | 2026-11-12 | M3-E5 fix round (wip/05-e5 903a63d) and re-review: accept | module-writer (opus) and Fable review, both resumed | ~45K | 30 + 3 calls |
+| 2026-11-12 | M3-N4 adapter follow-up on the E5 engine (wip/05-n4 8f5ae5c) | module-writer (opus) | 249K | 120 calls |
