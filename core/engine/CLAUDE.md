@@ -105,9 +105,9 @@ collects the events after each step.
 | Kinematics | 397 |
 | Dynamics | 469 |
 | Transmissions | 703 |
-| Constraints | 857 |
-| Members, ropes and model changes | 1089 |
-| Inputs and outputs | 1577 |
+| Constraints | 855 |
+| Members, ropes and model changes | 1091 |
+| Inputs and outputs | 1579 |
 
 ## Section index, `src/collision.cpp`
 
