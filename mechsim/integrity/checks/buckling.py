@@ -9,7 +9,7 @@ import numpy as np
 from pydantic import Field
 
 from mechsim.integrity.beam import axial, effective_length_factor, peak
-from mechsim.integrity.plugin import CheckResult, CheckRow, IntegrityCheck, RunInputs, Spread
+from mechsim.integrity.plugin import CheckResult, CheckRow, IntegrityCheck, RunInputs, Spread, not_evaluated
 from mechsim.schema_base import StrictModel
 
 FLAG = "buckling_margin_below_minimum"
@@ -31,6 +31,9 @@ class Buckling(IntegrityCheck):
         rows: list[CheckRow] = []
         notes: list[str] = []
         for member in inputs.members:
+            if member.loads is None:
+                rows.append(not_evaluated(member.name, "compression", 1))
+                continue
             compression = np.maximum(-axial(member.loads.scaled(inputs.load_factor)), 0.0)
             value, time = peak(compression, inputs.times)
             if value <= 0.0:

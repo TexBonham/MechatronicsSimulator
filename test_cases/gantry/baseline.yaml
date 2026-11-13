@@ -2,8 +2,8 @@ design:
   name: gantry
   version: 0.1.0
 suite: gantry
-note: 'placeholder-geometry: G1 to G11, G13, G14 with the gantry team values of 2026-11-11, the NEMA 23 motor placeholder
-  (M2-X7) and the 2 Hz amplifier placeholder (ruling 35, M2-X8)'
+note: 'placeholder-geometry: G1 to G11, G13, G14 on the bridge and G12, G15 on the native adapter (M3-X1d), with the gantry
+  team values of 2026-11-11, the NEMA 23 motor placeholder (M2-X7) and the 2 Hz amplifier placeholder (ruling 35, M2-X8)'
 entries:
   - case: G1
     criterion: hold_band
@@ -687,6 +687,83 @@ entries:
       archive_sha256: 14b242e900a94dc334b13b5950877bd453f76b280445c8ba2848c295e2078cef
       design_hash: ca9f92e7037ac718ec7f917c1a440aa264762e80
       case_hash: b40b3496907d02e02e28816595c072bf76a38ae8
+  - case: G12
+    criterion: estop_settle_x
+    status: fail
+    measured: 7.5 s
+    limit: settle within ${swing_settle_band} at_most ${swing_settle_time}
+    worst_time: 30.0 s
+    run:
+      run_id: G12-seed12-native
+      archive_sha256: b820f82c77eefc655b44d4d4b1ce7b4fd64bb1beedc555a927d8cfcacc6b567f
+      design_hash: fa0c3e411771d889480420347dd0deacaadc0420
+      case_hash: 45134f59cd7cc41ec9ca4e33cdf75fc019b8fe24
+  - case: G12
+    criterion: estop_swing_x
+    status: pass
+    measured: 0.0450689246814 rad
+    limit: peak_absolute at_most ${swing_limit_angle}
+    worst_time: 23.502 s
+    run:
+      run_id: G12-seed12-native
+      archive_sha256: b820f82c77eefc655b44d4d4b1ce7b4fd64bb1beedc555a927d8cfcacc6b567f
+      design_hash: fa0c3e411771d889480420347dd0deacaadc0420
+      case_hash: 45134f59cd7cc41ec9ca4e33cdf75fc019b8fe24
+  - case: G12
+    criterion: move_settle_x
+    status: fail
+    measured: 5.207 s
+    limit: settle within ${swing_settle_band} at_most ${swing_settle_time}
+    worst_time: 19.706 s
+    run:
+      run_id: G12-seed12-native
+      archive_sha256: b820f82c77eefc655b44d4d4b1ce7b4fd64bb1beedc555a927d8cfcacc6b567f
+      design_hash: fa0c3e411771d889480420347dd0deacaadc0420
+      case_hash: 45134f59cd7cc41ec9ca4e33cdf75fc019b8fe24
+  - case: G12
+    criterion: move_settle_y
+    status: pass
+    measured: 0 s
+    limit: settle within ${swing_settle_band} at_most ${swing_settle_time}
+    worst_time: 14.5 s
+    run:
+      run_id: G12-seed12-native
+      archive_sha256: b820f82c77eefc655b44d4d4b1ce7b4fd64bb1beedc555a927d8cfcacc6b567f
+      design_hash: fa0c3e411771d889480420347dd0deacaadc0420
+      case_hash: 45134f59cd7cc41ec9ca4e33cdf75fc019b8fe24
+  - case: G12
+    criterion: move_swing_x
+    status: pass
+    measured: 0.013142435361 rad
+    limit: peak_absolute at_most ${swing_limit_angle}
+    worst_time: 12.854 s
+    run:
+      run_id: G12-seed12-native
+      archive_sha256: b820f82c77eefc655b44d4d4b1ce7b4fd64bb1beedc555a927d8cfcacc6b567f
+      design_hash: fa0c3e411771d889480420347dd0deacaadc0420
+      case_hash: 45134f59cd7cc41ec9ca4e33cdf75fc019b8fe24
+  - case: G12
+    criterion: move_swing_y
+    status: pass
+    measured: 0.0105272178983 rad
+    limit: peak_absolute at_most ${swing_limit_angle}
+    worst_time: 9.847 s
+    run:
+      run_id: G12-seed12-native
+      archive_sha256: b820f82c77eefc655b44d4d4b1ce7b4fd64bb1beedc555a927d8cfcacc6b567f
+      design_hash: fa0c3e411771d889480420347dd0deacaadc0420
+      case_hash: 45134f59cd7cc41ec9ca4e33cdf75fc019b8fe24
+  - case: G12
+    criterion: ready_after_homing
+    status: pass
+    measured: '2'
+    limit: state:ready present
+    worst_time: 5.222 s
+    run:
+      run_id: G12-seed12-native
+      archive_sha256: b820f82c77eefc655b44d4d4b1ce7b4fd64bb1beedc555a927d8cfcacc6b567f
+      design_hash: fa0c3e411771d889480420347dd0deacaadc0420
+      case_hash: 45134f59cd7cc41ec9ca4e33cdf75fc019b8fe24
   - case: G13
     criterion: arrived_x
     status: pass
@@ -816,3 +893,80 @@ entries:
       archive_sha256: 044a431bbaaea569d32d5f45beb0617e2cb07bbbfe0d45feea6e800138cb5b18
       design_hash: ca9f92e7037ac718ec7f917c1a440aa264762e80
       case_hash: 4b2bd8f70e8b60a3740523474796952d769d9016
+  - case: G15
+    criterion: deflection_rail_x
+    status: fail
+    measured: 0.0168443569917 m
+    limit: maximum below 1 cm
+    worst_time: 16.74 s
+    run:
+      run_id: G15-seed15-native
+      archive_sha256: d996ac85c48d52f61b54ffeb289c09710d01c18c65ff30dceab036f9b4cbd840
+      design_hash: fa0c3e411771d889480420347dd0deacaadc0420
+      case_hash: 013d7e11579adedd7e55cf9e1a148f2fef4f9b1f
+  - case: G15
+    criterion: deflection_rail_y
+    status: pass
+    measured: 0.00221922348262 m
+    limit: maximum below 1 cm
+    worst_time: 16.554 s
+    run:
+      run_id: G15-seed15-native
+      archive_sha256: d996ac85c48d52f61b54ffeb289c09710d01c18c65ff30dceab036f9b4cbd840
+      design_hash: fa0c3e411771d889480420347dd0deacaadc0420
+      case_hash: 013d7e11579adedd7e55cf9e1a148f2fef4f9b1f
+  - case: G15
+    criterion: ready_after_homing
+    status: pass
+    measured: '2'
+    limit: state:ready present
+    worst_time: 5.218 s
+    run:
+      run_id: G15-seed15-native
+      archive_sha256: d996ac85c48d52f61b54ffeb289c09710d01c18c65ff30dceab036f9b4cbd840
+      design_hash: fa0c3e411771d889480420347dd0deacaadc0420
+      case_hash: 013d7e11579adedd7e55cf9e1a148f2fef4f9b1f
+  - case: G15
+    criterion: safety_factor_rail_x
+    status: fail
+    measured: '0.109790673882'
+    limit: minimum at_least ${minimum_safety_factor}
+    worst_time: 16.74 s
+    run:
+      run_id: G15-seed15-native
+      archive_sha256: d996ac85c48d52f61b54ffeb289c09710d01c18c65ff30dceab036f9b4cbd840
+      design_hash: fa0c3e411771d889480420347dd0deacaadc0420
+      case_hash: 013d7e11579adedd7e55cf9e1a148f2fef4f9b1f
+  - case: G15
+    criterion: safety_factor_rail_y
+    status: pass
+    measured: '9.40026895758'
+    limit: minimum at_least ${minimum_safety_factor}
+    worst_time: 16.528 s
+    run:
+      run_id: G15-seed15-native
+      archive_sha256: d996ac85c48d52f61b54ffeb289c09710d01c18c65ff30dceab036f9b4cbd840
+      design_hash: fa0c3e411771d889480420347dd0deacaadc0420
+      case_hash: 013d7e11579adedd7e55cf9e1a148f2fef4f9b1f
+  - case: G15
+    criterion: settled_deflection_rail_x
+    status: pass
+    measured: 0.00124266515758 m
+    limit: mean within 2 percent of 1.2623195e-3 m
+    worst_time: 15.0 s
+    run:
+      run_id: G15-seed15-native
+      archive_sha256: d996ac85c48d52f61b54ffeb289c09710d01c18c65ff30dceab036f9b4cbd840
+      design_hash: fa0c3e411771d889480420347dd0deacaadc0420
+      case_hash: 013d7e11579adedd7e55cf9e1a148f2fef4f9b1f
+  - case: G15
+    criterion: settled_deflection_rail_y
+    status: pass
+    measured: 0.000837301011892 m
+    limit: mean within 2 percent of 8.492532e-4 m
+    worst_time: 15.0 s
+    run:
+      run_id: G15-seed15-native
+      archive_sha256: d996ac85c48d52f61b54ffeb289c09710d01c18c65ff30dceab036f9b4cbd840
+      design_hash: fa0c3e411771d889480420347dd0deacaadc0420
+      case_hash: 013d7e11579adedd7e55cf9e1a148f2fef4f9b1f

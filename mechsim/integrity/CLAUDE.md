@@ -21,6 +21,14 @@ regenerate with `uv run python -m mechsim.integrity.config --write-schema`, neve
 
 - End-loads in the member frame (ruling 24); internal axial force -F_start.x, +F_end.x.
 - Member axis for direction-dependent strength: the lumped member's placement x in its parent frame (`inputs.member_axes`, ruling 24); body x when the build has no lumped record (rigid build).
+- Rigid build (rulings 29, 34, 60): a member with no lumped record and no recorded end-loads gets `loads` None; each
+  check reading end-loads gives NaN rows flagged `end_loads_not_evaluated` (`plugin.not_evaluated`), the table NaN
+  stress and safety factor, one `rigid_note` per member; the load case leaves it out.
+- Node indices by published body names (brief I3): tier 2 the recorder's, tier 1 `tier1.published_names(model,
+  native)` (the prepared document's neutral bodies, run-time payload bodies included, then each document member
+  entry's nodes: `segments`, plus node 0 when `ends` is simply_supported); table key `bodies` is the exact published
+  count, required by the party when any member has nodes. A rigid member with only some end-load series recorded is
+  an `IntegrityError` (partial recording).
 - Deflection from the recorded node poses times the load factor (ruling 28); a member without nodes (bridge, rigid) is a NaN row flagged `deflection_not_evaluated` with a note; impact rows flag `impact_margin_below_minimum`.
 - Fastener ratings from configuration only in milestone 3 (catalog grade ratings owed, ruling 27).
 - Table values at the design load (recorded loads times 1 + allowance from the design file, INT-019).

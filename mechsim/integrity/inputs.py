@@ -81,6 +81,20 @@ def _column(series: Mapping[str, Any], path: str, name: str, rows: int) -> Float
     return column
 
 
+def _member_loads(series: Mapping[str, Any], name: str, rows: int, rigid: bool) -> Wrenches | None:
+    """A rigid member (the build has a physics model and no lumped record for it, BLD-033) with no recorded end-loads
+    gives None: not evaluated (rulings 29, 34). Some of its end-load series recorded and others not is a partial
+    recording, an error (INT-005). A flexible member, or a build without a physics model, needs them all."""
+    if rigid:
+        recorded = [path for path in MEMBER_SERIES if path in series and name in tuple(series[path].names)]
+        if len(recorded) == 0:
+            return None
+        if len(recorded) < len(MEMBER_SERIES):
+            missing = [path for path in MEMBER_SERIES if path not in recorded]
+            raise IntegrityError(f"member {name!r}: partial end-load recording, has {recorded}, lacks {missing}")
+    return Wrenches(*(_column(series, path, name, rows) for path in MEMBER_SERIES))
+
+
 def _series_reader(recording: RecordView) -> Any:
     def read(reference: str) -> tuple[FloatArray, FloatArray]:
         found = recording.series(reference)
@@ -113,17 +127,25 @@ WORLD = "world"
 def node_chains(model: Any, names: tuple[str, ...] = ()) -> dict[str, NodeChain]:
     """Each lumped member's node chain in the native adapter's published bodies, keyed by structural member name: the
     neutral bodies first, then per lumped member in neutral order N node bodies (N + 1 with a pinned root's pin
-    segment), named `<member>.node<k>` (`mechsim.physics.native.member_node_names`). With the recorder's body `names`
-    the chain is found by name, each node in order; without them by that layout. A parent that is neither the world
-    nor a neutral body, or that names another member's node, is an `IntegrityError` (INT-006), never the world. A
+    segment), named `<member>.node<k>` (`mechsim.physics.native.member_node_names`). With the published body `names`
+    (the recorder's, or the prepared native model's) the chain and its parent are found by name, so bodies a case adds
+    at run time (a payload and its shackle) shift nothing; without them by the build's layout. A parent that is neither
+    the world nor a body, or that names another member's node, is an `IntegrityError` (INT-006), never the world. A
     model without lumped members (the bridge builds members rigid) gives none."""
     out: dict[str, NodeChain] = {}
     if model is None:
         return out
     bodies = tuple(getattr(model, "bodies", ()))
-    index = {str(body.name): position for position, body in enumerate(bodies)}
     lumped_members = tuple(getattr(model, "lumped_members", ()))
     node_owners = {str(lumped.name) for lumped in lumped_members}
+    index = {str(body.name): position for position, body in enumerate(bodies)}
+    if len(names) > 0 and len(lumped_members) > 0:
+        index = {name: position for position, name in enumerate(names) if not _is_node(name, node_owners)}
+        missing = [str(body.name) for body in bodies if str(body.name) not in index]
+        if len(missing) > 0:
+            raise IntegrityError(
+                f"the published bodies ({len(names)}) name no {missing}, bodies of the model (INT-006)"
+            )
     first = len(bodies)
     for lumped in lumped_members:
         count = int(lumped.segments)
@@ -161,13 +183,17 @@ def recorded_body_count(model: Any) -> int:
     return total
 
 
+def _is_node(name: str, node_owners: set[str]) -> bool:
+    owner, separator, node = name.rpartition(".")
+    return separator != "" and owner in node_owners and node.startswith("node")
+
+
 def _parent_body(member: str, parent: str, index: Mapping[str, int], node_owners: set[str]) -> int | None:
     if parent == WORLD:
         return None
     if parent in index:
         return index[parent]
-    owner, separator, node = parent.rpartition(".")
-    if separator != "" and owner in node_owners and node.startswith("node"):
+    if _is_node(parent, node_owners):
         raise IntegrityError(f"member {member!r}: parent {parent!r} is another member's node (INT-006)")
     raise IntegrityError(f"member {member!r}: unknown parent {parent!r}, neither the world nor a body (INT-006)")
 
@@ -223,12 +249,13 @@ def run_inputs(build: Any, recording: RecordView, materials: Mapping[str, Materi
             calibrated[str(record.member)] = float(record.calibration_frequency)
     placements = member_axes(build)
     model = getattr(build, "physics", None)
-    chains = node_chains(model, body_names(series))
+    names = body_names(series)
+    chains = node_chains(model, names)
     members: list[MemberInputs] = []
     holder: dict[str, str] = {}
     for member in members_list:
         name = str(member.name)
-        loads = Wrenches(*(_column(series, path, name, rows) for path in MEMBER_SERIES))
+        loads = _member_loads(series, name, rows, model is not None and name not in placements)
         supports = tuple((float(support.at), support.condition) for support in member.supports)
         mounts = tuple(str(mount) for mount in getattr(member, "mounts", ()))
         for mount in mounts:
@@ -272,16 +299,22 @@ def run_inputs(build: Any, recording: RecordView, materials: Mapping[str, Materi
         series=_series_reader(recording),
         ropes=_ropes(build, series, rows),
         design_tension=design_tension,
-        bodies=_bodies(series, rows, model, chains),
+        bodies=_bodies(series, rows, model, chains, names),
     )
 
 
-def _bodies(series: Mapping[str, Any], rows: int, model: Any, chains: Mapping[str, NodeChain]) -> BodyPoses | None:
+def _bodies(
+    series: Mapping[str, Any], rows: int, model: Any, chains: Mapping[str, NodeChain], names: tuple[str, ...]
+) -> BodyPoses | None:
     """The recorded body poses; with node chains (a native build of flexible members) they are required and their
-    count must equal the model's neutral bodies plus member nodes."""
+    count must equal the recorder's body names when it names them (bodies a case adds at run time included), else the
+    model's neutral bodies plus member nodes."""
     if len(chains) == 0:
         return _body_poses(series, rows, None)
-    poses = _body_poses(series, rows, recorded_body_count(model))
+    expected = recorded_body_count(model)
+    if len(names) > 0:
+        expected = len(names)
+    poses = _body_poses(series, rows, expected)
     if poses is None:
         raise IntegrityError(
             f"the run recorded no body poses ({BODY_POSITION}) but members {sorted(chains)} are built flexible with "

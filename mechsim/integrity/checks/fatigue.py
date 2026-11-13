@@ -22,6 +22,7 @@ from mechsim.integrity.plugin import (
     IntegrityError,
     RunInputs,
     Spread,
+    not_evaluated,
 )
 from mechsim.schema_base import StrictModel
 
@@ -116,6 +117,9 @@ class Fatigue(IntegrityCheck):
         if inputs.times.size:
             end_time = float(inputs.times[-1])
         for member in inputs.members:
+            if member.loads is None:
+                rows.append(not_evaluated(member.name, "fatigue_damage", 1, parameters.damage_limit))
+                continue
             curve = inputs.material(member.material).sn_curve()
             governing = (0.0, 0.0)
             for history in fibre_histories(member.loads.scaled(inputs.load_factor), member.section):

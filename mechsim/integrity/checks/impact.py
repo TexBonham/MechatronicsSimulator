@@ -19,6 +19,7 @@ from mechsim.integrity.plugin import (
     SectionProperties,
     Spread,
     TimeQuantity,
+    not_evaluated,
 )
 from mechsim.schema_base import StrictModel
 
@@ -79,6 +80,9 @@ class Impact(IntegrityCheck):
         assert isinstance(parameters, ImpactParameters)
         rows: list[CheckRow] = []
         for member in inputs.members:
+            if member.loads is None:
+                rows.append(not_evaluated(member.name, "impact_stress", 1))
+                continue
             loads = member.loads.scaled(inputs.load_factor)
             load = np.maximum(np.linalg.norm(loads.start_force, axis=1), np.linalg.norm(loads.end_force, axis=1))
             stress = normal_stress(loads, member.section).max(axis=1)

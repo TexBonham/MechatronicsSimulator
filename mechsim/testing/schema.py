@@ -13,6 +13,7 @@ import json
 import math
 import re
 import sys
+from collections.abc import Collection, Iterable
 from pathlib import Path
 from typing import Annotated, Any, Literal
 
@@ -46,6 +47,7 @@ from mechsim.design.schema import (
     OpenValue,
     RepoPath,
     SemVer,
+    Senses,
     Time,
     iter_open_values,
     load_design,
@@ -69,12 +71,14 @@ FREQUENCY = "1 / [time]"
 # Statistics of an oscillating series (SCO-020, SCO-027, SCO-028): meaningless on a step or count quantity.
 SERIES_STATISTICS = ("period", "mean", "amplitude", "period_about_mean", "frequency_about_mean")
 
+# The body a case's initial payload is placed as at run time when no load cell senses it (`testing.core_driver`).
+CASE_PAYLOAD_BODY = "payload"
 CASE_ID_PATTERN = r"^[A-Z][A-Z0-9_]*[0-9]+$"
 _N = r"[a-z][a-z0-9_]*"
 QUANTITY_REF_PATTERN = (
     rf"^(signal:{_N}\.{_N}|pose:{_N}\.(x|y|z|roll|pitch|yaw)|joint:{_N}\.(position|velocity)"
     rf"|rail:{_N}(\.voltage)?|state:{_N}|fault:{_N}|count:(message|state|fault)\.{_N}"
-    rf"|safety_factor:{_N}|deflection:{_N})$"
+    rf"|safety_factor:{_N}|deflection:{_N}|swing:{_N}\.{_N}(\.(x|y|z))?)$"
 )
 EVENT_REF_PATTERN = rf"^(message|state|fault|event):{_N}$"
 INSTANCE_PREFIX = "instance:"
@@ -91,6 +95,20 @@ CaseId = Annotated[str, Field(pattern=CASE_ID_PATTERN)]
 QuantityRef = Annotated[str, Field(pattern=QUANTITY_REF_PATTERN)]
 EventRef = Annotated[str, Field(pattern=EVENT_REF_PATTERN)]
 ParameterPath = Annotated[str, Field(pattern=PARAMETER_PATH_PATTERN)]
+
+
+def case_payload_body(senses: Iterable[Senses | None], joints: Collection[str]) -> str:
+    """The body name a run gives the case payload (SCO-030; `testing.core_driver`): the payload the first load cell
+    reading one senses, by `payload` or by a `joint_reaction` that names no joint (ruling 24), in instance order;
+    else `CASE_PAYLOAD_BODY`. `senses` are the instances' senses in order, `joints` the model's joint names."""
+    for target in senses:
+        if target is None:
+            continue
+        if target.payload is not None:
+            return target.payload
+        if target.joint_reaction is not None and target.joint_reaction not in joints:
+            return target.joint_reaction
+    return CASE_PAYLOAD_BODY
 
 
 class CaseError(ValueError):
@@ -519,7 +537,7 @@ def reference_dimension(reference: str) -> str | None:
         if component in ("x", "y", "z"):
             return LENGTH
         return ANGLE
-    if kind in ("state", "fault", "count", "safety_factor"):
+    if kind in ("state", "fault", "count", "safety_factor", "swing"):
         return ANGLE
     if kind == "deflection":
         return LENGTH
@@ -1069,6 +1087,13 @@ def _check_reference(
             rails = [rail.name for rail in design.power.rails]
         if rest.partition(".")[0] not in rails:
             errors.append(f"{path}: unknown power rail {rest.partition('.')[0]!r}")
+    if kind == "swing":
+        payload = case_payload_body(
+            (component.senses for component in design.components), {joint.name for joint in design.joints}
+        )
+        for body in rest.split(".")[:2]:
+            if body not in bodies and body != payload:
+                errors.append(f"{path}: unknown body {body!r}")
     if kind == "pose" and rest.partition(".")[0] not in bodies:
         errors.append(f"{path}: unknown body {rest.partition('.')[0]!r}")
     if kind == "joint" and rest.partition(".")[0] not in joints:

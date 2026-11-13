@@ -178,15 +178,16 @@ class BodyPoses:
 
 @dataclass(frozen=True)
 class MemberInputs:
-    """One structural member (BLD-008) with its recorded end-loads. `axis_body` is the member axis in its body frame
-    (the direction for direction-dependent strengths); `natural_frequency` the calibrated first frequency (Hz) when
-    the design records one (BLD-019)."""
+    """One structural member (BLD-008) with its recorded end-loads; `loads` None when the member is built rigid and the
+    run recorded none (rulings 29, 34, 60: every check reading them reports the member not evaluated). `axis_body` is
+    the member axis in its body frame (the direction for direction-dependent strengths); `natural_frequency` the
+    calibrated first frequency (Hz) when the design records one (BLD-019)."""
 
     name: str
     material: str
     section: SectionProperties
     supports: tuple[tuple[float, SupportCondition], ...]
-    loads: Wrenches
+    loads: Wrenches | None
     axis_body: tuple[float, float, float] = (1.0, 0.0, 0.0)
     natural_frequency: float | None = None
     mounts: tuple[str, ...] = ()
@@ -256,6 +257,16 @@ class RunInputs:
 
 # ===== Results ==========================================================
 
+LOADS_NOT_EVALUATED = "end_loads_not_evaluated"
+
+
+def rigid_note(member: str, checks: Sequence[str]) -> str:
+    """The one line naming why a rigid member's end-load checks were not evaluated (rulings 29, 34, 60)."""
+    return (
+        f"member {member!r}: {', '.join(checks)} not evaluated, the member is built rigid and the run recorded no "
+        "end-loads or node poses (rulings 29, 34)"
+    )
+
 
 @dataclass(frozen=True)
 class CheckRow:
@@ -306,6 +317,11 @@ class CheckResult:
 
     def rows_of_tier(self, tier: int) -> tuple[CheckRow, ...]:
         return tuple(row for row in self.rows if row.tier <= tier)
+
+
+def not_evaluated(subject: str, quantity: str, tier: int, limit: float | None = None) -> CheckRow:
+    """A rigid member's row of a check that reads end-loads: NaN, never zero, flagged (invariant 7)."""
+    return CheckRow(subject, quantity, math.nan, 0.0, tier, limit, None, (LOADS_NOT_EVALUATED,))
 
 
 class IntegrityCheck(ABC):

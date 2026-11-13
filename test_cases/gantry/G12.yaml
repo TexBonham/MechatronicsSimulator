@@ -4,12 +4,8 @@
 # (swing_limit_angle 0.1, swing_settle_time 5 s in the design; swing_settle_band here); the rated load hangs on
 # payload_rope, so the case runs on the native adapter (the bridge models no rope, BLD-032).
 #
-# Swing angle. The case criteria read the hook's tilt (pose:hook.pitch for a swing in x, pose:hook.roll in y): the hook
-# hangs on hook_swing, a spherical joint with no friction or damping, and carries the rope 2 cm below that pivot, so
-# with its light mass it lines up with the rope (the rope's line through the pivot is its only torque-free pose). The
-# acceptance test also measures the angle itself, of the line from the hook to the payload's centre against the
-# vertical, from the recorded body poses. A criterion on the payload's own pose or on an angle between two bodies does
-# not exist yet (cross_check knows the design bodies only): reported to brief X1c.
+# Swing angle (SCO-030): swing:hook.payload.x and .y, the signed angle from the vertical of the line from the hook's
+# origin (the hook_swing pivot) to the payload's centre, in the vertical planes through world x and world y.
 #
 # Oracles (pendulum of length L = 0.3 m, the rope; the payload's centre hangs 5 cm lower and the rope 2 cm below the
 # pivot, so the true length is longer and every bound below, which falls with L or does not depend on it, is an upper
@@ -19,14 +15,17 @@
 # deceleration, slow-zone cruise, final deceleration, stop) the swing is at most a / g + 6 a / g = 7 a / g = 0.0357
 # rad. A stop from v = 0.1 m/s in a time short against the period (E-stop: motor power cut, the carriage stopped by
 # 5 N of axis friction in about v M / F = 0.1 s, against a period of 2 pi sqrt(L / g) = 1.1 s) adds at most
-# v / sqrt(g L) = 0.0583 rad to the free swing left at the press, itself at most 2 a / g from the move's two
-# acceleration steps: 0.0685 rad in all. All three lie under the 0.1 rad limit. Each holds per axis (x and y swing
-# separately; the angle of the line is up to sqrt 2 times one axis when both move) and on top of the undamped free
-# swing left by homing (its own ramps, about 0.002 rad in x at 8 s), which the acceptance test measures over the last
-# period before each window and adds. Measured (M3-X1a, native): the move's per-axis peaks lie under 7 a / g; the first
-# ramp's y peak exceeds R0 + 2 a / g by 1.2 percent (finding: firmware ramp quantization or the compound pendulum of
-# the box on the rope); after the E-stop the lift carriage rises 0.4 m to its upper limit within 0.1 s and the rope
-# stretches to 0.82 m (finding: a native E-stop defect with the lift on its lower limit; G7, lift raised 5 cm, holds).
+# v / sqrt(g L) = 0.0583 rad to the free swing left at the press. Each bound holds per axis on top of the undamped
+# free swing R left before the window (its peak over the last period, measured by the acceptance test and added).
+# The first ramp, exactly: a pendulum on a pivot moving with velocity v(t) from rest swings by
+# theta(t) = R-part - (omega^2 / g) * integral_0^t v(s) cos(omega (t - s)) ds (Duhamel, integrated by parts), so the
+# bound R + max |forced part| uses the hook's recorded motion; with v = a t it is 2 a / g. All lie under the 0.1 rad
+# limit. Measured (M3-X1d, native, rails with vertical bending and carried joints): first ramp y 0.010527 rad, 1.2
+# percent over R + 2 a / g = 0.010400 and under R + forced = 0.010565: the excess is the trolley's real acceleration
+# (0.0545 m/s^2 over the ramp's first 0.5 s: the firmware's step ramp through the belt), not the scheme (backward
+# Euler only removes energy) and not the box on the rope (a two-link linear model of it peaks at 1.99994 a / g);
+# move peaks x 0.01314, y 0.01053 rad (bounds R + 7 a / g 0.0376, 0.0359); E-stop x 0.04507 rad (R + v / sqrt(g L)
+# = 0.0739). The lift stays on its lower limit through the stop (within 6e-5 m, E6).
 #
 # Settle time. The model's physical swing loss per period is zero to first order: payload_rope damps axially only
 # (ADR 0016), hook_swing has no friction or damping and the payload's attachment none; the only other path, the swing
@@ -36,10 +35,9 @@
 # sqrt(g / L) = 5.72 rad/s. Step: ruling 21 sets 100 microseconds (substeps 10 at the 1 ms physics step, the 1 kHz
 # control tick unchanged): x = 5.72e-4, 0.18 percent lost per period. The brief's rule (numerical loss at most a
 # tenth of the physical) asks h below 1 microsecond against a physical loss this small, which no run can afford:
-# finding, damping owed. Expected settle from the E-stop's swing A0 = 0.0583 rad into the 0.01 rad band:
-# ln(0.01 / 0.0583) / ln(1 - 0.0018) = 980 periods = 1080 s, far over the 5 s limit; from the move, at most
-# ln(0.01 / 0.0357) / ln(1 - 0.0018) = 708 periods when the swing exceeds the band at all. The settle criteria are
-# expected to fail on the placeholder damping (finding, reported; neither the physics nor the limit is tuned).
+# finding, damping owed (ruling 64). Expected settle from the E-stop's measured swing 0.0451 rad into the 0.01 rad
+# band: ln(0.01 / 0.0451) / ln(0.99821) = 838 periods = 921 s, far over the 5 s limit; the settle criteria fail on
+# the placeholder damping (finding, reported; neither the physics nor the limit nor the band is tuned).
 #
 # Timeline (0.05 m/s^2, 0.1 m/s, 0.02 m/s homing, 50 mm slow zones at 0.05 m/s): homing from the 0.1 m starts by
 # 5.25 s; the lift is homed to 0 m, where the payload's box clears the floor by 12 cm (design header). Part (a): target
@@ -114,7 +112,7 @@ criteria:
     expect: present
   - name: move_swing_x
     check: value
-    quantity: pose:hook.pitch
+    quantity: swing:hook.payload.x
     statistic: peak_absolute
     comparison: at_most
     limit: ${swing_limit_angle}
@@ -123,7 +121,7 @@ criteria:
       end: 20 s
   - name: move_swing_y
     check: value
-    quantity: pose:hook.roll
+    quantity: swing:hook.payload.y
     statistic: peak_absolute
     comparison: at_most
     limit: ${swing_limit_angle}
@@ -132,7 +130,7 @@ criteria:
       end: 20 s
   - name: move_settle_x
     check: settle_time
-    quantity: pose:hook.pitch
+    quantity: swing:hook.payload.x
     band: ${swing_settle_band}
     target: "0"
     comparison: at_most
@@ -142,7 +140,7 @@ criteria:
       end: 20 s
   - name: move_settle_y
     check: settle_time
-    quantity: pose:hook.roll
+    quantity: swing:hook.payload.y
     band: ${swing_settle_band}
     target: "0"
     comparison: at_most
@@ -152,7 +150,7 @@ criteria:
       end: 20 s
   - name: estop_swing_x
     check: value
-    quantity: pose:hook.pitch
+    quantity: swing:hook.payload.x
     statistic: peak_absolute
     comparison: at_most
     limit: ${swing_limit_angle}
@@ -161,7 +159,7 @@ criteria:
       end: 30 s
   - name: estop_settle_x
     check: settle_time
-    quantity: pose:hook.pitch
+    quantity: swing:hook.payload.x
     band: ${swing_settle_band}
     target: "0"
     comparison: at_most

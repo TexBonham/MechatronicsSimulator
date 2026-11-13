@@ -1286,8 +1286,7 @@ def _suite_data(**fields: Any) -> dict[str, Any]:
 def test_the_shipped_suite_file_names_its_cases_and_baseline() -> None:
     path = ROOT / "test_cases" / "gantry" / "suite.yaml"
     suite = load_suite_file(path)
-    # G12 is not shipped yet.
-    assert suite.cases == [f"G{index}.yaml" for index in (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 13, 14)]
+    assert suite.cases == [f"G{index}.yaml" for index in range(1, 16)]
     assert suite.baseline == "baseline.yaml"
     assert suite.design.version == load_design(GANTRY).version
     assert SUITE_SCHEMA_PATH.read_text(encoding="utf-8") == suite_schema_text()

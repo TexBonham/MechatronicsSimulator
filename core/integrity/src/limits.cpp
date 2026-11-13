@@ -403,6 +403,9 @@ Limits parse_limits(std::string_view json) {
     }
     Limits limits;
     limits.minimum_safety_factor = positive(root, "minimum_safety_factor", "root");
+    if (root.fields.find("bodies") != root.fields.end() && field(root, "bodies", "root").kind != Value::Kind::null) {
+        limits.bodies = count(root, "bodies", "root");
+    }
     const Value& checks = field(root, "checks", "root");
     limits.stress = flag(checks, "stress", "checks");
     limits.buckling = flag(checks, "buckling", "checks");
@@ -413,6 +416,12 @@ Limits parse_limits(std::string_view json) {
     for (const Value& entry : array(root, "members", "root")) {
         limits.members.push_back(member(entry, k));
         ++k;
+    }
+    for (const MemberLimits& m : limits.members) {
+        if (m.nodes.has_value() && !limits.bodies.has_value()) {
+            throw LimitsError("limits table: member '" + m.name +
+                              "' has nodes, so the table must give the published body count 'bodies' (INT-006)");
+        }
     }
     k = 0;
     for (const Value& entry : array(root, "fastenings", "root")) {

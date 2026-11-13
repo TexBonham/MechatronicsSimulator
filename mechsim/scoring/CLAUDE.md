@@ -22,6 +22,11 @@ nothing.
   time) through `_StructuralView`; never recomputed; missing results or member is an error. A deflection history
   (`deflection_series(member)` on the integrity report, `_DeflectionHistory` protocol) is read whole (SCO-028: maximum
   = peak, mean over a final window = settled). A NaN table value or sample is unevaluable: error with the reason (SCO-029).
+- Swing (SCO-030): `swing:<a>.<b>` angle from gravity of the line a to b (unsigned), `swing:<a>.<b>.<axis>` signed in
+  the vertical plane through that world axis (`_SwingView`, `score_run(..., gravity=)`, the runner passes
+  `runner.design_gravity(build.design)`); body origins are the view's `kinematics.reference` origin plus the `pose:`
+  displacement (TST-038); no gravity input or no reference poses is unevaluable. Payload names:
+  `testing.schema.case_payload_body(senses, joints)`.
 - Crossings (SCO-015): each `integrity` event whose detail states tier 1 (ruling 26) is a `crossings` line (report `integrity crossing:`); a passing case
   with one fails; not baselined.
 - Variations (SCO-019): titled `[variation seed <s>: <drawn>]`, a per-seed table after the sweep tables; not baselined.

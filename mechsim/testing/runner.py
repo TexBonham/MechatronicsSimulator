@@ -35,6 +35,7 @@ from mechsim.design.schema import (
 )
 from mechsim.integrity.export import write_beside
 from mechsim.integrity.plugin import IntegrityError
+from mechsim.integrity.table import IntegrityReport
 from mechsim.library.registry import Registry, RegistryError, default_registry
 from mechsim.library.schema import dimensions_equal
 from mechsim.schema_base import format_errors
@@ -707,6 +708,8 @@ def run_case(
             commands=tuple(commands),
             faults=tuple(faults),
         )
+    if isinstance(integrity, IntegrityReport) and len(integrity.notes) > 0:
+        report = replace(report, notes=tuple(report.notes) + integrity.notes)
     adapter = case.physics.adapter
     identifier = run_id(case, variant.sweep_index, _sweep_value(variant), adapter)
     if variant.seed is not None:
@@ -744,8 +747,19 @@ def run_case(
         )
         if integrity is not None:
             write_beside(archive, integrity, recording, metadata)
-    score = score_run(case, recording, report, prepared.limits, variant.sweep, identity, integrity)
+    score = score_run(
+        case, recording, report, prepared.limits, variant.sweep, identity, integrity, design_gravity(build.design)
+    )
     return RunResult(_scored(score, variant), report, metadata, archive, config, tuple(commands), tuple(faults))
+
+
+def design_gravity(design: Design) -> tuple[float, float, float] | None:
+    """The design's gravity (m/s^2) that `swing:` criteria measure from (SCO-030); None while any component is an
+    unresolved open value, which scoring then reports as the missing gravity input."""
+    values = [value for value in design.environment.gravity if isinstance(value, float)]
+    if len(values) != 3:
+        return None
+    return (values[0], values[1], values[2])
 
 
 def _sweep_value(variant: Variant) -> str | None:
