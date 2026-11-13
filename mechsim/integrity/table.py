@@ -25,11 +25,24 @@ _STRESS = ("normal_stress", "mount_stress")
 
 @dataclass(frozen=True)
 class IntegrityReport(IntegrityResults):
-    """The table plus every check's rows, the cycle counts for the wear seam (INT-037) and notes."""
+    """The table plus every check's rows, the cycle counts for the wear seam (INT-037), notes and the recorded sample
+    times the checks' `series` are taken at."""
 
     checks: tuple[CheckResult, ...] = ()
     load_factor: float = 1.0
     notes: tuple[str, ...] = ()
+    times: tuple[float, ...] = ()
+
+    def deflection_series(self, member: str) -> tuple[tuple[float, ...], tuple[float, ...]] | None:
+        """The member's deflection at each recorded sample (m, design load; SCO-027), with the sample times; None
+        when the deflection check did not evaluate it."""
+        for result in self.checks:
+            if result.check != "deflection":
+                continue
+            for subject, values in result.series:
+                if subject == member:
+                    return self.times, values
+        return None
 
     def cycle_counts(self) -> dict[str, float]:
         out: dict[str, float] = {}
@@ -63,7 +76,8 @@ def evaluate(config: IntegrityConfig, inputs: RunInputs) -> IntegrityReport:
         notes.append(THERMAL_NOTE)
     single = {member.name for member in inputs.members if member.section.single_axis}
     members = tuple(_row(subject, results, subject in single) for subject in _subjects(inputs))
-    return IntegrityReport(members, _ropes(inputs), tuple(results), inputs.load_factor, tuple(notes))
+    times = tuple(float(time) for time in inputs.times)
+    return IntegrityReport(members, _ropes(inputs), tuple(results), inputs.load_factor, tuple(notes), times)
 
 
 def _ropes(inputs: RunInputs) -> tuple[RopeIntegrity, ...]:

@@ -1,13 +1,14 @@
-# Rope pendulum period (ACC-037, ADR 0016). Chain straight-mode closed form with the rope's added mass and static
-# stretch: L = L0 + g L0 (M + m_r / 2) / EA = 1.00001996335 m, I_N = M L^2 + m_r L^2 (1/3 + 1 / (6 N^2)),
+# Rope pendulum period and swing decay (ACC-037, ADR 0016). Chain straight-mode closed form with the rope's added
+# mass and static stretch: L = L0 + g L0 (M + m_r / 2) / EA = 1.00001996335 m, I_N = M L^2 + m_r L^2 (1/3 + 1 / (6 N^2)),
 # S = M L + m_r L / 2, T_N = 2 pi sqrt(I_N / (g S)) = 2.0004181 s (M = 1 kg, m_r = 0.035 kg, N = 8, g = 9.81 m/s^2).
 # Amplitude term theta0^2 / 16 = 2.5e-5 at 0.02 rad, inside the tolerance. Physics step 50 microseconds (round 5
-# ruling 21): backward Euler keeps (1 + x^2)^(-pi / atan x) of the swing per period at x = omega h = 1.57e-4, about
-# 0.05 percent, 1 percent over 20 periods (ruling 45); its frequency ratio atan(x) / x is 1 - 8e-9. End: 21 periods
-# (42.01 s) hold 20 full periods after the release, 42.1 s. A pose reference is the free joint's coordinate from its
-# placement, so pose:bob.x swings about -L sin(0.02) = -0.0199990659 m, between 0 and -2 L sin(0.02); the period
-# statistic counts zero crossings of the raw series and does not apply. The case bounds the swing (no growth past
-# 2 L sin(0.02) = 0.0399981 m, plus 1 percent); the ACC-037 test counts the period about the equilibrium.
+# ruling 21): x = omega h = 1.57e-4, frequency ratio atan(x) / x = 1 - 8e-9; backward Euler keeps (1 + x^2)^(-pi / atan x)
+# of the swing per period, about 0.05 percent lost, 1 percent over 20 periods (ruling 45). End: 21 periods (42.01 s)
+# after the release, 42.1 s.
+# pose:bob.x is the free joint's coordinate from its placement, so it swings about -L sin(0.02); the period and the
+# amplitude are taken about the window's mean (SCO-027, SCO-028). Criteria (ACC-037 row): the period within 0.1 percent
+# of T_N over the run; the amplitude over the last period (from 40 s, after 20 periods) within 2 percent of the release
+# amplitude L sin(0.02) = 0.0199990659 m: the undamped swing keeps it but for the scheme's 1 percent.
 id: R1
 title: Rope pendulum small-amplitude period
 design:
@@ -24,9 +25,19 @@ end:
   at: 42.1 s
   max_duration: 45 s
 criteria:
-  - name: swing
+  - name: period
     check: value
     quantity: pose:bob.x
-    statistic: peak_absolute
-    comparison: at_most
-    limit: 0.0404 m
+    statistic: period_about_mean
+    comparison: within
+    target: 2.0004181 s
+    relative_limit: "0.001"
+  - name: amplitude_after_20_periods
+    check: value
+    quantity: pose:bob.x
+    statistic: amplitude
+    window:
+      start: 40 s
+    comparison: within
+    target: 0.0199990659 m
+    relative_limit: "0.02"

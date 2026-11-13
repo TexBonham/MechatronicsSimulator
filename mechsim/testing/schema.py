@@ -65,6 +65,9 @@ ANY = "any"
 LENGTH = "[length]"
 ANGLE = "dimensionless"
 TIME = "[time]"
+FREQUENCY = "1 / [time]"
+# Statistics of an oscillating series (SCO-020, SCO-027, SCO-028): meaningless on a step or count quantity.
+SERIES_STATISTICS = ("period", "mean", "amplitude", "period_about_mean", "frequency_about_mean")
 
 CASE_ID_PATTERN = r"^[A-Z][A-Z0-9_]*[0-9]+$"
 _N = r"[a-z][a-z0-9_]*"
@@ -537,7 +540,17 @@ class ValueCriterion(_Criterion):
 
     check: Literal["value"]
     quantity: QuantityRef
-    statistic: Literal["final", "minimum", "maximum", "peak_absolute", "period"]
+    statistic: Literal[
+        "final",
+        "minimum",
+        "maximum",
+        "peak_absolute",
+        "period",
+        "mean",
+        "amplitude",
+        "period_about_mean",
+        "frequency_about_mean",
+    ]
     comparison: Literal["below", "at_most", "above", "at_least", "within"]
     target: Amount | None = None
     limit: Amount | None = None
@@ -562,8 +575,10 @@ class ValueCriterion(_Criterion):
                 errors.append(f"comparison {self.comparison!r} needs a limit")
             if self.target is not None or self.relative_limit is not None:
                 errors.append(f"comparison {self.comparison!r} takes no target or relative_limit")
-        if self.statistic == "period" and self.quantity.split(":")[0] in ("state", "fault", "count"):
-            errors.append(f"statistic 'period' needs a series, not {self.quantity!r}")
+        if self.statistic in SERIES_STATISTICS and self.quantity.split(":")[0] in ("state", "fault", "count"):
+            errors.append(f"statistic {self.statistic!r} needs a series, not {self.quantity!r}")
+        if self.statistic == "mean" and (self.window is None or self.window.start is None):
+            errors.append("statistic 'mean' needs a window with a start (the stated final window, SCO-027)")
         expected = self.expected_dimension()
         for value, what in ((self.target, "target"), (self.limit, "limit")):
             error = _dimension_error(value, expected, what)
@@ -577,8 +592,10 @@ class ValueCriterion(_Criterion):
         return self
 
     def expected_dimension(self) -> str | None:
-        if self.statistic == "period":
+        if self.statistic in ("period", "period_about_mean"):
             return TIME
+        if self.statistic == "frequency_about_mean":
+            return FREQUENCY
         return reference_dimension(self.quantity)
 
     def limit_text(self) -> str:
@@ -1104,8 +1121,8 @@ def _check_criterion(
         if expected is None:
             expected = _joint_reference_dimension(criterion.quantity, joints)
         if isinstance(criterion, ValueCriterion):
-            if criterion.statistic == "period":
-                expected = TIME
+            if criterion.statistic in ("period", "period_about_mean", "frequency_about_mean"):
+                expected = criterion.expected_dimension()
             values = [(criterion.target, "target"), (criterion.limit, "limit")]
         else:
             values = [(criterion.target, "target"), (criterion.band, "band")]
