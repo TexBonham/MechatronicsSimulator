@@ -969,3 +969,81 @@ def test_a_flexible_run_missing_the_body_series_is_an_error_not_built_rigid() ->
         SimpleNamespace(design=_design("0"), members=(_member(),)), _recorded(_cantilever_rows(1.0)), _views()
     )
     assert rigid.bodies is None
+
+
+# ===== Rigid builds (rulings 29, 34, 60) ================================
+
+_RIGID_CHECKS = {
+    "schema_version": 1,
+    "checks": [
+        {"check": "strength", "tier": 2},
+        {"check": "deflection"},
+        {"check": "buckling"},
+        {"check": "fatigue"},
+        {"check": "impact", "parameters": {"impact_factor": 2.0, "step_threshold": "50 N", "window": "20 ms"}},
+    ],
+}
+
+
+def _rigid_build(lumped: tuple[Any, ...] = ()) -> SimpleNamespace:
+    """The bridge's build (BLD-033): a physics model without lumped members, the member list kept."""
+    return SimpleNamespace(
+        design=_design("3/20", "3/2"),
+        members=(_member(),),
+        physics=SimpleNamespace(lumped_members=lumped, bodies=_TWO, fastenings=(), ropes=()),
+    )
+
+
+@pytest.mark.req("INT-005", "INT-006", "SCO-029")
+def test_a_rigid_member_is_not_evaluated_by_every_check_reading_end_loads_or_node_poses(tmp_path: Path) -> None:
+    from mechsim.scoring.score import _StructuralView, _UnevaluableError
+
+    run = run_inputs(_rigid_build(), _recorded(_cantilever_rows(1.0), names=()), _views())
+    assert run.members[0].loads is None
+    report = evaluate(parse_config(_RIGID_CHECKS, "c"), run)
+    row = report.member("rail")
+    assert math.isnan(row.peak_stress)
+    assert math.isnan(row.safety_factor)
+    assert math.isnan(row.deflection)
+    assert "end_loads_not_evaluated" in row.flags
+    assert STATIC in row.flags
+    for result in report.checks:
+        (found,) = [item for item in result.rows if item.subject == "rail"][:1]
+        assert math.isnan(found.value), result.check
+    lines = [note for note in report.notes if "'rail'" in note]
+    assert lines == [
+        "member 'rail': strength, deflection, buckling, fatigue, impact not evaluated, the member is built rigid and "
+        "the run recorded no end-loads or node poses (rulings 29, 34)"
+    ]
+    view = _StructuralView(_recorded(_cantilever_rows(1.0), names=()), report)
+    for reference in ("safety_factor:rail", "deflection:rail"):
+        with pytest.raises(_UnevaluableError, match="not evaluated by integrity"):
+            view.series(reference)
+    # The load case leaves the rigid member out; the report is still written.
+    archive = tmp_path / "run.mrec"
+    metadata = SimpleNamespace(
+        members=(MemberSection("rail", "petg_printed", AREA, I_Z, LENGTH),),
+        design_name="machine",
+        design_version="0.1.0",
+        run_id="r",
+    )
+    written = write_beside(archive, report, _recorded(_cantilever_rows(1.0), names=()), metadata)
+    assert [path.name for path in written] == ["run.integrity.json"]
+
+
+@pytest.mark.req("INT-005")
+def test_a_flexible_member_or_a_build_without_a_model_still_needs_its_end_loads() -> None:
+    lumped = (
+        SimpleNamespace(**{**vars(_lumped("rail_chain", "carriage", "clamped", 8)), "structural_member": "rail"}),
+    )
+    with pytest.raises(IntegrityError, match="member 'rail': no recorded end-loads"):
+        run_inputs(_rigid_build(lumped), _recorded(_cantilever_rows(1.0), names=()), _views())
+    with pytest.raises(IntegrityError, match="member 'rail': no recorded end-loads"):
+        run_inputs(
+            SimpleNamespace(design=_design("0"), members=(_member(),)),
+            _recorded(_cantilever_rows(1.0), names=()),
+            _views(),
+        )
+    # A rigid member whose end-loads were recorded is evaluated from them.
+    recorded = run_inputs(_rigid_build(), _recorded(_cantilever_rows(1.0)), _views())
+    assert recorded.members[0].loads is not None

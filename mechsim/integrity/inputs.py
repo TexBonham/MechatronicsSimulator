@@ -81,6 +81,16 @@ def _column(series: Mapping[str, Any], path: str, name: str, rows: int) -> Float
     return column
 
 
+def _member_loads(series: Mapping[str, Any], name: str, rows: int, rigid: bool) -> Wrenches | None:
+    """A rigid member (the build has a physics model and no lumped record for it, BLD-033) with no recorded end-loads
+    gives None: not evaluated (rulings 29, 34). A flexible member, or a build without a physics model, needs them."""
+    if rigid:
+        for path in MEMBER_SERIES:
+            if path not in series or name not in tuple(series[path].names):
+                return None
+    return Wrenches(*(_column(series, path, name, rows) for path in MEMBER_SERIES))
+
+
 def _series_reader(recording: RecordView) -> Any:
     def read(reference: str) -> tuple[FloatArray, FloatArray]:
         found = recording.series(reference)
@@ -228,7 +238,7 @@ def run_inputs(build: Any, recording: RecordView, materials: Mapping[str, Materi
     holder: dict[str, str] = {}
     for member in members_list:
         name = str(member.name)
-        loads = Wrenches(*(_column(series, path, name, rows) for path in MEMBER_SERIES))
+        loads = _member_loads(series, name, rows, model is not None and name not in placements)
         supports = tuple((float(support.at), support.condition) for support in member.supports)
         mounts = tuple(str(mount) for mount in getattr(member, "mounts", ()))
         for mount in mounts:

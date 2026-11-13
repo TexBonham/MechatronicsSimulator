@@ -15,7 +15,7 @@ from typing import Any
 
 import numpy as np
 
-from mechsim.integrity.plugin import IntegrityError
+from mechsim.integrity.plugin import LOADS_NOT_EVALUATED, IntegrityError
 from mechsim.integrity.table import IntegrityReport
 from mechsim.testing.driver import IntegrityResults, MemberSection, RecordView
 
@@ -131,15 +131,18 @@ def beside(archive: Path, suffix: str) -> Path:
 
 def write_beside(archive: Path, results: IntegrityResults, recording: RecordView, metadata: Any) -> tuple[Path, ...]:
     """`<run>.integrity.json` (the report when `results` is one, else the table) and `<run>.load_case.json/.csv` next
-    to the archive; returns the paths written."""
+    to the archive (members built rigid, flagged not evaluated, are left out of the load case); returns the paths
+    written."""
     text = results.to_json()
     if isinstance(results, IntegrityReport):
         text = results.report_json()
     table = beside(archive, ".integrity.json")
     table.write_text(text + "\n", encoding="utf-8")
     written = [table]
-    if metadata.members:
-        case = load_case(recording, metadata.members, metadata.design_name, metadata.design_version, metadata.run_id)
+    rigid = {row.member for row in results.members if LOADS_NOT_EVALUATED in row.flags}
+    members = tuple(member for member in metadata.members if member.name not in rigid)
+    if members:
+        case = load_case(recording, members, metadata.design_name, metadata.design_version, metadata.run_id)
         for suffix, body in ((".load_case.json", case.to_json()), (".load_case.csv", case.to_csv())):
             path = beside(archive, suffix)
             if not body.endswith("\n"):
