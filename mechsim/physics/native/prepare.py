@@ -24,8 +24,10 @@ def prepare_model(
     starts: Mapping[str, float] | None = None,
     step: float | None = None,
     payloads: Mapping[str, str] | None = None,
+    substeps: int = 1,
 ) -> NativeArtifacts:
     """The native adapter's prepared model; arguments as the bridge's `prepare_model` (start coordinates of single-DOF
-    joints, the run's physics step, payload body to carrier); a payload starts where its carrier's start moves it."""
-    translation = translate(model, step, payloads, starts)
+    joints, the run's physics step, payload body to carrier); a payload starts where its carrier's start moves it;
+    `substeps` engine steps per adapter step (h / substeps each)."""
+    translation = translate(model, step, payloads, starts, substeps)
     return NativeArtifacts(translation.text, model.design.version, translation.report)

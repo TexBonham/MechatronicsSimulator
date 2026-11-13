@@ -247,17 +247,38 @@ TEST_CASE("native adapter: a drive is refused on a non-coordinate joint and twic
     CHECK(adapter.outputs().joint_drive_torques[0].torque == 0.0);
 }
 
-// ===== Friction and limits (PHY-027) =====================================
+// ===== Friction and limits (PHY-027, PHY-030; engine ENG-013, ENG-014) ======
 
-TEST_CASE("native adapter: Coulomb joint friction decelerates at F / m", "[PHY-027][PHY-030]") {
-    // Horizontal slider (gravity off the axis). From rest the regularised friction is the damper F / v_s, so one step
-    // of force P gives v1 = h P / (m + h F / v_s) (1/6 m/s here), past v_s: sliding, where the constant -F gives
-    // dv = -F h / m exactly per step, until the velocity re-enters the regularised band and stops.
+TEST_CASE("native adapter: a joint loaded below its friction creeps at v_s L / F", "[PHY-027]") {
+    // Engine friction (ruling 38): below the slip threshold v_s the friction is the damper c = F / v_s, so a vertical
+    // slider loaded by L = m g < F solves (m + h c) v' = m v - h m g each step: fixed point v* = -v_s m g / F, reached
+    // geometrically with ratio m / (m + h c) = 1 / 201 per step (m = 1, F = 20, h = 1 ms): 50 steps leave 1e-115.
+    NativeAdapter adapter;
+    const double m = 1.0;
+    const double f = 20.0;
+    const double vs = 1e-4;
+    load(adapter, slider(m, DofSpec{"20.0", "null", "null"}));
+    for (int n = 0; n < 50; ++n) {
+        adapter.step();
+    }
+    CHECK_THAT(adapter.outputs().bodies[0].linear_velocity[2], WithinRel(-vs * m * g / f, 1e-9));
+}
+
+TEST_CASE("native adapter: a sliding joint stops within the engine's frozen-rate bounds", "[PHY-027][PHY-030]") {
+    // Horizontal slider, m = 3, F = 1.5, a = F / m. One push step from rest (c = F / v_s): v1 = h P / (m + h F / v_s).
+    // Sliding (|v| >= v_s) the engine freezes c = F / |v| at the step start, so with u = |v| / (a h) one step gives
+    // u' = u^2 / (u + 1): the speed drops by a h u / (u + 1) (exact Coulomb drops a h). Derivation of the bounds:
+    // the decrement d_k = u_k / (u_k + 1) < 1 and 1 - d_k = d_k / u_k <= the integral of du / u over the step, so
+    // the steps to fall from u_1 to below u_s = v_s / (a h) number N with u_1 - u_s <= N <= u_1 - u_s +
+    // ln(u_1 / u_s) + 1. Distance: x advances h v_{k+1} = a h^2 u_k d_k = a h^2 ((u_k^2 - u_{k+1}^2) / 2 + d_k^2 / 2),
+    // so over those steps the excess over (v_1^2 - v_N^2) / (2 a) is a h^2 sum d_k^2 / 2 in [0, h (v_1 - v_N) / 2].
     NativeAdapter adapter;
     const double m = 3.0;
     const double f = 1.5;
+    const double a = f / m;
+    const double h = 1e-3;
+    const double vs = 1e-4;
     Doc doc;
-    doc.elements = R"(["body", "joint.prismatic"])";
     doc.bodies.push_back(body("slider", -1, "prismatic", "[1, 0, 0]", m, "[]", "[]", DofSpec{"1.5", "null", "null"}));
     load(adapter, doc);
     PhysicsInputs push;
@@ -265,26 +286,105 @@ TEST_CASE("native adapter: Coulomb joint friction decelerates at F / m", "[PHY-0
     adapter.set_inputs(push);
     adapter.step();
     const double v1 = adapter.outputs().bodies[0].linear_velocity[0];
-    CHECK_THAT(v1, WithinRel(1e-3 * 3000.0 / (m + 1e-3 * f / 1e-4), 1e-12));
-    adapter.step();
-    const double v2 = adapter.outputs().bodies[0].linear_velocity[0];
-    CHECK_THAT(v1 - v2, WithinRel(f * 1e-3 / m, 1e-9));
-    for (int n = 0; n < 2000; ++n) {
+    const double x1 = adapter.outputs().joint_positions[0];
+    CHECK_THAT(v1, WithinRel(h * 3000.0 / (m + h * f / vs), 1e-12));
+    double v = v1;
+    int steps = 0;
+    while (v >= vs && steps < 100000) {
         adapter.step();
+        ++steps;
+        const double next = adapter.outputs().bodies[0].linear_velocity[0];
+        const double u = v / (a * h);
+        CHECK_THAT(v - next, WithinRel(a * h * u / (u + 1.0), 1e-9));
+        v = next;
     }
-    CHECK(std::abs(adapter.outputs().bodies[0].linear_velocity[0]) < 1e-4);
+    const double u1 = v1 / (a * h);
+    const double us = vs / (a * h);
+    INFO("steps " << steps << ", bounds [" << u1 - us << ", " << u1 - us + std::log(u1 / us) + 1.0 << "]");
+    CHECK(static_cast<double>(steps) >= u1 - us);
+    CHECK(static_cast<double>(steps) <= u1 - us + std::log(u1 / us) + 1.0);
+    const double excess = (adapter.outputs().joint_positions[0] - x1) - ((v1 * v1) - (v * v)) / (2.0 * a);
+    INFO("distance excess " << excess << " of at most " << h * (v1 - v) / 2.0);
+    CHECK(excess >= -1e-12);
+    CHECK(excess <= (h * (v1 - v) / 2.0) + 1e-12);
 }
 
-TEST_CASE("native adapter: a joint limit holds a body under gravity at the stated penetration", "[PHY-027]") {
-    // Lower limit at 0 on a vertical slider: the implicit limit spring K = m w^2, w = 1 / (2 h), D = 2 m w (critical)
-    // holds m g at q = -g / w^2 = -4 g h^2.
+TEST_CASE("native adapter: a lower limit holds a body on the bound with reaction m g, then releases",
+          "[PHY-027]") {
+    // Engine limit row (ENG-013, ruling 43): at rest on the bound the row carries m g, the joint coordinate is the
+    // bound (no penetration, no projection), and the joint's generalized force S^T f at zero acceleration is m g.
+    // An upward force P > m g releases it from the first step: v = h (P - m g) / m.
     NativeAdapter adapter;
-    load(adapter, slider(1.0, DofSpec{"0.0", "0.0", "1.0"}));
-    for (int n = 0; n < 500; ++n) {
+    const double m = 2.0;
+    const double h = 1e-3;
+    load(adapter, slider(m, DofSpec{"0.0", "0.0", "1.0"}));
+    for (int n = 0; n < 100; ++n) {
         adapter.step();
     }
-    const double h = 1e-3;
-    CHECK_THAT(adapter.outputs().joint_positions[0], WithinRel(-4.0 * g * h * h, 1e-6));
+    CHECK_THAT(adapter.outputs().joint_positions[0], WithinAbs(0.0, 1e-12));
+    CHECK_THAT(adapter.outputs().joints[0].generalized_force[0], WithinRel(m * g, 1e-9));
+    PhysicsInputs lift;
+    lift.generalized_forces = {3.0 * m * g};
+    adapter.set_inputs(lift);
+    adapter.step();
+    CHECK_THAT(adapter.outputs().bodies[0].linear_velocity[2], WithinRel(h * 2.0 * g, 1e-9));
+}
+
+TEST_CASE("native adapter: an upper limit holds a body pushed up against it with reaction -m g", "[PHY-027]") {
+    NativeAdapter adapter;
+    const double m = 2.0;
+    Doc doc = slider(m, DofSpec{"0.0", "-1.0", "0.0"});
+    doc.gravity = "[0, 0, 9.81]";
+    load(adapter, doc);
+    for (int n = 0; n < 100; ++n) {
+        adapter.step();
+    }
+    CHECK_THAT(adapter.outputs().joint_positions[0], WithinAbs(0.0, 1e-12));
+    CHECK_THAT(adapter.outputs().joints[0].generalized_force[0], WithinRel(-m * g, 1e-9));
+}
+
+TEST_CASE("native adapter: an impact lands on the limit, stops on the next step and gains no energy", "[PHY-027]") {
+    // From q0 = 0.1 m above a lower bound at 0 under gravity. Semi-implicit free fall loses g^2 h^2 / 2 per unit mass
+    // each step (E_n = g q0 - g^2 h^2 n / 2); the anticipatory row s v >= -gap / h only removes speed and lands the
+    // crossing step on the bound (ruling 43), so E = v^2 / 2 + g q never rises; the next step stops it (v = 0).
+    NativeAdapter adapter;
+    Doc doc = slider(1.0, DofSpec{"0.0", "0.0", "null"});
+    doc.starts = R"([{"body": 0, "value": 0.1}])";
+    load(adapter, doc);
+    double energy = g * 0.1;
+    int landed = -1;
+    for (int n = 0; n < 400; ++n) {
+        adapter.step();
+        const double q = adapter.outputs().joint_positions[0];
+        const double v = adapter.outputs().bodies[0].linear_velocity[2];
+        const double now = (0.5 * v * v) + (g * q);
+        CHECK(now <= energy + 1e-12);
+        energy = now;
+        if (landed < 0 && q <= 1e-12) {
+            landed = n;
+            CHECK_THAT(q, WithinAbs(0.0, 1e-12));
+        } else if (landed >= 0 && n == landed + 1) {
+            CHECK_THAT(v, WithinAbs(0.0, 1e-12));
+            CHECK_THAT(q, WithinAbs(0.0, 1e-12));
+        }
+        CHECK(q >= -1e-12);
+    }
+    CHECK(landed > 0);
+}
+
+TEST_CASE("native adapter: limits on a planar joint or start outside a bound are load errors", "[PHY-027][PHY-019]") {
+    NativeAdapter adapter;
+    Doc outside = slider(1.0, DofSpec{"0.0", "0.0", "1.0"});
+    outside.starts = R"([{"body": 0, "value": -0.5}])";
+    CHECK_THROWS_AS(load(adapter, outside), AdapterError);
+    Doc planar;
+    planar.elements = R"(["body", "joint.planar"])";
+    std::string plane = body("plate", -1, "planar", "[0, 0, 1]", 1.0);
+    plane.replace(plane.find(R"("lower": [])"), 11, R"("lower": [0.0, null, null])");
+    plane.replace(plane.find(R"("upper": [])"), 11, R"("upper": [null, null, null])");
+    plane.replace(plane.find(R"("friction": [])"), 14, R"("friction": [0.0, 0.0, 0.0])");
+    planar.bodies.push_back(plane);
+    CHECK_THROWS_AS(load(adapter, planar), AdapterError);
 }
 
 // ===== Transmissions (PHY-006, PHY-018, PHY-033) =========================
@@ -351,6 +451,187 @@ TEST_CASE("native adapter: scheduled slip loses the fraction of the shaft travel
     const double shaft = adapter.outputs().joint_positions[0];
     CHECK(adapter.outputs().transmissions[0].slipping);
     CHECK_THAT(adapter.outputs().transmissions[0].slip, WithinRel(0.25 * shaft, 1e-9));
+}
+
+// ===== Drives through transmissions (PHY-034, ruling 39; PHY-006, PHY-018) ===
+
+namespace {
+
+Doc screw() {
+    // Self-locking lead screw (lead 8 mm, n = 1.27e-3 m/rad): shaft J = 1e-2 about z, a 2 kg carriage on a vertical
+    // prismatic, k = 1e6 N/m, critical damping 2 sqrt(k m). The engine's exact lock needs J > n (h^2 k + h c) = 4.9e-3
+    // (its LU must not pivot on the zero shaft row, engine contract and ENG-044 test).
+    Doc doc;
+    doc.elements = R"(["body", "joint.revolute", "joint.prismatic", "transmission.lead_screw"])";
+    doc.bodies.push_back(body("shaft", -1, "revolute", "[0, 0, 1]", 0.1, "[]", "[]", {}, "[0, 0, 0]", "[0, 0, 0]",
+                              "[1e-2, 0, 0, 0, 1e-2, 0, 0, 0, 1e-2]"));
+    doc.bodies.push_back(body("carriage", -1, "prismatic", "[0, 0, 1]", 2.0, "[]", "[]", {}, "[0.5, 0, 0]"));
+    doc.transmissions = R"([{"type": "lead_screw", "input_body": 0, "output_body": 1, "ratio": 0.008, )"
+                        R"("reverses": false, "efficiency": 0.4, "back_efficiency": 0.4, "self_locking": true, )"
+                        R"("stiffness": 1e6, "damping": 2828.42712474619, "backlash": 0.0, "slip": 0.0}])";
+    return doc;
+}
+
+Doc gear() {
+    // Gear pair, ratio 4 (n = 1 / 4), efficiency 0.9: shaft J = 1e-4 and an output of 1e-2 kg m^2, both about z.
+    Doc doc;
+    doc.elements = R"(["body", "joint.revolute", "transmission.gear_pair"])";
+    doc.bodies.push_back(body("shaft", -1, "revolute", "[0, 0, 1]", 0.1, "[]", "[]", {}, "[0, 0, 0]", "[0, 0, 0]",
+                              "[1e-4, 0, 0, 0, 1e-4, 0, 0, 0, 1e-4]"));
+    doc.bodies.push_back(body("output", -1, "revolute", "[0, 0, 1]", 1.0, "[]", "[]", {}, "[0.5, 0, 0]", "[0, 0, 0]",
+                              "[1e-2, 0, 0, 0, 1e-2, 0, 0, 0, 1e-2]"));
+    doc.transmissions = R"([{"type": "gear_pair", "input_body": 0, "output_body": 1, "ratio": 4.0, )"
+                        R"("reverses": false, "efficiency": 0.9, "back_efficiency": 0.9, "self_locking": false, )"
+                        R"("stiffness": 1e3, "damping": 1.0, "backlash": 0.0, "slip": 0.0}])";
+    return doc;
+}
+
+// Runs a drive on joint 0 at rest rate u (end-of-step rest u t_n) for steps; returns rest - q at the end.
+double drive_lag(NativeAdapter& adapter, double u, double k, double d, int steps, const std::vector<double>& forces = {}) {
+    double rest = 0.0;
+    for (int n = 1; n <= steps; ++n) {
+        rest = u * n * 1e-3;
+        PhysicsInputs inputs;
+        inputs.generalized_forces = forces;
+        inputs.joint_drives.push_back(JointDrive{0, rest, k, d, true});
+        adapter.set_inputs(inputs);
+        adapter.step();
+    }
+    return rest - adapter.outputs().joint_positions[0];
+}
+
+}  // namespace
+
+TEST_CASE("native adapter: a belt drive is lossless at rest and follows the efficiency by power direction",
+          "[PHY-034]") {
+    // Belt n = r = 0.01, eta = 0.8, carriage m = 2 under g, drive K = 50, D = 0.5 on the shaft (ruling 39). At
+    // steady state the carriage moves at constant speed, so the belt carries F = m g (its damper sees dE/dt = 0) and
+    // the shaft balances K (rest - q') - D w = gain F at the end state (backward Euler on the drive, ruling 42):
+    //   static (w = 0): gain n, lag n m g / K;
+    //   lifting (w = u > 0, shaft drives the load, P < 0): gain n / eta, lag (D u + n m g / eta) / K;
+    //   lowering (w = -u, load drives the shaft, P > 0): gain n eta, lag (-D u + n eta m g) / K.
+    // Settling: reflected inertia J + m n^2 = 3e-4 with K = 50, D = 0.5 is overdamped, slow root about 100 1/s, so
+    // 3 s leave e^-300 of the start transient.
+    const double n = 0.01;
+    const double eta = 0.8;
+    const double m = 2.0;
+    const double k = 50.0;
+    const double d = 0.5;
+    const double u = 1.0;
+    {
+        NativeAdapter adapter;
+        load(adapter, belt("0.0", "0.8"));
+        const double lag = drive_lag(adapter, 0.0, k, d, 3000);
+        // Ruling 39 states the static sag n m g / K exact; the engine's power-direction switch has no threshold speed
+        // (transmission.hpp: a lossy coupling at rest alternates forward and backward gain on rounding), so at rest
+        // the gain lies in [n eta, n / eta] and the sag in [n eta m g / K, n m g / (eta K)] (open issue, M3-N3).
+        INFO("static lag " << lag << " closed form " << n * m * g / k);
+        CHECK(lag >= n * eta * m * g / k);
+        CHECK(lag <= n * m * g / (eta * k));
+    }
+    {
+        NativeAdapter adapter;
+        load(adapter, belt("0.0", "0.8"));
+        const double lag = drive_lag(adapter, u, k, d, 3000);
+        INFO("lifting lag " << lag << " closed form " << ((d * u) + (n * m * g / eta)) / k);
+        CHECK_THAT(lag, WithinRel(((d * u) + (n * m * g / eta)) / k, 1e-6));
+    }
+    {
+        NativeAdapter adapter;
+        load(adapter, belt("0.0", "0.8"));
+        const double lag = drive_lag(adapter, -u, k, d, 3000);
+        INFO("lowering lag " << lag << " closed form " << ((-d * u) + (n * eta * m * g)) / k);
+        CHECK_THAT(lag, WithinRel(((-d * u) + (n * eta * m * g)) / k, 1e-6));
+    }
+}
+
+TEST_CASE("native adapter: a self-locking lead screw holds its load and lowering needs torque", "[PHY-006][PHY-018]") {
+    // ENG-044: with no shaft torque the locked screw passes no reaction, so the shaft stays exactly at 0 and the
+    // carriage hangs on the screw's stiffness at -m g / k (critically damped carriage, 707 rad/s: 2 s leave e^-1400).
+    // Lowering under a shaft torque tau < 0 is unresisted in this tier (zero gain): the shaft accelerates at tau / J,
+    // q_N = (tau / J) h^2 N (N + 1) / 2 exactly (semi-implicit Euler), and the carriage follows it down.
+    NativeAdapter adapter;
+    load(adapter, screw());
+    for (int n = 0; n < 2000; ++n) {
+        adapter.step();
+    }
+    CHECK(adapter.outputs().joint_positions[0] == 0.0);
+    const double hold = adapter.outputs().joint_positions[1];
+    CHECK_THAT(hold, WithinRel(-2.0 * g / 1e6, 1e-6));
+    const double tau = -0.01;
+    const double h = 1e-3;
+    const int steps = 100;
+    for (int n = 0; n < steps; ++n) {
+        PhysicsInputs inputs;
+        inputs.generalized_forces = {tau, 0.0};
+        adapter.set_inputs(inputs);
+        adapter.step();
+    }
+    CHECK_THAT(adapter.outputs().joint_positions[0], WithinRel((tau / 1e-2) * h * h * steps * (steps + 1) / 2.0, 1e-9));
+    CHECK(adapter.outputs().joint_positions[1] < hold);
+}
+
+TEST_CASE("native adapter: a belt's backlash is a dead band equal to the lash on reversal", "[PHY-018]") {
+    // Gravity off; the shaft is held by a drive at rest 0 (K = 50, D = 0.5) and the carriage pushed by a constant P,
+    // first along -z, then reversed to +z. At static equilibrium the belt carries F = P on the side the load presses:
+    // E = n theta - x = b / 2 + P / k, then E = -(b / 2 + P / k), so the reversal moves the carriage relative to the
+    // shaft by b + 2 P / k: (x_B - x_A) - n (theta_B - theta_A) - 2 P / k = b exactly (no friction, no slip). The belt
+    // mode (k = 1e5, m = 2, damping 50, backward Euler at x = 0.22) and the drive mode settle within 2 s to e^-30.
+    const double n = 0.01;
+    const double b = 0.002;
+    const double p = 1.0;
+    const double k = 1e5;
+    Doc doc = belt("0.0", "1.0");
+    doc.gravity = "[0, 0, 0]";
+    doc.transmissions.replace(doc.transmissions.find(R"("backlash": 0.0)"), 15, R"("backlash": 0.002)");
+    NativeAdapter adapter;
+    load(adapter, doc);
+    const auto hold = [&adapter](double force) {
+        for (int i = 0; i < 2000; ++i) {
+            PhysicsInputs inputs;
+            inputs.generalized_forces = {0.0, force};
+            inputs.joint_drives.push_back(JointDrive{0, 0.0, 50.0, 0.5, true});
+            adapter.set_inputs(inputs);
+            adapter.step();
+        }
+    };
+    hold(-p);
+    const double theta_a = adapter.outputs().joint_positions[0];
+    const double x_a = adapter.outputs().joint_positions[1];
+    CHECK_THAT((n * theta_a) - x_a, WithinAbs((b / 2.0) + (p / k), 1e-9));
+    hold(p);
+    const double theta_b = adapter.outputs().joint_positions[0];
+    const double x_b = adapter.outputs().joint_positions[1];
+    const double band = (x_b - x_a) - (n * (theta_b - theta_a)) - (2.0 * p / k);
+    INFO("dead band " << band << " lash " << b);
+    CHECK_THAT(band, WithinAbs(b, 1e-9));
+}
+
+TEST_CASE("native adapter: a gear pair turns the output at the ratio and loses the efficiency when driving",
+          "[PHY-018][PHY-034]") {
+    // n = 1 / 4, eta = 0.9, output load torque tau_L = -0.5 N m, drive K = 1, D = 0.05 on the shaft. Static hold: the
+    // gear carries F = 0.5 at gain n, so the shaft sags n F / K = 0.125 rad. Driving at u = 2 rad/s: the output turns
+    // at n u, and the shaft lags (D u + n F / eta) / K. Settling: J + I n^2 = 7.25e-4 with K = 1, D = 0.05 is damped at
+    // zeta 0.93 (decay about 34 1/s); 3 s leave e^-100.
+    const double n = 0.25;
+    const double f = 0.5;
+    const double k = 1.0;
+    const double d = 0.05;
+    const double u = 2.0;
+    {
+        NativeAdapter adapter;
+        load(adapter, gear());
+        const double lag = drive_lag(adapter, 0.0, k, d, 3000, {0.0, -f});
+        INFO("static lag " << lag << " closed form " << n * f / k);
+        CHECK(lag >= n * 0.9 * f / k);
+        CHECK(lag <= n * f / (0.9 * k));
+    }
+    NativeAdapter adapter;
+    load(adapter, gear());
+    const double lag = drive_lag(adapter, u, k, d, 3000, {0.0, -f});
+    INFO("driving lag " << lag << " closed form " << ((d * u) + (n * f / 0.9)) / k);
+    CHECK_THAT(lag, WithinRel(((d * u) + (n * f / 0.9)) / k, 1e-6));
+    CHECK_THAT(adapter.outputs().bodies[1].angular_velocity[2], WithinRel(n * u, 1e-6));
 }
 
 // ===== Payloads and mid-run changes (PHY-006, PHY-008) ===================

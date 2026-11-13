@@ -12,7 +12,10 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+import numpy as np
+from numpy.typing import NDArray
 from pydantic import ValidationError
+from scipy import linalg  # type: ignore[import-untyped]
 
 from mechsim.builder import mass, structure
 from mechsim.builder.result import LumpedRecord
@@ -45,6 +48,52 @@ FLOOR_MATERIAL = "floor"
 LUMPED_SUFFIX = "_beam"
 TRANSMISSION_TYPES = ("belt_pulley", "lead_screw")
 LUMPED_ROOTS = ("clamped", "pinned")
+
+
+def clamped_chain(
+    segments: int, length: float, flexural_rigidity: float, mass_per_length: float
+) -> tuple[NDArray[np.float64], NDArray[np.float64], NDArray[np.float64], NDArray[np.float64]]:
+    """The engine's clamped-clamped chain (ENG-022, ruling 16) in its hinge angles: the roller layout (springs E I / l
+    at the segment midpoints, a half segment at the far end) with the far end held in place and in rotation (the
+    engine's hinge about the member axis), so the angles allowed are those with zero end deflection sum (x_j <
+    L) and zero end slope sum. Returns stiffness, mass, the allowed basis and the midspan influence row."""
+    chain = structure.chain_layout("clamped", "roller", segments, length)
+    segment = length / segments
+    count = len(chain.hinges)
+    stiffness = np.eye(count) * (flexural_rigidity / segment)
+    inertia = np.zeros((count, count))
+    for index, (start, span) in enumerate(zip(chain.starts, chain.spans, strict=True)):
+        centre = start + 0.5 * span
+        lever = np.array([centre - chain.hinges[j] if j <= index else 0.0 for j in range(count)])
+        turn = np.array([1.0 if j <= index else 0.0 for j in range(count)])
+        body = mass_per_length * span
+        inertia += body * np.outer(lever, lever) + body * span * span / 12.0 * np.outer(turn, turn)
+    end = np.array([length - hinge for hinge in chain.hinges])
+    basis = linalg.null_space(np.vstack([end, np.ones(count)]))
+    midspan = np.array([max(0.5 * length - hinge, 0.0) for hinge in chain.hinges])
+    return stiffness, inertia, basis, midspan
+
+
+def clamped_calibration(
+    segments: int,
+    length: float,
+    flexural_rigidity: float,
+    mass_per_length: float,
+    load: float,
+    deflection: float,
+    frequency_hz: float,
+) -> CalibrationScales:
+    """BLD-019 on a clamped-clamped member (ruling 32, N >= 16): E I scaled so the chain's midspan deflection under
+    `load` equals `deflection`, then the mass so its first mode equals `frequency_hz` (as `structure.calibrate`)."""
+    stiffness, inertia, basis, midspan = clamped_chain(segments, length, flexural_rigidity, mass_per_length)
+    reduced = basis.T @ stiffness @ basis
+    angles = basis @ np.linalg.solve(reduced, load * (basis.T @ midspan))
+    stiffness_scale = float(midspan @ angles) / deflection
+    values = linalg.eigh(stiffness_scale * reduced, basis.T @ inertia @ basis, eigvals_only=True)
+    omega = math.sqrt(max(float(values[0]), 0.0))
+    return CalibrationScales(stiffness_scale, (omega / (2.0 * math.pi * frequency_hz)) ** 2)
+
+
 LUMPED_ENDS = ("free", "roller", "clamped")
 
 
@@ -497,6 +546,19 @@ def _flexible(
             f"{minimum} for supports ({root}, {end}) (the 2 percent tolerance holds for N >= 8, and N >= 16 "
             "clamped-clamped, rulings 20 and 32; BLD-018, BLD-019)"
         )
+    elif isinstance(calibration, Calibration) and root == "clamped" and end == "clamped":
+        scales = clamped_calibration(
+            segments,
+            constants["length"],
+            constants["elastic_modulus"] * constants["second_moment_of_area"],
+            constants["density"] * constants["area"],
+            _f(calibration.load),
+            _f(calibration.deflection),
+            _f(calibration.first_natural_frequency),
+        )
+        lumped_constants["elastic_modulus"] *= scales.stiffness_scale
+        lumped_constants["density"] *= scales.mass_scale
+        collector.notes.extend(structure.approximation_notes(body.name, scales))
     elif isinstance(calibration, Calibration) and not lumped_form:
         collector.notes.append(
             f"flexible body '{body.name}': supports ({root}, {end}) have no calibration chain layout yet (owed, "
