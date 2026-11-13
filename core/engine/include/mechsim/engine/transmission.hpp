@@ -129,7 +129,7 @@ struct TransmissionCoupling {
     double n_eff = 0.0;   // (1 - slip) n
     double gain = 0.0;              // g: reaction -g F at the step start (0 when lowering a locked screw)
     double stiffness_gain = 0.0;    // g_k, the shaft entry of a in K and D: n (0 while lowering a locked screw)
-    double shaft_damping = 0.0;     // c on the shaft below omega_s, N m s/rad
+    double shaft_damping = 0.0;     // c = |alpha| n |F| / max(|omega|, omega_s) on the shaft, N m s/rad
     double shaft_torque = 0.0;      // -g F, applied to the shaft (output.shaft_load_torque reads 0 when Locked)
     bool lock = false;              // self-locking screw: one-sided velocity row on the shaft
     double lock_sign = 0.0;         // s: the row keeps s omega >= 0

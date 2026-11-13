@@ -500,7 +500,7 @@ TEST_CASE("native adapter: a drive law handed over between ticks adds no energy 
     // (f_k - f_k-1) (V1 - V0)(q) at the substep's start state, and V1 - V0 < 0 while the shaft stays within
     // sqrt(K0 / K1) |r1 - r0| = 0.29 rad of r1 (it moves by microradians), so
     // E(end of B) + V1(end of B) <= E(end of A) + V0(end of A). From then on law B is fixed: E + V1 never rises.
-    // A rest interpolated from r0 under the stiffness K1 instead stores K1 (0.9 |r1 - r0|)^2 / 2 = 3.6e4 J in one
+    // A rest interpolated from r0 under the stiffness K1 instead stores K1 (0.9 |r1 - r0|)^2 / 2 = 3.0e4 J in one
     // substep. The carriage is pushed into its bound by gravity and the belt throughout, and the anticipatory limit
     // row (ruling 43) lands it on the bound exactly: x == 0 bitwise every tick. Round-off: energies of order 1 J
     // carry about 1e-15 relative per step, so 1e-9 J is far above it and far below any injection.
