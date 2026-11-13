@@ -95,3 +95,4 @@ type live in the root `CLAUDE.md` dispatch table once measured.
 | 2026-11-13 | M3-I4 integrity defects from G15 and the gantry review's fixes (wip/05-x1a 4bd6609) | module-writer (opus) | 324K | 145 calls |
 | 2026-11-13 | M3-I4b moment under a carried load, yielded spring (wip/05-x1a da8c5bd); ACC-025 a-priori bound not reached | module-writer (opus) | 259K | 101 calls, over the 80 cap |
 | 2026-11-13 | M3 review: I4 and I4b (wip/05-x1a da8c5bd): accept with follow-ups, 4 medium, 4 minor; ruling 72 | Fable review (general-purpose), resumed | ~60K | 9 calls |
+| 2026-11-13 | M3-E7d carried mass on the member's inertia (wip/05-e7 63cd21b): G15's rail pumping gone (16.8 to 1.32 mm) | module-writer (opus) | 298K | 116 calls |
