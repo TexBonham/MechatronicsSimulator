@@ -11,6 +11,7 @@
 
 #include "bindings.hpp"
 #include "factories.hpp"
+#include "mechsim/engine/member_loads.hpp"
 #include "mechsim/kernel/physics_adapter.hpp"
 #include "mechsim/kernel/physics_types.hpp"
 #include "mechsim/kernel/time.hpp"
@@ -80,6 +81,7 @@ private:
 
 void bind_types(py::module_& m) {
     m.attr("kWorldBody") = kernel::kWorldBody;
+    m.attr("CARRIED_RATIO_LIMIT") = engine::carried_ratio_limit;
     py::class_<kernel::Wrench>(m, "Wrench")
         .def(py::init<>())
         .def_readwrite("moment", &kernel::Wrench::moment)
@@ -253,18 +255,23 @@ void bind_adapter(py::module_& m) {
             "A copy: [(joint, decay)] in joint order.");
 
     py::class_<physics::native::CarriedRecord, py::smart_holder>(
-        m, "CarriedRecord", "The native run's carried-joint deflection and lag stability per member, shared (ENG-052).")
+        m, "CarriedRecord",
+        "The native run's carried-joint deflection, lag stability, work and validity per member, shared (ENG-052).")
         .def(
             "values",
             [](const physics::native::CarriedRecord& record) {
-                std::vector<std::tuple<double, double, double, double>> out;
+                std::vector<std::tuple<double, double, double, double, double, double, double, double, bool, double>>
+                    out;
                 out.reserve(record.members.size());
                 for (const physics::native::CarriedMemberRecord& r : record.members) {
-                    out.emplace_back(r.deflection, r.lag_ratio, r.lag_omega_h, r.lag_factor);
+                    out.emplace_back(r.deflection, r.lag_ratio, r.lag_omega_h, r.lag_factor, r.work, r.peak_force,
+                                     r.peak_quasi_static, r.peak_ratio, r.unresolved, r.unresolved_time);
                 }
                 return out;
             },
-            "A copy: [(largest deflection m, lag ratio r, omega h, largest per-step factor)] per member.");
+            "A copy: [(largest deflection m, lag ratio r, omega h, largest per-step factor, the pair's work J, "
+            "largest rerouted force N, largest quasi-static deflection m, largest dynamic ratio, unresolved, "
+            "unresolved from s)] per member (ENG-052, brief M3-E7c).");
 
     py::class_<physics::native::NativeAdapter, PhysicsAdapter, py::smart_holder>(
         m, "NativeAdapter", "The own engine behind the PhysicsAdapter interface (PHY-020); load the native translation.")

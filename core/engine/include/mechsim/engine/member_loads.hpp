@@ -47,7 +47,70 @@ struct MemberOutput {
     // Largest |deflection| of a carried joint's foot point this step (ENG-052): the position error the carried
     // joint ignores by moving with the parent instead of riding the deflected member; 0 without carried joints. m
     double carried_deflection = 0.0;
+    // The pair's work and the validity of the one-way result (ENG-052, brief M3-E7c; derivation under Work and
+    // validity below), all 0 / false without carried joints.
+    double carried_work = 0.0;               // W, the pair's net work on the member since load, J
+    double carried_force = 0.0;              // largest |F_y| of the member's carried joints this step, N
+    double peak_carried_force = 0.0;         // the largest carried_force since load, N
+    double quasi_static_deflection = 0.0;    // largest |u_qs| of the member's carried joints this step, m
+    double peak_quasi_static = 0.0;          // the largest quasi_static_deflection since load (the ratio's base), m
+    double dynamic_ratio = 0.0;              // carried_deflection / peak_quasi_static (0 while that is 0)
+    double peak_ratio = 0.0;                 // the largest dynamic_ratio since load
+    bool unresolved = false;                 // dynamic_ratio has exceeded carried_ratio_limit at some step
+    double unresolved_time = 0.0;            // start time of the first such step, s (0 while resolved)
 };
+
+// Work and validity (ENG-052, brief M3-E7c, ruling 69 A1).
+//
+// Work. In step n the pair puts w_a F y and w_a M z on the body of load node a (a = k, k + 1) at the node's point
+// p_a and the exact opposite on the parent at p_a (add_carried_wrenches), at the step's start configuration q_n. The
+// scheme's displacement over the step is h v_{n+1} (q_{n+1} - q_n for every joint but a quaternion's), so the pair's
+// work in the step is its generalized force there times h v_{n+1}:
+//   W_n = h sum_a w_a [F y . (J_a(p_a) - J_P(p_a)) + M z . (Jw_a - Jw_P)] v_{n+1},
+// the node forces times the node displacements minus the same forces times the parent's displacement at the same
+// points (J the point Jacobians, Jw the angular ones, at q_n); carried_work = sum over the run of W_n over the
+// member's carried joints. It is Q_n . (q_{n+1} - q_n) of the energy inequality below, so it is exactly the energy
+// the pair puts into the system. Its rows are the rate of the published deflection d(s) = (w_k p_k + w_{k+1} p_{k+1}
+// - p) . y, so for a constant F (to first order in the member's rotations) the sum telescopes: W = F (d_end -
+// d_start). A static load P that deflects the member by u from straight has done W = P u: twice the elastic energy P
+// u / 2 the member stores at rest; the other half went into the transient and was dissipated (node damping, and
+// backward Euler's own loss). On the source side the carried body loses none of it: it does not descend with the
+// member (ruling 67's review), which is why W, not the elastic energy, is the figure to compare with the energy the
+// carried system has to give.
+//
+// Quasi-static deflection. At load (with the stability check) the engine takes the M-normalised elastic modes phi_p,
+// omega_p of K, M on the loop null space and, per member, the rows g_a = y . (J_a(p_a) - J_P(p_a)) and
+// r_a = z . (Jw_a - Jw_P) of its load nodes. The static compliances on the nodes are
+//   C_f(a, b) = sum_p (g_a phi_p)(g_b phi_p) / omega_p^2,   C_m(a, b) = sum_p (g_a phi_p)(r_b phi_p) / omega_p^2
+// (a self-equilibrated pair has no rigid-mode component; the chain's own compliance, so the chain's spatial
+// discretisation error is in both the deflection and u_qs and cancels in their ratio), and the deflection under the
+// model's gravity from straight, d_g(a) = sum_p (g_a phi_p)(phi_p^T Q_g) / omega_p^2 (inertia relief included on a
+// free parent; the member's own weight sags it without any carried load). Each step, with e_i the lever weights of
+// joint i over the nodes (w_i on k_i, 1 - w_i on k_i + 1) and F_j, M_j the loads applied this step, joint i's
+//   u_qs,i = e_i . d_g + sum_j (e_i^T C_f e_j F_j + e_i^T C_m e_j M_j),
+// the deflection the member would settle to under this step's loads held constant; quasi_static_deflection is the
+// largest |u_qs,i| of the member, peak_quasi_static the largest since load. Linear at the load configuration: the
+// compliance is in the member frame, so a parent's rigid motion does not change it.
+//
+// Validity. A linear undamped member under a load applied no faster than suddenly deflects at most twice the
+// quasi-static value: for one mode, u = u_s (1 - cos omega t). The scheme keeps the bound exactly: backward Euler on
+// a step load gives e_n = u_n - u_s with (1 + x^2) e_{n+1} - 2 e_n + e_{n-1} = 0, e_0 = -u_s, e_1 = -u_s / (1 + x^2),
+// whose solution is e_n = -u_s rho^n cos(n theta), rho = cos theta = (1 + x^2)^(-1/2): |e_n| < u_s, u_n < 2 u_s. A
+// load at one joint, measured at the same joint, gives every mode a positive share (g phi)^2 / omega^2 of u_qs, so
+// the sum of the modes' step responses is below 2 u_qs as well (a lagged load is the same load one step late). A
+// deflection above twice the largest quasi-static deflection so far therefore means the carried system drives the
+// member near one of its own frequencies (resonant growth, u ~ F_0 omega t / (2 k), passes 2 F_0 / k at
+// omega t ~ 4): exactly where the pair's missing back-reaction would detune or absorb it, so the one-way result is
+// not valid. dynamic_ratio = carried_deflection / peak_quasi_static; the member is unresolved from the first step
+// whose ratio exceeds carried_ratio_limit = 2 (1 + carried_validity_margin). The margin, 2 percent, is the chain's
+// discretisation tolerance (ENG-022): the linear chain under the scheme stays below 2 exactly, so the margin covers
+// what the linear chain at the load configuration does not, the geometric nonlinearity (relative O(theta^2), below 2
+// percent for member rotations below 0.14 rad) and a load moving along the member, and keeps the flag from firing on
+// round-off at a ratio of exactly 2. Not covered by the bound (the rule applies, the theorem does not): a moment and
+// a force at the same joint with modal shares of opposite sign, and several carried joints on one member (a joint's
+// deflection under another joint's load). The flag is information: nothing is clamped and the dynamics do not change.
+inline constexpr double carried_validity_margin = 0.02;
+inline constexpr double carried_ratio_limit = 2.0 * (1.0 + carried_validity_margin);
 
 // poses at the configuration the reactions were computed at (the step's start state, as record_outputs uses).
 [[nodiscard]] MemberOutput member_end_loads(const LumpedBeam& beam, const std::vector<BodyOutput>& poses,

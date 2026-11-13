@@ -215,6 +215,11 @@ private:
     [[nodiscard]] std::vector<spatial::Vector6d> static_carried_loads(const Kinematics& kin) const;
     void prepare_carried(const State& before, double h);
     void check_carried_stability(const State& before, double h);
+    void compute_member_compliance(const Kinematics& kin, const Eigen::MatrixXd& modes,
+                                   const Eigen::VectorXd& omega_squared);
+    void record_carried_validity(const Kinematics& kin, const std::vector<CarriedPair>& pairs, const State& before,
+                                 const State& after, double h);
+    [[nodiscard]] Eigen::MatrixXd angular_jacobian(const Kinematics& kin, Eigen::Index body) const;
     void record_members_and_ropes(const State& before, const State& after, double h);
     void check_constraint_change(Eigen::Index constraint) const;
     ModelChangeEvent release_load(LoadSource source, Eigen::Index target, double time);
@@ -278,6 +283,15 @@ private:
     std::vector<spatial::Vector6d> carried_load_;     // per carried_, world-aligned [M about r_c; F] on the member
     bool carried_ready_ = false;                      // carried_load_ holds a reaction (else computed at step start)
     std::vector<CarriedLoadOutput> carried_stability_;  // per carried_, the lag's stability fields at load
+    // Per member, at load (member_loads.hpp, Work and validity): node compliances and gravity deflection, empty for
+    // a member that carries nothing; and the running work and validity state.
+    struct MemberCompliance {
+        Eigen::MatrixXd force;    // C_f, m/N
+        Eigen::MatrixXd moment;   // C_m, m/(N m)
+        Eigen::VectorXd gravity;  // d_g, m
+    };
+    std::vector<MemberCompliance> member_compliance_;
+    std::vector<MemberOutput> member_validity_;  // the running fields of MemberOutput, per member
     // Written by the const step hooks for step(); single-threaded by ENG-023.
     mutable std::vector<Eigen::VectorXd> impulse_;
     mutable std::vector<ConstraintError> error_;

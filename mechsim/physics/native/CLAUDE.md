@@ -11,6 +11,7 @@ Stepping is `core/physics/native/`. The only Python importer of `mechsim._core_e
 | `supported_elements()`, `SUPPORTED_ELEMENTS` | Mirrors `supported_kinds` in `core/physics/native/src/native_adapter.cpp` (test-checked) |
 | `element_kinds(model)` | Kinds present, written as `elements` |
 | `driven_mode_lines(model, decays)` | One line per driven joint from the run's largest scheme decay pi x (`NativeAdapter.driven_scheme_decay()`), `mode_text(x)`; `CoreDriver` appends them at the end of a native run (rulings 44, 45) |
+| `carried_member_lines(model, values)`, `carried_validity_lines(model, values)` | Per carrying member from `CarriedRecord.values()` (10-tuples): the deflection and lag line; the work, peak force, quasi-static deflection and ratio line against `CARRIED_RATIO_LIMIT` (2.04, = `core.CARRIED_RATIO_LIMIT`), plus the not-valid line from the flagged time when unresolved (ENG-052, PHY-035, ruling 69) |
 | Creep line | Per transmission with efficiency below one: omega_s = `SLIP_VELOCITY`, tau forward and backward as formulas in F, K, D_d, values at the static load (prismatic driven joint: subtree mass times gravity along the world axis) when nonzero; self-locking screw: sag band [0, n F / K] (rulings 47, 48) |
 | `member_node_names(model)` | Names of the member node poses after the neutral bodies: `<member>.node<k>`, chain root to tip (pinned root: pin segment first) |
 | `output_per_input(transmission)` | n: r, lead / 2 pi, 1 / ratio (signed) |

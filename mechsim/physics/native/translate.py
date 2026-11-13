@@ -64,6 +64,9 @@ WELD_FREQUENCY = 1000.0
 SNATCH_LIMIT = 0.2
 MODE_RESOLUTION = 0.2
 CLAMPED_MIN_SEGMENTS = 8
+# carried_ratio_limit of core/engine member_loads.hpp: 2 (1 + 2 percent), the bound of a load applied no faster than
+# suddenly plus the chain's discretisation tolerance (ENG-052, brief M3-E7c); bound as core.CARRIED_RATIO_LIMIT.
+CARRIED_RATIO_LIMIT = 2.04
 
 
 class UnmappableElementError(ValueError):
@@ -512,14 +515,15 @@ def _creep_line(transmission: Any, model: PhysicsModel, driven: Body) -> str | N
     return text
 
 
-def carried_member_lines(model: PhysicsModel, values: Sequence[tuple[float, float, float, float]]) -> tuple[str, ...]:
+def carried_member_lines(model: PhysicsModel, values: Sequence[tuple[float, ...]]) -> tuple[str, ...]:
     """One line per carrying member at the end of a native run (ENG-052, PHY-035): the run's largest deflection at a
     carried joint (the position error the carried bodies ignore) and the lag's stability at load, (deflection, r,
-    omega h, factor) per member in document order."""
+    omega h, factor, ...) per member in document order (`CarriedRecord.values()`)."""
     lines: list[str] = []
-    for member, (deflection, ratio, omega_h, factor) in zip(model.lumped_members, values, strict=True):
+    for member, value in zip(model.lumped_members, values, strict=True):
         if len(member.carries) == 0:
             continue
+        deflection, ratio, omega_h, factor = value[0], value[1], value[2], value[3]
         lag = "parent fixed across the member, the lagged load is feed-forward"
         if factor > 0.0:
             boundary = 0.5 * (1.0 + omega_h * omega_h)
@@ -531,6 +535,36 @@ def carried_member_lines(model: PhysicsModel, values: Sequence[tuple[float, floa
             f"lumped member '{member.name}': largest deflection at a carried joint over the run {deflection:.6g} m, "
             f"the position error load-path coupling ignores; {lag} (ENG-052, PHY-035)"
         )
+    return tuple(lines)
+
+
+def carried_validity_lines(model: PhysicsModel, values: Sequence[tuple[float, ...]]) -> tuple[str, ...]:
+    """Per carrying member at the end of a native run (ENG-052, PHY-035, brief M3-E7c, ruling 69): the pair's net work
+    on the member and the largest dynamic ratio against the limit, and, when the engine flagged the member, a line that
+    the one-way carried-load result is not valid for it from the flagged time and why. `CarriedRecord.values()` per
+    member in document order: (..., work J, largest force N, largest quasi-static deflection m, largest ratio,
+    unresolved, unresolved from s)."""
+    lines: list[str] = []
+    for member, value in zip(model.lumped_members, values, strict=True):
+        if len(member.carries) == 0:
+            continue
+        work, force, quasi_static, ratio = value[4], value[5], value[6], value[7]
+        unresolved, since = bool(value[8]), value[9]
+        lines.append(
+            f"lumped member '{member.name}': the carried load-path pair did {work:.6g} J of net work on the member "
+            f"over the run (energy the carried bodies never lose: they do not ride the deflection); largest rerouted "
+            f"force {force:.6g} N, largest quasi-static deflection {quasi_static:.6g} m, largest dynamic ratio "
+            f"(carried deflection over the largest quasi-static deflection so far) {ratio:.6g} against the limit "
+            f"{CARRIED_RATIO_LIMIT:.6g} (ENG-052, PHY-035)"
+        )
+        if unresolved:
+            lines.append(
+                f"lumped member '{member.name}': the one-way carried-load result is not valid from t = {since:.6g} s: "
+                f"the member deflects more than {CARRIED_RATIO_LIMIT:.6g} times the largest quasi-static deflection "
+                f"of its carried loads, more than any load applied no faster than suddenly can cause, so the carried "
+                f"system drives it near its own frequency, where the missing back-reaction of the one-way coupling "
+                f"matters; full coupling is milestone 4 (ruling 69, ENG-052)"
+            )
     return tuple(lines)
 
 
