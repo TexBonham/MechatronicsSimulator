@@ -18,11 +18,13 @@ per-step joint drive, zero-stretch coupling fix; ctest debug-sanitize 491, Pytho
 row), N4 (17f3d18: adapter follow-up, run-time mode lines, substep rest interpolation, node pose series; ctest
 debug-sanitize 545, Python 4387 passed and 107 xfail). X1b with its fix round X1c (e83666a: structural acceptance
 on native, node-pose deflection; ctest debug-sanitize 546, Python 4461 passed and 100 xfail). Integration branch `wip/05-x1a` (not merged to the round branch
-yet): X1a's gantry work, E6 (lift jump fix, ruling 66), I3 with I3b (integrity and scoring fixes, swing angle),
-E7 (moving load on a flexible member, rulings 63, 65, 67); verified there at ctest debug-sanitize 552, Python 4535
-passed with 3 failures that only list shipped cases. In flight: E7b (carried-load stability, `wip/05-e7`), X1d
-(finish G12 and G15, on `wip/05-x1a`). Next: land the integration branch, X2, gate (the MuJoCo removal commit
-follows the owner's retirement decision). Briefs of record
+yet): X1a and X1d (gantry G12, G15 on native, rope payload, rail frames, carried rails), E6 (ruling 66), I3 and I3b,
+E7 with E7b, E7c, E7d (moving load on a flexible member: load path, stability check, validity flag, carried mass
+on the member; rulings 63, 65, 67 to 70), I4 and I4b (integrity: peak moment from node springs and under a carried
+load, design-load and evaluation-start case fields; rulings 71, 72). With E7d the gantry's rail pumping at the stop
+is gone (rail_x peak 16.8 to 1.32 mm, no flag). In review: E7c with E7d. In flight: I5 (integrity follow-ups,
+not-valid results). Next: X1f (final G12 and G15 numbers, ACC-025 bound, baseline), land the integration branch,
+X2, gate (the MuJoCo removal commit follows the owner's retirement decision). Briefs of record
 in `docs/briefs/round-05/`; worktrees `../MechatronicsSimulator-05-<letter>`. Round 4's rulings and gate report
 are below for reference; round 4's cost rows are in `docs/cost-log-archive.md`.
 
