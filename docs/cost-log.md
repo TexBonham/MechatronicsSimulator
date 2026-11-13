@@ -82,3 +82,4 @@ type live in the root `CLAUDE.md` dispatch table once measured.
 | 2026-11-13 | M3-I3 invariant audit: pass, 2 minor | invariant-auditor (sonnet) | 48K | 4 calls |
 | 2026-11-13 | M3-E6 lift jump on a stop at a limit: adapter spring-law blend per substep, engine efficiency loss as implicit damping (wip/05-e6 715dab3) | module-writer (opus) | 211K | 97 calls |
 | 2026-11-13 | M3 review: E6 (wip/05-e6 715dab3): accept, 4 minor; ruling 66 amends 47 | Fable review (general-purpose), resumed | ~50K | 7 calls |
+| 2026-11-13 | M3-I3b swing angle and runner fixes (wip/05-i3 87621f6) | module-writer (opus) | 183K | 119 calls, over the 70 cap |
