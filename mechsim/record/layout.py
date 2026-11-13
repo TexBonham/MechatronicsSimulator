@@ -91,6 +91,16 @@ FIXED_SERIES: tuple[tuple[str, str, str, str], ...] = (
 )
 
 
+# Body series (one column per published body): the driver may name their columns, the neutral bodies then the
+# native adapter's member node bodies `<member>.node<k>` (PHY-003, REC-018); unnamed when it does not.
+BODY_SERIES: tuple[str, ...] = (
+    "physics/bodies/position",
+    "physics/bodies/orientation",
+    "physics/bodies/angular_velocity",
+    "physics/bodies/linear_velocity",
+)
+
+
 # Index-column series (one column per joint coordinate, transmission, payload, structural member or rope, model order)
 # that take per-column names and units from the driver (REC-018, REC-004, REC-026).
 COLUMN_SERIES: tuple[str, ...] = (

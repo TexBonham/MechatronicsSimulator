@@ -39,6 +39,7 @@ from mechsim.physics.mujoco.translate import UnmappableElementError
 from mechsim.physics.native.prepare import prepare_model as prepare_native_model
 from mechsim.physics.native.translate import StartStateError as NativeStartStateError
 from mechsim.physics.native.translate import UnmappableElementError as NativeUnmappableElementError
+from mechsim.physics.native.translate import driven_mode_lines, member_node_names
 from mechsim.physics.neutral import PhysicsModel
 from mechsim.record.archive import RunEnd, RunFault, RunIdentity, repository_commit, tool_version
 from mechsim.record.archive import write_archive as write_record_archive
@@ -280,6 +281,10 @@ ROPE_SNAP_OFF = (
     "integrity tier 2 rope snap: off, no rope_snap entry in integrity.yaml (INT-031, ruling 53): the breaking "
     "tension of rope '{}' is not enforced during the run"
 )
+BRIDGE_NODE_POSES = (
+    "member node poses: none recorded on the mujoco bridge, which builds members rigid (BLD-033, ruling 29); the body "
+    "series name the neutral bodies only, the native adapter adds <member>.node<k> (PHY-003)"
+)
 
 
 class CoreDriver:
@@ -490,6 +495,9 @@ class CoreDriver:
             party.inputs = ["signals.physics_inputs"]
         if tier1 is not None and tier1.yield_offset:
             party.model_requests = MODEL_REQUESTS
+        decay_record = None
+        if native:
+            decay_record = adapter.scheme_decay_record()
         physics = core.PhysicsParty(adapter, party)
         self._schedule_physics(physics, model)
         kernel.register_party(physics)
@@ -516,7 +524,15 @@ class CoreDriver:
         for subscriber in self._subscribers:
             sink.subscribe(subscriber)
         report = kernel.run(core.EndCondition(_seconds(stop, config.base_rate)), sink)
-        recorder = Recorder(config.base_rate, model_columns(model, sorted(payloads)))
+        bodies = tuple(body.name for body in model.bodies)
+        if native:
+            bodies = (*bodies, *member_node_names(model))
+        if decay_record is not None:
+            decays = [(int(joint), float(decay)) for joint, decay in decay_record.values()]
+            self.approximations = (*self.approximations, *driven_mode_lines(model, decays))
+        if not native and self._build is not None and len(self._build.members) > 0:
+            self.approximations = (*self.approximations, BRIDGE_NODE_POSES)
+        recorder = Recorder(config.base_rate, model_columns(model, sorted(payloads)), bodies)
         frames = member_frames(model)
         if native:
             frames = ()

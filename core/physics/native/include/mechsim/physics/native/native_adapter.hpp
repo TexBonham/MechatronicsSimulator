@@ -25,6 +25,19 @@ struct ModelChangeRecord {
     double time = 0.0;  // s
 };
 
+// The largest scheme decay pi omega h the engine published for one driven joint over the run (rulings 44, 45): the
+// driven mode is known only at run time, since the drive stiffness is the controller's. joint is the neutral index.
+struct DrivenSchemeDecay {
+    std::size_t joint = 0;
+    double decay = 0.0;
+};
+
+// The run's DrivenSchemeDecay values, shared: a caller that takes it before handing the adapter to a party reads the
+// numbers after the run whatever has become of the adapter (no handle to the adapter itself).
+struct DrivenSchemeDecayRecord {
+    std::vector<DrivenSchemeDecay> values;
+};
+
 // Own-engine adapter (PHY-020, ADR 0013, ADR 0014): MultibodyProvider stepped by SemiImplicitEuler. load() parses
 // the engine model document mechsim/physics/native/translate.py writes into PreparedModel::neutral_model_json;
 // engine_artifact must be empty. Every engine error ends the run as AdapterError (PHY-009, invariant 7).
@@ -64,6 +77,10 @@ public:
     [[nodiscard]] std::vector<std::vector<double>> rope_segment_tensions() const;
     // Per rope after the last step: the load-end segment's tension, N (PHY-004).
     [[nodiscard]] std::vector<double> rope_load_end_tensions() const;
+    // Per joint that carried an enabled drive since load, in joint order: the largest scheme decay of any engine step.
+    [[nodiscard]] std::vector<DrivenSchemeDecay> driven_scheme_decay() const;
+    // The same values as a shared record that outlives the adapter; reset by each load.
+    [[nodiscard]] std::shared_ptr<const DrivenSchemeDecayRecord> scheme_decay_record() const;
 
 private:
     struct Engine;
@@ -71,9 +88,12 @@ private:
     [[nodiscard]] Engine& engine(const char* operation) const;
     static void apply_inputs(Engine& e, const kernel::PhysicsInputs& inputs);
     static void clear_drives(Engine& e);
+    static void set_substep_rests(Engine& e, int sub);
+    static void keep_scheme_decay(Engine& e);
 
     std::vector<std::string> supported_;
     std::unique_ptr<Engine> engine_;
+    std::shared_ptr<DrivenSchemeDecayRecord> decay_record_ = std::make_shared<DrivenSchemeDecayRecord>();
     kernel::PhysicsOutputs empty_;
 };
 

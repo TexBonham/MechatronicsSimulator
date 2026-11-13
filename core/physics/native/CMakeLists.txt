@@ -16,7 +16,7 @@ add_executable(mechsim_physics_native_tests
 )
 target_include_directories(mechsim_physics_native_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
 target_link_libraries(mechsim_physics_native_tests PRIVATE
-    mechsim_physics_native mechsim_warnings Catch2::Catch2WithMain)
+    mechsim_physics_native mechsim_warnings Eigen3::Eigen Catch2::Catch2WithMain)
 catch_discover_tests(mechsim_physics_native_tests TEST_PREFIX "native.")
 catch_discover_tests(mechsim_physics_native_tests TEST_SPEC "[reference]" TEST_PREFIX "reference.native."
     PROPERTIES LABELS reference)
