@@ -433,6 +433,84 @@ def _subtree_mass(model: PhysicsModel, root: str) -> float:
     return total
 
 
+def _rotate(q: Sequence[float], v: Sequence[float]) -> tuple[float, float, float]:
+    w, x, y, z = q
+    tx = 2.0 * (y * v[2] - z * v[1])
+    ty = 2.0 * (z * v[0] - x * v[2])
+    tz = 2.0 * (x * v[1] - y * v[0])
+    return (
+        v[0] + w * tx + (y * tz - z * ty),
+        v[1] + w * ty + (z * tx - x * tz),
+        v[2] + w * tz + (x * ty - y * tx),
+    )
+
+
+def _static_load(model: PhysicsModel, driven: Body) -> float | None:
+    """The weight the driven joint carries in the reference configuration, N: for a prismatic joint the subtree mass
+    times gravity along the joint axis in world axes; None for a revolute output (its load torque depends on the
+    pose) or a joint without an axis."""
+    joint = driven.joint
+    if joint is None or joint.type != "prismatic" or joint.axis is None:
+        return None
+    axis = _floats(joint.axis)
+    norm = math.sqrt(sum(value * value for value in axis))
+    axis = [value / norm for value in axis]
+    body: Body | None = driven
+    while body is not None and body.joint is not None:
+        axis = list(_rotate(_floats(body.joint.orientation), axis))
+        body = next((item for item in model.bodies if item.name == body.parent), None)
+    along = sum(float(g) * a for g, a in zip(model.gravity, axis, strict=True))
+    return abs(along) * _subtree_mass(model, driven.name)
+
+
+def _creep_line(transmission: Any, model: PhysicsModel, driven: Body) -> str | None:
+    """The regularised efficiency switch (ruling 47, PHY-031, ruling 44): None at efficiency one; for a self-locking
+    screw the path-dependent sag band of the lock row (ruling 48)."""
+    eta = float(transmission.efficiency)
+    if eta >= 1.0:
+        return None
+    n = abs(output_per_input(transmission))
+    text = (
+        f"transmission '{transmission.name}': efficiency switch regularised below the shaft speed omega_s = "
+        f"{SLIP_VELOCITY} rad/s (ruling 47): a shaft held by a drive K, D_d against an output force F sags exactly "
+        f"n F / K, approached as a creep with tau = (n F (1 / eta - 1) / omega_s + D_d) / K driving the load and "
+        f"(n F (1 - eta) / omega_s + D_d) / K back-driven, n = {n:.6g}, eta = {eta:.6g}"
+    )
+    load = _static_load(model, driven)
+    if load is not None and load > 0.0:
+        forward = n * load * (1.0 / eta - 1.0) / SLIP_VELOCITY
+        backward = n * load * (1.0 - eta) / SLIP_VELOCITY
+        text += (
+            f"; at the static load F = {load:.6g} N: sag {n * load:.6g} / K, tau = ({forward:.6g} + D_d) / K driving, "
+            f"({backward:.6g} + D_d) / K back-driven"
+        )
+    if isinstance(transmission, LeadScrew) and bool(transmission.self_locking):
+        band = "n F / K"
+        if load is not None and load > 0.0:
+            band = f"{n * load:.6g} / K"
+        text += (
+            f"; self-locking: a one-sided row on the shaft holds it (ruling 48), so under a spring drive the sag is "
+            f"path-dependent in [0, {band}]"
+        )
+    return text
+
+
+def driven_mode_lines(model: PhysicsModel, decays: Sequence[tuple[int, float]]) -> tuple[str, ...]:
+    """One line per driven joint from the largest scheme decay pi x the engine published over the run (rulings 44,
+    45): the drive stiffness is the controller's, so the driven mode is known only at run time."""
+    lines: list[str] = []
+    for joint, decay in decays:
+        name = model.bodies[joint].name
+        found = model.bodies[joint].joint
+        if found is not None:
+            name = found.name
+        lines.append(
+            f"driven joint '{name}': drive mode at run time, largest over the run "
+            f"{mode_text(float(decay) / math.pi)} (backward Euler, rulings 44, 45)"
+        )
+    return tuple(lines)
+
+
 def _transmission(
     transmission: Any, model: PhysicsModel, joints: Mapping[str, int], h: float, report: list[str]
 ) -> dict[str, Any]:
@@ -464,6 +542,9 @@ def _transmission(
         f"10); efficiency {float(transmission.efficiency):.6g} both directions; mode on {mode} (backward Euler, "
         "rulings 21, 45)"
     )
+    creep = _creep_line(transmission, model, driven)
+    if creep is not None:
+        report.append(creep)
     return {
         "type": transmission.type,
         "input_body": joints[transmission.shaft_joint],

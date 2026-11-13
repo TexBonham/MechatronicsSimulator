@@ -22,6 +22,7 @@ import numpy as np
 from numpy.typing import NDArray
 
 from mechsim.record.layout import (
+    BODY_SERIES,
     COLUMN_SERIES,
     CONSTRAINT_FORCE,
     CONTACT_ROW,
@@ -287,6 +288,8 @@ def write_archive(
             dataset.attrs["axis"] = series.axis
             if name in (JOINT_FORCE, CONSTRAINT_FORCE):
                 dataset.attrs["counts"] = np.array(series.counts, dtype=np.int64)
+            if name in BODY_SERIES and len(series.names) > 0:
+                dataset.attrs["names"] = np.array(list(series.names), dtype=h5py.string_dtype())
             if name in COLUMN_SERIES:
                 dataset.attrs["names"] = np.array(list(series.names), dtype=h5py.string_dtype())
                 dataset.attrs["units"] = np.array(list(series.units), dtype=h5py.string_dtype())
