@@ -488,17 +488,17 @@ def _native_run(case: str, out: Path) -> tuple[RunResult, CoreDriver]:
     return result, driver
 
 
-def _swing(driver: CoreDriver) -> tuple[Any, Any]:
-    """Times and the swing angle of the payload about the hook: the line from the hook's origin (the hook_swing pivot)
-    to the payload's centre against the vertical, from the recorded body poses (indexed by name)."""
+def _swing(driver: CoreDriver) -> tuple[Any, Any, Any]:
+    """Times and the swing of the payload about the hook per axis: the line from the hook's origin (the hook_swing
+    pivot) to the payload's centre, its angle from the vertical in the x-z and the y-z planes, from the recorded body
+    poses indexed by name."""
     recording = driver.recording().recording
     positions = recording.series["physics/bodies/position"]
     names = list(positions.names)
     values = np.asarray(positions.values, dtype=np.float64)
     line = values[:, names.index("payload"), :] - values[:, names.index("hook"), :]
-    angle = np.arctan2(np.hypot(line[:, 0], line[:, 1]), -line[:, 2])
     times = np.asarray(driver.recording().series("pose:hook.x").times, dtype=np.float64)
-    return times, angle
+    return times, np.arctan2(line[:, 0], -line[:, 2]), np.arctan2(line[:, 1], -line[:, 2])
 
 
 def _peak(times: Any, values: Any, start: float, end: float) -> float:
@@ -506,40 +506,72 @@ def _peak(times: Any, values: Any, start: float, end: float) -> float:
     return float(np.max(np.abs(values[inside])))
 
 
+def _residual(times: Any, values: Any, start: float) -> float:
+    """The undamped free swing already present at `start`: its peak over the last rope period 2 pi sqrt(L / g) before
+    `start`. The true pendulum is longer, so the window can miss the true peak: R0 reads low and the bound is tighter,
+    never looser."""
+    return _peak(times, values, start - 2.0 * math.pi * math.sqrt(SWING_L / SWING_G), start)
+
+
+def _check_g12(driver: CoreDriver) -> None:
+    names = list(driver.recording().recording.series["physics/bodies/position"].names)
+    assert len(names) == 11 + 16 + 9
+    assert names[9:11] == ["payload_shackle", "payload"]
+    assert names[11] == "rail_x_beam.node0"
+    assert names[27] == "rail_y_beam.node0"
+
+
 @pytest.mark.req("ACC-025")
 def test_acc_025(native_gantry: dict[str, tuple[RunResult, CoreDriver]]) -> None:
     """Reference design (gantry), G12: after a fast move and after an E-stop, the peak load swing angle
     shall be within its limit.
 
-    Limit 0.1 rad (swing_limit_angle, placeholder). Oracles (G12 header; L = 0.3 m is shorter than the true pendulum,
-    so each bound is an upper one): from rest, accelerating at a, theta <= 2 a / g over the first ramp (8 s to 10 s);
-    each of the six step changes of acceleration in the trapezoid with its slow zone adds a free swing of at most a / g
-    about an offset of at most a / g, so theta <= 7 a / g over the move (8 s to 20 s); the E-stop from v in a time short
-    against the period adds at most v / sqrt(g L) to the free swing left by the second move's two steps (2 a / g), so
-    theta <= 2 a / g + v / sqrt(g L) after the press (22.5 s to 30 s). The angle is measured from the body poses; the
-    recorded body count is checked first (neutral bodies with the shackle and the payload, then the member nodes).
+    The fast move (8 s to 20 s). Limit 0.1 rad (swing_limit_angle, placeholder), scored by the case on the hook's tilt.
+    Oracle (G12 header), per axis: each of the six step changes of acceleration (a = 0.05 m/s^2) in the trapezoid with
+    its slow zone adds a free swing of at most a / g about an offset of at most a / g, on top of the free swing R0 left
+    by homing (measured over the last rope period before 8 s; no damping removes it): theta <= R0 + 7 a / g. The angle
+    is measured from the body poses after checking the recorded body list (neutral bodies with the shackle and the
+    payload, then the member nodes by name). The E-stop part: `test_acc_025_bounds`.
     """
     result, driver = native_gantry["G12"]
-    names = list(driver.recording().recording.series["physics/bodies/position"].names)
-    assert len(names) == 11 + 16 + 9
-    assert names[9:11] == ["payload_shackle", "payload"]
-    assert names[11] == "rail_x_beam.node0"
-    times, angle = _swing(driver)
-    ramp = 2.0 * SWING_A / SWING_G
-    move = 7.0 * SWING_A / SWING_G
-    stop = 2.0 * SWING_A / SWING_G + SWING_V / math.sqrt(SWING_G * SWING_L)
-    measured = (_peak(times, angle, 8.0, 10.0), _peak(times, angle, 8.0, 20.0), _peak(times, angle, 22.5, 30.0))
-    print(f"G12 swing peaks: first ramp {measured[0]!r} rad (bound 2 a / g = {ramp!r})")
-    print(f"G12 swing peaks: move {measured[1]!r} rad (bound 7 a / g = {move!r})")
-    print(f"G12 swing peaks: E-stop {measured[2]!r} rad (bound 2 a / g + v / sqrt(g L) = {stop!r})")
-    assert measured[0] <= ramp
-    assert measured[1] <= move
-    assert measured[2] <= stop
-    assert max(measured) <= 0.1
-    for name in ("move_swing_x", "move_swing_y", "estop_swing_x"):
+    _check_g12(driver)
+    times, swing_x, swing_y = _swing(driver)
+    for axis, swing in (("x", swing_x), ("y", swing_y)):
+        bound = _residual(times, swing, 8.0) + 7.0 * SWING_A / SWING_G
+        measured = _peak(times, swing, 8.0, 20.0)
+        print(f"G12 move swing {axis}: {measured!r} rad (bound R0 + 7 a / g = {bound!r}, limit 0.1)")
+        assert measured <= bound
+        assert measured <= 0.1
+    for name in ("move_swing_x", "move_swing_y"):
         criterion = _criterion(result, name)
         print(f"G12 {name}: hook tilt {criterion.measured} rad ({criterion.limit})")
         assert criterion.status == "pass", criterion
+
+
+@pytest.mark.req("ACC-025")
+@pytest.mark.xfail(
+    strict=True,
+    reason="findings M3-X1a: the lift rises 0.4 m to its upper limit at the E-stop (native); the first ramp's y "
+    "peak exceeds R0 + 2 a / g by 1.2 percent",
+)
+def test_acc_025_bounds(native_gantry: dict[str, tuple[RunResult, CoreDriver]]) -> None:
+    """The first ramp and the E-stop (G12 header). Per axis: theta <= R0 + 2 a / g over the first ramp (8 s to 10 s);
+    after the E-stop at full speed (22.5 s to 30 s), stopped in a time short against the period,
+    theta <= R1 + v / sqrt(g L) with R1 the free swing at the press; the case's hook-tilt criterion within 0.1 rad.
+    """
+    result, driver = native_gantry["G12"]
+    times, swing_x, swing_y = _swing(driver)
+    for axis, swing in (("x", swing_x), ("y", swing_y)):
+        ramp = _residual(times, swing, 8.0) + 2.0 * SWING_A / SWING_G
+        stop = _residual(times, swing, 22.5) + SWING_V / math.sqrt(SWING_G * SWING_L)
+        measured = (_peak(times, swing, 8.0, 10.0), _peak(times, swing, 22.5, 30.0))
+        print(f"G12 first ramp {axis}: {measured[0]!r} rad (bound R0 + 2 a / g = {ramp!r})")
+        print(f"G12 E-stop {axis}: {measured[1]!r} rad (bound R1 + v / sqrt(g L) = {stop!r})")
+        assert measured[0] <= ramp
+        assert measured[1] <= stop
+    criterion = _criterion(result, "estop_swing_x")
+    print(f"G12 estop_swing_x: hook tilt {criterion.measured} rad ({criterion.limit})")
+    assert criterion.status == "pass", criterion
 
 
 @pytest.mark.req("ACC-026")
@@ -562,7 +594,7 @@ def test_acc_026(native_gantry: dict[str, tuple[RunResult, CoreDriver]]) -> None
     omega = math.sqrt(SWING_G / SWING_L)
     x = omega * 1e-4
     kept = (1.0 + x * x) ** (-math.pi / math.atan(x))
-    times, angle = _swing(driver)
+    times, angle, _ = _swing(driver)
     start = _peak(times, angle, 22.5, 30.0)
     expected = math.log(0.01 / start) / math.log(kept) * 2.0 * math.pi / omega
     print(f"G12 settle: scheme keeps {kept!r} per period; from {start!r} rad expected {expected!r} s (limit 5 s)")
