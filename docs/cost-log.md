@@ -98,3 +98,4 @@ type live in the root `CLAUDE.md` dispatch table once measured.
 | 2026-11-13 | M3-E7d carried mass on the member's inertia (wip/05-e7 63cd21b): G15's rail pumping gone (16.8 to 1.32 mm) | module-writer (opus) | 298K | 116 calls |
 | 2026-11-13 | M3 review: E7c with E7d (wip/05-e7 63cd21b): accept both, 2 major, 4 minor; ruling 73 | Fable review (general-purpose), resumed | ~60K | 7 calls |
 | 2026-11-13 | M3-E7e validity base window, momentum form for the moving carried mass (wip/05-e7 b7221c9); gantry rails now flag during the move, undiagnosed | module-writer (opus) | 265K | 94 calls |
+| 2026-11-13 | M3 review: E7e (wip/05-e7 b7221c9): momentum form accepted, flag definition to change, 2 major, 1 minor; ruling 74 | Fable review (general-purpose), resumed | ~40K | 5 calls |
