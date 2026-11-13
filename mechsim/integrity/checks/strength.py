@@ -8,12 +8,30 @@ from __future__ import annotations
 
 import numpy as np
 
-from mechsim.integrity.beam import member_normal_stress, mount_stress, peak, shear_stress
+from mechsim.integrity.beam import member_normal_stress, mount_stress, peak, shear_stress, unresolved_bound
 from mechsim.integrity.plugin import CheckResult, CheckRow, IntegrityCheck, RunInputs, Spread, not_evaluated
 from mechsim.schema_base import StrictModel
 
 FLAG = "safety_factor_below_minimum"
 ENDS_ONLY = "strength of {member!r}: end moments only, the member has no node poses (INT-005)"
+UNRESOLVED = "unresolved_moment"
+UNRESOLVED_STRESS = "unresolved_stress"
+
+
+def unresolved_note(member: str, bound: float, couple: bool, opposite: bool) -> str:
+    """The line of a strength row read conservatively (INT-005, ruling 72)."""
+    causes = []
+    if couple:
+        causes.append(
+            "a carried couple (C rebuilt from the recorded joint reaction: the engine's carried output s, F . y, "
+            "M_p . z is not recorded)"
+        )
+    if opposite:
+        causes.append("carried loads of opposite sign in one segment, or in neighbouring segments")
+    return (
+        f"strength of {member!r}: conservative, each sample's read adds the bound of what the carried-load rule does "
+        f"not resolve, {' and '.join(causes)}: up to {bound:.6g} N m at the design load (INT-005, ruling 72)"
+    )
 
 
 def judged(inputs: RunInputs, margin: Spread) -> tuple[str, ...]:
@@ -46,11 +64,27 @@ class Strength(IntegrityCheck):
             normal = member_normal_stress(
                 loads, member.section, member, inputs.bodies, inputs.load_factor, member.spring_offsets
             )
+            bound, couple, opposite = unresolved_bound(member, inputs.bodies)
+            detail: tuple[tuple[str, float], ...] = ()
+            if bound.size > 0 and float(bound.max()) > 0.0:
+                bound = bound * inputs.load_factor
+                added = bound * member.section.c_y / member.section.i_z
+                normal = np.concatenate((normal, (normal.max(axis=1) + added)[:, None]), axis=1)
+                detail = ((UNRESOLVED, float(bound.max())), (UNRESOLVED_STRESS, float(added.max())))
+                notes.append(unresolved_note(member.name, float(bound.max()), couple, opposite))
             value, time = peak(normal, inputs.times)
             margin = yield_strength.over(value)
             rows.append(
                 CheckRow(
-                    member.name, "normal_stress", value, time, 1, yield_strength.min, margin, judged(inputs, margin)
+                    member.name,
+                    "normal_stress",
+                    value,
+                    time,
+                    1,
+                    yield_strength.min,
+                    margin,
+                    judged(inputs, margin),
+                    detail,
                 )
             )
             if tier >= 2:

@@ -4,13 +4,14 @@ recorded member end-loads and joint reactions (REC-004)."""
 from __future__ import annotations
 
 import math
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from typing import Any
 
 import numpy as np
 
 from mechsim.integrity.plugin import (
     BodyPoses,
+    CarriedLoad,
     FloatArray,
     IntegrityError,
     JointLoads,
@@ -182,14 +183,18 @@ SPRING_OFFSET_EVENT = "spring_offset spring "
 SPRINGS_PER_JOINT = {"revolute": 1, "prismatic": 1, "planar": 3, "fixed": 0, "spherical": 0, "free": 0}
 
 
-def spring_offsets(model: Any, events: tuple[tuple[int, Any], ...], rows: int) -> dict[str, FloatArray]:
+def spring_offsets(
+    model: Any, events: tuple[tuple[int, Any], ...], rows: int, first_springs: Sequence[int] | None = None
+) -> dict[str, FloatArray]:
     """Each lumped member's node spring offsets (rows, N) rad in effect at each row (INT-028, ruling 35), keyed by
     structural member name, from the recorded `model_change` events `spring_offset spring <i> value <v>` (the adapter's
     listing; the offset is absolute, rest = built + offset, applied before the step whose row lists it, so in effect
     from that row on). Spring order is the native adapter's: every revolute and prismatic DOF (one each) and planar
     joint (three) of the model's bodies in order, then each member's N node springs root to tip
-    (`core/physics/native/CLAUDE.md`). Only members with an offset appear. A spring index outside the members' springs
-    is an `IntegrityError`."""
+    (`core/physics/native/CLAUDE.md`), read from the prepared native document (`first_springs`, each member's first
+    spring, which the driver takes from the document: bodies a case adds at run time shift it, ruling 72); without it
+    from the model's bodies, where a joint type the order does not name is an `IntegrityError`. Only members with an
+    offset appear. A spring index outside the members' springs is an `IntegrityError`."""
     out: dict[str, FloatArray] = {}
     if model is None:
         return out
@@ -203,13 +208,23 @@ def spring_offsets(model: Any, events: tuple[tuple[int, Any], ...], rows: int) -
     first = 0
     for body in getattr(model, "bodies", ()):
         joint = getattr(body, "joint", None)
-        if joint is not None:
-            first += SPRINGS_PER_JOINT[str(joint.type)]
+        if joint is not None and first_springs is None:
+            kind = str(joint.type)
+            if kind not in SPRINGS_PER_JOINT:
+                raise IntegrityError(f"body {body.name!r}: joint type {kind!r} has no place in the spring order")
+            first += SPRINGS_PER_JOINT[kind]
+    lumped_members = tuple(getattr(model, "lumped_members", ()))
+    if first_springs is not None and len(first_springs) != len(lumped_members):
+        raise IntegrityError(
+            f"the native document lists {len(first_springs)} members, the physics model {len(lumped_members)}"
+        )
     blocks: list[tuple[str, int, int]] = []
-    for lumped in getattr(model, "lumped_members", ()):
+    for position, lumped in enumerate(lumped_members):
         name = str(lumped.name)
         if lumped.structural_member is not None:
             name = str(lumped.structural_member)
+        if first_springs is not None:
+            first = int(first_springs[position])
         blocks.append((name, first, int(lumped.segments)))
         first += int(lumped.segments)
     for row, detail in changes:
@@ -312,7 +327,8 @@ def run_inputs(
     events: tuple[tuple[int, Any], ...] = ()
     if raw is not None:
         events = tuple(getattr(raw, "events", ()))
-    offsets = spring_offsets(model, events, rows)
+    offsets = spring_offsets(model, events, rows, getattr(recording, "first_springs", None))
+    carried = carried_loads(model, series, rows, names)
     members: list[MemberInputs] = []
     holder: dict[str, str] = {}
     for member in members_list:
@@ -334,6 +350,7 @@ def run_inputs(
                 mounts=mounts,
                 nodes=chains.get(name),
                 spring_offsets=offsets.get(name),
+                carried=carried.get(name, ()),
             )
         )
     joints = _joints(build, series, holder, rows)
@@ -386,6 +403,42 @@ def _bodies(
             "node bodies (INT-006)"
         )
     return poses
+
+
+def carried_loads(
+    model: Any, series: Mapping[str, Any], rows: int, names: tuple[str, ...] = ()
+) -> dict[str, tuple[CarriedLoad, ...]]:
+    """Per carrying member (structural name) each carried joint's load on the member from the recorded joint
+    reactions (`CarriedLoad`, ruling 72): the reaction's place is the joint's among the model's jointed bodies (bodies
+    a run adds come after them), the child body's place in the recorded poses by the recorder's names when given
+    (`carries` names the carried child bodies). A carried body without a joint reaction is an `IntegrityError` (its
+    couple could not be bounded)."""
+    out: dict[str, tuple[CarriedLoad, ...]] = {}
+    if model is None:
+        return out
+    lumped_members = [lumped for lumped in getattr(model, "lumped_members", ()) if len(getattr(lumped, "carries", ()))]
+    if len(lumped_members) == 0:
+        return out
+    bodies = tuple(model.bodies)
+    order = [str(body.joint.name) for body in bodies if body.joint is not None]
+    if REACTION_FORCE not in series or REACTION_MOMENT not in series:
+        raise IntegrityError("the recording has no joint reactions for the carried joints (ruling 72)")
+    forces = np.asarray(series[REACTION_FORCE].values, dtype=np.float64).reshape(rows, -1, 3)
+    moments = np.asarray(series[REACTION_MOMENT].values, dtype=np.float64).reshape(rows, -1, 3)
+    for lumped in lumped_members:
+        name = str(lumped.structural_member or lumped.name)
+        found: list[CarriedLoad] = []
+        for carried_body in lumped.carries:
+            child = next((body for body in bodies if str(body.name) == str(carried_body)), None)
+            if child is None or child.joint is None:
+                raise IntegrityError(f"member {name!r}: carried body {str(carried_body)!r} has no recorded reaction")
+            index = order.index(str(child.joint.name))
+            place = [str(body.name) for body in bodies].index(str(child.name))
+            if len(names) > 0:
+                place = names.index(str(child.name))
+            found.append(CarriedLoad(str(child.joint.name), place, -forces[:, index, :], -moments[:, index, :]))
+        out[name] = tuple(found)
+    return out
 
 
 def _ropes(build: Any, series: Mapping[str, Any], rows: int) -> tuple[RopeLoads, ...]:

@@ -18,6 +18,7 @@ from numpy.typing import NDArray
 from mechsim.physics.neutral import PhysicsModel
 from mechsim.record.archive import RunArchive
 from mechsim.record.layout import CONTROLLER_STATE, NAMED_GROUPS, Recording
+from mechsim.record.validity import VALIDITY_KEY, CarriedValidity, validity_from_json
 from mechsim.testing.driver import (
     MATERIAL_OVERRIDES_KEY,
     MESSAGE_KIND,
@@ -194,8 +195,14 @@ class RecordingView:
         labels: Mapping[str, str] | None = None,
         actuators: Mapping[str, str] | None = None,
         states: Mapping[str, str] | None = None,
+        validity: Sequence[CarriedValidity] = (),
+        first_springs: Sequence[int] | None = None,
     ) -> None:
         self.states = dict(states or {})
+        self.validity = tuple(validity)
+        self.first_springs: tuple[int, ...] | None = None
+        if first_springs is not None:
+            self.first_springs = tuple(int(value) for value in first_springs)
         self._labels = dict(labels or {})
         self.labels = self._labels
         self.actuators = dict(actuators or {})
@@ -402,8 +409,11 @@ class RecordArchiveReader:
         labels = json.loads(extra.get("labels", "{}"))
         actuators = json.loads(extra.get("actuators", "{}"))
         states = json.loads(extra.get("states", "{}"))
+        validity: tuple[CarriedValidity, ...] = ()
+        if VALIDITY_KEY in extra:
+            validity = validity_from_json(extra[VALIDITY_KEY])
         return metadata, RecordingView(
-            recording, Kinematics.from_json(extra["kinematics"]), approximations, labels, actuators, states
+            recording, Kinematics.from_json(extra["kinematics"]), approximations, labels, actuators, states, validity
         )
 
 

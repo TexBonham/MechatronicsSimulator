@@ -1,6 +1,7 @@
 """Impact (INT-011): impact events are load steps in the recording, a rise of a member's largest end force or a
 mount's reaction by more than `step_threshold` between consecutive samples; a new event starts only after the
-previous one's window. Over each event's window the peak stress (the strength check's formulas) times
+previous one's window. Over each event's window the peak stress along the member (the strength check's
+`member_normal_stress`: ends, node springs, the moment under a carried load; ruling 72) times
 `impact_factor` is judged against the ultimate strength."""
 
 from __future__ import annotations
@@ -8,7 +9,7 @@ from __future__ import annotations
 import numpy as np
 from pydantic import Field
 
-from mechsim.integrity.beam import mount_stress, normal_stress, peak
+from mechsim.integrity.beam import member_normal_stress, mount_stress, peak
 from mechsim.integrity.plugin import (
     CheckResult,
     CheckRow,
@@ -85,7 +86,9 @@ class Impact(IntegrityCheck):
                 continue
             loads = member.loads.scaled(inputs.load_factor)
             load = np.maximum(np.linalg.norm(loads.start_force, axis=1), np.linalg.norm(loads.end_force, axis=1))
-            stress = normal_stress(loads, member.section).max(axis=1)
+            stress = member_normal_stress(
+                loads, member.section, member, inputs.bodies, inputs.load_factor, member.spring_offsets
+            ).max(axis=1)
             view = inputs.material(member.material)
             ultimate = Spread.of(view.strength_spread("ultimate", inputs.temperature, member.axis_body))
             rows += self._rows(member.name, load, stress, ultimate, inputs, parameters)

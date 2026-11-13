@@ -40,6 +40,7 @@ from mechsim.integrity.tier1 import (
     PARTY,
     Tier1Service,
     Tier1Setup,
+    first_springs,
     tier1_enabled,
 )
 from mechsim.library.registry import default_registry
@@ -66,6 +67,7 @@ from mechsim.record.reader import Kinematics as Kinematics
 from mechsim.record.reader import RecordArchiveReader as RecordArchiveReader
 from mechsim.record.reader import RecordingView as RecordingView
 from mechsim.record.stream import Recorder
+from mechsim.record.validity import NOT_VALID_KIND, VALIDITY_KEY, CarriedValidity, flagged, validity_json
 from mechsim.record.tick import (
     WORLD_BODY,
     BodyState,
@@ -492,11 +494,14 @@ class CoreDriver:
             raise DriverError(f"physics.substeps {config.physics_substeps}: only the native adapter substeps (TST-042)")
         step = float(1 / config.physics_rate)
         tier1: Tier1Setup | None = None
+        springs: tuple[int, ...] | None = None
         if native:
             prepared_native = prepare_native_model(model, self._starts, step, payloads, config.physics_substeps)
-            self.approximations = (f"physics adapter: {NATIVE_ADAPTER}", *prepared_native.report, *fitting_lines)
+            self.approximations = (f"physics adapter: {NATIVE_ADAPTER}", *prepared_native.report)
             prepared = core.PreparedModel(prepared_native.model_json, "", prepared_native.version)
-            tier1 = self._tier1_setup(model, json.loads(prepared_native.model_json))
+            document = json.loads(prepared_native.model_json)
+            tier1 = self._tier1_setup(model, document)
+            springs = self._first_springs(document)
         else:
             artifacts = prepare_model(model, self._starts, step, payloads)
             self.approximations = (*artifacts.report, *stand_in)
@@ -562,6 +567,7 @@ class CoreDriver:
         if decay_record is not None:
             decays = [(int(joint), float(decay)) for joint, decay in decay_record.values()]
             self.approximations = (*self.approximations, *driven_mode_lines(model, decays))
+        validity: tuple[CarriedValidity, ...] = ()
         if carried_record is not None:
             carried_values = carried_record.values()
             self.approximations = (
@@ -569,6 +575,8 @@ class CoreDriver:
                 *carried_member_lines(model, carried_values),
                 *carried_validity_lines(model, carried_values),
             )
+            validity = carried_validity(model, carried_values)
+        not_valid = flagged(validity)
         if not native and self._build is not None and len(self._build.members) > 0:
             self.approximations = (*self.approximations, BRIDGE_NODE_POSES)
         recorder = Recorder(config.base_rate, model_columns(model, sorted(payloads)), bodies)
@@ -588,7 +596,9 @@ class CoreDriver:
             while taken < len(decoded) and decoded[taken].time <= row_tick:
                 due.append(decoded[taken])
                 taken += 1
-            record = _canonical_crossings(tick_record(row, {row_tick: due}))
+            record = _canonical_crossings(
+                tick_record(row, {row_tick: due}), not_valid, float(Fraction(row_tick) / config.base_rate)
+            )
             if not native:
                 record = member_frame_loads(record, frames)
             recorder.write_row(record)
@@ -600,14 +610,16 @@ class CoreDriver:
             self.labels,
             self._actuators(),
             self._states(),
+            validity,
+            springs,
         )
         reason: EndReason = "max_duration"
         if end.at_tick is not None and end.at_tick <= end.max_tick:
             reason = "end_time"
-        notes: tuple[str, ...] = ()
+        notes: tuple[str, ...] = fitting_lines
         if report.end_reason == core.EndReason.party_state:
             reason = "integrity_halt"
-            notes = (self._halt_line(int(report.ticks), config.base_rate),)
+            notes = (*notes, self._halt_line(int(report.ticks), config.base_rate))
         error: str | None = None
         if report.outcome == core.RunOutcome.run_error:
             reason = "run_error"
@@ -651,6 +663,17 @@ class CoreDriver:
             return self._tier1(self._build, model, native)
         except IntegrityError as error:
             raise DriverError(f"integrity tier 1: {error}") from error
+
+    @staticmethod
+    def _first_springs(document: Mapping[str, Any]) -> tuple[int, ...] | None:
+        """Each lumped member's first node spring in the prepared native document's order, which run-time bodies
+        shift: tier 2 reads its `model_change` spring offsets by it (INT-028, ruling 72). None when a joint type has
+        no place in the order: tier 2 then refuses a spring offset with that error, and a run without one is
+        unaffected."""
+        try:
+            return tuple(first_springs(document))
+        except IntegrityError:
+            return None
 
     def _halt(self) -> bool:
         """The case's `integrity.halt_on_crossing`, false when the case has no integrity section (rulings 4, 50)."""
@@ -825,18 +848,39 @@ class CoreDriver:
         return self._view
 
 
-def _canonical_crossings(record: TickRecord) -> TickRecord:
+def _canonical_crossings(
+    record: TickRecord, not_valid: Mapping[str, CarriedValidity] | None = None, time: float = 0.0
+) -> TickRecord:
     """Tier 1 crossing events, counted or before the evaluation start (TST-044), with the detail text of
-    `IntegrityCrossing.detail()` (the party writes the same JSON with C++ number formatting)."""
+    `IntegrityCrossing.detail()` (the party writes the same JSON with C++ number formatting). A counted crossing of a
+    member the engine flagged (ruling 69), in a row stamped after the flagged step's start (`time` the row's, s),
+    becomes kind `integrity_not_valid`: recorded, never counted (rulings 69, 72)."""
     kinds = (INTEGRITY_KIND, BEFORE_EVALUATION_KIND)
     if not any(event.kind in kinds for event in record.events):
         return record
     events = []
     for event in record.events:
         if event.kind in kinds:
-            event = replace(event, detail=IntegrityCrossing.parse(event.detail).detail())
+            crossing = IntegrityCrossing.parse(event.detail)
+            event = replace(event, detail=crossing.detail())
+            if event.kind == INTEGRITY_KIND and not_valid is not None and crossing.member in not_valid:
+                if not_valid[crossing.member].covers(time):
+                    event = replace(event, kind=NOT_VALID_KIND)
         events.append(event)
     return replace(record, events=tuple(events))
+
+
+def carried_validity(model: PhysicsModel, values: Sequence[tuple[Any, ...]]) -> tuple[CarriedValidity, ...]:
+    """The engine's validity record per carrying member (ENG-052, ruling 69) from `CarriedRecord.values()` (document
+    order: ..., work J, force, quasi-static deflection, largest ratio, unresolved, unresolved from s), named by the
+    structural member the integrity table uses."""
+    out: list[CarriedValidity] = []
+    for member, value in zip(model.lumped_members, values, strict=True):
+        if len(member.carries) == 0:
+            continue
+        name = member.structural_member or member.name
+        out.append(CarriedValidity(str(name), bool(value[8]), float(value[9]), float(value[7]), float(value[4])))
+    return tuple(out)
 
 
 def model_columns(model: PhysicsModel, payloads: Sequence[str] = ()) -> dict[str, Columns]:
@@ -1027,6 +1071,8 @@ class RecordArchiver:
             extra[f"{MATERIAL_OVERRIDES_KEY}_sha256"] = metadata.material_overrides.sha256
         if metadata.integrity is not None:
             extra["integrity"] = metadata.integrity.to_json()
+        if len(recording.validity) > 0:
+            extra[VALIDITY_KEY] = validity_json(recording.validity)
         write_record_archive(path, identity, end, recording.recording, extra)
         return hashlib.sha256(path.read_bytes()).hexdigest()
 

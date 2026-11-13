@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import json
 import math
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import replace
 
 import numpy as np
@@ -24,6 +24,8 @@ from mechsim.integrity.checks.resonance import Resonance, ResonanceParameters
 from mechsim.integrity.checks.strength import Strength
 from mechsim.integrity.plugin import (
     BodyPoses,
+    CarriedLoad,
+    CheckResult,
     JointLoads,
     MemberInputs,
     NodeChain,
@@ -412,7 +414,13 @@ def test_deflection_of_a_member_built_rigid_is_not_evaluated_with_a_note() -> No
 #   clamped-clamped own weight w L^2 / 12 at the ends, N = 16: the midpoint sum of M over the springs gives
 #     -(w L^2 / 12)(1 + 1 / (2 N^2)) (+0.2 %); the root stub [0, l / 2] is carried by the clamp, not the member, a
 #     load w l / 2 at l / 4 whose fixed-end moment is at most w l^2 / 8, 1.5 / N^2 = 0.6 % of w L^2 / 12.
-# Each sits within the lumped chain's 2 percent row (rulings 31, 32); the settled residual is below exp(-75). Tier 1
+# The three statically determinate cases (pinned centre load, pinned load at a, pinned own weight) are exact by statics
+# and asserted at what the settled run leaves (ruling 72): the transient below exp(-75), quaternion rounding 1e-16 over
+# rotations near 1e-4 rad (1e-12), and the geometry, the one second-order term: the loads act at the deflected points
+# and the roller slides, so every arm is its undeformed length times cos(theta) >= 1 - theta^2 / 2, theta the largest
+# slope; reactions and loads each carry it, so the moment errs by at most theta^2 relative. theta: P L^2 / (16 E I)
+# (centre load), P a b (L + b) / (6 L E I) at the support near the load (load at a), w L^3 / (24 E I) (own weight).
+# The indeterminate clamped cases sit within the lumped chain's 2 percent row (rulings 31, 32). Tier 1
 # (`core/integrity` through `_core.integrity_member_stress`) on the same end-loads and poses agrees within 1e-9.
 
 
@@ -487,7 +495,9 @@ def _tier1(member_inputs: MemberInputs, bodies: BodyPoses) -> tuple[float, list[
     return float(stress), [float(moment) for moment in moments]
 
 
-def _peak_moment(name: str, continuum: float, member_inputs: MemberInputs, bodies: BodyPoses) -> list[float]:
+def _peak_moment(
+    name: str, continuum: float, member_inputs: MemberInputs, bodies: BodyPoses, tolerance: float = CHAIN
+) -> list[float]:
     """Both tiers' peak moment against the continuum peak; returns tier 2's node moments for location checks."""
     run = RunInputs(np.zeros(1), (member_inputs,), {"fake": FakeMaterial()}, TEMPERATURE, bodies=bodies)
     (row,) = Strength().evaluate(run, NoParameters(), 1).rows
@@ -497,7 +507,7 @@ def _peak_moment(name: str, continuum: float, member_inputs: MemberInputs, bodie
     tier1 = stress * section.i_z / section.c_y
     report(f"{name} (tier 2)", continuum, tier2)
     report(f"{name} (tier 1)", continuum, tier1)
-    assert abs(tier2 / continuum - 1.0) <= CHAIN
+    assert abs(tier2 / continuum - 1.0) <= tolerance
     assert tier1 == pytest.approx(tier2, rel=EXACT)
     moments, _ = node_moments(member_inputs, bodies)
     assert tier1_moments == pytest.approx(list(moments[0]), rel=EXACT, abs=EXACT * abs(continuum))
@@ -508,7 +518,8 @@ def _peak_moment(name: str, continuum: float, member_inputs: MemberInputs, bodie
 def test_strength_pinned_centre_load_peak_moment_is_p_l_over_4() -> None:
     load, n = 0.2, 9
     member_inputs, bodies = _settled_chain("SimplySupported", n, (0.5 * BEAM_LENGTH, load))
-    moments = _peak_moment("pinned centre load", load * BEAM_LENGTH / 4.0, member_inputs, bodies)
+    slope = load * BEAM_LENGTH**2 / (16.0 * BEAM_MODULUS * BEAM_I)
+    moments = _peak_moment("pinned centre load", load * BEAM_LENGTH / 4.0, member_inputs, bodies, slope**2)
     assert int(np.argmax(np.abs(moments))) == 4
 
 
@@ -517,8 +528,10 @@ def test_strength_pinned_load_at_a_peak_moment_is_p_a_b_over_l_under_the_load() 
     load, n = 0.2, 8
     a = 2.5 * BEAM_LENGTH / n
     member_inputs, bodies = _settled_chain("SimplySupported", n, (a, load))
-    target = load * a * (BEAM_LENGTH - a) / BEAM_LENGTH
-    moments = _peak_moment("pinned load at a", target, member_inputs, bodies)
+    b = BEAM_LENGTH - a
+    target = load * a * b / BEAM_LENGTH
+    slope = load * a * b * (BEAM_LENGTH + b) / (6.0 * BEAM_LENGTH * BEAM_MODULUS * BEAM_I)
+    moments = _peak_moment("pinned load at a", target, member_inputs, bodies, slope**2)
     assert int(np.argmax(np.abs(moments))) == 2
 
 
@@ -554,7 +567,8 @@ def test_strength_pinned_own_weight_peak_moment_is_w_l2_over_8() -> None:
     n, g = 9, 0.5
     member_inputs, bodies = _settled_chain("SimplySupported", n, None, gravity=g)
     w = BEAM_DENSITY * BEAM_AREA * g
-    moments = _peak_moment("pinned own weight", w * BEAM_LENGTH**2 / 8.0, member_inputs, bodies)
+    slope = w * BEAM_LENGTH**3 / (24.0 * BEAM_MODULUS * BEAM_I)
+    moments = _peak_moment("pinned own weight", w * BEAM_LENGTH**2 / 8.0, member_inputs, bodies, slope**2)
     assert int(np.argmax(np.abs(moments))) == 4
 
 
@@ -844,6 +858,196 @@ def test_impact_step_load_peak_is_factor_times_static_stress() -> None:
     assert dict(row.detail)["event_time"] == pytest.approx(step * 1e-3)
     assert row.margin is not None
     assert row.margin.min == pytest.approx(45e6 / target, rel=EXACT)
+
+
+# ===== Fatigue and impact along the member (INT-008, INT-011, ruling 72) =====
+#
+# A pinned-pinned member (the test SECTION, L = 0.5 m, N = 9, l = L / 9) under a centre load P: by statics the end
+# moments are zero, the reactions P / 2 each, and the moment at spring x_j = (j + 1/2) l is (P / 2) min(x_j, L - x_j);
+# spring 4 sits at 4.5 l = L / 2 and carries P L / 4. The node poses are built from these moments exactly (node 0 the
+# pin segment, node j + 1 turned about z by the sum of M_i / k up to spring j, k = E I_z / l), so the springs read
+# the statics to quaternion rounding (1e-16 over rotations near 1e-3 rad: 1e-13 relative, below 1e-9). An end reading
+# sees no bending at all here: zero damage, zero cycles, zero impact stress.
+#   Fatigue: P(t) = -P0 cos(2 pi t / T) over n periods; the centre fibre carries S_a = (P0 L / 4) c_y / I_z, and the
+#     turning points -S, +S, ..., -S rainflow to exactly n cycles of range 2 S (the existing fatigue oracle's
+#     argument); P0 is set so S_a = 100 MPa, the curve's first point, life 1e3: D = n / 1e3.
+#   Impact: P steps from 0 to P1 at row 5; the event is the end force's rise P1 / 2; the peak over the window is
+#     factor (P1 L / 4) c_y / I_z at mid-span.
+_SPAN = 9
+
+
+def _pinned_centre(loads_p: np.ndarray) -> tuple[MemberInputs, BodyPoses]:
+    rows = loads_p.shape[0]
+    segment = LENGTH / _SPAN
+    stiffness = MODULUS * I_Z / segment
+    where = (np.arange(_SPAN) + 0.5) * segment
+    moments = np.outer(loads_p / 2.0, np.minimum(where, LENGTH - where))
+    angles = np.cumsum(moments / stiffness, axis=1)
+    orientations = np.zeros((rows, _SPAN + 1, 4))
+    orientations[:, :, 0] = 1.0
+    orientations[:, 1:, 0] = np.cos(angles / 2.0)
+    orientations[:, 1:, 3] = np.sin(angles / 2.0)
+    positions = np.zeros((rows, _SPAN + 1, 3))
+    zero = np.zeros((rows, 3))
+    reaction = np.zeros((rows, 3))
+    reaction[:, 1] = loads_p / 2.0
+    chain = NodeChain(0, _SPAN + 1, "pinned", None, (0.0, 0.0, 0.0), (1.0, 0.0, 0.0, 0.0), segment, stiffness)
+    supports = ((0.0, "pinned"), (LENGTH, "roller"))
+    member_inputs = MemberInputs(
+        "rail", "fake", SECTION, supports, Wrenches(reaction, zero, reaction.copy(), zero.copy()), nodes=chain
+    )
+    return member_inputs, BodyPoses(positions, orientations)
+
+
+@pytest.mark.req("INT-004", "INT-008")
+def test_fatigue_of_a_pinned_member_reads_the_centre_bending_amplitude_and_counts_every_cycle() -> None:
+    periods, per_period = 12, 40
+    amplitude = 100e6
+    load0 = amplitude * I_Z / C_Y * 4.0 / LENGTH
+    phase = 2.0 * math.pi * np.arange(periods * per_period + 1) / per_period
+    member_inputs, bodies = _pinned_centre(-load0 * np.cos(phase))
+    run = inputs([member_inputs], phase.shape[0], bodies=bodies)
+    result = Fatigue().evaluate(run, FatigueParameters(), 1)
+    (row,) = result.rows
+    report("pinned centre fatigue damage", periods / 1e3, row.value)
+    report("pinned centre fatigue cycles", float(periods), dict(row.detail)["cycles"])
+    assert row.value == pytest.approx(periods / 1e3, rel=EXACT)
+    assert dict(row.detail)["cycles"] == periods
+    assert result.cycle_counts == (("rail", float(periods)),)
+
+
+@pytest.mark.req("INT-004", "INT-011")
+def test_impact_on_a_pinned_member_reads_the_mid_span_peak() -> None:
+    rows, step, load, factor = 20, 5, 30.0, 2.0
+    loads_p = np.full(rows, load)
+    loads_p[:step] = 0.0
+    member_inputs, bodies = _pinned_centre(loads_p)
+    parameters = ImpactParameters.model_validate({"impact_factor": factor, "step_threshold": "1 N", "window": "5 ms"})
+    (row,) = Impact().evaluate(inputs([member_inputs], rows, bodies=bodies), parameters, 1).rows
+    target = factor * load * LENGTH / 4.0 * C_Y / I_Z
+    report("pinned centre impact stress", target, row.value)
+    assert row.value == pytest.approx(target, rel=EXACT)
+    assert dict(row.detail)["event_time"] == pytest.approx(step * 1e-3)
+
+
+# ===== Unresolved carried loads (INT-005, ruling 72) =========================
+#
+# A pinned-pinned member (SECTION, L = 0.5 m, N = 8, l = 0.0625 m) carries a body at a = 0.2 m (between the samples
+# 0.15625 and 0.21875, s_j = (j - 1/2) l) at a height d = 0.02 m above its axis, loaded by its weight P = 30 N and an axial push H at that
+# height: the engine reroutes F . y = -P and the couple C = ((r_c - p) x F) . z = -d H (the push itself stays on the
+# parent, ENG-052). By statics (couple taken as a step +C in the spring-sense moment at a) R_0 = P b / L - C / L,
+# M(x) = R_0 x left of a, R_0 x - P (x - a) + C right of it; the spring moments and end wrenches are these exactly,
+# the node poses built from them (quaternion rounding 1e-13 relative). The true peak is the larger of |M(a-)| and
+# |M(a+)|; with C > 0 it is M(a+) = P a b / L + C b / L. The rule's read alone misses it (it reads the tent of the
+# lines, not the step); the bound U = |C| (beam.py, section "What the carried-load rule does not resolve") makes the
+# conservative read at or above the true peak and within |C| of it, for either sign of the push. Two opposite loads
+# between the same two samples (0.225 and 0.27 m, both in [0.21875, 0.28125]): U = (|F_1| + |F_2|) h / 4 over the
+# larger sample; the same loads in neighbouring segments (0.195 and 0.24 m) read short without it (measured 3.748
+# against 3.9195 N m) and take the same bound per segment.
+
+
+def _carried_pinned(
+    moment_at: Callable[[np.ndarray], np.ndarray], start_fy: float, end_fy: float, carried: Sequence[tuple]
+) -> MemberInputs:
+    n = 8
+    segment = LENGTH / n
+    stiffness = MODULUS * I_Z / segment
+    where = (np.arange(n) + 0.5) * segment
+    angles = np.cumsum(moment_at(where) / stiffness)
+    count = n + 1 + len(carried)
+    orientations = np.zeros((1, count, 4))
+    orientations[:, :, 0] = 1.0
+    orientations[0, 1 : n + 1, 0] = np.cos(angles / 2.0)
+    orientations[0, 1 : n + 1, 3] = np.sin(angles / 2.0)
+    positions = np.zeros((1, count, 3))
+    loads = []
+    for k, (position, force) in enumerate(carried):
+        positions[0, n + 1 + k] = position
+        loads.append(CarriedLoad(f"slide{k}", n + 1 + k, np.asarray([force], float), np.zeros((1, 3))))
+    zero = np.zeros((1, 3))
+    chain = NodeChain(0, n + 1, "pinned", None, (0.0, 0.0, 0.0), (1.0, 0.0, 0.0, 0.0), segment, stiffness, True)
+    member_inputs = MemberInputs(
+        "rail",
+        "fake",
+        SECTION,
+        ((0.0, "pinned"), (LENGTH, "roller")),
+        Wrenches(np.asarray([[0.0, start_fy, 0.0]]), zero, np.asarray([[0.0, end_fy, 0.0]]), zero.copy()),
+        nodes=chain,
+        carried=tuple(loads),
+    )
+    return replace(member_inputs, spring_offsets=None), BodyPoses(positions, orientations)
+
+
+def _true_peak(moment_at: Callable[[np.ndarray], np.ndarray], points: Sequence[float]) -> float:
+    xs = np.concatenate((np.linspace(0.0, LENGTH, 20001), np.asarray(points)))
+    return float(np.max(np.abs(moment_at(xs))))
+
+
+def _strength_moment(member_inputs: MemberInputs, bodies: BodyPoses) -> tuple[float, CheckResult]:
+    result = Strength().evaluate(inputs([member_inputs], 1, bodies=bodies), NoParameters(), 1)
+    return result.rows[0].value * I_Z / C_Y, result
+
+
+@pytest.mark.req("INT-005")
+@pytest.mark.parametrize("push", [400.0, -400.0])
+def test_strength_carried_couple_reads_conservatively_within_the_couple(push: float) -> None:
+    a, d, load = 0.2, 0.02, 30.0
+    b = LENGTH - a
+    couple = d * abs(push)
+    sign = math.copysign(1.0, push)
+    step = sign * couple
+
+    def moment_at(x: np.ndarray) -> np.ndarray:
+        start = load * b / LENGTH - step / LENGTH
+        return np.where(x <= a, start * x, start * x - load * (x - a) + step)
+
+    start_fy = load * b / LENGTH - step / LENGTH
+    end_fy = load * a / LENGTH + step / LENGTH
+    carried = (((a, d, 0.0), (-sign * abs(push), -load, 0.0)),)
+    member_inputs, bodies = _carried_pinned(moment_at, start_fy, end_fy, carried)
+    true = max(_true_peak(moment_at, [a - 1e-12, a + 1e-12]), abs(load * a * b / LENGTH + step * b / LENGTH))
+    plain, _ = _strength_moment(replace(member_inputs, carried=()), bodies)
+    measured, result = _strength_moment(member_inputs, bodies)
+    report(f"carried couple, push {push} N: true peak", true, measured)
+    report(f"carried couple, push {push} N: plain read", true, plain)
+    assert plain < true
+    assert measured >= true * (1.0 - EXACT)
+    assert measured <= (true + couple) * (1.0 + EXACT)
+    if push > 0.0:
+        assert true == pytest.approx(load * a * b / LENGTH + couple * b / LENGTH, rel=EXACT)
+    detail = dict(result.rows[0].detail)
+    assert detail["unresolved_moment"] == pytest.approx(couple, rel=EXACT)
+    assert detail["unresolved_stress"] == pytest.approx(couple * C_Y / I_Z, rel=EXACT)
+    assert result.rows[0].margin is not None
+    assert result.rows[0].margin.min == pytest.approx(40e6 / result.rows[0].value, rel=EXACT)
+    assert any("conservative" in note and "carried couple" in note for note in result.notes)
+
+
+@pytest.mark.req("INT-005")
+@pytest.mark.parametrize("first, second", [(0.225, 0.27), (0.195, 0.24)])
+def test_strength_opposite_loads_in_one_segment_read_conservatively(first: float, second: float) -> None:
+    load1, load2 = 50.0, -20.0
+    total = load1 + load2
+    moment_about_end = load1 * (LENGTH - first) + load2 * (LENGTH - second)
+    start_fy = moment_about_end / LENGTH
+    end_fy = total - start_fy
+
+    def moment_at(x: np.ndarray) -> np.ndarray:
+        value = start_fy * x
+        value = value - load1 * np.clip(x - first, 0.0, None)
+        return value - load2 * np.clip(x - second, 0.0, None)
+
+    carried = (((first, 0.0, 0.0), (0.0, -load1, 0.0)), ((second, 0.0, 0.0), (0.0, -load2, 0.0)))
+    member_inputs, bodies = _carried_pinned(moment_at, start_fy, end_fy, carried)
+    true = _true_peak(moment_at, [first, second])
+    measured, result = _strength_moment(member_inputs, bodies)
+    bound = (abs(load1) + abs(load2)) * (LENGTH / 8) / 4.0
+    if first < 0.21875:
+        bound = abs(load1) * (LENGTH / 8) / 4.0
+    report(f"opposite loads at {first}, {second}: true peak", true, measured)
+    assert measured >= true * (1.0 - EXACT)
+    assert dict(result.rows[0].detail)["unresolved_moment"] == pytest.approx(bound, rel=EXACT)
+    assert any("opposite sign" in note for note in result.notes)
 
 
 @pytest.mark.req("INT-004", "INT-012")

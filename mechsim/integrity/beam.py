@@ -9,6 +9,7 @@ import numpy as np
 
 from mechsim.integrity.plugin import (
     BodyPoses,
+    CarriedLoad,
     FloatArray,
     IntegrityError,
     MemberInputs,
@@ -298,8 +299,8 @@ def node_moments(
 # conservative). Two loads in one segment: for the same sign the moment there is concave with A and B its outer
 # tangents, so M* is at or above the larger of the two peaks (conservative, exact when one of them is zero); for
 # opposite signs the moment is neither concave nor convex there and the intersection is not a bound: not resolved
-# (the gantry carries one load per member). A carried moment (the carried
-# body's couple about z, also split by the lever rule) puts steps in the samples, not a kink: not resolved.
+# (`unresolved_bound`). A carried moment (the carried body's couple about z, also split by the lever rule) puts a step
+# in the moment under the load, not a kink: not resolved either (`unresolved_bound`).
 
 
 def carried_moments(
@@ -329,6 +330,119 @@ def carried_moments(
     values = np.where(found, m[:, :-1] + slopes_a * u, 0.0)
     positions = np.where(found, s[:-1] + u, 0.0)
     return values, positions, found
+
+
+# ===== What the carried-load rule does not resolve (ruling 72) ==========
+#
+# Two loads the rule above does not resolve: a carried couple C (the engine reroutes M_p . z of the carried joint,
+# ENG-052, by the lever rule, which puts a step of C in the moment under the load) and loads of opposite sign in one
+# segment. Neither may read low with nothing said (invariant 7): each row gets a bound U of what the read can miss,
+# the strength check adds it to the row's read (conservative) and states it.
+#
+# The couple. The engine's carried output (s, F . y, M_p . z per carried joint) is not recorded; it is rebuilt from
+# the recorded joint reaction R, M (parent on child, world-aligned, about the child origin r_c), the load being -R,
+# -M: with the member root frame (origin o, axes x, y, z: the parent's recorded pose times the member placement),
+# s = (r_c - o) . x, p = o + s x, C = (-M + (r_c - p) x (-R)) . z, F = -R . y. The engine applies the reaction of
+# the previous step, so each row takes the larger bound of its own and the previous row's values.
+# Bound for one carried joint in a segment [s_k, s_{k+1}] (length h, load at a, the neighbouring segments unloaded so
+# lines A and B of the rule are the true shear lines): the true moment is A left of a and B right of it, B(a) =
+# A(a) + C. Let x* be where A and B meet (the rule's candidate when inside) and R the read over the segment (its two
+# samples and the candidate). If x* lies in the segment, A on [s_k, x*] runs from M_k to M* and B on [x*, s_{k+1}] from
+# M* to M_{k+1}; whichever of A(a), B(a) lies on its side of x* is within R, the other differs from it by C: both
+# within R + |C|. If not (or F = 0, A parallel to B), D = A - B is linear without a root inside, D(a) = -C, so |D| is
+# at most |C| at one end, say s_{k+1}: A(s_{k+1}) = M_{k+1} + D(s_{k+1}), so A(a), a convex combination of M_k and
+# A(s_{k+1}), and B(a) = A(a) + C are within R + |C| (the other end alike). Hence U = |C|. (C b / L, the couple's own
+# moment on a pinned member, is no bound on the read's error: at N = 8 a sweep of a and C / (F l) finds the read
+# short of the true peak by up to 1.015 |C| b / L; |C| holds, the sweep's largest miss 0.9992 |C|.)
+# Several loads in one segment, opposite signs or with a couple, or a load whose neighbouring segment is loaded too
+# (lines A and B are then secants, not shear lines, and the intersection can fall short): the moment there is the
+# chord between the samples plus each load's own excess over it, at most |F_i| u_i (h - u_i) / h <= |F_i| h / 4 for a
+# force and |C_i| for a couple, while the read is at least the larger sample: U = sum |F_i| h / 4 + sum |C_i|, true
+# whatever the neighbours hold. Same-sign forces alone in a segment with unloaded neighbours stay conservative (the
+# header above), U = 0. A couple below 1e-9 |F| L (rounding) counts as none. Own weight is not a
+# carried load and is not counted.
+
+COUPLE_FLOOR = 1e-9
+
+
+def _root_frame(member: MemberInputs, bodies: BodyPoses) -> tuple[FloatArray, FloatArray, FloatArray, FloatArray]:
+    chain = member.nodes
+    assert chain is not None
+    rows = bodies.positions.shape[0]
+    parent_position = np.zeros((rows, 3), dtype=np.float64)
+    parent_orientation = np.tile(np.asarray([1.0, 0.0, 0.0, 0.0], dtype=np.float64), (rows, 1))
+    if chain.parent_body is not None:
+        parent_position = bodies.positions[:, chain.parent_body, :]
+        parent_orientation = bodies.orientations[:, chain.parent_body, :]
+    placement = np.tile(np.asarray(chain.position, dtype=np.float64), (rows, 1))
+    turn = _multiply(parent_orientation, np.tile(np.asarray(chain.orientation, dtype=np.float64), (rows, 1)))
+    axes = []
+    for axis in np.eye(3):
+        axes.append(_rotate(turn, np.tile(axis, (rows, 1))))
+    return parent_position + _rotate(parent_orientation, placement), axes[0], axes[1], axes[2]
+
+
+def carried_couples(member: MemberInputs, bodies: BodyPoses, item: CarriedLoad) -> tuple[FloatArray, ...]:
+    """(s, F . y, C) per row of one carried joint, rebuilt from its recorded reaction (header above)."""
+    origin, x, y, z = _root_frame(member, bodies)
+    child = bodies.positions[:, item.body, :]
+    s = np.einsum("rj,rj->r", child - origin, x)
+    foot = origin + s[:, None] * x
+    moment = item.moment + np.cross(child - foot, item.force)
+    return s, np.einsum("rj,rj->r", item.force, y), np.einsum("rj,rj->r", moment, z)
+
+
+def unresolved_bound(member: MemberInputs, bodies: BodyPoses | None) -> tuple[FloatArray, bool, bool]:
+    """The bound U (rows,) N m of what the read can miss on a carrying member (header above), and whether a couple and
+    whether opposite-sign loads in one segment contributed. Zero for a member carrying nothing or without poses."""
+    rows = 0
+    if member.loads is not None:
+        rows = member.loads.start_force.shape[0]
+    bound = np.zeros(rows, dtype=np.float64)
+    chain = member.nodes
+    if chain is None or bodies is None or len(member.carried) == 0 or rows == 0:
+        return bound, False, False
+    length = member.section.length
+    edges = np.concatenate(
+        (np.zeros(1), (np.arange(int(round(length / chain.segment_length))) + 0.5) * chain.segment_length, [length])
+    )
+    rebuilt = [carried_couples(member, bodies, item) for item in member.carried]
+    couple_seen = False
+    opposite_seen = False
+    for shift in (0, 1):
+        place = np.zeros((rows, len(rebuilt)), dtype=np.int64)
+        force = np.zeros((rows, len(rebuilt)))
+        couple = np.zeros((rows, len(rebuilt)))
+        for column, (s, f, c) in enumerate(rebuilt):
+            source = np.arange(rows) - shift
+            source[source < 0] = 0
+            place[:, column] = np.clip(np.searchsorted(edges, s[source], side="right") - 1, 0, edges.size - 2)
+            force[:, column] = f[source]
+            value = np.abs(c[source])
+            value[value <= COUPLE_FLOOR * np.abs(f[source]) * length] = 0.0
+            couple[:, column] = value
+        counts = [(place == segment).sum(axis=1) for segment in range(edges.size - 1)]
+        for segment in range(edges.size - 1):
+            inside = place == segment
+            count = counts[segment]
+            neighbour = np.zeros(rows, dtype=bool)
+            if segment > 0:
+                neighbour = neighbour | (counts[segment - 1] > 0)
+            if segment + 2 < edges.size:
+                neighbour = neighbour | (counts[segment + 1] > 0)
+            couples = np.where(inside, couple, 0.0).sum(axis=1)
+            forces = np.where(inside, np.abs(force), 0.0).sum(axis=1)
+            positive = np.any(inside & (force > 0.0), axis=1)
+            negative = np.any(inside & (force < 0.0), axis=1)
+            opposite = (count > 1) & positive & negative
+            several = ((count > 1) & (opposite | (couples > 0.0))) | ((count > 0) & neighbour)
+            opposite = opposite | ((count > 0) & neighbour)
+            width = edges[segment + 1] - edges[segment]
+            value = np.where(several, forces * width / 4.0 + couples, couples)
+            couple_seen = couple_seen or bool(np.any(couples > 0.0))
+            opposite_seen = opposite_seen or bool(np.any(opposite))
+            bound = np.maximum(bound, value)
+    return bound, couple_seen, opposite_seen
 
 
 def member_normal_stress(
@@ -365,6 +479,53 @@ def member_normal_stress(
     values, positions, found = carried_moments(member, loads, moments)
     under = np.where(found, interior(values, positions / section.length), 0.0)
     return np.concatenate((ends, springs, under), axis=1)
+
+
+def member_fibre_histories(
+    loads: Wrenches,
+    section: SectionProperties,
+    member: MemberInputs,
+    bodies: BodyPoses | None,
+    factor: float = 1.0,
+    offsets: FloatArray | None = None,
+) -> list[FloatArray]:
+    """Signed normal stress at the four corners of the member's governing section (INT-008, INT-011, ruling 72): the
+    section of `member_normal_stress` (ends, springs, the moment under a carried load) whose peak over the run is the
+    largest, the first on a tie; N / A +- M_y c_z / I_y +- M_z c_y / I_z with that section's signed moments (a spring's
+    axial force the end value of the larger magnitude, the start's on a tie; M_y interpolated between the ends). A
+    member without node poses (or no rows) keeps the eight end-corner histories of `fibre_histories`. `loads` are
+    already scaled by `factor`; node moments scale with it."""
+    if member.nodes is None or bodies is None or loads.start_force.shape[0] == 0:
+        return fibre_histories(loads, section)
+    stress = member_normal_stress(loads, section, member, bodies, factor, offsets)
+    column = int(np.argmax(stress.max(axis=0)))
+    start_normal = -loads.start_force[:, 0]
+    end_normal = loads.end_force[:, 0]
+    if column == 0:
+        normal, moment_y, moment_z = start_normal, loads.start_moment[:, 1], loads.start_moment[:, 2]
+    elif column == 1:
+        normal, moment_y, moment_z = end_normal, loads.end_moment[:, 1], loads.end_moment[:, 2]
+    else:
+        normal = np.where(np.abs(start_normal) >= np.abs(end_normal), start_normal, end_normal)
+        moments, where = node_moments(member, bodies, offsets)
+        moments = moments * factor
+        springs = moments.shape[1]
+        if column < 2 + springs:
+            moment_z = moments[:, column - 2]
+            share = np.full(moment_z.shape, where[column - 2] / section.length)
+        else:
+            values, positions, _ = carried_moments(member, loads, moments)
+            moment_z = values[:, column - 2 - springs]
+            share = positions[:, column - 2 - springs] / section.length
+        moment_y = loads.start_moment[:, 1] * (1.0 - share) - loads.end_moment[:, 1] * share
+    out: list[FloatArray] = []
+    for sign_y in (1.0, -1.0):
+        for sign_z in (1.0, -1.0):
+            value = normal / section.area
+            value = value + sign_y * moment_y * section.c_z / section.i_y
+            value = value + sign_z * moment_z * section.c_y / section.i_z
+            out.append(value)
+    return out
 
 
 def peak(values: FloatArray, times: FloatArray) -> tuple[float, float]:

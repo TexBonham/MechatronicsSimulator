@@ -183,6 +183,19 @@ class BodyPoses:
 
 
 @dataclass(frozen=True)
+class CarriedLoad:
+    """A joint the member carries (ENG-052, ruling 63) as the run recorded it: the child body's index in the recorded
+    body poses and the load on the member, the negative of the recorded joint reaction (parent on child,
+    world-aligned, the moment about the child origin), (rows, 3) each. The engine's own carried output (s, F . y,
+    M_p . z per joint) is not recorded; `beam.carried_couples` rebuilds it from these (ruling 72)."""
+
+    joint: str
+    body: int
+    force: FloatArray
+    moment: FloatArray
+
+
+@dataclass(frozen=True)
 class MemberInputs:
     """One structural member (BLD-008) with its recorded end-loads; `loads` None when the member is built rigid and the
     run recorded none (rulings 29, 34, 60: every check reading them reports the member not evaluated). `axis_body` is
@@ -200,6 +213,7 @@ class MemberInputs:
     mounts: tuple[str, ...] = ()
     nodes: NodeChain | None = None
     spring_offsets: FloatArray | None = None
+    carried: tuple[CarriedLoad, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -262,9 +276,17 @@ class RunInputs:
             raise IntegrityError(
                 f"integrity evaluation from {start!r} s: the run's last sample is at {float(self.times[-1])!r} s"
             )
+        return self._rows(slice(first, None), lambda times: times >= start)
 
+    def until(self, end: float) -> RunInputs:
+        """These inputs up to the last sample at or before `end` (s): the samples a flagged member's results keep
+        (rulings 69, 72). May be empty."""
+        last = int(np.searchsorted(self.times, end, side="right"))
+        return self._rows(slice(0, last), lambda times: times <= end)
+
+    def _rows(self, rows: slice, keep: Callable[[FloatArray], Any]) -> RunInputs:
         def cut(array: FloatArray) -> FloatArray:
-            result: FloatArray = array[first:]
+            result: FloatArray = array[rows]
             return result
 
         members = []
@@ -277,7 +299,8 @@ class RunInputs:
             offsets = member.spring_offsets
             if offsets is not None:
                 offsets = cut(offsets)
-            members.append(replace(member, loads=loads, spring_offsets=offsets))
+            carried = tuple(replace(item, force=cut(item.force), moment=cut(item.moment)) for item in member.carried)
+            members.append(replace(member, loads=loads, spring_offsets=offsets, carried=carried))
         joints = tuple(replace(joint, force=cut(joint.force), moment=cut(joint.moment)) for joint in self.joints)
         ropes = tuple(replace(rope, tension=cut(rope.tension)) for rope in self.ropes)
         bodies = self.bodies
@@ -287,8 +310,8 @@ class RunInputs:
 
         def series(reference: str) -> tuple[FloatArray, FloatArray]:
             times, values = reader(reference)
-            keep = np.asarray(times, dtype=np.float64) >= start
-            return np.asarray(times)[keep], np.asarray(values)[keep]
+            kept = keep(np.asarray(times, dtype=np.float64))
+            return np.asarray(times)[kept], np.asarray(values)[kept]
 
         return replace(
             self,

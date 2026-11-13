@@ -1,5 +1,7 @@
 """Fatigue (INT-008, INT-037): rainflow cycle counting (ASTM E1049-85, three-point method; residual ranges count
-as half cycles) on each member's signed normal stress at the eight end-section corners, Miner damage sum
+as half cycles) on each member's signed normal stress at the four corners of its governing section along the member
+(`beam.member_fibre_histories`: the strength check's ends, node springs and moment under a carried load; the eight
+end-section corners for a member without node poses, ruling 72), Miner damage sum
 D = sum n_i / N(S_a,i) against the material's S-N curve with S_a = range / 2 and no mean-stress correction. N(S) is
 log-log linear between the S-N points; below the curve's last amplitude the life is infinite (no damage); above its
 first amplitude the first sloped segment is extended. The governing history's cycle count is recorded for the wear
@@ -13,7 +15,7 @@ from collections.abc import Sequence
 
 from pydantic import Field
 
-from mechsim.integrity.beam import fibre_histories
+from mechsim.integrity.beam import member_fibre_histories
 from mechsim.integrity.plugin import (
     CheckResult,
     CheckRow,
@@ -122,7 +124,15 @@ class Fatigue(IntegrityCheck):
                 continue
             curve = inputs.material(member.material).sn_curve()
             governing = (0.0, 0.0)
-            for history in fibre_histories(member.loads.scaled(inputs.load_factor), member.section):
+            histories = member_fibre_histories(
+                member.loads.scaled(inputs.load_factor),
+                member.section,
+                member,
+                inputs.bodies,
+                inputs.load_factor,
+                member.spring_offsets,
+            )
+            for history in histories:
                 found = damage(curve, history)
                 if found[0] > governing[0] or (found[0] == governing[0] and found[1] > governing[1]):
                     governing = found
