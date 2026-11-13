@@ -2,11 +2,15 @@
 # gravity. Linear model M x'' + c x' + k x = M g (x down from the release), M = 1.0175 kg, k = 500 kN/m, c = 50 N s/m:
 # omega_n = 700.99964 rad/s, zeta = 0.03504998, final value x_s = M g / k = 1.996335e-5 m: pose:bob.y (the free
 # joint's coordinate from its placement) settles at -1.996335e-5 m. Band 2 percent of the step, 3.99267e-7 m.
-# Continuous closed form of the envelope x_s e^(-zeta omega_n t) / sqrt(1 - zeta^2) reaching the band: t = ln(50 / sqrt(1 - zeta^2)) / (zeta omega_n) =
-# 0.15924 s. At the 10 microsecond step backward Euler maps each mode s to 1 / (1 - h s), so the envelope decays at
-# sigma = ln|1 - h s| / h = 27.020 /s (ruling 45: x = omega_n h = 0.0070), not zeta omega_n = 24.57 /s; the corrected
-# envelope reaches the band at 0.14481 s. The last exit from the band falls at a peak under the envelope, so up to half
-# a damped period (4.48 ms) earlier; the limit is the corrected value plus the proposed 2 percent (ACC-039).
+# Continuous closed form (round 5 ruling 59): t_s = ln(50) / (zeta omega_n) = 2 M ln(50) / c = 0.159219 s; the exact
+# envelope crossing ln(50 / sqrt(1 - zeta^2)) / (zeta omega_n) is 2.5e-5 s later (0.016 percent).
+# Step 1 microsecond, x = omega_n h = 7.0e-4 (ruling 45): backward Euler maps each mode s to 1 / (1 - h s), so the
+# envelope decays at sigma_h = ln|1 - h s| / h = zeta omega_n (1 + k h / c) to first order: 1.0 percent faster
+# (k / c = 1e4 /s), the published approximation line; the scheme-corrected settle time is 0.157647 s, inside the
+# tolerance.
+# The last exit from the band falls at a peak of the deviation, which lies under the envelope and at most half a
+# damped period pi / omega_d = 4.4843e-3 s before the envelope reaches the band. Criteria (ACC-039 row):
+# t_s (1 - 0.02) - pi / omega_d = 0.151551 s <= measured <= t_s (1 + 0.02) = 0.162404 s.
 id: S1
 title: Mass on a spring-damper, settle time of the gravity step
 design:
@@ -16,17 +20,24 @@ seed: 0
 initial_state:
   joints: []
 rates:
-  physics_step: 10 us
+  physics_step: 1 us
 physics:
   adapter: native
 end:
   at: 0.3 s
   max_duration: 1 s
 criteria:
-  - name: settle
+  - name: settle_not_early
+    check: settle_time
+    quantity: pose:bob.y
+    band: 3.99267e-7 m
+    target: -1.996335e-5 m
+    comparison: at_least
+    limit: 0.151551 s
+  - name: settle_not_late
     check: settle_time
     quantity: pose:bob.y
     band: 3.99267e-7 m
     target: -1.996335e-5 m
     comparison: at_most
-    limit: 0.1477 s
+    limit: 0.162404 s

@@ -546,12 +546,15 @@ TEST_CASE("the limits table parses and refuses malformed entries", "[INT-023]") 
     CHECK(limits.minimum_safety_factor == 1.5);
     CHECK(limits.stress);
     CHECK(limits.fastenings[0].joint == 3);
-    REQUIRE(limits.members[0].nodes.has_value());
-    CHECK(limits.members[0].nodes->first_body == 5);
-    CHECK(limits.members[0].nodes->count == 9);
-    CHECK(limits.members[0].nodes->root == integrity::SupportCondition::pinned);
-    CHECK_FALSE(limits.members[0].nodes->parent_body.has_value());
-    CHECK(limits.members[0].nodes->position[1] == 1.0);
+    const auto& nodes = limits.members[0].nodes;
+    REQUIRE(nodes.has_value());
+    if (nodes.has_value()) {
+        CHECK(nodes->first_body == 5);
+        CHECK(nodes->count == 9);
+        CHECK(nodes->root == integrity::SupportCondition::pinned);
+        CHECK_FALSE(nodes->parent_body.has_value());
+        CHECK(nodes->position[1] == 1.0);
+    }
     std::string rigid = member;
     rigid.replace(rigid.find(R"("nodes": {)"), rigid.size() - rigid.find(R"("nodes": {)"), R"("nodes": null})");
     CHECK_FALSE(integrity::parse_limits(doc(rigid)).members[0].nodes.has_value());

@@ -30,6 +30,7 @@ ROOT = Path(__file__).resolve().parents[2]
 SHIPPED = sorted(
     [
         *ROOT.glob("designs/*/design.yaml"),
+        *ROOT.glob("designs/*/integrity.yaml"),
         *ROOT.glob("test_cases/**/*.yaml"),
         *ROOT.glob("chips/*/chip.yaml"),
         *ROOT.glob("mechsim/library/catalog/*.yaml"),
@@ -109,8 +110,8 @@ def test_validate_an_invalid_physics_model_fails(tmp_path: Path) -> None:
 def test_validate_a_folder_runs_nothing() -> None:
     code, out, _ = call(["validate", str(ROOT / "test_cases")])
     assert code == EXIT_PASS
-    # G1 to G11, G13, G14, P1, P2, the gantry baseline and suite: 17 files.
-    assert out.count(": valid ") == 17
+    # G1 to G11, G13, G14, P1, P2, the gantry baseline and suite, and the four reference cases (R1, S1, B1, B2).
+    assert out.count(": valid ") == len(list((ROOT / "test_cases").rglob("*.yaml")))
 
 
 @pytest.mark.req("TST-030")

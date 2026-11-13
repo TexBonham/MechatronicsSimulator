@@ -293,13 +293,16 @@ class CheckRow:
 
 @dataclass(frozen=True)
 class CheckResult:
-    """A check's rows at the evaluated tier; `cycle_counts` (subject, cycles) for the wear seam (INT-037)."""
+    """A check's rows at the evaluated tier; `cycle_counts` (subject, cycles) for the wear seam (INT-037); `series`
+    (subject, value per recorded sample) for a check whose row is the peak of a history scoring may read whole
+    (deflection, SCO-027)."""
 
     check: str
     tier: int
     rows: tuple[CheckRow, ...]
     cycle_counts: tuple[tuple[str, float], ...] = ()
     notes: tuple[str, ...] = ()
+    series: tuple[tuple[str, tuple[float, ...]], ...] = ()
 
     def rows_of_tier(self, tier: int) -> tuple[CheckRow, ...]:
         return tuple(row for row in self.rows if row.tier <= tier)

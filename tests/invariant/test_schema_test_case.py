@@ -36,6 +36,7 @@ def test_schema_is_current_and_well_formed(module: Any) -> None:
 @pytest.mark.req("TST-009")
 def test_reference_cases_ship() -> None:
     assert [path.relative_to(ROOT).as_posix() for path in CASES] == [
+        "test_cases/cantilever_beam/B1_cantilever.yaml",
         "test_cases/gantry/G1.yaml",
         "test_cases/gantry/G10.yaml",
         "test_cases/gantry/G11.yaml",
@@ -51,6 +52,9 @@ def test_reference_cases_ship() -> None:
         "test_cases/gantry/G9.yaml",
         "test_cases/pendulum/P1_period.yaml",
         "test_cases/pendulum/P2_damping_sweep.yaml",
+        "test_cases/rope_pendulum/R1_period.yaml",
+        "test_cases/rope_spring/S1_settle.yaml",
+        "test_cases/simple_beam/B2_simply_supported.yaml",
     ]
 
 

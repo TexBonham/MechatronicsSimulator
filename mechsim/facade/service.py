@@ -6,6 +6,7 @@ protocol error code (FAC-020)."""
 from __future__ import annotations
 
 import bisect
+import math
 import threading
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, replace
@@ -284,14 +285,30 @@ class MemberStressResult(StrictModel):
 
 
 class IntegrityMemberResult(StrictModel):
+    """One member row; a quantity integrity did not evaluate (a member built rigid has no deflection) is an explicit
+    state, the value None and its `_evaluated` flag false, never a NaN in a number field (FAC-013, invariant 7)."""
+
     member: str
-    peak_stress: float = Field(description="Peak stress at the design load, Pa (INT-022).")
+    peak_stress: float | None = Field(
+        description="Peak stress at the design load, Pa (INT-022); None when not evaluated."
+    )
+    peak_stress_evaluated: bool
     peak_stress_time: float
-    deflection: float = Field(description="Peak deflection, m.")
+    deflection: float | None = Field(description="Peak deflection, m; None when not evaluated.")
+    deflection_evaluated: bool
     deflection_time: float
-    safety_factor: float = Field(description="Smallest minimum-strength safety factor over the run.")
+    safety_factor: float | None = Field(
+        description="Smallest minimum-strength safety factor over the run; None when not evaluated."
+    )
+    safety_factor_evaluated: bool
     safety_factor_time: float
     flags: list[str]
+
+
+def _evaluated_value(value: float) -> float | None:
+    if math.isnan(value):
+        return None
+    return value
 
 
 class IntegrityResultsResult(StrictModel):
@@ -843,11 +860,14 @@ class Facade:
             members=[
                 IntegrityMemberResult(
                     member=entry.member,
-                    peak_stress=entry.peak_stress,
+                    peak_stress=_evaluated_value(entry.peak_stress),
+                    peak_stress_evaluated=not math.isnan(entry.peak_stress),
                     peak_stress_time=entry.peak_stress_time,
-                    deflection=entry.deflection,
+                    deflection=_evaluated_value(entry.deflection),
+                    deflection_evaluated=not math.isnan(entry.deflection),
                     deflection_time=entry.deflection_time,
-                    safety_factor=entry.safety_factor,
+                    safety_factor=_evaluated_value(entry.safety_factor),
+                    safety_factor_evaluated=not math.isnan(entry.safety_factor),
                     safety_factor_time=entry.safety_factor_time,
                     flags=list(entry.flags),
                 )

@@ -14,9 +14,11 @@ and P1 pass on it with flexible rails, beam references within 2 percent; ctest d
 passed and 117 xfail). E4 (a04a371: engine joint limits, joint friction, additive
 per-step joint drive, zero-stretch coupling fix; ctest debug-sanitize 491, Python 4325 passed and 115 xfail). N3 (the adapter on the engine's limits, friction and drive; Python
 4340 passed), I2 with its fix round I2b (bb27093: tier 1 integrity party, tier 2 yield and rope snap, end reason
-`integrity_halt`; ctest debug-sanitize 526, Python 4377 passed and 107 xfail). Landing: E5 (regularised
-efficiency switch, screw lock row). In flight: N4 (adapter follow-up, `wip/05-n4`), X1b (structural acceptance on
-native, `wip/05-x1b`). Next: X1a (gantry G12 and G15), X2, gate. Briefs of record
+`integrity_halt`; ctest debug-sanitize 526, Python 4377 passed and 107 xfail). E5 (regularised efficiency switch, screw lock
+row), N4 (17f3d18: adapter follow-up, run-time mode lines, substep rest interpolation, node pose series; ctest
+debug-sanitize 545, Python 4387 passed and 107 xfail). In flight: X1c (fix round on the structural acceptance cases
+of X1b, `wip/05-x1b`), X1a (gantry G12 and G15 on native, `wip/05-x1a`). Next: X2 (suite on native, G16, batch),
+gate (the MuJoCo removal commit follows the owner's retirement decision). Briefs of record
 in `docs/briefs/round-05/`; worktrees `../MechatronicsSimulator-05-<letter>`. Round 4's rulings and gate report
 are below for reference; round 4's cost rows are in `docs/cost-log-archive.md`.
 
@@ -85,6 +87,7 @@ are below for reference; round 4's cost rows are in `docs/cost-log-archive.md`.
 | 59 | X1b review: the ACC-039 fixture matches the scheme-corrected settle time, 9 percent under the continuous closed form. | The acceptance fixture runs at a step where the scheme's correction is inside the tolerance, so the case is judged against the continuous closed form; the corrected value stays as a published line (ruling 45) | planned default |
 | 60 | X1b review: the acceptance cases' own criteria are one-sided (a wrong period, decay, settle time, a zero deflection or a wrong frequency passes the case; only pytest fails). | The oracle lives in the case: two-sided criteria for period, decay, settle time, settled deflection and frequency, with the scoring statistics they need (a period about the mean of a pose-derived series, a settled final-window value); pytest asserts the score and that a perturbed model fails; a NaN or not-evaluated quantity is an unevaluable error, never pass or plain fail (invariant 7); brief X1c | planned default |
 | 61 | X1b review: ACC-037's 2 percent amplitude tolerance over 20 periods is half consumed by the scheme's known loss at 50 microseconds (measured -0.98 percent). | Kept as ADR 0016 proposes; the owner confirms the ACC-037 to 043 tolerance rows at the gate | planned default |
+| 62 | X1b re-review (accept): the reference designs (rope pendulum, rope spring, cantilever, simple beam) are drafts with open parameters so a perturbed run can be made with `--set`; they validate (every parameter has a default) but the release guards no longer cover them and the oracle constants become settable against fixed criteria. Reviewer suggests release designs with the perturbed copies made in the test's temporary folder. Also carried, low: the S1 perturbed run fails on the target band, not the settle time; the tier 1 limits table still indexes nodes by layout; perturbed runs do not exercise the frequency criteria or R1's amplitude; no shipped design uses the catalog section `steel_bar_10mm_1m` now (LIB-030 lost its acceptance coverage); a structural steel material is owed before a fixture safety factor is quoted (the bars use the placeholder bolt steel, E and density only). | Keep the drafts for milestone 3; the conversion to release designs with temporary perturbed copies and the low items go to the round's close-out list for the owner | planned default, owner decides at gate |
 
 ## Round 4 rulings, reference (owner 2026-11-11: every ruling confirmed at its planned default; ruling 2 stays a placeholder with I2C and SPI peripheral modes added to the milestone 4 scope)
 

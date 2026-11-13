@@ -682,7 +682,7 @@ def stretched_rope_run(tmp_path: Path, tier1: IntegrityConfig) -> tuple[Any, Cor
     rope_snap is on (INT-031) and the bob oscillates on it when off."""
     root = tmp_path / "designs"
     (root / "rope_spring").mkdir(parents=True)
-    text = SPRING.read_text(encoding="utf-8").replace("position: [0 m, -1 m, 0 m]", "position: [0 m, -1.02 m, 0 m]")
+    text = SPRING.read_text(encoding="utf-8").replace('default: "-1 m"', 'default: "-1.02 m"')
     (root / "rope_spring" / "design.yaml").write_text(text, encoding="utf-8")
     case = tmp_path / "S9.yaml"
     case.write_text(SNAP_CASE, encoding="utf-8")

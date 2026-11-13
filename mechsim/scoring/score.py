@@ -8,9 +8,10 @@ a run error is scored as errored, every criterion with it (SCO-007, TST-023). A 
 
 from __future__ import annotations
 
+import math
 from collections.abc import Sequence
 from dataclasses import dataclass, replace
-from typing import Any, Literal
+from typing import Any, Literal, Protocol, runtime_checkable
 
 from mechsim.design.schema import OpenValue
 from mechsim.scoring.statistics import StatisticError, compare, statistic, window_indices, within
@@ -164,10 +165,20 @@ def score_run(
 STRUCTURAL_KINDS = ("safety_factor", "deflection")
 
 
+@runtime_checkable
+class _DeflectionHistory(Protocol):
+    """Integrity results that also carry each member's deflection per recorded sample (the integrity report)."""
+
+    def deflection_series(self, member: str) -> tuple[Sequence[float], Sequence[float]] | None: ...
+
+
 class _StructuralView:
     """The run's record view plus the integrity results it carries (SCO-014): `safety_factor:<member>` (the minimum
-    over the run, dimensionless) and `deflection:<member>` (the peak, m) read from the per-member table as one sample
-    at the time integrity reports for it; never recomputed from the recording. Other refs go to the recording."""
+    over the run, dimensionless) read from the per-member table as one sample at the time integrity reports for it;
+    `deflection:<member>` (m) the member's deflection at every recorded sample when the results carry it (SCO-027: its
+    maximum is the table's peak, its mean over a final window the settled value), else the table's peak as one sample;
+    never recomputed from the recording. A table value integrity did not evaluate (NaN) is unevaluable, never a number
+    (invariant 7). Other refs go to the recording."""
 
     def __init__(self, recording: RecordView, integrity: IntegrityResults | None) -> None:
         self._recording = recording
@@ -193,8 +204,21 @@ class _StructuralView:
         except KeyError as error:
             raise _UnevaluableError(f"{reference}: integrity reports no member {member!r}") from error
         if kind == "safety_factor":
-            return Series((entry.safety_factor_time,), (entry.safety_factor,), "")
-        return Series((entry.deflection_time,), (entry.deflection,), "m")
+            value = entry.safety_factor
+            time = entry.safety_factor_time
+            unit = ""
+        else:
+            value = entry.deflection
+            time = entry.deflection_time
+            unit = "m"
+        if math.isnan(value):
+            flags = ", ".join(entry.flags)
+            raise _UnevaluableError(f"{reference}: not evaluated by integrity (flags: {flags})")
+        if kind == "deflection" and isinstance(self._integrity, _DeflectionHistory):
+            history = self._integrity.deflection_series(member)
+            if history is not None:
+                return Series(tuple(history[0]), tuple(history[1]), "m")
+        return Series((time,), (value,), unit)
 
 
 def _crossings(recording: RecordView) -> tuple[str, ...]:
@@ -316,7 +340,12 @@ def _windowed(series: Series, window: Window | None) -> tuple[list[float], list[
     indices = window_indices(series.times, start, end)
     if len(indices) == 0:
         raise _UnevaluableError("no samples in the window")
-    return [series.times[index] for index in indices], [series.values[index] for index in indices]
+    times = [series.times[index] for index in indices]
+    values = [series.values[index] for index in indices]
+    for time, value in zip(times, values, strict=True):
+        if math.isnan(value):
+            raise _UnevaluableError(f"not evaluated: the sample at {time:.12g} s is not a number")
+    return times, values
 
 
 def _series(reference: str, recording: RecordView) -> Series:
@@ -392,8 +421,10 @@ def _value(criterion: ValueCriterion, recording: RecordView, limit: str) -> Crit
     times, values = _windowed(series, criterion.window)
     measured, worst = statistic(criterion.statistic, times, values)
     unit = series.unit
-    if criterion.statistic == "period":
+    if criterion.statistic in ("period", "period_about_mean"):
         unit = "s"
+    if criterion.statistic == "frequency_about_mean":
+        unit = "Hz"
     if criterion.comparison == "within":
         target = _number(criterion.target, "target")
         if criterion.relative_limit is not None:

@@ -74,3 +74,5 @@ type live in the root `CLAUDE.md` dispatch table once measured.
 | 2026-11-12 | M3-X1b structural acceptance on native, node-pose deflection (wip/05-x1b 6c68248) | module-writer (opus) | 332K | 160 calls, over the 140 cap |
 | 2026-11-12 | M3 review: X1b (wip/05-x1b 6c68248): land after a small fix round, 7 medium, 4 low; rulings 57 to 61 (review-m3-x1b.md) | Fable review (general-purpose) | 123K | 16 calls |
 | 2026-11-12 | M3-X1b invariant audit: pass, one data note | invariant-auditor (sonnet) | 40K | 7 calls |
+| 2026-11-12 | M3-X1c acceptance fix round (wip/05-x1b 1b0c3f8) | module-writer (opus) | 243K | 113 calls |
+| 2026-11-12 | M3-X1b re-review after X1c: accept; ruling 62 | Fable review (general-purpose), resumed | ~25K | 6 calls |

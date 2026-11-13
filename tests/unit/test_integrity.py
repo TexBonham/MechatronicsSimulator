@@ -25,7 +25,7 @@ from mechsim.integrity.checks.resonance import Resonance, ResonanceParameters
 from mechsim.integrity.checks.strength import Strength
 from mechsim.integrity.config import IntegrityConfig, config_for, load_config, parse_config
 from mechsim.integrity.export import load_case, write_beside
-from mechsim.integrity.inputs import member_axes, node_chains, run_inputs, section_properties
+from mechsim.integrity.inputs import member_axes, node_chains, recorded_body_count, run_inputs, section_properties
 from mechsim.integrity.plugin import (
     BodyPoses,
     CheckResult,
@@ -42,7 +42,7 @@ from mechsim.integrity.service import IntegrityService
 from mechsim.integrity.table import THERMAL_NOTE, IntegrityReport, evaluate
 from mechsim.record.layout import MEMBER_SERIES, Columns
 from mechsim.record.stream import Recorder
-from mechsim.record.tick import JointForce, MemberEndLoads, PhysicsOutputs, TickRecord, Wrench
+from mechsim.record.tick import BodyState, JointForce, MemberEndLoads, PhysicsOutputs, TickRecord, Wrench
 from mechsim.schema_base import StrictModel
 from mechsim.testing.driver import IntegrityResults, MemberSection, Series
 from tests.reference.test_integrity_checks import (
@@ -843,16 +843,15 @@ def test_the_member_axis_comes_from_the_lumped_placement() -> None:
     assert axes["rail"] == pytest.approx((0.0, 1.0, 0.0), abs=1e-15)
     assert axes["other"] == (1.0, 0.0, 0.0)
     assert member_axes(SimpleNamespace(physics=None)) == {}
+    bodies = (SimpleNamespace(name="frame"), SimpleNamespace(name="carriage"))
     build = SimpleNamespace(
         design=_design("0"),
         members=(_member(),),
-        physics=SimpleNamespace(lumped_members=lumped, bodies=(), fastenings=()),
+        physics=SimpleNamespace(lumped_members=lumped, bodies=bodies, fastenings=()),
     )
-    assert run_inputs(build, _recorded(_cantilever_rows(1.0)), _views()).members[0].axis_body == pytest.approx(
-        (0.0, 1.0, 0.0), abs=1e-15
-    )
+    posed = _posed(_cantilever_rows(1.0), _NAMES)
+    assert run_inputs(build, posed, _views()).members[0].axis_body == pytest.approx((0.0, 1.0, 0.0), abs=1e-15)
     # Node chains follow the neutral bodies in lumped order; a pinned root adds its pin segment as node 0.
-    bodies = (SimpleNamespace(name="frame"), SimpleNamespace(name="carriage"))
     chains = node_chains(SimpleNamespace(lumped_members=lumped, bodies=bodies))
     assert chains["rail"] == NodeChain(2, 8, "clamped", 1, (0.1, 0.0, 0.0), (half, 0.0, 0.0, half), 0.0625)
     assert chains["other"] == NodeChain(10, 5, "pinned", None, (0.0, 0.0, 0.0), (1.0, 0.0, 0.0, 0.0), 0.125)
@@ -861,3 +860,112 @@ def test_the_member_axis_comes_from_the_lumped_placement() -> None:
         SimpleNamespace(design=_design("0"), members=(_member(),)), _recorded(_cantilever_rows(1.0)), _views()
     )
     assert rigid.members[0].axis_body == (1.0, 0.0, 0.0)
+
+
+# Two neutral bodies, then rail_chain's 8 nodes and other's 5 (a pinned root adds node 0), as the native adapter
+# publishes them (`member_node_names`).
+_NAMES = (
+    "frame",
+    "carriage",
+    *(f"rail_chain.node{k}" for k in range(8)),
+    *(f"other.node{k}" for k in range(5)),
+)
+
+
+def _posed(loads: list[tuple[Wrench, Wrench]], names: tuple[str, ...]) -> _View:
+    """End-loads for member `rail` plus a pose for every named body at each row."""
+    columns = {path: Columns(("rail",)) for path in MEMBER_SERIES}
+    recorder = Recorder(Fraction(1000), columns, names)
+    for tick, (start, end) in enumerate(loads):
+        physics = PhysicsOutputs(
+            steps=tick + 1,
+            members=(MemberEndLoads(start, end),),
+            bodies=tuple(BodyState() for _ in names),
+        )
+        recorder.write_row(TickRecord(time=tick, physics=physics))
+    return _View(recorder.recording())
+
+
+def _lumped(name: str, parent: str, root: str, segments: int) -> SimpleNamespace:
+    return SimpleNamespace(
+        name=name,
+        structural_member=None,
+        orientation=(1.0, 0.0, 0.0, 0.0),
+        position=(0.0, 0.0, 0.0),
+        parent=parent,
+        root=root,
+        segments=segments,
+        section=SimpleNamespace(length=1.0),
+    )
+
+
+_TWO = (SimpleNamespace(name="frame"), SimpleNamespace(name="carriage"))
+
+
+@pytest.mark.req("INT-006")
+def test_node_chains_are_found_by_the_recorded_names() -> None:
+    # The recorder's names locate each chain; with the names shuffled so other's nodes come first, the chains follow
+    # the names, not the layout.
+    lumped = (_lumped("rail_chain", "carriage", "clamped", 8), _lumped("other", "world", "pinned", 4))
+    model = SimpleNamespace(lumped_members=lumped, bodies=_TWO)
+    by_layout = node_chains(model)
+    by_name = node_chains(model, _NAMES)
+    assert (by_layout["rail_chain"].first_body, by_layout["other"].first_body) == (2, 10)
+    assert by_name == by_layout
+    shuffled = ("frame", "carriage", *_NAMES[10:], *_NAMES[2:10])
+    moved = node_chains(model, shuffled)
+    assert (moved["rail_chain"].first_body, moved["other"].first_body) == (7, 2)
+    assert (moved["rail_chain"].parent_body, moved["other"].parent_body) == (1, None)
+
+
+@pytest.mark.req("INT-006")
+@pytest.mark.parametrize(
+    ("parent", "names", "message"),
+    [
+        ("gantry", (), "unknown parent 'gantry', neither the world nor a body"),
+        ("", (), "unknown parent '', neither the world nor a body"),
+        ("other.node2", (), "parent 'other.node2' is another member's node"),
+        ("carriage", ("frame", "carriage"), "the recording names no body 'rail_chain.node0'"),
+        (
+            "carriage",
+            ("frame", "carriage", *(f"rail_chain.node{k}" for k in range(7)), "other.node0"),
+            "recorded node bodies",
+        ),
+    ],
+)
+def test_an_unknown_parent_or_a_misnamed_chain_is_an_error_never_the_world(
+    parent: str, names: tuple[str, ...], message: str
+) -> None:
+    lumped = (_lumped("rail_chain", parent, "clamped", 8), _lumped("other", "world", "pinned", 4))
+    with pytest.raises(IntegrityError, match=message):
+        node_chains(SimpleNamespace(lumped_members=lumped, bodies=_TWO), names)
+
+
+def _flexible_build() -> SimpleNamespace:
+    lumped = (_lumped("rail_chain", "carriage", "clamped", 8), _lumped("other", "world", "pinned", 4))
+    return SimpleNamespace(
+        design=_design("0"),
+        members=(_member(),),
+        physics=SimpleNamespace(lumped_members=lumped, bodies=_TWO, fastenings=()),
+    )
+
+
+@pytest.mark.req("INT-006")
+def test_the_recorded_body_count_must_equal_neutral_bodies_plus_member_nodes() -> None:
+    # 2 neutral bodies + 8 + 5 nodes = 15; a recording of 14 poses per sample (one neutral body short, every node
+    # named) names both counts.
+    assert recorded_body_count(_flexible_build().physics) == 15
+    assert run_inputs(_flexible_build(), _posed(_cantilever_rows(1.0), _NAMES), _views()).bodies is not None
+    with pytest.raises(IntegrityError, match="has 14 body poses per sample, the model 15"):
+        run_inputs(_flexible_build(), _posed(_cantilever_rows(1.0), _NAMES[1:]), _views())
+
+
+@pytest.mark.req("INT-006")
+def test_a_flexible_run_missing_the_body_series_is_an_error_not_built_rigid() -> None:
+    with pytest.raises(IntegrityError, match="recorded no body poses"):
+        run_inputs(_flexible_build(), _recorded(_cantilever_rows(1.0)), _views())
+    # A rigid build (no lumped members) without poses is evaluated as built rigid: no bodies, no error.
+    rigid = run_inputs(
+        SimpleNamespace(design=_design("0"), members=(_member(),)), _recorded(_cantilever_rows(1.0)), _views()
+    )
+    assert rigid.bodies is None

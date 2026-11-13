@@ -1,9 +1,13 @@
 # Cantilever under its own weight (ACC-040, ACC-041), released straight at rest. Static tip deflection
-# w L^4 / (8 E I) = 5.775638e-3 m (w = 7.700850 N/m, E I = 166.6667 N m^2); first mode
-# omega_1 = 1.8751^2 sqrt(E I / (rho A L^4)) = 51.2319 rad/s (8.15384 Hz). At the 1 ms step x = omega_1 h = 0.0512:
-# frequency ratio atan(x) / x = 0.99913 (inside 0.1 percent), amplitude kept per period 0.85 (ruling 45), so after
-# 6 s (49 periods) the swing is below 1e-3 of the step and the last sample is the static shape. The peak deflection
-# over the run (the integrity table, INT-006) includes the release overshoot: at most twice the static value.
+# w L^4 / (8 E I) = 5.634768e-3 m (w = 7.70085 N/m, E I = 170.8333 N m^2); first mode
+# f_1 = 1.8751^2 sqrt(E I / (rho A L^4)) / (2 pi) = 8.255100 Hz. Step 1 ms (the `rates` block): x = omega_1 h = 0.0519,
+# frequency ratio atan(x) / x = 0.99910 (inside 0.1 percent), amplitude kept per period 0.850 (ruling 45), so after 5 s
+# (41 periods) the swing is below 1e-3 of the step and the mean over the final second is the static value.
+# deflection:<member> is the node-pose deflection at every sample (INT-006, SCO-027): its mean over the final window is
+# the settled deflection; its frequency is counted about the mean from 0.25 s (the second mode, x = 0.33, keeps 0.37 per
+# period: below 1e-5 by then) to 1.75 s, twelve periods. Its maximum, the integrity table's peak, includes the release
+# overshoot, about twice the static value for a straight release, so it is not a static oracle. Tolerances (ACC-040,
+# ACC-041 rows): the lumped chain's 2 percent at eight segments (rulings 31, 32).
 id: B1
 title: Cantilever under its own weight
 design:
@@ -12,15 +16,30 @@ design:
 seed: 0
 initial_state:
   joints: []
+rates:
+  physics_step: 1 ms
 physics:
   adapter: native
 end:
   at: 6 s
   max_duration: 10 s
 criteria:
-  - name: peak_deflection
+  - name: settled_deflection
     check: value
     quantity: deflection:bar
-    statistic: maximum
-    comparison: at_most
-    limit: 11.6 mm
+    statistic: mean
+    window:
+      start: 5 s
+    comparison: within
+    target: 5.634768e-3 m
+    relative_limit: "0.02"
+  - name: first_frequency
+    check: value
+    quantity: deflection:bar
+    statistic: frequency_about_mean
+    window:
+      start: 0.25 s
+      end: 1.75 s
+    comparison: within
+    target: 8.255100 Hz
+    relative_limit: "0.02"
