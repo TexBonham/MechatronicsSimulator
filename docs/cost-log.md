@@ -115,3 +115,4 @@ type live in the root `CLAUDE.md` dispatch table once measured.
 | 2026-11-13 | M3-D2c damping fix round finished except the tier 1 note wiring (wip/05-x1a c15e219) | module-writer (opus) | 164K | 102 calls |
 | 2026-11-13 | M3-D2d step count rule in the driver, tier 1 notes into the run notes (wip/05-x1a e65c083) | module-writer (opus) | 104K | 53 calls |
 | 2026-11-13 | M3-X1f G12 and G15 at three step sizes, baseline on the new design hash (wip/05-x1a 6f17849); ruling 81 | module-writer (opus) | 242K | 112 calls |
+| 2026-11-13 | M3 review: X1f (wip/05-x1a 6f17849): accept after a text-only fix round, 2 high, 4 medium, 2 low; ruling 82 (review-m3-x1f.md) | Fable review (general-purpose) | see notification | cap 25 |
