@@ -12,6 +12,7 @@
 #include "bindings.hpp"
 #include "factories.hpp"
 #include "mechsim/engine/member_loads.hpp"
+#include "mechsim/integrity/validity.hpp"
 #include "mechsim/kernel/physics_adapter.hpp"
 #include "mechsim/kernel/physics_types.hpp"
 #include "mechsim/kernel/time.hpp"
@@ -23,6 +24,25 @@ namespace py = pybind11;
 namespace mechsim::bindings {
 
 namespace {
+
+// The native adapter's live carried-load flag as the integrity party's neutral validity source (rulings 75, 79): the
+// physics side fills it, so the integrity package and its binding include no adapter header (invariant 5).
+class CarriedValidity final : public integrity::ValiditySource {
+public:
+    explicit CarriedValidity(std::shared_ptr<const physics::native::CarriedRecord> record)
+        : record_(std::move(record)) {}
+
+    [[nodiscard]] bool not_valid(std::size_t member) const override {
+        if (member >= record_->members.size()) {
+            throw integrity::ValidityError("validity of member " + std::to_string(member) + ": the engine's record holds " +
+                                           std::to_string(record_->members.size()) + " members");
+        }
+        return record_->members[member].unresolved;
+    }
+
+private:
+    std::shared_ptr<const physics::native::CarriedRecord> record_;
+};
 
 using kernel::PhysicsAdapter;
 
@@ -274,7 +294,14 @@ void bind_adapter(py::module_& m) {
             "A copy: [(largest deflection m, lag ratio r, omega h, largest per-step factor, the pair's work J, "
             "largest rerouted force N, largest quasi-static deflection m, largest dynamic ratio, unresolved, "
             "unresolved from s, at the peak ratio: foot position m, floor m, window peak m, largest nodal deflection "
-            "relative to the own-weight shape m)] per member (ENG-052, briefs M3-E7c, M3-E7g).");
+            "relative to the own-weight shape m)] per member (ENG-052, briefs M3-E7c, M3-E7g).")
+        .def(
+            "validity_source",
+            [](const std::shared_ptr<physics::native::CarriedRecord>& record) {
+                return std::shared_ptr<integrity::ValiditySource>(std::make_shared<CarriedValidity>(record));
+            },
+            "This record's live flag as the integrity party's neutral validity source (rulings 75, 79): a member index "
+            "outside the record is an error.");
 
     py::class_<physics::native::NativeAdapter, PhysicsAdapter, py::smart_holder>(
         m, "NativeAdapter", "The own engine behind the PhysicsAdapter interface (PHY-020); load the native translation.")

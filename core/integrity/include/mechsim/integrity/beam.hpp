@@ -36,6 +36,9 @@ struct CarriedAt {
 [[nodiscard]] std::vector<CarriedAt> carried_at(std::span<const kernel::BodyState> bodies,
                                                 std::span<const kernel::JointForce> joints, const MemberLimits& member);
 
+// A couple below couple_floor abs(F) L counts as none (rounding of a joint on the member axis; beam.py COUPLE_FLOOR).
+inline constexpr double couple_floor = 1e-9;
+
 // A moment read at a carried load: value N m (spring sense), position m along the member.
 struct CarriedMoment {
     double value = 0.0;
@@ -54,6 +57,11 @@ struct CarriedReads {
 };
 [[nodiscard]] CarriedReads carried_reads(const kernel::MemberEndLoads& loads, std::span<const double> moments,
                                          const MemberLimits& member, std::span<const CarriedAt> carried);
+
+// Ruling 79 (mechsim/integrity/beam.py `hogging_rows`): true when the chain has a positive own-weight bound and a
+// carried couple above couple_floor abs(F) L is applied at a foot point inside one of its hogging stretches (ends
+// included), where the reads can be low by up to the bound.
+[[nodiscard]] bool hogs(const MemberLimits& member, std::span<const CarriedAt> carried);
 
 // abs(N) / A + abs(M_y) c_z / I_y + abs(M_z) c_y / I_z at the start and the end and, for a member with nodes, at each
 // node spring: abs(N) the larger end value, M_z the spring's moment (`node_moments` under `offsets`), M_y

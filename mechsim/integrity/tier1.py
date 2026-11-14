@@ -10,14 +10,15 @@ from __future__ import annotations
 
 import json
 from collections.abc import Callable, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
 import numpy as np
 
-from mechsim.integrity.beam import effective_length_factor
+from mechsim.integrity.beam import effective_length_factor, hogging_intervals, own_weight_bound
 from mechsim.integrity.checks.fastener import rating
+from mechsim.integrity.checks.strength import hogging_note
 from mechsim.integrity.config import FILE_NAME, IntegrityConfig, load_config
 from mechsim.integrity.inputs import SPRINGS_PER_JOINT, member_axes, node_chains, section_properties
 from mechsim.integrity.plugin import IntegrityError, MaterialView, MemberInputs, NodeChain, Spread, Wrenches
@@ -125,6 +126,10 @@ def _supports(member: Any) -> list[dict[str, Any]]:
     return out
 
 
+def _support_pairs(member: Any) -> tuple[tuple[float, Any], ...]:
+    return tuple((float(support.at), support.condition) for support in member.supports)
+
+
 def _effective_length(member: Any, section: Any, config: IntegrityConfig, buckling: bool) -> float:
     parameters = _parameters(config, "buckling")
     if parameters is not None and str(member.name) in parameters.effective_length_factors:
@@ -145,10 +150,30 @@ def _effective_length(member: Any, section: Any, config: IntegrityConfig, buckli
         return 1.0
 
 
-def _nodes(chain: NodeChain | None) -> dict[str, Any] | None:
+def node_record(chain: NodeChain | None, inputs: MemberInputs, gravity: float) -> dict[str, Any] | None:
+    """The chain's record; a carrying chain also gets `hogging` (ruling 79): `bound` 3 w l^2 (N m, live, no design-load
+    factor) and the `intervals` (m) where the own weight's moment hogs."""
     if chain is None:
         return None
-    return chain.to_limits()
+    out = chain.to_limits()
+    if chain.carries:
+        member = replace(inputs, nodes=chain)
+        out["hogging"] = {
+            "bound": own_weight_bound(member, gravity),
+            "intervals": [[lo, hi] for lo, hi in hogging_intervals(member)],
+        }
+    return out
+
+
+def trace_notes(limits: str, trace: Any) -> tuple[str, ...]:
+    """The party's own-weight lines (ruling 79) from its trace: one per member whose `hogging_bound` is set, the same
+    text as the strength check's (`hogging_note`)."""
+    members = json.loads(limits)["members"]
+    out: list[str] = []
+    for place, bound in enumerate(trace.hogging_bound):
+        if bound > 0.0:
+            out.append(hogging_note(str(members[place]["name"]), float(bound), float(trace.hogging_read[place])))
+    return tuple(out)
 
 
 def limits_table(
@@ -172,6 +197,7 @@ def limits_table(
             minimum = float(structural.minimum_safety_factor)
         deflection_limit = float(structural.accuracy_target)
     temperature = float(design.environment.ambient_temperature)
+    gravity = float(np.linalg.norm(np.asarray(design.environment.gravity, dtype=np.float64)))
     structural_members = {str(member.name): member for member in build.members}
     records = {str(record.member): record for record in getattr(build, "lumped", ())}
     axes = member_axes(build)
@@ -224,7 +250,11 @@ def limits_table(
                 "segments": segments,
                 "segment_length": segment_length,
                 "node_stiffness": stiffness,
-                "nodes": _nodes(chains.get(name)),
+                "nodes": node_record(
+                    chains.get(name),
+                    MemberInputs(name, str(member.material), section, _support_pairs(member), None),
+                    gravity,
+                ),
             }
         )
     fastenings: list[dict[str, Any]] = []

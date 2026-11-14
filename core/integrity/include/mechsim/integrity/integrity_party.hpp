@@ -2,7 +2,6 @@
 
 #include <cstddef>
 #include <cstdint>
-#include <functional>
 #include <memory>
 #include <span>
 #include <string>
@@ -11,6 +10,7 @@
 
 #include "mechsim/integrity/beam.hpp"
 #include "mechsim/integrity/limits.hpp"
+#include "mechsim/integrity/validity.hpp"
 #include "mechsim/kernel/party.hpp"
 #include "mechsim/kernel/physics_party.hpp"
 #include "mechsim/kernel/physics_types.hpp"
@@ -51,6 +51,11 @@ struct IntegrityTrace {
     std::vector<Crossing> before_evaluation;  // crossings before the evaluation start, recorded and not counted
     std::vector<Crossing> not_valid;          // crossings of a flagged member or its mounts, recorded and not counted
     std::vector<kernel::ModelChangeRequest> requests;  // every model change requested, in order
+    // Per member (ruling 79): the own-weight bound 3 w l^2 (N m) once a carried couple has been applied at a foot point
+    // where the own weight's moment hogs, at or after the evaluation start (0: never), and the largest read magnitude
+    // under the carried loads in those ticks (N m).
+    std::vector<double> hogging_bound;
+    std::vector<double> hogging_read;
 };
 
 struct IntegrityPartyConfig {
@@ -87,9 +92,9 @@ public:
 
     [[nodiscard]] const IntegrityTrace& trace() const noexcept;
 
-    // The engine's live validity flag per member (ruling 75): called each step with MemberLimits::index, true while
-    // the member's one-way carried-load result is not valid (flagged at or before this tick). Unset: never flagged.
-    void watch_validity(std::function<bool(std::size_t)> not_valid);
+    // The engine's live validity per member (rulings 75, 79), read each step with MemberLimits::index from a neutral
+    // source the physics side fills; a ValidityError from it ends the run. Unset: never flagged.
+    void watch_validity(std::shared_ptr<const ValiditySource> source);
 
 private:
     struct MemberState {
@@ -120,6 +125,7 @@ private:
                  const std::string& element, std::string_view quantity, double value, double limit);
     void yield(const MemberLimits& member, const kernel::MemberEndLoads& loads, MemberState& state);
     void apply_offset(const kernel::ModelChangeRequest& request);
+    void hogging(std::size_t m, const kernel::MemberEndLoads& loads, const MemberState& state);
 
     Limits limits_;
     IntegrityPartyConfig config_;
@@ -135,7 +141,7 @@ private:
     bool written_ = false;
     bool halted_ = false;
     mutable std::vector<kernel::RecordedEvent> pending_events_;
-    std::function<bool(std::size_t)> not_valid_;
+    std::shared_ptr<const ValiditySource> validity_;
 };
 
 // The event detail of a crossing: the JSON of mechsim.testing.driver.IntegrityCrossing (keys sorted, tier 1).

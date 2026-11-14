@@ -1458,3 +1458,49 @@ def test_resonance_uses_the_calibrated_frequency_when_the_design_records_one() -
     (row,) = Resonance().evaluate(run, parameters, 1).rows
     assert row.limit == 42.0
     assert row.flags == ("resonance",)
+
+
+@pytest.mark.req("INT-005", "INT-023")
+@pytest.mark.parametrize(
+    ("supports", "fraction", "hogs"),
+    [(("clamped", "clamped"), 0.1, True), (("clamped", "clamped"), 0.5, False), (("pinned", "roller"), 0.1, False)],
+)
+def test_strength_says_where_own_weight_can_make_a_carried_couples_read_low(
+    supports: tuple[str, str], fraction: float, hogs: bool
+) -> None:
+    """Ruling 79, never silently low. The carriage's weight offset by e puts a couple C = -P e at its foot point s = a.
+    Under own weight a clamped-clamped span hogs on [0, 0.2113 L] and [0.7887 L, L] (the roots of
+    6 L x - 6 x^2 - L^2), a pinned span nowhere: at 0.1 L clamped the strength check carries one line with the bound
+    3 w l^2 (w = rho A abs(g), l = L / 8) and its fraction of the largest read in those rows, at 0.5 L or pinned none.
+    Tier 1 decides the same condition on the same row from its limits table's `hogging` record."""
+    from mechsim import _core as core
+    from mechsim.integrity.beam import carried_at, carried_reads, hogging_rows
+    from mechsim.integrity.checks.strength import hogging_note
+    from mechsim.integrity.tier1 import node_record
+
+    member_inputs, bodies, _ = _carried_bar(True, fraction, supports)
+    assert member_inputs.nodes is not None
+    section = member_inputs.section
+    bound = 3.0 * section.density * section.area * _CARRIED_GRAVITY * (section.length / 8.0) ** 2
+    run = RunInputs(
+        np.zeros(2), (member_inputs,), {"fake": FakeMaterial()}, TEMPERATURE, bodies=bodies, gravity=_CARRIED_GRAVITY
+    )
+    notes = Strength().evaluate(run, NoParameters(), 1).notes
+    lines = [note for note in notes if "ruling 79" in note]
+    rows = hogging_rows(member_inputs, bodies)
+    assert bool(rows.any()) == hogs
+    if hogs:
+        moments = node_moments(member_inputs, bodies)[0]
+        reads = carried_reads(member_inputs, member_inputs.loads, moments, bodies)
+        largest = float(np.abs(np.where(reads.found.astype(bool), reads.values, 0.0))[rows].max())
+        report("own-weight bound 3 w l^2 (N m)", bound, bound)
+        assert lines == [hogging_note("bar", bound, largest)]
+    else:
+        assert lines == []
+    record = node_record(member_inputs.nodes, member_inputs, _CARRIED_GRAVITY)
+    assert record is not None
+    limits = json.loads(_limits_json(member_inputs, bodies.positions.shape[1]))
+    limits["members"][0]["nodes"] = record
+    s, force, couple = carried_at(member_inputs, bodies)
+    items = [[float(s[-1, 0]), float(force[-1, 0]), float(couple[-1, 0])]]
+    assert core.integrity_hogs(json.dumps(limits), 0, items) == bool(rows[-1])

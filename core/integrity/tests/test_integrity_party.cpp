@@ -17,6 +17,7 @@
 #include "mechsim/integrity/beam.hpp"
 #include "mechsim/integrity/integrity_party.hpp"
 #include "mechsim/integrity/limits.hpp"
+#include "mechsim/integrity/validity.hpp"
 #include "mechsim/kernel/cosim_kernel.hpp"
 #include "mechsim/kernel/coupling.hpp"
 #include "mechsim/kernel/kernel.hpp"
@@ -125,7 +126,8 @@ struct Run {
 };
 
 Run run(integrity::Limits limits, std::function<kernel::PhysicsOutputs(double)> load, int ticks, bool halt = false,
-        kernel::SimTime evaluate_from = kernel::SimTime{0}) {
+        kernel::SimTime evaluate_from = kernel::SimTime{0},
+        std::shared_ptr<const integrity::ValiditySource> validity = nullptr) {
     kernel::CoSimKernel k{kernel::RunConfig{}};
     k.register_party(std::make_unique<LoadSource>(std::move(load)));
     integrity::IntegrityPartyConfig config;
@@ -133,7 +135,11 @@ Run run(integrity::Limits limits, std::function<kernel::PhysicsOutputs(double)> 
     config.evaluate_from = evaluate_from;
     Run out;
     out.trace = std::make_shared<integrity::IntegrityTrace>();
-    k.register_party(std::make_unique<integrity::IntegrityParty>(std::move(limits), config, out.trace));
+    auto party = std::make_unique<integrity::IntegrityParty>(std::move(limits), config, out.trace);
+    if (validity) {
+        party->watch_validity(std::move(validity));
+    }
+    k.register_party(std::move(party));
     if (halt) {
         k.set_end_triggers(kernel::EndTriggers{std::nullopt, "", "integrity"});
     }
@@ -459,13 +465,14 @@ std::vector<kernel::BodyState> pinned_nodes(const std::vector<double>& moments, 
 
 
 // The chain's samples under a force P (down, sagging positive) and a couple C at a on the pinned span (beam.py
-// header): the true moment M(x) = R0 x - P (x - a)+ + C H(x - a), R0 = P b / L - C / L; the spring at x_{k+1} (the
-// lever node above a) reads w_{k+1} C less, the torque share it lacks. Every other sample is the true moment.
+// header): the true moment M(x) = R0 x - P (x - a)+ - C H(x - a), R0 = P b / L + C / L, so M(a+) - M(a-) = -C in the
+// spring sense; the spring at x_{k+1} (the lever node above a) has only w_k C on its left where the point couple puts
+// all of C, so it reads w_{k+1} C more. Every other sample is the true moment.
 std::vector<double> chain_samples(double load, double couple, double a) {
     const auto moment = [&](double s) {
-        double value = (load * (span_length - a) / span_length - couple / span_length) * s;
+        double value = (load * (span_length - a) / span_length + couple / span_length) * s;
         if (s > a) {
-            value += -load * (s - a) + couple;
+            value += -load * (s - a) - couple;
         }
         return value;
     };
@@ -481,15 +488,15 @@ std::vector<double> chain_samples(double load, double couple, double a) {
     const double upper = (a - nodes[k]) / (nodes[k + 1] - nodes[k]);
     std::vector<double> out = sampled(moment);
     if (k + 1 >= 1 && k + 1 <= span_segments) {
-        out[k] -= upper * couple;
+        out[k] += upper * couple;
     }
     return out;
 }
 
 kernel::MemberEndLoads pinned_with_couple(double load, double couple, double a) {
     kernel::MemberEndLoads loads = pinned_point(load, a);
-    loads.start.force[1] -= couple / span_length;
-    loads.end.force[1] += couple / span_length;
+    loads.start.force[1] += couple / span_length;
+    loads.end.force[1] -= couple / span_length;
     return loads;
 }
 
@@ -501,7 +508,8 @@ TEST_CASE("the moments just left and right of a carried force and couple are the
     const double load = 120.0;
     const double couple = 9.0;
     // a in the start's half segment (the pin's start line), interior segments, on a spring (0.3125 = 2.5 l) and in
-    // the end's half segment (the end's line): M(a-) = P a b / L - C a / L, M(a+) = P a b / L + C b / L exactly.
+    // the end's half segment (the end's line): M(a-) = P a b / L + C a / L, M(a+) = P a b / L - C b / L exactly, the
+    // step -C of the header.
     for (const double a : {0.03, 0.1, 0.3125, 0.5, 0.77, 0.98}) {
         CAPTURE(a);
         const double b = span_length - a;
@@ -509,8 +517,8 @@ TEST_CASE("the moments just left and right of a carried force and couple are the
         const integrity::CarriedReads reads = integrity::carried_reads(
             pinned_with_couple(load, couple, a), chain_samples(load, couple, a), m, carried);
         REQUIRE(reads.reads.size() == 2);
-        CHECK_THAT(reads.reads[0].value, WithinAbs(load * a * b / span_length - couple * a / span_length, 1e-12));
-        CHECK_THAT(reads.reads[1].value, WithinAbs(load * a * b / span_length + couple * b / span_length, 1e-12));
+        CHECK_THAT(reads.reads[0].value, WithinAbs(load * a * b / span_length + couple * a / span_length, 1e-12));
+        CHECK_THAT(reads.reads[1].value, WithinAbs(load * a * b / span_length - couple * b / span_length, 1e-12));
         CHECK(reads.reads[0].position == a);
         CHECK(reads.bound == 0.0);
     }
@@ -1074,4 +1082,152 @@ TEST_CASE("the limits table's body count is exact, never an upper bound", "[INT-
                   std::string::npos);
         }
     }
+}
+
+// ===== Validity from a neutral source (rulings 75, 79; INT-026) ==========
+
+namespace {
+
+// A fake of the engine's flag: member 0 is flagged from the party's `from`-th evaluated step on (one call per member
+// per step, the step stamped `from` or `from` + 1 ms; every threshold below sits at least one tick clear of the
+// crossings it separates); any other index is not held.
+class FlagFrom final : public integrity::ValiditySource {
+public:
+    explicit FlagFrom(std::int64_t from) : from_(from) {}
+
+    [[nodiscard]] bool not_valid(std::size_t member) const override {
+        if (member != 0) {
+            throw integrity::ValidityError("member " + std::to_string(member) + " of 1");
+        }
+        ++calls_;
+        return calls_ >= from_;
+    }
+
+private:
+    std::int64_t from_;
+    mutable std::int64_t calls_ = 0;
+};
+
+// The cantilever's root stress crosses at 11 ms (the first oracle above) and a mount holding it, rated 250 N under
+// abs(F) = k t with t* = 7.5 ms, at 8 ms.
+integrity::Limits held_member() {
+    integrity::Limits limits;
+    limits.stress = true;
+    limits.fastener = true;
+    limits.members.push_back(cantilever());
+    limits.fastenings.push_back(integrity::FasteningLimits{"mount", 1, 250.0, std::size_t{0}});
+    return limits;
+}
+
+kernel::PhysicsOutputs held_load(double t) {
+    const integrity::MemberLimits m = cantilever();
+    const double stress_rate = m.allowable_stress * m.i_z / (0.0105 * m.length * m.c_y);
+    kernel::PhysicsOutputs out = tip_loaded(stress_rate * t, 1.0);
+    out.joints.resize(2);
+    out.joints[1].reaction.force = {0.0, 250.0 / 0.0075 * t, 0.0};
+    return out;
+}
+
+std::vector<std::string> event_kinds(const Run& r) {
+    std::vector<std::string> kinds;
+    for (const kernel::TickRecord& row : r.rows) {
+        for (const kernel::RecordedEvent& event : row.events) {
+            kinds.push_back(event.kind + "@" + std::to_string(row.time.count()));
+        }
+    }
+    return kinds;
+}
+
+}  // namespace
+
+TEST_CASE("a crossing before the source flags the member counts; after it, it and its mount's are not valid",
+          "[INT-026][INT-024]") {
+    // Flag from 12 ms: the mount's crossing at 8 ms and the member's at 11 ms both precede it and count.
+    const Run before = run(held_member(), held_load, 20, false, kernel::SimTime{0}, std::make_shared<FlagFrom>(12));
+    CHECK(event_kinds(before) == std::vector<std::string>{"integrity@8", "integrity@11"});
+    CHECK(before.trace->not_valid.empty());
+    // Flag from 9 ms: the mount's crossing at 8 ms counts; the member's at 11 ms is integrity_not_valid.
+    const Run between = run(held_member(), held_load, 20, false, kernel::SimTime{0}, std::make_shared<FlagFrom>(9));
+    CHECK(event_kinds(between) == std::vector<std::string>{"integrity@8", "integrity_not_valid@11"});
+    // Flag from 5 ms: the mount follows its member in the party (not only at parsing): both not valid, nothing counted,
+    // and under halting nothing halts.
+    const Run after = run(held_member(), held_load, 20, true, kernel::SimTime{0}, std::make_shared<FlagFrom>(5));
+    CHECK(event_kinds(after) == std::vector<std::string>{"integrity_not_valid@8", "integrity_not_valid@11"});
+    CHECK(after.crossings.empty());
+    REQUIRE(after.trace->not_valid.size() == 2);
+    CHECK(after.trace->not_valid[0].element == "mount");
+    CHECK(after.trace->not_valid[1].element == "arm");
+    CHECK(after.report.end_reason == kernel::EndReason::max_duration);
+}
+
+TEST_CASE("a member index the validity source does not hold is an error, never valid", "[INT-026]") {
+    integrity::Limits limits = held_member();
+    limits.members[0].index = 1;
+    const auto two = [](double t) {
+        kernel::PhysicsOutputs out = held_load(t);
+        out.members.push_back(out.members[0]);
+        return out;
+    };
+    const Run r = run(limits, two, 5, false, kernel::SimTime{0}, std::make_shared<FlagFrom>(100));
+    CHECK(r.report.outcome == kernel::RunOutcome::run_error);
+    REQUIRE(r.report.fault.has_value());
+    if (r.report.fault.has_value()) {
+        CHECK(r.report.fault.value().party() == "integrity");
+    }
+    CHECK_THROWS_AS(FlagFrom(1).not_valid(1), integrity::ValidityError);
+}
+
+// ===== Own weight under a carried couple (ruling 79; INT-005) ============
+
+TEST_CASE("a carried couple applied inside a hogging stretch marks the read as possibly low", "[INT-005][INT-023]") {
+    integrity::MemberLimits m = span_member(true, integrity::SupportCondition::clamped);
+    m.nodes->hogging_bound = 0.5;
+    m.nodes->hogging = {{0.0, 0.2}, {0.8, 1.0}};
+    const std::vector<integrity::CarriedAt> inside{{0.1, -10.0, 2.0}};
+    const std::vector<integrity::CarriedAt> at_end{{0.8, -10.0, 2.0}};
+    const std::vector<integrity::CarriedAt> outside{{0.5, -10.0, 2.0}};
+    const std::vector<integrity::CarriedAt> no_couple{{0.1, -10.0, 0.0}};
+    // At the couple floor, 1e-9 abs(F) L = 1e-8 N m: not a couple; just above it, one.
+    const std::vector<integrity::CarriedAt> at_floor{{0.1, -10.0, 1e-8}};
+    const std::vector<integrity::CarriedAt> pure{{0.1, 0.0, 1e-300}};
+    CHECK(integrity::hogs(m, inside));
+    CHECK(integrity::hogs(m, at_end));
+    CHECK_FALSE(integrity::hogs(m, outside));
+    CHECK_FALSE(integrity::hogs(m, no_couple));
+    CHECK_FALSE(integrity::hogs(m, at_floor));
+    CHECK(integrity::hogs(m, pure));
+    CHECK_FALSE(integrity::hogs(m, {}));
+    m.nodes->hogging_bound = 0.0;
+    CHECK_FALSE(integrity::hogs(m, inside));
+    integrity::MemberLimits rigid = cantilever();
+    rigid.nodes.reset();
+    CHECK_FALSE(integrity::hogs(rigid, inside));
+}
+
+TEST_CASE("the limits table's own-weight record is optional and checked", "[INT-005][INT-023]") {
+    const auto doc = [](const std::string& hogging) {
+        return std::string(R"({"format": "mechsim-integrity-limits-1", "minimum_safety_factor": 1.0, "bodies": 9, )") +
+               R"("checks": {"stress": true, "buckling": false, "deflection": false, "fastener": false, )" +
+               R"("yield_offset": false}, "members": [{"name": "arm", "index": 0, "area": 1e-4, "i_y": 2e-8, )" +
+               R"("i_z": 1e-8, "c_y": 0.01, "c_z": 0.02, "length": 1.0, "elastic_modulus": 2e11, )" +
+               R"("effective_length_factor": 0.5, "allowable_stress": 1e8, "yield_strength": 2.5e8, )" +
+               R"("deflection_limit": null, "supports": [{"at": 0.0, "condition": "clamped"}], "first_spring": 0, )" +
+               R"("segments": 8, "segment_length": 0.125, "node_stiffness": 16000.0, "nodes": {"first_body": 1, )" +
+               R"("count": 8, "root": "clamped", "parent_body": null, "position": [0, 0, 0], )" +
+               R"("orientation": [1, 0, 0, 0], "carries": true, "carried": [])" + hogging + "}}], \"fastenings\": []}";
+    };
+    const integrity::Limits plain = integrity::parse_limits(doc(""));
+    CHECK(plain.members[0].nodes->hogging_bound == 0.0);
+    CHECK(plain.members[0].nodes->hogging.empty());
+    const integrity::Limits set =
+        integrity::parse_limits(doc(R"(, "hogging": {"bound": 0.25, "intervals": [[0.0, 0.2113], [0.7887, 1.0]]})"));
+    CHECK(set.members[0].nodes->hogging_bound == 0.25);
+    REQUIRE(set.members[0].nodes->hogging.size() == 2);
+    CHECK(set.members[0].nodes->hogging[1][0] == 0.7887);
+    CHECK_THROWS_AS(integrity::parse_limits(doc(R"(, "hogging": {"bound": -1, "intervals": []})")), integrity::LimitsError);
+    CHECK_THROWS_AS(integrity::parse_limits(doc(R"(, "hogging": {"bound": 1, "intervals": [[0.5, 0.2]]})")),
+                    integrity::LimitsError);
+    CHECK_THROWS_AS(integrity::parse_limits(doc(R"(, "hogging": {"bound": 1, "intervals": [[0.5]]})")),
+                    integrity::LimitsError);
+    CHECK_THROWS_AS(integrity::parse_limits(doc(R"(, "hogging": {"intervals": []})")), integrity::LimitsError);
 }

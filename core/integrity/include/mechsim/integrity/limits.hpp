@@ -42,6 +42,10 @@ struct NodeChain {
     std::array<double, 4> orientation{1.0, 0.0, 0.0, 0.0};  // w first
     bool carries = false;  // the member carries a joint (ENG-052): strength reads the moments at its loads (ruling 75)
     std::vector<CarriedJoint> carried;  // the carried joints, each read at its foot point (rulings 71, 75)
+    // Ruling 79: 3 w l^2 (N m) and the stretches [lo, hi] (m) where the own weight's moment hogs; a carried couple
+    // applied there can make the read low by up to the bound. Optional key `hogging`; absent: 0 and none.
+    double hogging_bound = 0.0;
+    std::vector<std::array<double, 2>> hogging;
 };
 
 // One structural member, SI, the member frame of ruling 24 (x start to end, y and z the section's principal axes).

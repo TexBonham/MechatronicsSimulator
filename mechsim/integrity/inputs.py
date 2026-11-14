@@ -399,6 +399,7 @@ def run_inputs(
         ropes=_ropes(build, series, rows),
         design_tension=design_tension,
         bodies=_bodies(series, rows, model, chains, names),
+        gravity=float(np.linalg.norm(np.asarray(design.environment.gravity, dtype=np.float64))),
     )
 
 

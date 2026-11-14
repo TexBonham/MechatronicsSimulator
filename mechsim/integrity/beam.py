@@ -308,9 +308,67 @@ def node_moments(
 # needs a hogging extremum strictly between samples: under own weight (M'' = -w, concave) and downward forces
 # (concave kinks) the hogging peak lies at an end, a clean sample; only a carried couple's jump can put it at s, and
 # there the read is low by at most 3 w l^2. A member carrying nothing has no candidate and stays unchanged to the
-# last bit.
+# last bit. Never silently low (ruling 79): wherever a carried couple is applied at a foot point inside the stretch
+# where the member's own weight moment hogs (`hogging_intervals`), the run carries one line per member with the bound
+# 3 w l^2 (w = rho A abs(g), the full weight per length, conservative) in N m and as a fraction of the largest read in
+# those rows; the bound is static, node inertia adds while the member rings. A curvature term from three clean samples
+# a side would remove the under-read (milestone 4).
 
 COUPLE_FLOOR = 1e-9
+
+# Where a uniform own weight's moment hogs (has the sign of a clamp's), as fractions of L, by (start, end) condition
+# (ruling 79). Clamped-clamped: M = w (6 L x - 6 x^2 - L^2) / 12, zero at x / L = (3 -+ sqrt(3)) / 6. Clamped root,
+# pinned end: the pin's reaction 3 w L / 8 gives M = (3 w L / 8) (L - x) - w (L - x)^2 / 2, zero at x = L / 4. A
+# cantilever hogs everywhere, a pinned span nowhere; any other support layout is taken to hog everywhere.
+_HOG = (3.0 - math.sqrt(3.0)) / 6.0
+_HOGGING: dict[tuple[str, str], tuple[tuple[float, float], ...]] = {
+    ("pinned", "pinned"): (),
+    ("clamped", "clamped"): ((0.0, _HOG), (1.0 - _HOG, 1.0)),
+    ("clamped", "pinned"): ((0.0, 0.25),),
+    ("pinned", "clamped"): ((0.75, 1.0),),
+    ("clamped", "free"): ((0.0, 1.0),),
+    ("free", "clamped"): ((0.0, 1.0),),
+}
+HOGGING_FACTOR = 3.0
+
+
+def hogging_intervals(member: MemberInputs) -> tuple[tuple[float, float], ...]:
+    """The stretches of the member (m) where its own weight's moment hogs (table above; ruling 79)."""
+    length = member.section.length
+    whole = ((0.0, length),)
+    try:
+        conditions = end_conditions(member)
+    except IntegrityError:
+        return whole
+    if conditions not in _HOGGING:
+        return whole
+    return tuple((lo * length, hi * length) for lo, hi in _HOGGING[conditions])
+
+
+def own_weight_bound(member: MemberInputs, gravity: float) -> float:
+    """3 w l^2 (N m), w = rho A abs(g): the most the rule's line B can read low under own weight (header above)."""
+    chain = member.nodes
+    if chain is None:
+        return 0.0
+    weight = member.section.density * member.section.area * abs(gravity)
+    return HOGGING_FACTOR * weight * chain.segment_length**2
+
+
+def hogging_rows(member: MemberInputs, bodies: BodyPoses) -> FloatArray:
+    """(rows,) True where a carried couple (above the couple floor) is applied at a foot point inside a hogging
+    stretch: the rows where the rule's read can be low by up to `own_weight_bound` (ruling 79)."""
+    rows = bodies.positions.shape[0]
+    out = np.zeros(rows, dtype=bool)
+    stretches = hogging_intervals(member)
+    if len(member.carried) == 0 or len(stretches) == 0:
+        return out
+    s, force, couple = carried_at(member, bodies)
+    coupled = np.abs(couple) > COUPLE_FLOOR * np.abs(force) * member.section.length
+    inside = np.zeros(s.shape, dtype=bool)
+    for lo, hi in stretches:
+        inside = inside | ((s >= lo) & (s <= hi))
+    out[:] = np.any(coupled & inside, axis=1)
+    return out
 
 
 @dataclass(frozen=True)

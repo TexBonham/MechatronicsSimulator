@@ -554,7 +554,7 @@ class CoreDriver:
             self.integrity_trace = core.IntegrityTrace()
             watcher = core.IntegrityParty(tier1.limits, settings, self.integrity_trace)
             if carried_record is not None:
-                watcher.watch_validity(carried_record)
+                watcher.watch_validity(carried_record.validity_source())
             kernel.register_party(watcher)
             if halt:
                 kernel.set_end_triggers(core.EndTriggers(None, "", PARTY))

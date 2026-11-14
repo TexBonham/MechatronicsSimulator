@@ -1,5 +1,6 @@
 #include "mechsim/integrity/integrity_party.hpp"
 
+#include <algorithm>
 #include <array>
 #include <charconv>
 #include <cmath>
@@ -79,6 +80,8 @@ IntegrityParty::IntegrityParty(Limits limits, IntegrityPartyConfig config, std::
     }
     trace_->min_buckling_margin.assign(limits_.members.size(), std::numeric_limits<double>::infinity());
     trace_->peak_fastener_load.assign(limits_.fastenings.size(), 0.0);
+    trace_->hogging_bound.assign(limits_.members.size(), 0.0);
+    trace_->hogging_read.assign(limits_.members.size(), 0.0);
 }
 
 std::string_view IntegrityParty::name() const {
@@ -210,9 +213,9 @@ void IntegrityParty::step(kernel::SimTime t, kernel::Duration dt) {
                           " (the run's bodies plus member nodes, INT-006)");
     }
     std::vector<bool> flagged(limits_.members.size(), false);
-    if (not_valid_) {
+    if (validity_) {
         for (std::size_t m = 0; m < limits_.members.size(); ++m) {
-            flagged[m] = not_valid_(limits_.members[m].index);
+            flagged[m] = validity_->not_valid(limits_.members[m].index);
         }
     }
     for (std::size_t m = 0; m < limits_.members.size(); ++m) {
@@ -233,6 +236,9 @@ void IntegrityParty::step(kernel::SimTime t, kernel::Duration dt) {
                 state.has_carried = true;
             }
             const double stress = peak_normal_stress(loads, outputs_.bodies, member, state.offsets, state.carried);
+            if (counts) {
+                hogging(m, loads, state);
+            }
             state.carried = std::move(current);
             if (counts) {
                 trace_->peak_stress[m] = std::max(trace_->peak_stress[m], stress);
@@ -318,8 +324,24 @@ const IntegrityTrace& IntegrityParty::trace() const noexcept {
     return *trace_;
 }
 
-void IntegrityParty::watch_validity(std::function<bool(std::size_t)> not_valid) {
-    not_valid_ = std::move(not_valid);
+void IntegrityParty::watch_validity(std::shared_ptr<const ValiditySource> source) {
+    validity_ = std::move(source);
+}
+
+// Ruling 79 (mechsim/integrity/beam.py `hogging_rows`, the strength check's line): a carried couple above the couple
+// floor applied at a foot point inside a hogging stretch records the member's bound and the largest read magnitude.
+void IntegrityParty::hogging(std::size_t m, const kernel::MemberEndLoads& loads, const MemberState& state) {
+    const MemberLimits& member = limits_.members[m];
+    if (!hogs(member, state.carried)) {
+        return;
+    }
+    const std::vector<double> moments = node_moments(outputs_.bodies, member, state.offsets);
+    double largest = 0.0;
+    for (const CarriedMoment& read : carried_reads(loads, moments, member, state.carried).reads) {
+        largest = std::max(largest, std::abs(read.value));
+    }
+    trace_->hogging_bound[m] = member.nodes.value().hogging_bound;
+    trace_->hogging_read[m] = std::max(trace_->hogging_read[m], largest);
 }
 
 }  // namespace mechsim::integrity

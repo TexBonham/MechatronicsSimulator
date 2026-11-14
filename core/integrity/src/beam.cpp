@@ -168,8 +168,6 @@ std::vector<double> node_moments(std::span<const kernel::BodyState> bodies, cons
 
 namespace {
 
-constexpr double couple_floor = 1e-9;
-
 struct Line {
     double x = 0.0;
     double m = 0.0;
@@ -353,6 +351,23 @@ double start_node_moment(const kernel::Wrench& start, double segment_length) {
 
 double end_node_moment(const kernel::Wrench& end, double segment_length) {
     return end.moment[2] + 0.5 * segment_length * end.force[1];
+}
+
+bool hogs(const MemberLimits& member, std::span<const CarriedAt> carried) {
+    if (!member.nodes.has_value() || !(member.nodes.value().hogging_bound > 0.0)) {
+        return false;
+    }
+    for (const CarriedAt& load : carried) {
+        if (!(std::abs(load.couple) > couple_floor * std::abs(load.force) * member.length)) {
+            continue;
+        }
+        for (const std::array<double, 2>& stretch : member.nodes.value().hogging) {
+            if (load.position >= stretch[0] && load.position <= stretch[1]) {
+                return true;
+            }
+        }
+    }
+    return false;
 }
 
 }  // namespace mechsim::integrity

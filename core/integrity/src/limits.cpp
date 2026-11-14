@@ -361,6 +361,25 @@ NodeChain node_chain(const Value& entry, const std::string& where) {
     if (!chain.carried.empty() && !chain.carries) {
         throw LimitsError("limits table: " + where + " lists carried joints but carries is false");
     }
+    if (entry.fields.find("hogging") != entry.fields.end()) {
+        const std::string at = where + ".hogging";
+        const Value& hogging = field(entry, "hogging", where);
+        chain.hogging_bound = number(hogging, "bound", at);
+        if (!std::isfinite(chain.hogging_bound) || chain.hogging_bound < 0.0) {
+            throw LimitsError("limits table: " + at + ".bound must be finite and >= 0");
+        }
+        std::size_t i = 0;
+        for (const Value& item : array(hogging, "intervals", at)) {
+            const std::string place = at + ".intervals[" + std::to_string(i) + "]";
+            if (item.kind != Value::Kind::array || item.items.size() != 2 ||
+                item.items[0].kind != Value::Kind::number || item.items[1].kind != Value::Kind::number ||
+                !(item.items[0].number <= item.items[1].number)) {
+                throw LimitsError("limits table: " + place + " must be [lo, hi] with lo <= hi");
+            }
+            chain.hogging.push_back({item.items[0].number, item.items[1].number});
+            ++i;
+        }
+    }
     return chain;
 }
 

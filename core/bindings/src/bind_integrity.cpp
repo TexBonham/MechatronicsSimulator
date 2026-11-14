@@ -13,11 +13,11 @@
 #include "mechsim/integrity/beam.hpp"
 #include "mechsim/integrity/integrity_party.hpp"
 #include "mechsim/integrity/limits.hpp"
+#include "mechsim/integrity/validity.hpp"
 #include "mechsim/kernel/party.hpp"
 #include "mechsim/kernel/physics_party.hpp"
 #include "mechsim/kernel/physics_types.hpp"
 #include "mechsim/kernel/time.hpp"
-#include "mechsim/physics/native/native_adapter.hpp"
 
 namespace py = pybind11;
 
@@ -71,7 +71,23 @@ void bind_integrity(py::module_& m) {
         .def_readonly("crossings", &integrity::IntegrityTrace::crossings)
         .def_readonly("before_evaluation", &integrity::IntegrityTrace::before_evaluation)
         .def_readonly("not_valid", &integrity::IntegrityTrace::not_valid)
-        .def_readonly("requests", &integrity::IntegrityTrace::requests);
+        .def_readonly("requests", &integrity::IntegrityTrace::requests)
+        .def_readonly("hogging_bound", &integrity::IntegrityTrace::hogging_bound)
+        .def_readonly("hogging_read", &integrity::IntegrityTrace::hogging_read);
+    py::class_<integrity::ValiditySource, py::smart_holder>(
+        m, "ValiditySource",
+        "The engine's live carried-load validity per member as the tier 1 party reads it, filled by the physics side "
+        "(rulings 75, 79; invariant 5)")
+        .def(
+            "not_valid",
+            [](const integrity::ValiditySource& source, std::size_t member) {
+                try {
+                    return source.not_valid(member);
+                } catch (const integrity::ValidityError& error) {
+                    throw py::index_error(error.what());
+                }
+            },
+            py::arg("member"), "True while the member is flagged; IndexError for a member the source does not hold.");
     py::class_<integrity::IntegrityPartyConfig>(m, "IntegrityPartyConfig")
         .def(py::init<>())
         .def_readwrite("name", &integrity::IntegrityPartyConfig::name)
@@ -94,17 +110,13 @@ void bind_integrity(py::module_& m) {
              py::arg("trace") = std::shared_ptr<integrity::IntegrityTrace>{})
         .def(
             "watch_validity",
-            [](integrity::IntegrityParty& party, std::shared_ptr<physics::native::CarriedRecord> record) {
-                party.watch_validity([record = std::move(record)](std::size_t member) {
-                    if (member >= record->members.size()) {
-                        return false;
-                    }
-                    return record->members[member].unresolved;
-                });
+            [](integrity::IntegrityParty& party, std::shared_ptr<integrity::ValiditySource> source) {
+                party.watch_validity(std::move(source));
             },
-            py::arg("record"),
-            "Read the native adapter's live carried-load validity flag each step (ruling 75): a crossing of a flagged "
-            "member or a mount holding it is recorded as integrity_not_valid, never counted, never halting.");
+            py::arg("source"),
+            "Read the engine's live carried-load validity each step from a neutral source (rulings 75, 79): a crossing "
+            "of a flagged member or a mount holding it is recorded as integrity_not_valid, never counted, never "
+            "halting; a member the source does not hold ends the run.");
     m.def(
         "integrity_member_stress",
         [](const std::string& limits, std::size_t member, const kernel::MemberEndLoads& loads,
@@ -153,6 +165,24 @@ void bind_integrity(py::module_& m) {
         py::arg("limits"), py::arg("member"), py::arg("bodies"), py::arg("joints"),
         "Tier 1 (s, F . y, C) of each carried joint of one member from one tick's poses and joint reactions "
         "(ruling 75).");
+    m.def(
+        "integrity_hogs",
+        [](const std::string& limits, std::size_t member, const std::vector<std::array<double, 3>>& carried) {
+            const integrity::Limits table = parsed(limits);
+            if (member >= table.members.size()) {
+                throw py::index_error("member " + std::to_string(member) + " of " +
+                                      std::to_string(table.members.size()));
+            }
+            std::vector<integrity::CarriedAt> loads_at;
+            loads_at.reserve(carried.size());
+            for (const std::array<double, 3>& item : carried) {
+                loads_at.push_back(integrity::CarriedAt{item[0], item[1], item[2]});
+            }
+            return integrity::hogs(table.members[member], loads_at);
+        },
+        py::arg("limits"), py::arg("member"), py::arg("carried"),
+        "Tier 1's own-weight condition (ruling 79): a carried couple (s, F . y, C) applied inside one of the member's "
+        "hogging stretches, with a positive bound in its limits table.");
     m.def("check_integrity_limits", [](const std::string& limits) { static_cast<void>(parsed(limits)); },
           py::arg("limits"), "Parse a limits table; ValueError naming the field when malformed.");
 }

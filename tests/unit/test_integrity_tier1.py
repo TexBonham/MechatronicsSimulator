@@ -115,7 +115,10 @@ def build_of(model: PhysicsModel, structural: Any = None) -> Any:
     support = SimpleNamespace(at=0.0, condition="clamped")
     arm = SimpleNamespace(name="arm", material=MATERIAL, section=member.section, supports=(support,), mounts=())
     design = SimpleNamespace(
-        name="bench", structural=structural, environment=SimpleNamespace(ambient_temperature=293.15), materials=None
+        name="bench",
+        structural=structural,
+        environment=SimpleNamespace(ambient_temperature=293.15, gravity=(0.0, 0.0, -9.81)),
+        materials=None,
     )
     return SimpleNamespace(design=design, members=(arm,), lumped=(), physics=model)
 
@@ -827,3 +830,31 @@ def test_the_rope_snap_gate_reaches_the_run_and_its_report_through_the_driver(tm
         assert kinds == []
         assert off in result.report.approximations
         assert f"  approximation: {off}" in report_text(SuiteScore("s", result.score.design, (result.score,)))
+
+
+ADAPTER_INCLUDE = re.compile(r'^\s*#\s*include\s*[<"](mechsim/physics/|mujoco/)', re.MULTILINE)
+
+
+@pytest.mark.req("INT-026", "INT-023")
+def test_the_integrity_package_and_its_binding_include_no_adapter_header() -> None:
+    """Invariant 5 (ruling 79): the party reads the engine's flag through `ValiditySource`, which the physics binding
+    fills; neither the integrity library's sources and headers nor its binding include an adapter or MuJoCo header (the
+    integration test `core/integrity/tests/test_integrity_native.cpp` runs the party beside the native adapter and is
+    not part of the library)."""
+    files = [
+        *sorted((ROOT / "core" / "integrity" / "include").rglob("*.hpp")),
+        *sorted((ROOT / "core" / "integrity" / "src").rglob("*.cpp")),
+        ROOT / "core" / "bindings" / "src" / "bind_integrity.cpp",
+    ]
+    assert len(files) >= 8
+    for path in files:
+        assert ADAPTER_INCLUDE.search(path.read_text(encoding="utf-8")) is None, path
+
+
+@pytest.mark.req("INT-026")
+def test_a_validity_source_from_the_engine_record_refuses_a_member_it_does_not_hold() -> None:
+    """Ruling 79: an out-of-range member is an error, never read as valid. A fresh adapter's record holds no member
+    until a model loads."""
+    source = core.NativeAdapter().carried_record().validity_source()
+    with pytest.raises(IndexError, match="holds 0 members"):
+        source.not_valid(0)

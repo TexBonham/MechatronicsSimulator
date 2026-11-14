@@ -6,9 +6,20 @@ taking the larger end shear (a single-signed transverse load keeps the shear bet
 
 from __future__ import annotations
 
+import math
+
 import numpy as np
 
-from mechsim.integrity.beam import carried_reads, member_normal_stress, mount_stress, node_moments, peak, shear_stress
+from mechsim.integrity.beam import (
+    carried_reads,
+    hogging_rows,
+    member_normal_stress,
+    mount_stress,
+    node_moments,
+    own_weight_bound,
+    peak,
+    shear_stress,
+)
 from mechsim.integrity.plugin import CheckResult, CheckRow, IntegrityCheck, RunInputs, Spread, not_evaluated
 from mechsim.schema_base import StrictModel
 
@@ -23,6 +34,19 @@ def unresolved_note(member: str, bound: float, causes: tuple[str, ...]) -> str:
     return (
         f"strength of {member!r}: conservative, each sample's read adds the bound of what the carried-load rule does "
         f"not resolve, {' and '.join(causes)}: up to {bound:.6g} N m at the design load (INT-005, ruling 75)"
+    )
+
+
+def hogging_note(member: str, bound: float, read: float) -> str:
+    """The line of a carrying member whose read under a carried couple can be low (INT-005, ruling 79): the bound
+    3 w l^2 in N m and as a fraction of the largest read in the rows where it can occur (inf when that read is 0)."""
+    fraction = math.inf
+    if read > 0.0:
+        fraction = bound / read
+    return (
+        f"strength of {member!r}: may read low under a carried couple at a foot point where the own weight's moment "
+        f"hogs, by at most 3 w l^2 = {bound:.6g} N m (static own weight; more while the member rings), "
+        f"{fraction:.3g} of the largest read there, {read:.6g} N m (INT-005, ruling 79)"
     )
 
 
@@ -60,6 +84,11 @@ class Strength(IntegrityCheck):
             if member.nodes is not None and member.nodes.carries and inputs.bodies is not None:
                 moments = node_moments(member, inputs.bodies, member.spring_offsets)[0] * inputs.load_factor
                 reads = carried_reads(member, loads, moments, inputs.bodies, inputs.load_factor)
+                hogging = hogging_rows(member, inputs.bodies)
+                weight = own_weight_bound(member, inputs.gravity) * inputs.load_factor
+                if weight > 0.0 and bool(hogging.any()):
+                    largest = np.where(reads.found.astype(bool), np.abs(reads.values), 0.0)[hogging].max()
+                    notes.append(hogging_note(member.name, weight, float(largest)))
                 bound = reads.bound
                 if bound.size > 0 and float(bound.max()) > 0.0:
                     added = bound * member.section.c_y / member.section.i_z

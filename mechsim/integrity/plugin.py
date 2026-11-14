@@ -253,7 +253,8 @@ def _no_series(reference: str) -> tuple[FloatArray, FloatArray]:
 class RunInputs:
     """Everything a check reads from one run. `load_factor` is the design-load rule's factor from the design file
     (INT-019; 1 when the design states none); `temperature` the run's ambient temperature (K); `series` reads a
-    recorded scalar series by case quantity reference (times, values)."""
+    recorded scalar series by case quantity reference (times, values); `gravity` abs(g) of the design's environment
+    (m/s^2; 0 when not given), for the own-weight line of ruling 79."""
 
     times: FloatArray
     members: tuple[MemberInputs, ...]
@@ -267,6 +268,7 @@ class RunInputs:
     ropes: tuple[RopeLoads, ...] = ()
     design_tension: float | None = None
     bodies: BodyPoses | None = None
+    gravity: float = 0.0
 
     def windowed(self, start: float) -> RunInputs:
         """These inputs from the first sample at or after `start` (s) on (TST-044): every per-sample array and the
