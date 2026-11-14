@@ -7,14 +7,13 @@ operator commands scheduled for n as operator-message events, and stops at the e
 
 from __future__ import annotations
 
-from typing import Any
-
 import hashlib
 import json
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from fractions import Fraction
 from pathlib import Path
+from typing import Any
 
 from mechsim.design.schema import Design
 from mechsim.testing.driver import (

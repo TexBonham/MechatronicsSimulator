@@ -487,8 +487,8 @@ def member_normal_stress(
     (`node_moments`, elastic part under `offsets`) over I_z / c_y, and abs(M_y) the out-of-plane moment interpolated
     linearly between the end moments (the chain is rigid out of its bending plane, ruling 65) over I_y / c_z; on a
     member that carries a joint also the moments just left and right of its carried loads (`carried_reads`, rulings
-    71, 75), 0 where a row has fewer reads. A member without node poses has its two ends only. `loads` are already scaled by `factor`;
-    node moments scale with it (linear elasticity)."""
+    71, 75), 0 where a row has fewer reads. A member without node poses has its two ends only. `loads` are already
+    scaled by `factor`; node moments scale with it (linear elasticity)."""
     ends = normal_stress(loads, section)
     if member.nodes is None or bodies is None:
         return ends

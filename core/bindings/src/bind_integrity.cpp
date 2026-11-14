@@ -115,6 +115,7 @@ void bind_integrity(py::module_& m) {
                                       std::to_string(table.members.size()));
             }
             std::vector<integrity::CarriedAt> loads_at;
+            loads_at.reserve(carried.size());
             for (const std::array<double, 3>& item : carried) {
                 loads_at.push_back(integrity::CarriedAt{item[0], item[1], item[2]});
             }

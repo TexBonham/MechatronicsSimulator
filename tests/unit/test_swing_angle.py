@@ -3,12 +3,11 @@ the gravity direction, scored with the existing statistics, against a rigid pend
 
 from __future__ import annotations
 
-from typing import Any
-
 import math
 from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 import pytest
 from pydantic import TypeAdapter, ValidationError

@@ -588,7 +588,10 @@ TEST_CASE("a carried joint's foot point, force and couple come from its pose and
     // Reaction on the child R = (3, 0, 0) (world), M = (0, 0, 0.5): load F = (-3, 0, 0), F . y = 3; C = (-M + arm x F).z
     // = -0.5 + (-0.2)(0) - 0 (-3) = -0.5.
     integrity::MemberLimits m = span_member(true, integrity::SupportCondition::clamped);
-    integrity::NodeChain chain = m.nodes.value();
+    integrity::NodeChain chain;
+    chain.root = integrity::SupportCondition::clamped;
+    chain.count = span_segments;
+    chain.carries = true;
     chain.parent_body = 0;
     chain.position = {0.5, 0.0, 0.0};
     chain.carried = {integrity::CarriedJoint{1, 2}};
@@ -977,10 +980,13 @@ TEST_CASE("the limits table parses and refuses malformed entries", "[INT-023][IN
     carrying.replace(carrying.find(R"("carries": false, "carried": [])"), std::string_view(R"("carries": false, "carried": [])").size(),
                      R"("carries": true, "carried": [{"body": 4, "joint": 1}])");
     const integrity::Limits carried = integrity::parse_limits(doc(carrying));
-    REQUIRE(carried.members[0].nodes.has_value());
-    CHECK(carried.members[0].nodes->carried.size() == 1);
-    CHECK(carried.members[0].nodes->carried[0].body == 4);
-    CHECK(carried.members[0].nodes->carried[0].joint == 1);
+    const auto& carried_nodes = carried.members[0].nodes;
+    REQUIRE(carried_nodes.has_value());
+    if (carried_nodes.has_value()) {
+        REQUIRE(carried_nodes->carried.size() == 1);
+        CHECK(carried_nodes->carried[0].body == 4);
+        CHECK(carried_nodes->carried[0].joint == 1);
+    }
     std::string listed = member;
     listed.replace(listed.find(R"("carried": [])"), std::string_view(R"("carried": [])").size(), R"("carried": [{"body": 4, "joint": 1}])");
     CHECK_THROWS_AS(integrity::parse_limits(doc(listed)), integrity::LimitsError);

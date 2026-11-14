@@ -709,7 +709,8 @@ def _carriage_sides(
         loaded.loads.end_moment - plain_inputs.loads.end_moment,
     )
     reads = carried_reads(loaded, loads, moments, carried[1])
-    assert bool(reads.found[-1, 0]) and bool(reads.found[-1, 1])
+    assert bool(reads.found[-1, 0])
+    assert bool(reads.found[-1, 1])
     assert float(reads.bound[-1]) == 0.0
     return float(reads.values[-1, 0]), float(reads.values[-1, 1])
 
@@ -779,8 +780,7 @@ def _clamped_chain(load: float, step: float, a: float, length: float, n: int) ->
     """The clamped-clamped chain's statics: M_j = M0 + R0 x_j - P (x_j - a)+ + K H(x_j - a) at the springs, the spring
     above a short of its torque share w K (beam.py header); the clamps hold the chain's end slope sum_j M_j l / (E I)
     and end deflection sum_j (L - x_j) M_j l / (E I) at zero, so sum_j M_j = 0 and sum_j x_j M_j = 0 give M0, R0."""
-    l = length / n
-    x = (np.arange(n) + 0.5) * l
+    x = (np.arange(n) + 0.5) * length / n
     nodes = np.concatenate(([0.0], x, [length]))
     k = 0
     while k + 2 < nodes.size and nodes[k + 1] <= a:
@@ -821,7 +821,11 @@ def test_strength_clamped_carried_force_and_couple_step_by_the_couple_exactly() 
     report("clamped carried load, M(a+) (chain statics)", after, right)
     report("clamped carried load, step", step, right - left)
     continuum = _clamped_continuum(load, step, 0.5 * length, length)
-    report("clamped carried load, M(a-) (continuum; the chain is off by w K / N, the share its spring lacks)", continuum[0], left)
+    report(
+        "clamped carried load, M(a-) (continuum; the chain is off by w K / N, the share its spring lacks)",
+        continuum[0],
+        left,
+    )
     scale = max(abs(before), abs(after))
     assert left == pytest.approx(before, abs=EXACT * scale)
     assert right == pytest.approx(after, abs=EXACT * scale)
@@ -871,19 +875,17 @@ def test_strength_own_weight_under_a_carried_load_errs_by_at_most_three_w_l_squa
     poses = BodyPoses(positions, orientations)
     zero = np.zeros((rows, 3))
     item = CarriedLoad("slide", positions.shape[1] - 1, zero, zero.copy())
-    member_inputs = replace(
-        member_inputs, nodes=replace(member_inputs.nodes, carries=True), carried=(item,)
-    )
+    member_inputs = replace(member_inputs, nodes=replace(member_inputs.nodes, carries=True), carried=(item,))
     w = BEAM_DENSITY * BEAM_AREA * g
-    l = BEAM_LENGTH / n
+    segment = BEAM_LENGTH / n
     continuum = w * BEAM_LENGTH**2 / 8.0
     run = RunInputs(np.zeros(rows), (member_inputs,), {"fake": FakeMaterial()}, TEMPERATURE, bodies=poses)
     (row,) = Strength().evaluate(run, NoParameters(), 1).rows
     measured = row.value * member_inputs.section.i_z / member_inputs.section.c_y
-    report("pinned own weight under a carried point, line B", continuum + 1.875 * w * l**2, measured)
+    report("pinned own weight under a carried point, line B", continuum + 1.875 * w * segment**2, measured)
     assert measured >= continuum * (1.0 - SETTLED)
-    assert measured - continuum <= 3.0 * w * l**2 + SETTLED * continuum
-    assert measured == pytest.approx(continuum + 1.875 * w * l**2, rel=SETTLED)
+    assert measured - continuum <= 3.0 * w * segment**2 + SETTLED * continuum
+    assert measured == pytest.approx(continuum + 1.875 * w * segment**2, rel=SETTLED)
 
 
 @pytest.mark.req("INT-005")
@@ -1137,7 +1139,9 @@ def _strength_moment(member_inputs: MemberInputs, bodies: BodyPoses) -> tuple[fl
     return result.rows[0].value * I_Z / C_Y, result
 
 
-def _pinned_field(loads: Sequence[tuple[float, float, float]]) -> tuple[Callable[[np.ndarray], np.ndarray], float, float]:
+def _pinned_field(
+    loads: Sequence[tuple[float, float, float]],
+) -> tuple[Callable[[np.ndarray], np.ndarray], float, float]:
     """M(x) of point loads (a, P down, step C) on the pinned span, and the start and end shear F_y0, F_y1."""
     start = sum(p * (LENGTH - a) / LENGTH - c / LENGTH for a, p, c in loads)
     end = sum(p * a / LENGTH + c / LENGTH for a, p, c in loads)
