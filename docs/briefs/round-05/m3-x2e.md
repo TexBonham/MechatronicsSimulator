@@ -1,8 +1,12 @@
 # M3-X2e: X2 fix round, part two (torque margins and missed steps in the simulator's report)
 
-Dispatch after brief E8 (rope segments taut within the step) has landed on `wip/05-x2`, and after X2d has
-reported: G16's only lost steps before E8 came from the rope start-up blow, which E8 removes; with it gone the
-nominal sweep must lose none and a motor that must lose steps must still be shown losing them in motion.
+E8 (rope segments taut within the step) and B3 (the payload's static start) are merged into `wip/05-x2`
+(8803705) and X2d has reported (3c06a8e): G16's only lost steps before E8 came from the rope start-up blow, which
+E8 removes (the E8 writer measured G16's rope peak at 78.9 N against a 333.6 N drop bound, no snap); with it gone
+the nominal sweep must lose none and a motor that must lose steps must still be shown losing them in motion. X2d
+left the `not long_run` tier at 21.6 minutes on this machine (from 37.6) with a session run cache in
+`tests/conftest.py` and the acceptance checks of G2 to G11, G13, G14 behind the long-run marker; item 6 below
+takes one more step.
 
 Why: the X2 review (ruling 86) found G16's torque margins and missed steps printed by the acceptance test, not
 carried by the simulator's own report, so the sizing result exists only in a pytest log. The simulator shall
@@ -18,7 +22,7 @@ part's torque data: holding torque, the pull-out curve or its placeholder), `tes
 rows ACC-031, ACC-032, ACC-038, SIG-033, LIB-017, SCO-030, round 5 rulings 85 to 87 in
 `/home/tex/dev/MechatronicsSimulator/docs/queue.md`. Builds and runs in the FOREGROUND only through
 `tools/locked_build.sh run ...` with a 600000 ms timeout; filtered pytest while iterating (G16's sweep is a
-`long_run` test of three runs: run it by name, at most three times in the brief); no wide run. Lints at the end:
+`long_run` test of three runs: run it by name, at most three times in the brief); no wide run but item 6's one. Lints at the end:
 `uv run ruff check .`, `uv run ruff format --check .`, `uv run mypy`, `python3 tools/check_imports.py`. COMMIT
 AFTER EACH ITEM; final message "WIP M3-X2e: X2 fix round, part two", no attribution trailer, no push. Do not edit
 `docs/queue.md` or `docs/cost-log.md`. No conditional (ternary) expressions. Curly braces on every control flow.
@@ -61,6 +65,10 @@ entry, list every change).
    nominal sweep loses none after E8. State the mass or part used and the derivation in the test header.
 5. Rows and docs: ACC-031, ACC-032 reworded to the report; LIB-017 if the catalog's curve is read; `docs/milestones.md`
    G16 row; the README's G16 line.
+6. Fast tier (ruling 90): `test_phy_023` (191 s; it re-runs the reference tier in a fresh interpreter, which the
+   same job has just run) moves behind the `long_run` marker; the workflow comment, the marker text and INV-020
+   carry the new numbers (one timed `-m "not long_run"` run at the very end of the brief, your only wide run; expect
+   about 18 minutes). The G3 determinism test, ACC-039 and the wiring test's G3 run stay where they are.
 
 ## Report
 
