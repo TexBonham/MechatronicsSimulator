@@ -14,6 +14,7 @@ import json
 import math
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
+from fractions import Fraction
 from typing import Any
 
 from mechsim.physics.neutral import (
@@ -580,6 +581,21 @@ def carried_validity_lines(model: PhysicsModel, values: Sequence[tuple[float, ..
                 f"(ruling 69, ENG-052)"
             )
     return tuple(lines)
+
+
+def steps_before(start: float, rate: Fraction, substeps: int) -> int:
+    """How many adapter steps the engine counts as begun before `start` (s) (PHY-036, ruling 75): the engine compares
+    its own time, accumulated as t + h per engine step with h = den / (num substeps) as the native adapter forms it,
+    against the start; this repeats that sum in the same double arithmetic, so the driver's line and the engine's gate
+    agree step for step. An adapter step counts when its first engine step began before the start."""
+    h = float(rate.denominator) / (float(rate.numerator) * float(substeps))
+    time = 0.0
+    count = 0
+    while time < start:
+        count += 1
+        for _ in range(substeps):
+            time = time + h
+    return count
 
 
 def driven_mode_lines(model: PhysicsModel, decays: Sequence[tuple[int, float]]) -> tuple[str, ...]:

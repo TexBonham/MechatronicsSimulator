@@ -12,10 +12,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-import numpy as np
-from numpy.typing import NDArray
 from pydantic import ValidationError
-from scipy import linalg  # type: ignore[import-untyped]
 
 from mechsim.builder import mass, structure
 from mechsim.builder.result import LumpedRecord

@@ -28,6 +28,7 @@ from mechsim import _core as core
 from mechsim.builder import BuildError, build
 from mechsim.builder.payload import with_payload
 from mechsim.builder.result import BuildResult as CoreBuild
+from mechsim.builder.run_damping import run_damping_lines
 from mechsim.design.schema import Design, DesignError, blob_hash, design_materials
 from mechsim.integrity.config import IntegrityConfig
 from mechsim.integrity.plugin import IntegrityError
@@ -55,6 +56,7 @@ from mechsim.physics.native.translate import (
     carried_validity_lines,
     driven_mode_lines,
     member_node_names,
+    steps_before,
 )
 from mechsim.physics.neutral import PhysicsModel
 from mechsim.physics.neutral import Rope as NeutralRope
@@ -596,6 +598,7 @@ class CoreDriver:
             decoded.sort(key=lambda event: event.time)
         taken = 0
         held = [0.0] * len(model.ropes)
+        held_steps = steps_before(self._evaluate_from(), config.physics_rate, config.physics_substeps)
         for row in sink.drain():
             # Rows are stamped at the end of their step (KER-009), so an event of the first controller step (tick 0)
             # has no row of its own: it goes with the first row at or after its tick.
@@ -609,11 +612,13 @@ class CoreDriver:
             )
             if not native:
                 record = member_frame_loads(record, frames)
-            if native and float(Fraction(row_tick) / config.base_rate) - step < self._evaluate_from():
+            if native and row_tick - 1 < held_steps:
                 for index, tension in enumerate(record.physics.ropes[: len(held)]):
                     held[index] = max(held[index], tension.max_tension)
             recorder.write_row(record)
         self.approximations = (*self.approximations, *held_rope_lines(model, held, self._evaluate_from()))
+        if native:
+            self.approximations = (*self.approximations, *run_damping_lines(model, self._payload))
         self.subscriber_errors = tuple(str(error) for error in sink.subscriber_errors())
         self._view = RecordingView(
             recorder.recording(),
