@@ -14,42 +14,52 @@
 # rails (rail_y at x 0.25 m, the middle of rail_x; the trolley at y 0.25 m, the middle of rail_y), arrived by about
 # 12.75 s, held to 15 s. Part (b), E-stop with a swinging load: target (5, 25) at 15 s, the E-stop at 16.5 s, 1.5 s
 # into the ramp (0.075 m/s) with the payload still swinging from part (a), released 1 s later; observed to 22 s.
-# Step: 100 microseconds (substeps 10), as G12 (ruling 21).
+# Step: 100 microseconds (substeps 10), as G12 (ruling 21); ruling 77 repeats the run at 20 and 40 substeps (brief
+# M3-X1f: the case files differ only in `physics.substeps`).
 #
-# Settle window. The run starts with the rails straight (no static start), so their loads arrive as a suddenly applied
-# load. The rails have no node damping (the design has no such field; node_damping 0): the only loss is backward
-# Euler's, x = omega h = 0.0312 (rail_x, 49.70 Hz) and 0.0314 (rail_y, 50.00 Hz), amplitude kept 0.907 per period, an
-# e-fold time 2 / (omega^2 h) = 0.205 s. rail_y's start transient drives rail_x at its own frequency through the
-# carried joint (one-way, feed-forward: rail_y does not ride rail_x), so rail_x's transient grows as t exp(-t / tau),
-# peaks at tau and is below 1 percent of the static deflection by about 11 tau = 2.3 s; homing runs to 5.25 s and
-# integrity counts from 8 s (`integrity.evaluate_from`, TST-044: peaks, safety factors and tier 1 crossings; an
-# earlier crossing is recorded as integrity_before_evaluation and does not fail the case), as do the deflection
-# criteria.
+# Damping and the evaluation start. The rails carry a stated modal damping ratio of 0.01 and the belts 0.01 (ruling
+# 78, placeholders fixed in advance), anchored at the unloaded mode and the build-time mass (ruling 80); every run
+# prints stated, build-time and run ratios (rail_x 0.01 / 0.00541 / 0.00341, rail_y 0.01 / 0.00724 / 0.00375). The run
+# starts with the rails straight (no static start); integrity, the engine's validity flag and the deflection criteria
+# count from 8 s (`integrity.evaluate_from`, TST-044), after homing ends at 5.25 s.
 #
 # Oracles (item 1 of brief M3-X1d; E I and w of the calibrated chains: rail_x 64.087 N m^2, 51.641 N/m, 16 segments
 # clamped-clamped; rail_y 256.35 N m^2, 39.710 N/m, 8 segments pinned-roller, rail_calibration 100 N for 1 mm at
 # mid-span, 50 Hz). Static deflection at mid-travel: rail_x w L^4 / (384 E I) + (P_c + P) L^3 / (192 E I), rail_y
-# 5 w L^4 / (384 E I) + (P_t + P) L^3 / (48 E I), with P = 51.286 N (design load, rope and 1 g end fitting), P_c = 43.856 N
-# (rail_y and everything on it), P_t = 9.000 N (trolley, lift, hook): 1.09767 mm and 0.73849 mm, the settled
-# criteria's targets (measured on a static run: -1.56 and -1.41 percent,
-# the chain's -1 / N^2 at mid-span; at sixteen segments clamped and eight pinned-roller, ruling 67's L^2 / (4 N^2 a b)
-# is 1.6 percent at mid-span, 2.4 percent at the 0.1 m end of rail_y's travel: eight segments kept). Static bending
-# stress M c / I, c = 0.02 m, I = 2e-8 m^4: rail_x (P_c + P) L / 8 + w L^2 / 12 = 7.02 N m, 7.02 MPa; rail_y
-# (P_t + P) L / 4 + w L^2 / 8 = 8.78 N m, 8.78 MPa: a static safety factor of 13.71 / 8.78 = 1.56 against the
-# placeholder PETG strength (tier 1 limit 9.14 MPa = 13.71 MPa / 1.5), just above the 1.5 minimum. Both tiers read
-# the moment at every node spring (INT-005, brief M3-I4); the lever rule puts rail_y's carried load on the nodes at
-# 3.5 l and 4.5 l, so the chain's moment there, (P_t + P) / 2 (3.5 l) + w x (L - x) / 2 = 7.82 N m, is 11 percent
-# under the continuum's mid-span peak (a point load between springs reads x_k / a of P a b / L; finding). Dynamic factor of the rigid-body loads: the drive force at d =
-# 0.04 m above rail_x's axis adds d m a = 0.02 N m at 0.05 m/s^2 (0.3 percent), the swing adds m g theta^2 (under 0.5
-# percent at 0.07 rad), the carriage crosses the rail slowly against its 50 Hz mode: 1.01 at most.
-# Measured (M3-X1d, native): settled rail_x 1.2427 mm, rail_y 0.8373 mm (table); part (a) peak rail_x 4.20 mm, rail_y
-# 0.94 mm; the E-stop sends rail_y's vertical load from 80 N to 243 N (the lift's hold released onto its limit) and
-# rail_y, at 50 Hz, drives rail_x at 49.7 Hz through the feed-forward coupling: rail_x's end loads reach +-1.9 kN and
-# its deflection 16.8 mm (14.6 mm unfactored, 10.7 J of elastic energy against about 0.03 J in rail_y's oscillation
-# and 0.03 J of carriage kinetic energy): safety factor 0.11 at 16.74 s, deflection over 1 cm, tier 1 crossings of
-# rail_x's deflection and the fastenings (frame_mount 1.387 kN at 16.58 s, rail_x_mount 1.337 kN at 16.6 s against
-# 1.333 kN = 2 kN / 1.5). Finding: an energy defect of the one-way coupling at matched frequencies (engine, ruling 67),
-# made acute by both rails sharing the placeholder 50 Hz calibration (gantry team: each rail's own frequency).
+# 5 w L^4 / (384 E I) + (P_t + P) L^3 / (48 E I), with P = 51.286 N (design load, rope and 1 g end fitting), P_c =
+# 43.856 N (rail_y and everything on it), P_t = 9.000 N (trolley, lift, hook): 1.09767 mm and 0.73849 mm, the settled
+# criteria's targets (the chain's -1 / N^2 at mid-span; ruling 67's L^2 / (4 N^2 a b) is 1.6 percent at mid-span).
+# Static bending stress M c / I, c = 0.02 m, I = 2e-8 m^4: rail_x (P_c + P) L / 8 + w L^2 / 12 = 7.02 N m, 7.02 MPa;
+# rail_y (P_t + P) L / 4 + w L^2 / 8 = 8.78 N m, 8.78 MPa (static safety factor 13.71 / 8.78 = 1.56 against the
+# placeholder PETG strength). Both tiers read the exact moment under a carried load from the clean spring samples each
+# side of the foot (INT-005, ruling 75).
+# rail_y's settled stress (brief M3-X1f item 2; 10 substeps, mean over 14 s to 15 s, trolley at 0.250024 m): end
+# shears 40.041 N and 40.101 N sum to 80.141 N = own weight w L 19.855 N + carried 60.286 N (the y_axis reaction
+# 60.287 N, the hand P_t + P 60.286 N); net of half the own weight each, a = L F_1 / (F_0 + F_1) = 0.25025 m against
+# the trolley's 0.25002 m; the y_axis reaction moment about the bending axis is 0.06 N m (a carried couple worth
+# C b / L = 0.03 N m, 0.4 percent); the spring moments each side of the load lie on lines through the ends (left
+# samples 3.571 and 5.757 N m at 0.094 and 0.156 m extrapolate to 8.81 N m at the foot, right samples to 8.82 N m;
+# statics M(a) = F_0 a - w a^2 / 2 = 8.77 N m). So the settled rail_y stress is 8.77 MPa, the hand oracle above; a
+# figure of 11.24 MPa is the end-shear sum taken as the point load, 80.14 N x L / 4 + w L^2 / 8 = 11.26 N m, which
+# counts the own weight twice. The 9.91 MPa reading is not reproduced: rail_y is flagged from 8.31 s, so its table
+# rows stop there.
+#
+# Measured (M3-X1f, native; 10 / 20 / 40 substeps). rail_y is flagged not valid at every step size: from 8.311 /
+# 8.350 / G15_40_FLAG s, dynamic ratio 2.76 / 3.63 / G15_40_RATIO against 2.04, the trolley starting the move 24 mm
+# from its support; its results are not valid (ruling 69) and the case errors. rail_x unflagged: dynamic ratio 1.026
+# / 1.216 / G15_40_XRATIO; settled 1.0806 mm (-1.56 percent); peak deflection from 8 s 1.134 / 1.141 / G15_40_XDEF mm
+# at the stop (2.25 / 1.91 mm scaled by 2.04 over the ratio: under 1 cm, established); peak stress 9.63 / 9.70 /
+# G15_40_XSTRESS MPa at 16.549 s, when the E-stop drops the lift onto its lower limit (root moment 7.0 to 9.6 N m):
+# safety factor 1.424 / 1.414 / G15_40_XSF against 1.5, a fail on the placeholder section and strength, also when
+# scaled (0.72); tier 1 crossing of rail_x at 16.547 / 9.616 / G15_40_XCROSS s. Fastenings: frame_mount 462 / 479 N,
+# rail_x_mount 163 / 180 N at 8.98 s against the 2 kN placeholder: pass, also scaled. The rail_x_mount strength row
+# (53.6 MPa, 0.37) puts the whole rail's reaction moment about the mount on the rail's section: not a verdict (no mount
+# section, INT-005). Loaded first frequency (ruling 73 (c)), the peak of the response of the mid-span node to the
+# rerouted foot force: rail_y 36.25 Hz against sqrt(k / (m_c + f m_beam)) = 18.72 Hz (k = 48 E I / L^3, m_c 6.135 kg,
+# f = 17 / 35, m_beam 2.024 kg) and 36.22 Hz with only the joint subtree's 0.917 kg; rail_x 22.7 Hz against 16.99 Hz
+# (k = 192 E I / L^3, m_c 7.662 kg, f = 13 / 35, m_beam 2.632 kg) and 26.99 Hz with 2.445 kg: the engine's carried mass
+# is the carried joint's tree subtree, without the rope's end fitting and the case payload that hang on the rope
+# (finding against ENG-052 and the run-damping line, which counts them). G15 is not a result of record.
 id: G15
 title: Structural worst cases with the design load
 design:

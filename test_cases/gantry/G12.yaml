@@ -26,6 +26,17 @@
 # Euler only removes energy) and not the box on the rope (a two-link linear model of it peaks at 1.99994 a / g);
 # move peaks x 0.01314, y 0.01053 rad (bounds R + 7 a / g 0.0376, 0.0359); E-stop x 0.04507 rad (R + v / sqrt(g L)
 # = 0.0739). The lift stays on its lower limit through the stop (within 6e-5 m, E6).
+# Measured (M3-X1f, native, rails and belts damped 0.01 stated, ruling 78): move peaks x 0.013117 rad (12.855 s),
+# y 0.010562 rad (8.623 s); E-stop x 0.044999 rad (23.502 s). First ramp a priori: the trolley follows the commanded
+# ramp in rate through its belt, a second-order follower with its damper in parallel (BLD-041), so its acceleration
+# peaks at a p(zeta), p = 1.9817 (x_belt, zeta 0.00592) and 1.9872 (y_belt, zeta 0.00410), the smallest ratios the run
+# prints: a_max 0.0991 and 0.0994 m/s^2, swing within R0 + 2 a_max / g (holds). The recorded hook acceleration does not
+# stay within a_max: the firmware commands a step train, each step rings the drive and belt mode, 3.32 m/s^2 in y at
+# 8.777 s and 0.56 m/s^2 in x (1 ms differences; finding, brief M3-X1f, the pendulum does not follow the ring).
+# Rails in G12 (no rail criteria here): rail_y is flagged not valid from 8.31 s (dynamic ratio 2.86 against 2.04, the
+# trolley 24 mm from its support at the move's start), so its integrity rows are not valid from then; G12 has no
+# integrity.evaluate_from, so the release from straight crosses tier 1 at 0.013 s (rail_x) and 0.018 s (rail_y), and a
+# crossing fails a passing case (SCO-015): finding; no evaluation start is added here (a window: the coordinator rules).
 #
 # Settle time. The model's physical swing loss per period is zero to first order: payload_rope damps axially only
 # (ADR 0016), hook_swing has no friction or damping and the payload's attachment none; the only other path, the swing
@@ -35,9 +46,11 @@
 # sqrt(g / L) = 5.72 rad/s. Step: ruling 21 sets 100 microseconds (substeps 10 at the 1 ms physics step, the 1 kHz
 # control tick unchanged): x = 5.72e-4, 0.18 percent lost per period. The brief's rule (numerical loss at most a
 # tenth of the physical) asks h below 1 microsecond against a physical loss this small, which no run can afford:
-# finding, damping owed (ruling 64). Expected settle from the E-stop's measured swing 0.0451 rad into the 0.01 rad
-# band: ln(0.01 / 0.0451) / ln(0.99821) = 838 periods = 921 s, far over the 5 s limit; the settle criteria fail on
-# the placeholder damping (finding, reported; neither the physics nor the limit nor the band is tuned).
+# finding, damping owed (ruling 64). Expected settle from the E-stop's measured swing 0.0450 rad into the 0.01 rad
+# band with the swing's length L = 0.37 m (x = 5.15e-4, kept 0.998384 per period of 1.220 s): ln(0.01 / 0.0450) /
+# ln(0.998384) = 930 periods = 1135 s, far over the 5 s limit; measured move_settle_x 5.208 s, move_settle_y 0 s,
+# estop_settle_x not settled by 30 s: the settle criteria fail on the placeholder damping (finding, reported;
+# neither the physics nor the limit nor the band is tuned).
 #
 # Timeline (0.05 m/s^2, 0.1 m/s, 0.02 m/s homing, 50 mm slow zones at 0.05 m/s): homing from the 0.1 m starts by
 # 5.25 s; the lift is homed to 0 m, where the payload's box clears the floor by 12 cm (design header). Part (a): target
