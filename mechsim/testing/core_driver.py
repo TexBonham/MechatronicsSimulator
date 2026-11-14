@@ -502,6 +502,7 @@ class CoreDriver:
             document = json.loads(prepared_native.model_json)
             if self._evaluate_from() > 0.0:
                 document["carried_evaluation_start"] = self._evaluate_from()
+                document["rope_snap_evaluation_start"] = self._evaluate_from()
                 prepared = core.PreparedModel(json.dumps(document), "", prepared_native.version)
             tier1 = self._tier1_setup(model, document)
             springs = self._first_springs(document)
@@ -594,6 +595,7 @@ class CoreDriver:
             decoded = [RowEvent(tick, "controller", kind, detail) for tick, kind, detail in self._runner.events]
             decoded.sort(key=lambda event: event.time)
         taken = 0
+        held = [0.0] * len(model.ropes)
         for row in sink.drain():
             # Rows are stamped at the end of their step (KER-009), so an event of the first controller step (tick 0)
             # has no row of its own: it goes with the first row at or after its tick.
@@ -607,7 +609,11 @@ class CoreDriver:
             )
             if not native:
                 record = member_frame_loads(record, frames)
+            if native and float(Fraction(row_tick) / config.base_rate) - step < self._evaluate_from():
+                for index, tension in enumerate(record.physics.ropes[: len(held)]):
+                    held[index] = max(held[index], tension.max_tension)
             recorder.write_row(record)
+        self.approximations = (*self.approximations, *held_rope_lines(model, held, self._evaluate_from()))
         self.subscriber_errors = tuple(str(error) for error in sink.subscriber_errors())
         self._view = RecordingView(
             recorder.recording(),
@@ -1090,6 +1096,21 @@ def _notes_entry(notes: tuple[str, ...]) -> dict[str, str]:
     if len(notes) == 0:
         return {}
     return {"notes": json.dumps(list(notes))}
+
+
+def held_rope_lines(model: PhysicsModel, held: Sequence[float], start: float) -> tuple[str, ...]:
+    """One line per rope whose largest recorded tension over the steps begun before the evaluation start exceeded its
+    breaking tension (INT-031, PHY-036, ruling 75): the engine held that snap back, so the rope did not snap then."""
+    lines: list[str] = []
+    for rope, tension in zip(model.ropes, held, strict=True):
+        if rope.breaking_tension is None or not tension > float(rope.breaking_tension):
+            continue
+        lines.append(
+            f"rope '{rope.name}': before the evaluation start {start:.6g} s its tension reached {tension:.6g} N, above "
+            f"its breaking tension {float(rope.breaking_tension):.6g} N; the engine holds a snap back before the "
+            "start, so the rope did not snap then (INT-031, PHY-036, ruling 75)"
+        )
+    return tuple(lines)
 
 
 def _rope_snap_gate(model: PhysicsModel, integrity: IntegrityConfig | None) -> tuple[PhysicsModel, tuple[str, ...]]:

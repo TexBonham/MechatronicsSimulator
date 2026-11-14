@@ -5,7 +5,7 @@ Stepping is `core/physics/native/`. The only Python importer of `mechsim._core_e
 
 | Name | Does |
 |---|---|
-| `translate(model, step=None, payloads=None, starts=None, substeps=1, evaluation_start=0.0) -> Translation(document, report)` | `.text` is the JSON (sorted keys, deterministic); `report` one line per approximation (SCO-013), at h / substeps; `substeps` written when above 1; `carried_evaluation_start` written when above 0, refused below 0 or not finite (ruling 74) |
+| `translate(model, step=None, payloads=None, starts=None, substeps=1, evaluation_start=0.0) -> Translation(document, report)` | `.text` is the JSON (sorted keys, deterministic); `report` one line per approximation (SCO-013), at h / substeps; `substeps` written when above 1; `carried_evaluation_start` and `rope_snap_evaluation_start` (PHY-036, ruling 75) written when above 0, refused below 0 or not finite (ruling 74) |
 | `scheme_mode(x) -> (kept, ratio)`, `mode_text(x)` | Ruling 45: amplitude kept per period (1 + x^2)^(-pi / atan x), frequency ratio atan(x) / x; the text flags x above 0.2 unresolved; every member, rope swing and belt mode line uses it; drive and gear lines state the form with x from the engine's scheme decay |
 | `prepare.prepare_model(model, starts, step, payloads, substeps=1, evaluation_start=0.0) -> NativeArtifacts(model_json, version, report)` | `PreparedModel(model_json, "", version)` |
 | `supported_elements()`, `SUPPORTED_ELEMENTS` | Mirrors `supported_kinds` in `core/physics/native/src/native_adapter.cpp` (test-checked) |

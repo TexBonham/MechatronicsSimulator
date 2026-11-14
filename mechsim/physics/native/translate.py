@@ -680,8 +680,8 @@ def translate(
     """The engine model document and the approximation report (SCO-013); `step` (s) is the run's physics step when
     it is not the model's, `payloads` maps payload bodies to carriers, `starts` single-DOF joints to coordinates,
     `substeps` the engine steps per adapter step (written when above one; every line then uses h / substeps),
-    `evaluation_start` (s) the time from which the carried-load validity flag is evaluated (written when above zero;
-    ENG-052, PHY-035, ruling 74)."""
+    `evaluation_start` (s) the time from which the carried-load validity flag is evaluated and a rope may snap (both
+    keys written when above zero; ENG-052, PHY-035, ruling 74; ENG-047, PHY-036, ruling 75)."""
     if substeps < 1:
         raise UnmappableElementError(f"substeps {substeps}", "at least one engine step per adapter step")
     if not (math.isfinite(evaluation_start) and evaluation_start >= 0.0):
@@ -798,6 +798,7 @@ def translate(
         document["substeps"] = substeps
     if evaluation_start > 0.0:
         document["carried_evaluation_start"] = float(evaluation_start)
+        document["rope_snap_evaluation_start"] = float(evaluation_start)
     for kind in document["elements"]:
         if kind not in SUPPORTED_ELEMENTS:
             raise UnmappableElementError(kind, "not mapped by the native adapter (PHY-019)")
