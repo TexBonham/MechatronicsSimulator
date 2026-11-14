@@ -43,6 +43,7 @@ from mechsim.integrity.tier1 import (
     Tier1Setup,
     first_springs,
     tier1_enabled,
+    trace_notes,
 )
 from mechsim.library.registry import default_registry
 from mechsim.materials.schema import MaterialError
@@ -636,6 +637,8 @@ class CoreDriver:
         if end.at_tick is not None and end.at_tick <= end.max_tick:
             reason = "end_time"
         notes: tuple[str, ...] = fitting_lines
+        if tier1 is not None and self.integrity_trace is not None:
+            notes = (*notes, *trace_notes(tier1.limits, self.integrity_trace))
         if report.end_reason == core.EndReason.party_state:
             reason = "integrity_halt"
             notes = (*notes, self._halt_line(int(report.ticks), config.base_rate))
