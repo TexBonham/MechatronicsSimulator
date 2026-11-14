@@ -44,6 +44,21 @@ at 5.5 kg), `lift 0.4` is accepted and the lift ends at 0.4001 m (M3-X2c; that w
 Windows derive from the gantry team's values of 2026-11-11 (0.05 m/s^2, 0.1 m/s, 0.02 m/s homing, 10 cm homing travel,
 0.5 m workspace); each case header carries its derivation.
 
+## Native against the bridge (PHY-024, brief M3-X2d)
+
+Each criterion is compared at its own axis's tolerance (`docs/spec/phy.md`, the differential tolerance row): one full
+step, 0.2 mm, plus that axis's belt stretch at rest in that case (lift: (payload + 0.4064 kg) g on 1e5 N/m, 0.240 mm
+empty, 0.436 mm with 2 kg, 0.779 mm with 5.5 kg; x and y carry no load at rest, 0.2 mm); event times 3 ms; counts
+exact. Six misses of record, with their causes from the archives of both adapters (`tests/acceptance/
+test_phy_stubs.py`, `MISSES_OF_RECORD`; a companion test asserts the list exactly):
+
+| Miss | Bridge | Native | Cause | Verdict |
+|---|---|---|---|---|
+| G7 `hook_held`, G9 `load_held` | 2.177 mm at 12.050 s | 1.146 mm at 12.044 s | Power off at 12.021 s, brake (0.5 N m) holds 20 ms later. Bridge: undamped fall at m g / M = 7.62 m/s^2 (recorded 7.6; M = 2 + 0.4074 kg + rotor 0.691 kg), 1.524 mm, then the brake stops M in 0.656 mm: 2.180 mm. Native: the rotor's viscous damping (8e-3 N m s/rad, 197 N s/m at the belt) slows the fall to 0.988 mm at 0.082 m/s, the brake stops the rotor alone and carriage, hook and cell run 0.165 mm into the belt: 1.153 mm | Explained: 1.027 mm predicted against 1.031 mm; the cause is the rotor damping native applies and the bridge's unpowered fall lacks, not the belt's compliance |
+| G10 `stall_fault`, `slip_fault` | 9.161 s, 31.427 s | 9.153 s, 31.407 s | The x belt's stretch under the drive torque at the fault, 0.0496 mm, puts the mismatch ahead: crossing 1.7 ms (stall, 28.2 mm/s) and 4.7 ms (slip, 10.5 mm/s) earlier, the event (detection + v / a) twice that: 3.4 ms and 9.4 ms | Finding: against 8 ms and 20 ms observed; the recomputed crossings move 2 and 5 ms as predicted, the rest is unexplained |
+| G10 `stall_rehomed` | 12.044 s | 12.030 s | Follows the stall stop (8 ms) and a homing 2 ms shorter (G2 `ready`) | Consequence of the finding |
+| G10 `slip_carriage_stopped` | 21.16 mm | 20.43 mm | The stop starts 10 ms earlier; the commanded stop distance moves 2 v per second of detection, 2 x 0.036 m/s x 10 ms = 0.72 mm | Consequence of the finding |
+
 `baseline.yaml`: placeholder-geometry baselines for G1 to G16 on the native adapter (statuses of record on the draft
 gantry), until CAD. `bridge_baselines/<case>.yaml`: the bridge's values of record for G1 to G11, G13 and G14,
 generated once on 2026-11-14 and never regenerated (PHY-025; the native baseline is compared with them, PHY-024).
