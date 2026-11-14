@@ -698,6 +698,23 @@ class FlexibleMember(_Strict):
     calibration: Annotated[Calibration | OpenValue | None, BeforeValidator(_choice)] = None
     supports: list[SupportCondition] = Field(min_length=2, max_length=2, description="root, end")
     segments: int = Field(default=8, ge=1, description="lumped segment count (BLD-018, ruling 17)")
+    carries: list[Name] = Field(
+        default_factory=list,
+        description="joints the member carries (DES-033, ENG-052, ruling 63): each joint's parent is this body, "
+        "the lumped chain's parent; its in-plane load reaches the body through the chain",
+    )
+    damping_ratio: Fraction | None = Field(
+        default=None,
+        description="modal damping ratio of the first bending mode, dimensionless in [0, 1) (DES-047, ruling 78); "
+        "absent: undamped, the member's ringing set by the integration scheme",
+    )
+
+    @model_validator(mode="after")
+    def _damping_ratio(self) -> FlexibleMember:
+        ratio = self.damping_ratio
+        if isinstance(ratio, float) and not (0.0 <= ratio < 1.0):
+            raise ValueError(f"damping_ratio {ratio!r}: a modal damping ratio in [0, 1) (DES-047)")
+        return self
 
 
 class Fastener(_Strict):
@@ -1323,6 +1340,7 @@ def cross_check(
     if WORLD in bodies:
         errors.append(f"bodies: {WORLD!r} is reserved")
     _check_joints(design, errors)
+    _check_carries(design, errors)
     for index, component in enumerate(design.components):
         _check_component(f"components[{index}]", component, design, registry, declared, errors)
     _check_signals(design, errors)
@@ -1408,6 +1426,28 @@ def _check_body(path: str, body: Body, registry: Registry, materials: dict[str, 
             errors.append(f"{path}.catalog_part.part: unknown catalog part {reference.part!r}")
         elif registry.part(reference.part).type != reference.type:
             errors.append(f"{path}.catalog_part.part: part {reference.part!r} is not of type {reference.type!r}")
+
+
+def _check_carries(design: Design, errors: list[str]) -> None:
+    joints = {joint.name: joint for joint in design.joints}
+    carried_by: dict[str, str] = {}
+    for index, body in enumerate(design.bodies):
+        if body.flexible is None:
+            continue
+        for carried_index, name in enumerate(body.flexible.carries):
+            path = f"bodies[{index}].flexible.carries[{carried_index}]"
+            if name not in joints:
+                errors.append(f"{path}: unknown joint {name!r}")
+                continue
+            if name in carried_by:
+                errors.append(f"{path}: joint {name!r} is already carried by {carried_by[name]!r} (ENG-052)")
+                continue
+            carried_by[name] = body.name
+            if joints[name].parent != body.name:
+                errors.append(
+                    f"{path}: joint {name!r} has parent {joints[name].parent!r}; a carried joint's parent is the "
+                    f"member's own body {body.name!r}, the lumped chain's parent (ENG-052)"
+                )
 
 
 def _check_joints(design: Design, errors: list[str]) -> None:

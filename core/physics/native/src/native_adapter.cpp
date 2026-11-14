@@ -347,11 +347,13 @@ struct NativeAdapter::Engine {
     kernel::PhysicsOutputs outputs;
     std::vector<ModelChangeRecord> events;
     int substeps = 1;                                        // engine steps per adapter step
+    std::vector<double> carried_deflection;                  // per member, largest over the run (ENG-052)
     kernel::PhysicsInputs inputs;                            // re-applied before each engine step of a tick
     std::vector<kernel::ModelChangeEvent> pending_changes;  // mid-run spring changes, listed in the next tick
     std::vector<Eigen::Index> node_bodies;  // member chain bodies, published after the neutral bodies, in order
-    std::vector<std::pair<std::size_t, double>> previous_rests;  // last tick's enabled drives: joint, end rest
+    std::vector<kernel::JointDrive> previous_drives;  // last tick's enabled drives: joint, end rest, K, D
     std::shared_ptr<DrivenSchemeDecayRecord> scheme_decay;       // joint order, largest over the run
+    std::shared_ptr<CarriedRecord> carried;                      // per member, deflection and lag (ENG-052)
 };
 
 namespace {
@@ -452,6 +454,8 @@ void NativeAdapter::load(const kernel::PreparedModel& prepared, const kernel::Ra
     auto e = std::make_unique<Engine>();
     decay_record_->values.clear();
     e->scheme_decay = decay_record_;
+    carried_record_->members.clear();
+    e->carried = carried_record_;
     e->rate = physics_rate;
     try {
         const json::Value doc = json::Value::parse(prepared.neutral_model_json);
@@ -480,6 +484,19 @@ void NativeAdapter::load(const kernel::PreparedModel& prepared, const kernel::Ra
         config.drift_threshold_m = run.at("drift_threshold_m").number("drift_threshold_m");
         config.drift_threshold_rad = run.at("drift_threshold_rad").number("drift_threshold_rad");
         config.unit_tolerance = run.at("unit_tolerance").number("unit_tolerance");
+        if (doc.has("carried_evaluation_start")) {
+            config.carried_evaluation_start = doc.at("carried_evaluation_start").number("carried_evaluation_start");
+            if (!(config.carried_evaluation_start >= 0.0) || !std::isfinite(config.carried_evaluation_start)) {
+                throw json::ParseError("carried_evaluation_start: a finite time in seconds, at least 0");
+            }
+        }
+        if (doc.has("rope_snap_evaluation_start")) {
+            config.rope_snap_evaluation_start =
+                doc.at("rope_snap_evaluation_start").number("rope_snap_evaluation_start");
+            if (!(config.rope_snap_evaluation_start >= 0.0) || !std::isfinite(config.rope_snap_evaluation_start)) {
+                throw json::ParseError("rope_snap_evaluation_start: a finite time in seconds, at least 0");
+            }
+        }
         eng::StepConfig step_config;
         step_config.h = e->h;
         step_config.symmetry_tolerance = run.at("symmetry_tolerance").number("symmetry_tolerance");
@@ -534,6 +551,12 @@ void NativeAdapter::load(const kernel::PreparedModel& prepared, const kernel::Ra
                 eng::add_lumped_beam(model, spec, body_index(m.at("parent"), "member parent", doc_bodies, true),
                                      vec3(m.at("position"), "member position"),
                                      quat(m.at("orientation"), "member orientation"));
+            if (m.has("carried")) {
+                for (const json::Value& c : m.at("carried").array("member carried")) {
+                    model.members.back().carried.push_back(
+                        body_index(c, "member carried body", e->neutral_bodies, false));
+                }
+            }
             const std::vector<Eigen::Index> nodes = eng::member_nodes(beam);
             for (std::size_t node = 0; node < nodes.size(); ++node) {
                 member_springs.emplace_back(member_index, index_of(node));
@@ -714,6 +737,8 @@ void NativeAdapter::load(const kernel::PreparedModel& prepared, const kernel::Ra
         for (const eng::LumpedBeam& beam : model.members) {
             e->node_bodies.insert(e->node_bodies.end(), beam.bodies.begin(), beam.bodies.end());
         }
+        e->carried_deflection.assign(model.members.size(), 0.0);
+        e->carried->members.assign(model.members.size(), CarriedMemberRecord{});
         e->extras.dofs.assign(static_cast<std::size_t>(provider.velocity_size()), DofExtras{});
         for (std::size_t b = 0; b < doc_bodies; ++b) {
             const eng::Body& body = model.bodies[b];
@@ -923,10 +948,14 @@ void NativeAdapter::clear_drives(Engine& e) {
     e.driven.clear();
 }
 
-// Ruling 49: with several engine steps per tick, substep s of S drives toward the rest interpolated from the previous
-// tick's end rest to this tick's, so each engine step's end-of-step rest is the rest at its own end time and a ramp's
-// steady lag D u / K stays exact. The last substep takes this tick's rest exactly; a joint not driven in the previous
-// tick has no start rest and takes this tick's throughout.
+// Ruling 49: with several engine steps per tick, substep s of S applies the spring law blended from the previous
+// tick's drive (K0, D0, rest r0) to this tick's (K1, D1, r1) at f = (s + 1) / S: K = K0 + f (K1 - K0),
+// D = D0 + f (D1 - D0), K rest = K0 r0 + f (K1 r1 - K0 r0), so the torque at any state is the same blend of the two
+// ticks' torques and the drive's potential moves from V0 to V1 (brief M3-E6). With K0 == K1 this is the rest
+// interpolated from r0 to r1, so a ramp's steady lag D u / K stays exact. A rest interpolated under K1 alone would
+// apply K1 to r0, a rest that belongs to the softer law (a slipping brake's rest lies T_b / K_s off the shaft) and
+// store K1 (r1 - r0)^2 / 2 from nowhere. The last substep takes this tick's drive exactly; a joint not driven in
+// the previous tick takes this tick's throughout.
 void NativeAdapter::set_substep_rests(Engine& e, int sub) {
     if (e.substeps == 1 || sub == e.substeps - 1) {
         return;
@@ -936,11 +965,25 @@ void NativeAdapter::set_substep_rests(Engine& e, int sub) {
         if (!drive.enabled) {
             continue;
         }
-        for (const auto& [joint, rest] : e.previous_rests) {
-            if (joint == drive.joint) {
-                e.provider->set_joint_drive(index_of(drive.joint), 0, rest + ((drive.rest - rest) * fraction),
-                                            drive.stiffness, drive.damping);
+        for (const kernel::JointDrive& previous : e.previous_drives) {
+            if (previous.joint != drive.joint) {
+                continue;
             }
+            const double damping = previous.damping + ((drive.damping - previous.damping) * fraction);
+            if (previous.stiffness == drive.stiffness) {
+                e.provider->set_joint_drive(index_of(drive.joint), 0,
+                                            previous.rest + ((drive.rest - previous.rest) * fraction), drive.stiffness,
+                                            damping);
+                continue;
+            }
+            const double stiffness = previous.stiffness + ((drive.stiffness - previous.stiffness) * fraction);
+            const double moment = (previous.stiffness * previous.rest) +
+                                  (((drive.stiffness * drive.rest) - (previous.stiffness * previous.rest)) * fraction);
+            double rest = drive.rest;
+            if (stiffness > 0.0) {
+                rest = moment / stiffness;
+            }
+            e.provider->set_joint_drive(index_of(drive.joint), 0, rest, stiffness, damping);
         }
     }
 }
@@ -1053,6 +1096,34 @@ void NativeAdapter::step() {
         converged = converged && e.last_health.converged;
         collect_events(provider.outputs().events, e.events, changes);
         keep_scheme_decay(e);
+        for (std::size_t m = 0; m < e.carried_deflection.size(); ++m) {
+            e.carried_deflection[m] =
+                std::max(e.carried_deflection[m], provider.outputs().members[m].carried_deflection);
+        }
+        for (const eng::CarriedLoadOutput& c : provider.outputs().carried) {
+            CarriedMemberRecord& record = e.carried->members.at(static_cast<std::size_t>(c.member));
+            const double boundary = eng::lag_stability_boundary(c.lag_omega_h);
+            if (c.lag_ratio / boundary > record.lag_ratio / eng::lag_stability_boundary(record.lag_omega_h)) {
+                record.lag_ratio = c.lag_ratio;
+                record.lag_omega_h = c.lag_omega_h;
+            }
+            record.lag_factor = std::max(record.lag_factor, c.lag_factor);
+        }
+        for (std::size_t m = 0; m < e.carried_deflection.size(); ++m) {
+            CarriedMemberRecord& record = e.carried->members.at(m);
+            const eng::MemberOutput& member = provider.outputs().members[m];
+            record.deflection = e.carried_deflection[m];
+            record.work = member.carried_work;
+            record.peak_force = member.peak_carried_force;
+            record.peak_quasi_static = member.peak_quasi_static;
+            record.peak_ratio = member.peak_ratio;
+            record.unresolved = member.unresolved;
+            record.unresolved_time = member.unresolved_time;
+            record.peak_position = member.peak_position;
+            record.static_floor = member.static_floor;
+            record.peak_window_peak = member.peak_window_peak;
+            record.peak_relative_deflection = member.peak_relative_deflection;
+        }
     }
     e.last_health.max_constraint_drift = drift;
     e.last_health.iterations = iterations;
@@ -1169,10 +1240,10 @@ void NativeAdapter::step() {
         }
         o.joint_drive_torques.push_back(torque);
     }
-    e.previous_rests.clear();
+    e.previous_drives.clear();
     for (const kernel::JointDrive& drive : e.drives) {
         if (drive.enabled) {
-            e.previous_rests.emplace_back(drive.joint, drive.rest);
+            e.previous_drives.push_back(drive);
         }
     }
     e.drives.clear();
@@ -1216,6 +1287,12 @@ std::vector<DrivenSchemeDecay> NativeAdapter::driven_scheme_decay() const {
 }
 
 std::shared_ptr<const DrivenSchemeDecayRecord> NativeAdapter::scheme_decay_record() const { return decay_record_; }
+
+std::vector<double> NativeAdapter::carried_deflection() const {
+    return engine("carried_deflection").carried_deflection;
+}
+
+std::shared_ptr<const CarriedRecord> NativeAdapter::carried_record() const { return carried_record_; }
 
 // ===== Mid-run changes ===================================================
 

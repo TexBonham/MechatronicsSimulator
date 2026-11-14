@@ -1,16 +1,53 @@
-"""Strength (INT-005): peak stress per member and mount from the recorded end-loads, safety factor against the
+"""Strength (INT-005): peak stress per member and mount from the recorded end-loads and, for a lumped member, the
+moment at every node spring from the recorded node poses (`beam.member_normal_stress`), safety factor against the
 material's direction-dependent strength at the run's ambient temperature. Tier 1: normal stress (axial plus bending
-about both axes) against yield; tier 2 adds average shear against shear strength and von Mises against yield."""
+about both axes) against yield; tier 2 adds average shear against shear strength and von Mises against yield, a node
+taking the larger end shear (a single-signed transverse load keeps the shear between its end values)."""
 
 from __future__ import annotations
 
+import math
+
 import numpy as np
 
-from mechsim.integrity.beam import mount_stress, normal_stress, peak, shear_stress
-from mechsim.integrity.plugin import CheckResult, CheckRow, IntegrityCheck, RunInputs, Spread
+from mechsim.integrity.beam import (
+    carried_reads,
+    hogging_rows,
+    member_normal_stress,
+    mount_stress,
+    node_moments,
+    own_weight_bound,
+    peak,
+    shear_stress,
+)
+from mechsim.integrity.plugin import CheckResult, CheckRow, IntegrityCheck, RunInputs, Spread, not_evaluated
 from mechsim.schema_base import StrictModel
 
 FLAG = "safety_factor_below_minimum"
+ENDS_ONLY = "strength of {member!r}: end moments only, the member has no node poses (INT-005)"
+UNRESOLVED = "unresolved_moment"
+UNRESOLVED_STRESS = "unresolved_stress"
+
+
+def unresolved_note(member: str, bound: float, causes: tuple[str, ...]) -> str:
+    """The line of a strength row read conservatively (INT-005, rulings 72, 75)."""
+    return (
+        f"strength of {member!r}: conservative, each sample's read adds the bound of what the carried-load rule does "
+        f"not resolve, {' and '.join(causes)}: up to {bound:.6g} N m at the design load (INT-005, ruling 75)"
+    )
+
+
+def hogging_note(member: str, bound: float, read: float) -> str:
+    """The line of a carrying member whose read under a carried couple can be low (INT-005, ruling 79): the bound
+    3 w l^2 in N m and as a fraction of the largest read in the rows where it can occur (inf when that read is 0)."""
+    fraction = math.inf
+    if read > 0.0:
+        fraction = bound / read
+    return (
+        f"strength of {member!r}: may read low under a carried couple at a foot point where the own weight's moment "
+        f"hogs, by at most 3 w l^2 = {bound:.6g} N m (static own weight; more while the member rings), "
+        f"{fraction:.3g} of the largest read there, {read:.6g} N m (INT-005, ruling 79)"
+    )
 
 
 def judged(inputs: RunInputs, margin: Spread) -> tuple[str, ...]:
@@ -27,16 +64,50 @@ class Strength(IntegrityCheck):
     def evaluate(self, inputs: RunInputs, parameters: StrictModel, tier: int) -> CheckResult:
         self.check_tier(tier)
         rows: list[CheckRow] = []
+        notes: list[str] = []
         for member in inputs.members:
-            loads = member.loads.scaled(inputs.load_factor)
             view = inputs.material(member.material)
             yield_strength = Spread.of(view.strength_spread("yield", inputs.temperature, member.axis_body))
-            normal = normal_stress(loads, member.section)
+            if member.loads is None:
+                rows.append(not_evaluated(member.name, "normal_stress", 1, yield_strength.min))
+                if tier >= 2:
+                    rows.append(not_evaluated(member.name, "shear_stress", 2))
+                    rows.append(not_evaluated(member.name, "von_mises_stress", 2, yield_strength.min))
+                continue
+            loads = member.loads.scaled(inputs.load_factor)
+            if member.nodes is None:
+                notes.append(ENDS_ONLY.format(member=member.name))
+            normal = member_normal_stress(
+                loads, member.section, member, inputs.bodies, inputs.load_factor, member.spring_offsets
+            )
+            detail: tuple[tuple[str, float], ...] = ()
+            if member.nodes is not None and member.nodes.carries and inputs.bodies is not None:
+                moments = node_moments(member, inputs.bodies, member.spring_offsets)[0] * inputs.load_factor
+                reads = carried_reads(member, loads, moments, inputs.bodies, inputs.load_factor)
+                hogging = hogging_rows(member, inputs.bodies)
+                weight = own_weight_bound(member, inputs.gravity) * inputs.load_factor
+                if weight > 0.0 and bool(hogging.any()):
+                    largest = np.where(reads.found.astype(bool), np.abs(reads.values), 0.0)[hogging].max()
+                    notes.append(hogging_note(member.name, weight, float(largest)))
+                bound = reads.bound
+                if bound.size > 0 and float(bound.max()) > 0.0:
+                    added = bound * member.section.c_y / member.section.i_z
+                    normal = np.concatenate((normal, (normal.max(axis=1) + added)[:, None]), axis=1)
+                    detail = ((UNRESOLVED, float(bound.max())), (UNRESOLVED_STRESS, float(added.max())))
+                    notes.append(unresolved_note(member.name, float(bound.max()), reads.causes))
             value, time = peak(normal, inputs.times)
             margin = yield_strength.over(value)
             rows.append(
                 CheckRow(
-                    member.name, "normal_stress", value, time, 1, yield_strength.min, margin, judged(inputs, margin)
+                    member.name,
+                    "normal_stress",
+                    value,
+                    time,
+                    1,
+                    yield_strength.min,
+                    margin,
+                    judged(inputs, margin),
+                    detail,
                 )
             )
             if tier >= 2:
@@ -49,7 +120,9 @@ class Strength(IntegrityCheck):
                         member.name, "shear_stress", value, time, 2, shear_strength.min, margin, judged(inputs, margin)
                     )
                 )
-                value, time = peak(np.sqrt(normal**2 + 3.0 * shear**2), inputs.times)
+                interior = np.repeat(shear.max(axis=1, keepdims=True), normal.shape[1] - 2, axis=1)
+                along = np.concatenate((shear, interior), axis=1)
+                value, time = peak(np.sqrt(normal**2 + 3.0 * along**2), inputs.times)
                 margin = yield_strength.over(value)
                 rows.append(
                     CheckRow(
@@ -75,7 +148,7 @@ class Strength(IntegrityCheck):
             rows.append(
                 CheckRow(joint.name, "mount_stress", value, time, 1, yield_strength.min, margin, judged(inputs, margin))
             )
-        return CheckResult(self.name, tier, tuple(rows))
+        return CheckResult(self.name, tier, tuple(rows), notes=tuple(notes))
 
 
 CHECK = Strength

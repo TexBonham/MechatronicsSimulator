@@ -68,6 +68,8 @@ struct Doc {
     std::string payloads = "[]";
     std::string starts = "[]";
     int substeps = 0;  // 0: the key is left out (one engine step per adapter step)
+    std::string evaluation_start;  // empty: the key is left out (the carried-load flag evaluated from 0)
+    std::string snap_start;        // empty: rope_snap_evaluation_start left out (the snap from 0)
 
     [[nodiscard]] std::string text() const {
         std::string list;
@@ -88,7 +90,7 @@ struct Doc {
                list + R"(], "neutral_bodies": )" + std::to_string(neutral) + R"(, "constraints": )" + constraints +
                R"(, "members": )" + members + R"(, "transmissions": )" + transmissions + R"(, "ropes": )" + ropes +
                R"(, "contact": )" + contact + R"(, "payloads": )" + payloads + R"(, "starts": )" + starts +
-               substeps_key() + "}";
+               substeps_key() + evaluation_key() + snap_key() + "}";
     }
 
     [[nodiscard]] std::string substeps_key() const {
@@ -96,6 +98,20 @@ struct Doc {
             return "";
         }
         return R"(, "substeps": )" + std::to_string(substeps);
+    }
+
+    [[nodiscard]] std::string evaluation_key() const {
+        if (evaluation_start.empty()) {
+            return "";
+        }
+        return R"(, "carried_evaluation_start": )" + evaluation_start;
+    }
+
+    [[nodiscard]] std::string snap_key() const {
+        if (snap_start.empty()) {
+            return "";
+        }
+        return R"(, "rope_snap_evaluation_start": )" + snap_start;
     }
 };
 
@@ -457,6 +473,84 @@ TEST_CASE("native adapter: scheduled slip loses the fraction of the shaft travel
     const double shaft = adapter.outputs().joint_positions[0];
     CHECK(adapter.outputs().transmissions[0].slipping);
     CHECK_THAT(adapter.outputs().transmissions[0].slip, WithinRel(0.25 * shaft, 1e-9));
+}
+
+// ===== Energy through a limit, a belt and a drive hand-off (PHY-034, ruling 49; ENG-013) =====
+
+namespace {
+
+// Mechanical energy of the belt fixture with the carriage on a lower limit at 0: kinetic, gravitational (m g x),
+// the belt's elastic energy k (n theta - x)^2 / 2 (no backlash, no slip) and a drive's potential K (theta - rest)^2 / 2.
+struct BeltEnergy {
+    double shaft_inertia = 1e-4;
+    double carriage_mass = 2.0;
+    double n = 0.01;
+    double k = 1e5;
+
+    [[nodiscard]] double mechanical(const NativeAdapter& adapter) const {
+        const auto& out = adapter.outputs();
+        const double theta = out.joint_positions[0];
+        const double x = out.joint_positions[1];
+        const double omega = out.bodies[0].angular_velocity[2];
+        const double v = out.bodies[1].linear_velocity[2];
+        const double stretch = (n * theta) - x;
+        return (0.5 * shaft_inertia * omega * omega) + (0.5 * carriage_mass * v * v) + (carriage_mass * g * x) +
+               (0.5 * k * stretch * stretch);
+    }
+
+    [[nodiscard]] static double drive(double stiffness, double rest, double theta) {
+        return 0.5 * stiffness * (theta - rest) * (theta - rest);
+    }
+};
+
+}  // namespace
+
+TEST_CASE("native adapter: a drive law handed over between ticks adds no energy and keeps a limit seated",
+          "[PHY-034][ENG-013]") {
+    // A brake's hand-off (G12's E-stop, brief M3-E6): tick law A is a soft spring K0 whose rest r0 lies far below the
+    // shaft (a slipping brake's rest theta + T_b / K_s), pressing the carriage into its lower limit through the belt;
+    // law B is a stiff hold K1 at the shaft's angle r1 at the end of law A. Oracle: each engine step under a fixed
+    // spring law is backward Euler on a conservative system with dampers and an inelastic limit row, so
+    // E(q') + V(q') <= E(q) + V(q) for that law V. Across the hand-off the substep law moves from A to B over the tick;
+    // when the substep law is the convex blend V_f = (1 - f) V0 + f V1, the energy put in by each law change is
+    // (f_k - f_k-1) (V1 - V0)(q) at the substep's start state, and V1 - V0 < 0 while the shaft stays within
+    // sqrt(K0 / K1) |r1 - r0| = 0.29 rad of r1 (it moves by microradians), so
+    // E(end of B) + V1(end of B) <= E(end of A) + V0(end of A). From then on law B is fixed: E + V1 never rises.
+    // A rest interpolated from r0 under the stiffness K1 instead stores K1 (0.9 |r1 - r0|)^2 / 2 = 3.0e4 J in one
+    // substep. The carriage is pushed into its bound by gravity and the belt throughout, and the anticipatory limit
+    // row (ruling 43) lands it on the bound exactly: x == 0 bitwise every tick. Round-off: energies of order 1 J
+    // carry about 1e-15 relative per step, so 1e-9 J is far above it and far below any injection.
+    const double k0 = 1e-3;
+    const double r0 = -50.0;
+    const double k1 = 30.0;
+    const double round_off = 1e-9;
+    const BeltEnergy energy;
+    for (const int substeps : {1, 10}) {
+        CAPTURE(substeps);
+        NativeAdapter adapter;
+        Doc doc = belt();
+        doc.bodies[1] = body("carriage", -1, "prismatic", "[0, 0, 1]", 2.0, "[]", "[]", DofSpec{"0.0", "0.0", "null"},
+                             "[0.5, 0, 0]");
+        doc.substeps = substeps;
+        load(adapter, doc);
+        for (int n = 0; n < 300; ++n) {
+            drive(adapter, r0, k0, 0.0);
+            adapter.step();
+            REQUIRE(adapter.outputs().joint_positions[1] == 0.0);
+        }
+        const double r1 = adapter.outputs().joint_positions[0];
+        double before = energy.mechanical(adapter) + BeltEnergy::drive(k0, r0, r1);
+        for (int n = 0; n < 300; ++n) {
+            drive(adapter, r1, k1, 0.0);
+            adapter.step();
+            const double theta = adapter.outputs().joint_positions[0];
+            const double after = energy.mechanical(adapter) + BeltEnergy::drive(k1, r1, theta);
+            CAPTURE(n, before, after);
+            REQUIRE(adapter.outputs().joint_positions[1] == 0.0);
+            REQUIRE(after <= before + round_off);
+            before = after;
+        }
+    }
 }
 
 // ===== Drives through transmissions (PHY-034, ruling 39; PHY-006, PHY-018) ===
@@ -978,6 +1072,138 @@ TEST_CASE("native adapter: constraint disable and its index check", "[PHY-008]")
 
 // ===== Members and ropes (PHY-004, PHY-007) ==============================
 
+namespace {
+
+// A pinned-pinned steel bar along world x on the world (8 segments, l = 1 / 8), gravity -y in its bending plane, and a
+// 2 kg carriage on a world prismatic joint along x carried by it (ENG-052, PHY-035): neutral body 0 is the carriage.
+struct CarriedBar {
+    double ei = 2e11 * 1e-8;
+    double rho_a = 7800.0 * 1e-4;
+    double carriage = 2.0;
+    int segments = 8;
+
+    [[nodiscard]] Doc doc(int substeps) const {
+        Doc d;
+        d.elements = R"(["body", "joint.prismatic", "lumped_member"])";
+        d.gravity = "[0, -9.81, 0]";
+        d.bodies.push_back(body("carriage", -1, "prismatic", "[1, 0, 0]", carriage));
+        d.members = R"([{"parent": -1, "position": [0, 0, 0], "orientation": [1, 0, 0, 0], "youngs_modulus": 2e11, )"
+                    R"("area_moment": 1e-8, "density": 7800, "area": 1e-4, "length": 1.0, "node_damping": 0.0, )"
+                    R"("roller_mass_fraction": 0.001, "segments": 8, "ends": "simply_supported", "carried": [0]}])";
+        d.starts = R"([{"body": 0, "value": 0.35}])";
+        d.substeps = substeps;
+        return d;
+    }
+
+    // Kinetic, gravitational (m g y) and elastic energy of the carriage and the member's chain bodies (the pin segment
+    // and the eight segments, published after the neutral body), plus the carried weight's potential m_c g u(x_c), u
+    // the lever-rule interpolation of the load nodes' heights (ENG-052: the pair's work with a constant load). The
+    // roller (1e-3 of the member's mass, moving along x at second order in the deflection, about 1e-5 m/s here) holds
+    // below 1e-13 J and is left out. The carried mass's kinetic energy m_c u'(x_c)^2 / 2 (brief M3-E7d: the carriage's
+    // mass loads the member's deflection motion), u' the same interpolation of the load nodes' vertical speeds.
+    [[nodiscard]] double energy(const NativeAdapter& adapter) const {
+        const auto& out = adapter.outputs();
+        const double l = 1.0 / segments;
+        const double v = out.bodies[0].linear_velocity[0];
+        double total = 0.5 * carriage * v * v;
+        std::vector<double> angles;
+        std::vector<double> xs{0.0};
+        std::vector<double> ys{out.bodies[1].position[1]};
+        std::vector<double> rates{out.bodies[1].linear_velocity[1]};
+        for (std::size_t b = 1; b < out.bodies.size(); ++b) {
+            const auto& pose = out.bodies[b];
+            double span = l;
+            if (b == 1 || b + 1 == out.bodies.size()) {
+                span = 0.5 * l;
+            }
+            const double theta = 2.0 * std::atan2(pose.orientation[3], pose.orientation[0]);
+            angles.push_back(theta);
+            const Eigen::Vector3d half(0.5 * span * std::cos(theta), 0.5 * span * std::sin(theta), 0.0);
+            const Eigen::Vector3d omega(pose.angular_velocity[0], pose.angular_velocity[1], pose.angular_velocity[2]);
+            const Eigen::Vector3d origin(pose.linear_velocity[0], pose.linear_velocity[1], pose.linear_velocity[2]);
+            const Eigen::Vector3d com_velocity = origin + omega.cross(half);
+            const double m = rho_a * span;
+            total += (0.5 * m * com_velocity.squaredNorm()) + (0.5 * m * span * span / 12.0 * omega.z() * omega.z()) +
+                     (m * g * (pose.position[1] + half.y()));
+            if (b > 1) {
+                xs.push_back((static_cast<double>(b) - 1.5) * l);
+                ys.push_back(pose.position[1]);
+                rates.push_back(origin.y());
+            }
+            if (b + 1 == out.bodies.size()) {
+                xs.push_back(1.0);
+                ys.push_back(pose.position[1] + (2.0 * half.y()));
+                rates.push_back(origin.y() + (2.0 * omega.cross(half).y()));
+            }
+        }
+        const double k = ei / l;
+        for (std::size_t j = 1; j < angles.size(); ++j) {
+            const double bend = angles[j] - angles[j - 1];
+            total += 0.5 * k * bend * bend;
+        }
+        const double x = out.joint_positions[0];
+        std::size_t node = 0;
+        while (node + 2 < xs.size() && xs[node + 1] <= x) {
+            ++node;
+        }
+        const double w = (xs[node + 1] - x) / (xs[node + 1] - xs[node]);
+        total += carriage * g * ((w * ys[node]) + ((1.0 - w) * ys[node + 1]));
+        const double rate = (w * rates[node]) + ((1.0 - w) * rates[node + 1]);
+        total += 0.5 * carriage * rate * rate;
+        return total;
+    }
+};
+
+}  // namespace
+
+TEST_CASE("native adapter: a drive vanishing on a carried carriage at ten substeps adds no energy",
+          "[PHY-035][ENG-052][PHY-034]") {
+    // The stop path (brief M3-E7 from the E6 review): a drive (K 2000 N/m, D 100 N s/m, rest 0.4 m) moves the carriage
+    // from 0.35 m and holds it for 500 ticks; then no tick sets inputs, so the drive is gone from the next tick's first
+    // substep on. The carriage's load on the member is its weight, constant (no moment: its origin is on the axis, no
+    // axial force once the drive is gone), so the pair is a constant force and E + m_c g u(x_c) is the energy of a
+    // conservative system stepped by backward Euler (the member carries no node damping): it never rises, from the
+    // tick before the drive vanished (whose stored K (x - rest)^2 / 2 is counted there) on. The carriage keeps the
+    // speed it had when the drive vanished (asserted below 1e-5 m/s, under 5e-6 m in the 0.5 s); the lever weights
+    // then move without the pair doing work, changing m_c g u(x_c) by at most m_c g max|u'| dx = 19.6 N x 2e-4 x
+    // 5e-6 m = 2e-8 J over the run, below 1e-10 J per tick. Round-off: energies of a few J, 1e-15 relative per step:
+    // 1e-9 J is far above both. Run at 10 substeps (h = 0.1 ms) and at 1.
+    const CarriedBar bar;
+    for (const int substeps : {1, 10}) {
+        CAPTURE(substeps);
+        NativeAdapter adapter;
+        load(adapter, bar.doc(substeps));
+        for (int n = 0; n < 500; ++n) {
+            drive(adapter, 0.4, 2000.0, 100.0);
+            adapter.step();
+        }
+        const double x = adapter.outputs().joint_positions[0];
+        const double speed = adapter.outputs().bodies[0].linear_velocity[0];
+        double before = bar.energy(adapter) + (0.5 * 2000.0 * (x - 0.4) * (x - 0.4));
+        double worst = -std::numeric_limits<double>::infinity();
+        for (int n = 0; n < 500; ++n) {
+            adapter.step();
+            const double after = bar.energy(adapter);
+            worst = std::max(worst, after - before);
+            before = after;
+        }
+        CAPTURE(worst, x, speed);
+        CHECK(worst <= 1e-9);
+        CHECK(std::abs(speed) <= 1e-5);
+        CHECK(adapter.carried_deflection().size() == 1);
+        CHECK(adapter.carried_deflection()[0] > 0.0);
+    }
+}
+
+TEST_CASE("native adapter: carried bodies outside the neutral list are refused", "[PHY-035]") {
+    const CarriedBar bar;
+    Doc doc = bar.doc(1);
+    doc.members.replace(doc.members.find(R"("carried": [0])"), 14, R"("carried": [3])");
+    NativeAdapter adapter;
+    CHECK_THROWS_AS(load(adapter, doc), AdapterError);
+}
+
+
 TEST_CASE("native adapter: a clamped member below eight segments is refused", "[PHY-007][PHY-018]") {
     NativeAdapter adapter;
     Doc doc;
@@ -1154,6 +1380,34 @@ TEST_CASE("native adapter: substeps below one are refused", "[PHY-031]") {
     NativeAdapter adapter;
     Doc doc = slider(1.0);
     doc.substeps = -1;
+    CHECK_THROWS_AS(load(adapter, doc), AdapterError);
+}
+
+TEST_CASE("native adapter: a carried evaluation start is read in seconds and refused below zero", "[PHY-035]") {
+    // Ruling 74, member_loads.hpp Definition (d): the key is optional, a finite time at least 0.
+    for (const char* good : {"0", "8.0"}) {
+        NativeAdapter adapter;
+        Doc doc = slider(1.0);
+        doc.evaluation_start = good;
+        CHECK_NOTHROW(load(adapter, doc));
+    }
+    NativeAdapter adapter;
+    Doc doc = slider(1.0);
+    doc.evaluation_start = "-0.5";
+    CHECK_THROWS_AS(load(adapter, doc), AdapterError);
+}
+
+TEST_CASE("native adapter: a rope snap evaluation start is read in seconds and refused below zero", "[ENG-047]") {
+    // INT-031, ruling 75 (rope.hpp, Snap): the key is optional, a finite time at least 0.
+    for (const char* good : {"0", "8.0"}) {
+        NativeAdapter adapter;
+        Doc doc = slider(1.0);
+        doc.snap_start = good;
+        CHECK_NOTHROW(load(adapter, doc));
+    }
+    NativeAdapter adapter;
+    Doc doc = slider(1.0);
+    doc.snap_start = "-0.5";
     CHECK_THROWS_AS(load(adapter, doc), AdapterError);
 }
 

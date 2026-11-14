@@ -23,6 +23,11 @@ types:
         dimension: "[length]"
         default: "0 mm"
         minimum: "0 mm"
+      - name: damping_ratio
+        dimension: dimensionless
+        default: "0"
+        minimum: "0"
+        maximum: "1"
       - name: self_locking
         kind: flag
         default: false
@@ -38,7 +43,7 @@ types:
       - name: rigid
         parameters: [mass, ratio, efficiency, self_locking, slip, max_tension]
       - name: compliant
-        parameters: [stiffness, backlash]
+        parameters: [stiffness, backlash, damping_ratio]
     mechanical:
       mass:
         source: parameter

@@ -525,6 +525,9 @@ class LumpedMember(_Model):
     roller_mass_fraction: PositiveNumber = DEFAULT_ROLLER_MASS_FRACTION
     node_damping: NonNegativeRotationalDamping = 0.0
     structural_member: Name | None = None
+    # Bodies whose joint to `parent` the member carries (ENG-052, ruling 63): their in-plane transverse load and
+    # bending moment reach `parent` through the member's nodes; each a child of `parent`, carried by one member only.
+    carries: tuple[Name, ...] = ()
 
     @model_validator(mode="before")
     @classmethod
@@ -548,6 +551,10 @@ class LumpedMember(_Model):
 
 
 class _Transmission(_Model):
+    """A compliant transmission: `stiffness` and `damping` act at the output (N/m and N s/m along a prismatic output,
+    N m/rad and N m s/rad about a revolute one), a spring-damper on the stretch from n theta to the driven joint
+    (ENG-043 to ENG-046); damping 0 is undamped (PHY-037)."""
+
     name: Name
     shaft_joint: Name
     driven_joint: Name
@@ -562,6 +569,7 @@ class BeltPulley(_Transmission):
     pulley_radius: PositiveLength
     stiffness: PositiveStiffness
     backlash: NonNegativeLength = 0.0
+    damping: NonNegativeLinearDamping = 0.0
 
 
 class LeadScrew(_Transmission):
@@ -571,6 +579,7 @@ class LeadScrew(_Transmission):
     lead: PositiveLength
     stiffness: PositiveStiffness
     backlash: NonNegativeLength = 0.0
+    damping: NonNegativeLinearDamping = 0.0
     self_locking: Flag = False
 
 
@@ -581,6 +590,7 @@ class GearPair(_Transmission):
     ratio: Annotated[Number, AfterValidator(_nonzero)]
     stiffness: PositiveRotationalStiffness
     backlash: NonNegativeAngle = 0.0
+    damping: NonNegativeRotationalDamping = 0.0
 
 
 Transmission = Annotated[BeltPulley | LeadScrew | GearPair, Field(discriminator="type")]
@@ -741,6 +751,19 @@ class PhysicsModel(_Model):
                 problems.append(
                     f"lumped member '{member.name}': unknown structural member '{member.structural_member}'"
                 )
+        parents = {body.name: body.parent for body in self.bodies}
+        carried = [name for member in self.lumped_members for name in member.carries]
+        for name in _duplicates(carried):
+            problems.append(f"body '{name}' is carried by more than one lumped member (ENG-052)")
+        for member in self.lumped_members:
+            for name in member.carries:
+                if name not in parents:
+                    problems.append(f"lumped member '{member.name}': unknown carried body '{name}'")
+                elif parents[name] != member.parent:
+                    problems.append(
+                        f"lumped member '{member.name}': carried body '{name}' is a child of '{parents[name]}', "
+                        f"not of the member's parent '{member.parent}' (ENG-052)"
+                    )
         for transmission in self.transmissions:
             problems += _transmission_problems(transmission, joints)
         for rope in self.ropes:

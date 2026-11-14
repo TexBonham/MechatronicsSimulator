@@ -10,6 +10,9 @@ from typing import Any
 import pytest
 
 from mechsim.builder import BuildError, BuildResult, build, structure
+from mechsim.builder.payload import PAYLOAD_EDGE, with_payload
+from mechsim.builder.payload import _pose as payload_pose
+from mechsim.builder.payload import _q_rot as q_rot
 from mechsim.builder.physics import element_kinds
 from mechsim.design.schema import Design, shipped_materials
 from mechsim.library.registry import default_registry
@@ -57,7 +60,7 @@ def _bar_data(supports: list[str], **flexible: Any) -> dict[str, Any]:
         "version": "1.0.0",
         "source_hash": "unset",
         "status": "release",
-        "environment": {"gravity": ["0 m/s**2", "0 m/s**2", "-9.81 m/s**2"], "ambient_temperature": "293.15 K"},
+        "environment": {"gravity": ["0 m/s**2", "-9.81 m/s**2", "0 m/s**2"], "ambient_temperature": "293.15 K"},
         "bodies": [body],
         "joints": [
             {
@@ -161,6 +164,13 @@ def test_recorded_chain_values_give_unit_scales() -> None:
 
 
 # Near the 1 m steel bar's own values (tip deflection 19.9 mm under 10 N, first mode 8.15 Hz): scales near 1.
+UNDAMPED = (
+    "flexible body 'bar': undamped (damping_ratio absent); its ringing is removed only by the integration scheme's "
+    "own decay, which depends on the step, so its dynamic response does not converge as the step is refined (DES-047, "
+    "BLD-040, ruling 78)"
+)
+
+
 CALIBRATION = {"source": "hand", "load": "10 N", "deflection": "19 mm", "first_natural_frequency": "8 Hz"}
 
 
@@ -185,7 +195,7 @@ def test_build_reports_scales_and_applies_them_to_the_lumped_section_only() -> N
     member = result.members[0].section
     assert (member.elastic_modulus, member.density) == (2.0e11, 7850.0)
     assert record.node_stiffness == pytest.approx(2.0e11 * record.stiffness_scale * EI / 2.0e11 / 0.125, rel=1e-12)
-    assert result.notes == ()
+    assert result.notes == (UNDAMPED,)
 
 
 @pytest.mark.req("BLD-019")
@@ -201,6 +211,7 @@ def test_member_without_calibration_is_built_as_is_and_flagged() -> None:
     assert (section.elastic_modulus, section.density) == (2.0e11, 7850.0)
     assert result.notes == (
         "flexible body 'bar': no calibration data; the lumped beam uses its section and material as is (BLD-019)",
+        UNDAMPED,
     )
 
 
@@ -365,6 +376,95 @@ def test_rope_to_a_case_payload_is_noted_and_not_emitted() -> None:
     )
 
 
+@pytest.mark.req("BLD-032")
+def test_rope_to_a_case_payload_is_listed_for_the_run() -> None:
+    result = _build(gantry(), rigid_members=True)
+    assert len(result.payload_ropes) == 1
+    rope = result.payload_ropes[0]
+    assert (rope.name, rope.from_body, rope.to_body, rope.segments) == ("payload_rope", "hook", "payload", 8)
+    assert rope.from_point == (0.0, 0.0, -0.02)
+    assert rope.to_point == (0.0, 0.0, 0.0)
+    assert rope.rest_length == pytest.approx(0.3, rel=1e-15)
+    between = _build(_rope_design({"body": "frame"}), rigid_members=True)
+    assert between.payload_ropes == ()
+
+
+# The shipped rope part's end fitting (LIB-020): its default, 1 g.
+SHACKLE_MASS = 1e-3
+
+
+@pytest.mark.req("LIB-020", "BLD-036")
+def test_the_rope_parts_end_fitting_mass_is_data_and_the_shackle_takes_it() -> None:
+    values = default_registry().part("rope_3mm_steel_generic").values
+    assert values["end_fitting_mass"] == SHACKLE_MASS
+    result = _build(gantry(), rigid_members=True)
+    assert result.physics is not None
+    hung = result.payload_ropes[0]
+    heavy = with_payload(result.physics, "payload", "hook", 4.5, True, hung, None, 0.25)
+    assert heavy.bodies[-2].mass == 0.25
+    for missing in (None, 0.0, -1.0):
+        with pytest.raises(BuildError, match="needs a positive end fitting mass"):
+            with_payload(result.physics, "payload", "hook", 4.5, True, hung, None, missing)
+
+
+def _hung(starts: dict[str, float] | None = None, carrier: str = "hook", **rope: Any) -> PhysicsModel:
+    result = _build(gantry(), rigid_members=True)
+    assert result.physics is not None
+    hung = result.payload_ropes[0].model_copy(update=rope)
+    return with_payload(result.physics, "payload", carrier, 4.5, True, hung, starts, SHACKLE_MASS)
+
+
+def _world(
+    model: PhysicsModel, body: str, point: tuple[float, float, float], starts: dict[str, float] | None = None
+) -> tuple[float, float, float]:
+    origin, orientation = payload_pose(model, body, starts)
+    offset = q_rot(orientation, point)
+    return (origin[0] + offset[0], origin[1] + offset[1], origin[2] + offset[2])
+
+
+@pytest.mark.req("BLD-032")
+@pytest.mark.req("BLD-036")
+@pytest.mark.parametrize("starts", [None, {"x_axis": 0.1, "y_axis": 0.2, "lift_axis": 0.3}])
+def test_payload_hangs_on_its_rope_straight_at_rest_length_from_the_start_pose(
+    starts: dict[str, float] | None,
+) -> None:
+    model = _hung(starts)
+    assert [body.name for body in model.bodies][-2:] == ["payload_shackle", "payload"]
+    shackle, payload = model.bodies[-2], model.bodies[-1]
+    assert shackle.joint is not None
+    assert payload.joint is not None
+    assert (shackle.parent, shackle.joint.name, shackle.joint.type) == ("hook", "payload_fixed", "fixed")
+    assert shackle.joint.position == (0.0, 0.0, -0.02)
+    assert shackle.shapes == ()
+    assert shackle.mass == SHACKLE_MASS
+    assert (payload.parent, payload.joint.name, payload.joint.type) == ("world", "payload_free", "free")
+    assert payload.mass == 4.5
+    rope = model.ropes[-1]
+    assert (rope.from_body, rope.from_point, rope.to_body) == ("payload_shackle", (0.0, 0.0, 0.0), "payload")
+    assert rope.to_point == pytest.approx((0.0, 0.0, PAYLOAD_EDGE / 2.0), abs=1e-15)
+    hook_point = _world(model, "hook", (0.0, 0.0, -0.02), starts)
+    top = _world(model, "payload", rope.to_point)
+    moved = [0.0, 0.0, 0.0]
+    if starts is not None:
+        moved = [starts["x_axis"], starts["y_axis"], starts["lift_axis"]]
+    base = _world(_hung(None), "hook", (0.0, 0.0, -0.02))
+    assert hook_point == pytest.approx(tuple(base[i] + moved[i] for i in range(3)), abs=1e-12)
+    assert (hook_point[0] - top[0], hook_point[1] - top[1]) == pytest.approx((0.0, 0.0), abs=1e-12)
+    assert hook_point[2] - top[2] == pytest.approx(0.3, abs=1e-12)
+
+
+@pytest.mark.req("BLD-032")
+def test_payload_rope_from_another_carrier_or_to_another_payload_is_a_build_error() -> None:
+    with pytest.raises(BuildError) as carrier:
+        _hung(carrier="lift_carriage")
+    assert carrier.value.failures == [
+        "payload 'payload': carried by 'lift_carriage', but rope 'payload_rope' hangs from 'hook'"
+    ]
+    with pytest.raises(BuildError) as other:
+        _hung(to_body="crate")
+    assert other.value.failures == ["payload 'payload': rope 'payload_rope' ends at 'crate', not at this payload"]
+
+
 @pytest.mark.req("BLD-024")
 @pytest.mark.req("BLD-032")
 def test_adapter_without_ropes_refuses_the_rope_element() -> None:
@@ -497,9 +597,11 @@ def test_scale_outside_half_to_double_is_noted(deflection: str, frequency: str, 
     record = result.lumped[0]
     assert record.stiffness_scale is not None
     assert record.mass_scale is not None
-    named = [note.split(" ")[4] for note in result.notes]
+    assert result.notes[-1] == UNDAMPED
+    calibration_notes = result.notes[:-1]
+    named = [note.split(" ")[4] for note in calibration_notes]
     assert named == flagged
-    for note in result.notes:
+    for note in calibration_notes:
         assert note.startswith("flexible body 'bar': calibration ")
         assert note.endswith("lies outside [0.5, 2.0]; the lumped beam is an approximation (BLD-019)")
 

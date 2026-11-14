@@ -225,12 +225,24 @@ environment:
 # and backlash and rail section is a stand-in chosen only so the rigid gantry builds. Gantry team
 # sizes (2026-11-11): workspace x 0.5 m, workspace y 0.5 m, lift travel 0.5 m, rails 0.5 m each, so each rail spans
 # exactly its carriage's travel (rail_x from x 0.1 m to 0.6 m between the end posts, rail_y from y 0.1 m to 0.6 m).
-# rail_x stays 1.0 m above the floor (placeholder).
+# rail_x stands 1.2 m above the floor (placeholder; 1.0 m until M3-X1a): the case payload hangs 0.3 m below the hook
+# on payload_rope on the native adapter, so at the lift's home (0 m) its 0.1 m box clears the floor by 0.12 m
+# (hook 0.54 m, rope point 0.52 m, payload top 0.22 m); at 1.0 m it rested 8 cm into the floor.
+# Each rail's body frame has its origin at the rail's root end and its x axis along the rail, because a lumped member
+# runs along its body's x from the body origin (BLD-017): rail_x from x 0.1 m, rail_y (its x along world y) from y 0.1 m
+# (M3-X1a; before, both frames sat at the rail's far side and rail_y's x crossed it). Each rail's frame y is world z
+# (M3-X1d, rulings 63 and 65): the lumped chain bends about its frame z only, so with y vertical the rails sag under
+# gravity and the carried loads; bending in the horizontal plane and torsion are rigid (the run's approximation line
+# per member). rail_x is turned 90 degrees about x (frame z is world -y), rail_y's frame is x world y, y world z, z
+# world x. rail_x carries x_axis (rail_y and everything on it) and rail_y carries y_axis (the trolley, the lift and the
+# payload), so their weight and the carriage loads reach the rails at the carriage positions (load-path coupling,
+# ENG-052). Neither rail's parent moves in its bending plane (rail_x's is the frame; rail_y's moves only along world x,
+# its frame z), so the coupling is pure feed-forward (ruling 67).
 # Reference configuration (all joint coordinates zero), world positions of the body frames: frame (0, 0, 0),
-# rail_x (0, 0, 1), rail_y (0.1, 0, 1.04), trolley (0.1, 0.1, 1.09), lift_carriage (0.1, 0.1, 0.44), hook
-# (0.1, 0.1, 0.34), x_motor_shaft (-0.05, -0.1, 1), y_motor_shaft (0.1, -0.05, 1.04), lift_motor_shaft
-# (0.1, 0.1, 1.14); no two bodies not joined to each other overlap there (BLD-022). The lift carriage hangs 0.65 m
-# below the trolley so the full 0.5 m lift travel keeps its top (0.96 m) below rail_x (1.02 m); at 0.3 m it struck
+# rail_x (0.1, 0, 1.2), rail_y (0.1, 0.1, 1.24), trolley (0.1, 0.1, 1.29), lift_carriage (0.1, 0.1, 0.64), hook
+# (0.1, 0.1, 0.54), x_motor_shaft (-0.05, -0.1, 1.2), y_motor_shaft (0.1, -0.05, 1.24), lift_motor_shaft
+# (0.1, 0.1, 1.34); no two bodies not joined to each other overlap there (BLD-022). The lift carriage hangs 0.65 m
+# below the trolley so the full 0.5 m lift travel keeps its top (1.16 m) below rail_x (1.22 m); at 0.3 m it struck
 # rail_x at 0.21 m of travel (M2-X3). x_axis and y_axis carry 5 N of placeholder Coulomb friction (M2-X3): without it
 # an axis cut off mid-move by the E-stop coasted at 0.2 m/s to its far limit (G7); 5 N stops it within v^2 m / (2 F)
 # = 2 cm for 5 kg moving and costs the motor 5 N x 6.37 mm = 0.03 N m (at the 0.1 m/s cruise of 2026-11-11, 0.5 cm).
@@ -242,16 +254,16 @@ bodies:
       build_direction: [0.0, 0.0, 1.0]
       walls: 2
       infill: 20 percent
-    # Two 0.1 m square end posts, 1 m tall, carrying rail_x at its ends (x 0.1 m and 0.6 m).
+    # Two 0.1 m square end posts, 1.2 m tall, carrying rail_x at its ends (x 0.1 m and 0.6 m).
     geometry:
       kind: primitives
       shapes:
         - shape: box
-          position: [0.05 m, 0 m, 0.5 m]
-          size: [0.1 m, 0.1 m, 1 m]
+          position: [0.05 m, 0 m, 0.6 m]
+          size: [0.1 m, 0.1 m, 1.2 m]
         - shape: box
-          position: [0.65 m, 0 m, 0.5 m]
-          size: [0.1 m, 0.1 m, 1 m]
+          position: [0.65 m, 0 m, 0.6 m]
+          size: [0.1 m, 0.1 m, 1.2 m]
   - name: rail_x
     material: petg_printed
     process:
@@ -263,40 +275,62 @@ bodies:
       kind: primitives
       shapes:
         - shape: box
-          position: [0.35 m, 0 m, 0 m]
+          position: [0.25 m, 0 m, 0 m]
           size: [0.5 m, 0.04 m, 0.04 m]
     flexible:
       section:
         # Placeholder 40 x 40 mm section; rail_section_area and rail_section_second_moment stay open. Length 0.5 m
-        # per rail, gantry team 2026-11-11.
+        # per rail, gantry team 2026-11-11. Both bending axes and fibre distances stated (ruling 58): the placeholder
+        # square section, half its 40 mm depth to the outer fibre on each axis.
         area: 1.5e-4 m**2
-        second_moment: 2e-8 m**4
+        second_moment_y: 2e-8 m**4
+        second_moment_z: 2e-8 m**4
+        fibre_y: 0.02 m
+        fibre_z: 0.02 m
         length: 0.5 m
       calibration: ${rail_calibration}
       # Row 17 planning default for the rail end conditions (root, end); owed by the gantry team with the sections.
-      # Clamped-clamped has no lumped beam yet: the gantry builds with rigid_members until milestone 3.
+      # Clamped-clamped at sixteen segments: the chain's clamped error -4 / N^2 is 1.6 percent there, and a
+      # calibrated clamped-clamped member below 16 is a build error (rulings 31, 32).
       supports: [clamped, clamped]
+      segments: 16
+      carries: [x_axis]
+      # PLACEHOLDER owed by the gantry team (ruling 78, docs/gantry-team-inputs.md): modal damping ratio of the first
+      # bending mode, fixed in advance at the low end of the published range for printed PETG and similar
+      # thermoplastics (loss factor about 0.02 to 0.05, ratio half of it), not adjusted to any result.
+      damping_ratio: "0.01"
   - name: rail_y
     material: petg_printed
     process:
       kind: printed
-      build_direction: [0.0, 1.0, 0.0]
+      build_direction: [1.0, 0.0, 0.0]
       walls: 2
       infill: 20 percent
     geometry:
       kind: primitives
       shapes:
         - shape: box
-          position: [0 m, 0.35 m, 0 m]
-          size: [0.06 m, 0.5 m, 0.04 m]
+          position: [0.25 m, 0 m, 0 m]
+          size: [0.5 m, 0.04 m, 0.06 m]
     flexible:
       section:
+        # The placeholder 40 x 40 mm section of rail_x, both axes and fibres stated (ruling 58). rail_y's box above is
+        # 40 x 60 mm, so its own section would put fibre_z at 0.03 m: the shared placeholder stands until the gantry
+        # team states rail_y's section (docs/gantry-team-inputs.md; the rail bends in-plane only, ruling 65).
         area: 1.5e-4 m**2
-        second_moment: 2e-8 m**4
+        second_moment_y: 2e-8 m**4
+        second_moment_z: 2e-8 m**4
+        fibre_y: 0.02 m
+        fibre_z: 0.02 m
         length: 0.5 m
       calibration: ${rail_calibration}
       # Row 17 planning default for the rail end conditions (root, end); owed by the gantry team with the sections.
+      # Pinned-roller at eight segments, inside the 2 percent tolerance from N = 8 (rulings 31, 32).
       supports: [pinned, roller]
+      segments: 8
+      carries: [y_axis]
+      # PLACEHOLDER owed by the gantry team, as rail_x (ruling 78): loss factor 0.02, the low end for printed PETG.
+      damping_ratio: "0.01"
   - name: trolley
     material: petg_printed
     process:
@@ -380,15 +414,20 @@ joints:
     type: fixed
     parent: frame
     child: rail_x
+    # Turned 90 degrees about x: the rail's frame y is world z, its bending plane vertical (ruling 65).
     placement:
-      position: [0 m, 0 m, 1 m]
+      position: [0.1 m, 0 m, 1.2 m]
+      orientation: [0.7071067811865476, 0.7071067811865476, 0.0, 0.0]
   - name: x_axis
     type: prismatic
     parent: rail_x
     child: rail_y
+    # In rail_x's frame (y world z, z world -y) the joint sits 0.04 m above the rail and 0.1 m along world y. rail_y's
+    # frame is turned 90 degrees about rail_x's y (x world y, y world z, z world x), so the travel axis, world x, is its z.
     placement:
-      position: [0.1 m, 0 m, 0.04 m]
-    axis: [1.0, 0.0, 0.0]
+      position: [0 m, 0.04 m, -0.1 m]
+      orientation: [0.7071067811865476, 0.0, 0.7071067811865476, 0.0]
+    axis: [0.0, 0.0, 1.0]
     linear:
       - limits:
           lower: 0 m
@@ -400,8 +439,10 @@ joints:
     type: prismatic
     parent: rail_y
     child: trolley
+    # 0.05 m above rail_y (its frame y is world z), turned back to world axes; the travel axis is world y.
     placement:
-      position: [0 m, 0.1 m, 0.05 m]
+      position: [0 m, 0.05 m, 0 m]
+      orientation: [0.5, -0.5, -0.5, -0.5]
     axis: [0.0, 1.0, 0.0]
     linear:
       - limits:
@@ -445,7 +486,7 @@ joints:
     parent: frame
     child: x_motor_shaft
     placement:
-      position: [-0.05 m, -0.1 m, 1 m]
+      position: [-0.05 m, -0.1 m, 1.2 m]
     axis: [0.0, 0.0, 1.0]
     angular:
       - friction: 0 N*m
@@ -455,8 +496,10 @@ joints:
     type: revolute
     parent: rail_y
     child: y_motor_shaft
+    # Turned -90 degrees about rail_y's x so the shaft keeps its world pose (axis world z).
     placement:
-      position: [0 m, -0.05 m, 0 m]
+      position: [-0.15 m, 0 m, 0 m]
+      orientation: [0.7071067811865476, -0.7071067811865476, 0.0, 0.0]
     axis: [0.0, 0.0, 1.0]
     angular:
       - friction: 0 N*m
@@ -498,6 +541,10 @@ components:
   - name: x_belt
     type: belt_pulley
     part: gt2_20t_6mm_generic
+    # PLACEHOLDER owed by the gantry team (ruling 78, docs/gantry-team-inputs.md): damping ratio of the driven mode on
+    # the belt, fixed in advance at the low end for fibre-reinforced timing belts, not adjusted to any result.
+    overrides:
+      damping_ratio: "0.01"
     mechanical:
       - mount: pulley_bore
         joint: x_motor_spin
@@ -527,6 +574,10 @@ components:
   - name: y_belt
     type: belt_pulley
     part: gt2_20t_6mm_generic
+    # PLACEHOLDER owed by the gantry team (ruling 78, docs/gantry-team-inputs.md): damping ratio of the driven mode on
+    # the belt, fixed in advance at the low end for fibre-reinforced timing belts, not adjusted to any result.
+    overrides:
+      damping_ratio: "0.01"
     mechanical:
       - mount: pulley_bore
         joint: y_motor_spin
@@ -559,6 +610,10 @@ components:
   - name: lift_belt
     type: belt_pulley
     part: gt2_20t_6mm_generic
+    # PLACEHOLDER owed by the gantry team (ruling 78, docs/gantry-team-inputs.md): damping ratio of the driven mode on
+    # the belt, fixed in advance at the low end for fibre-reinforced timing belts, not adjusted to any result.
+    overrides:
+      damping_ratio: "0.01"
     mechanical:
       - mount: pulley_bore
         joint: lift_motor_spin
@@ -1026,8 +1081,9 @@ structural:
   deflection_target: ${deflection_target_mode}
   minimum_safety_factor: ${minimum_safety_factor}
 # The payload rope (ADR 0016, ruling 2): one PLACEHOLDER 0.3 m steel rope from the hook to the case payload. Its load
-# end is the case payload, placed at run time, so the builder lists it and emits no rope element; the cases keep the
-# spherical-joint hook (hook_swing) until X1 moves the payload onto the rope (BLD-032).
+# end is the case payload, placed at run time (BLD-032): on the native adapter the run hangs the payload on the rope
+# (top face centre, the rope's rest length below the hook point); the mujoco bridge models no rope and keeps the
+# payload fixed to the hook, swinging on hook_swing, with an approximation line saying so.
 ropes:
   - name: payload_rope
     part: rope_3mm_steel_generic

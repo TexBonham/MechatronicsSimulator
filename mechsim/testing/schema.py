@@ -13,6 +13,7 @@ import json
 import math
 import re
 import sys
+from collections.abc import Collection, Iterable
 from pathlib import Path
 from typing import Annotated, Any, Literal
 
@@ -46,6 +47,7 @@ from mechsim.design.schema import (
     OpenValue,
     RepoPath,
     SemVer,
+    Senses,
     Time,
     iter_open_values,
     load_design,
@@ -69,12 +71,14 @@ FREQUENCY = "1 / [time]"
 # Statistics of an oscillating series (SCO-020, SCO-027, SCO-028): meaningless on a step or count quantity.
 SERIES_STATISTICS = ("period", "mean", "amplitude", "period_about_mean", "frequency_about_mean")
 
+# The body a case's initial payload is placed as at run time when no load cell senses it (`testing.core_driver`).
+CASE_PAYLOAD_BODY = "payload"
 CASE_ID_PATTERN = r"^[A-Z][A-Z0-9_]*[0-9]+$"
 _N = r"[a-z][a-z0-9_]*"
 QUANTITY_REF_PATTERN = (
     rf"^(signal:{_N}\.{_N}|pose:{_N}\.(x|y|z|roll|pitch|yaw)|joint:{_N}\.(position|velocity)"
     rf"|rail:{_N}(\.voltage)?|state:{_N}|fault:{_N}|count:(message|state|fault)\.{_N}"
-    rf"|safety_factor:{_N}|deflection:{_N})$"
+    rf"|safety_factor:{_N}|deflection:{_N}|swing:{_N}\.{_N}(\.(x|y|z))?)$"
 )
 EVENT_REF_PATTERN = rf"^(message|state|fault|event):{_N}$"
 INSTANCE_PREFIX = "instance:"
@@ -91,6 +95,20 @@ CaseId = Annotated[str, Field(pattern=CASE_ID_PATTERN)]
 QuantityRef = Annotated[str, Field(pattern=QUANTITY_REF_PATTERN)]
 EventRef = Annotated[str, Field(pattern=EVENT_REF_PATTERN)]
 ParameterPath = Annotated[str, Field(pattern=PARAMETER_PATH_PATTERN)]
+
+
+def case_payload_body(senses: Iterable[Senses | None], joints: Collection[str]) -> str:
+    """The body name a run gives the case payload (SCO-030; `testing.core_driver`): the payload the first load cell
+    reading one senses, by `payload` or by a `joint_reaction` that names no joint (ruling 24), in instance order;
+    else `CASE_PAYLOAD_BODY`. `senses` are the instances' senses in order, `joints` the model's joint names."""
+    for target in senses:
+        if target is None:
+            continue
+        if target.payload is not None:
+            return target.payload
+        if target.joint_reaction is not None and target.joint_reaction not in joints:
+            return target.joint_reaction
+    return CASE_PAYLOAD_BODY
 
 
 class CaseError(ValueError):
@@ -228,17 +246,42 @@ ADAPTER_SETTING = "physics.adapter"
 
 class PhysicsSettings(StrictModel):
     """The run configuration's physics section (TST-040): `adapter` selects the physics adapter, `mujoco` by default
-    until X2 (ruling 41); `--set physics.adapter=<name>` overrides it."""
+    until X2 (ruling 41); `--set physics.adapter=<name>` overrides it. `substeps` (TST-042, rulings 21, 49): engine
+    steps per physics step on the native adapter, each h / substeps, the control tick unchanged; above one on the
+    bridge the run fails."""
 
     adapter: PhysicsAdapterName = DEFAULT_PHYSICS_ADAPTER
+    substeps: int = Field(default=1, ge=1)
 
 
 class IntegritySettings(StrictModel):
     """The case's integrity section (INT-026, ADR 0010 amendment, round 5 ruling 4): `halt_on_crossing` true ends
     the run at the first tier 1 limit crossing, false lets it run to its end; the case fails on a crossing either
-    way (INT-025). Absent or empty: false; nothing else sets it (round 5 rulings 4, 50)."""
+    way (INT-025). Absent or empty: false; nothing else sets it (round 5 rulings 4, 50). `design_load_carried`
+    (TST-043) and `evaluate_from` (TST-044) shape the integrity results, never the run."""
+
+    def start_seconds(self) -> float:
+        """`evaluate_from` in s; an unresolved open value is a `ValueError` (a sweep resolves it before a run)."""
+        if not isinstance(self.evaluate_from, float):
+            raise ValueError(f"integrity.evaluate_from {self.evaluate_from!r}: not resolved")
+        return self.evaluate_from
 
     halt_on_crossing: bool = Field(default=False, description="End the run at the first tier 1 crossing (INT-026).")
+    design_load_carried: bool = Field(
+        default=False,
+        description=(
+            "The run's loads already carry the design load (TST-043, INT-019, ruling 52): the post-run table applies "
+            "factor 1 and says so; false: the design's design-load rule scales the recorded loads."
+        ),
+    )
+    evaluate_from: Time = Field(
+        default=0.0,
+        ge=0.0,
+        description=(
+            "Time from which integrity results count (TST-044): peaks, safety factors and tier 1 crossings; a "
+            "crossing before it is recorded as an `integrity_before_evaluation` event and does not fail the case."
+        ),
+    )
 
 
 # ===== Initial state ===================================================
@@ -516,7 +559,7 @@ def reference_dimension(reference: str) -> str | None:
         if component in ("x", "y", "z"):
             return LENGTH
         return ANGLE
-    if kind in ("state", "fault", "count", "safety_factor"):
+    if kind in ("state", "fault", "count", "safety_factor", "swing"):
         return ANGLE
     if kind == "deflection":
         return LENGTH
@@ -1066,6 +1109,13 @@ def _check_reference(
             rails = [rail.name for rail in design.power.rails]
         if rest.partition(".")[0] not in rails:
             errors.append(f"{path}: unknown power rail {rest.partition('.')[0]!r}")
+    if kind == "swing":
+        payload = case_payload_body(
+            (component.senses for component in design.components), {joint.name for joint in design.joints}
+        )
+        for body in rest.split(".")[:2]:
+            if body not in bodies and body != payload:
+                errors.append(f"{path}: unknown body {body!r}")
     if kind == "pose" and rest.partition(".")[0] not in bodies:
         errors.append(f"{path}: unknown body {rest.partition('.')[0]!r}")
     if kind == "joint" and rest.partition(".")[0] not in joints:

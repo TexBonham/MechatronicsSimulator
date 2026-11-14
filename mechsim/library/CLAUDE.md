@@ -39,7 +39,7 @@ Component types and shipped catalog (LIB). Schema `schemas/component.json` from 
 ## Rules
 
 - No default means required in every part whose tier includes the parameter.
-- Category `transmission` needs ratio, efficiency, stiffness, backlash, self_locking, slip (slip default 0).
+- Category `transmission` needs ratio, efficiency, stiffness, backlash, self_locking, slip (slip default 0); belt_pulley and lead_screw also take `damping_ratio` (tier compliant, default 0, LIB-035, ruling 78).
 - Category `sensor` needs resolution, noise, delay, sample_rate and at least one failure mode.
 - Categories `payload` (needs `mass`) and `end_effector` (needs `capacity` [mass], `events: [attach, release]`) both
   need an `attach` mount; only an end_effector lists `events` (LIB-031).

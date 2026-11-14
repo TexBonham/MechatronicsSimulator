@@ -14,8 +14,10 @@ import json
 import math
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
+from fractions import Fraction
 from typing import Any
 
+from mechsim.physics.driven import driven_mass
 from mechsim.physics.neutral import (
     WORLD,
     BeltPulley,
@@ -64,6 +66,9 @@ WELD_FREQUENCY = 1000.0
 SNATCH_LIMIT = 0.2
 MODE_RESOLUTION = 0.2
 CLAMPED_MIN_SEGMENTS = 8
+# carried_ratio_limit of core/engine member_loads.hpp: 2 (1 + 2 percent), the bound of a load applied no faster than
+# suddenly plus the chain's discretisation tolerance (ENG-052, brief M3-E7c); bound as core.CARRIED_RATIO_LIMIT.
+CARRIED_RATIO_LIMIT = 2.04
 
 
 class UnmappableElementError(ValueError):
@@ -352,7 +357,7 @@ def member_node_names(model: PhysicsModel) -> tuple[str, ...]:
     return tuple(names)
 
 
-def _member(member: LumpedMember, parent: int, h: float, report: list[str]) -> dict[str, Any]:
+def _member(member: LumpedMember, index: Mapping[str, int], h: float, report: list[str]) -> dict[str, Any]:
     section = member.section
     ends = _ends(member)
     flexural = float(section.elastic_modulus) * float(section.second_moment_of_area)
@@ -368,8 +373,26 @@ def _member(member: LumpedMember, parent: int, h: float, report: list[str]) -> d
         f"lumped member '{member.name}': {member.segments} segments, {ends}; first mode {omega / (2 * math.pi):.6g} Hz "
         f"integrates as backward Euler: {mode_text(x)} (rulings 21, 45)"
     )
-    return {
-        "parent": parent,
+    report.append(
+        f"lumped member '{member.name}': bends in one plane only, about its frame z; out-of-plane bending and "
+        "torsion are rigid (ruling 65)"
+    )
+    if len(member.carries) > 0:
+        carried = ", ".join(f"'{name}'" for name in member.carries)
+        report.append(
+            f"lumped member '{member.name}': carries {carried} by load-path coupling (ENG-052, ruling 63): their "
+            "in-plane transverse force and bending moment reach the parent through the member's nodes (lever rule, "
+            "one step lagged); the carried bodies move with the parent and do not ride the deflected member, a "
+            "position error equal to the member's deflection at each carried body; their mass (each carried body "
+            "and its tree descendants) loads the member's inertia at the foot point for its deflection motion, no "
+            "added weight and no rotary inertia (brief M3-E7d, ruling 70 b), its momentum carried as a carriage "
+            "travels (brief M3-E7e), so the member rings below the unloaded "
+            "first mode stated above; the lag is checked at load "
+            "against its stability boundary (refused above it, ruling 67); the run's largest deflection and the lag's "
+            "ratio and per-step factor are recorded after the run"
+        )
+    entry: dict[str, Any] = {
+        "parent": index.get(member.parent, -1),
         "position": _floats(member.position),
         "orientation": _floats(member.orientation),
         "youngs_modulus": float(section.elastic_modulus),
@@ -382,6 +405,9 @@ def _member(member: LumpedMember, parent: int, h: float, report: list[str]) -> d
         "ends": ends,
         "roller_mass_fraction": float(member.roller_mass_fraction),
     }
+    if len(member.carries) > 0:
+        entry["carried"] = [index[name] for name in member.carries]
+    return entry
 
 
 def _rope(rope: Rope, index: Mapping[str, int], model: PhysicsModel, h: float, report: list[str]) -> dict[str, Any]:
@@ -423,16 +449,6 @@ def _gravity(model: PhysicsModel) -> float:
     return math.sqrt(sum(float(value) ** 2 for value in model.gravity))
 
 
-def _subtree_mass(model: PhysicsModel, root: str) -> float:
-    names = {root}
-    total = 0.0
-    for body in model.bodies:
-        if body.name in names or body.parent in names:
-            names.add(body.name)
-            total += float(body.mass)
-    return total
-
-
 def _rotate(q: Sequence[float], v: Sequence[float]) -> tuple[float, float, float]:
     w, x, y, z = q
     tx = 2.0 * (y * v[2] - z * v[1])
@@ -460,7 +476,7 @@ def _static_load(model: PhysicsModel, driven: Body) -> float | None:
         axis = list(_rotate(_floats(body.joint.orientation), axis))
         body = next((item for item in model.bodies if item.name == body.parent), None)
     along = sum(float(g) * a for g, a in zip(model.gravity, axis, strict=True))
-    return abs(along) * _subtree_mass(model, driven.name)
+    return abs(along) * driven_mass(model, driven.name)
 
 
 def _creep_line(transmission: Any, model: PhysicsModel, driven: Body) -> str | None:
@@ -493,6 +509,83 @@ def _creep_line(transmission: Any, model: PhysicsModel, driven: Body) -> str | N
             f"path-dependent in [0, {band}]"
         )
     return text
+
+
+def carried_member_lines(model: PhysicsModel, values: Sequence[tuple[float, ...]]) -> tuple[str, ...]:
+    """One line per carrying member at the end of a native run (ENG-052, PHY-035): the run's largest deflection at a
+    carried joint (the position error the carried bodies ignore) and the lag's stability at load, (deflection, r,
+    omega h, factor, ...) per member in document order (`CarriedRecord.values()`)."""
+    lines: list[str] = []
+    for member, value in zip(model.lumped_members, values, strict=True):
+        if len(member.carries) == 0:
+            continue
+        deflection, ratio, omega_h, factor = value[0], value[1], value[2], value[3]
+        lag = "parent fixed across the member, the lagged load is feed-forward"
+        if factor > 0.0:
+            boundary = 0.5 * (1.0 + omega_h * omega_h)
+            lag = (
+                f"lag ratio r {ratio:.6g} against its boundary (1 + x^2) / 2 = {boundary:.6g} at omega h "
+                f"{omega_h:.6g}, largest per-step factor {factor:.9g}"
+            )
+        lines.append(
+            f"lumped member '{member.name}': largest deflection at a carried joint over the run {deflection:.6g} m, "
+            f"the position error load-path coupling ignores; {lag} (ENG-052, PHY-035)"
+        )
+    return tuple(lines)
+
+
+def carried_validity_lines(model: PhysicsModel, values: Sequence[tuple[float, ...]]) -> tuple[str, ...]:
+    """Per carrying member at the end of a native run (ENG-052, PHY-035, brief M3-E7c, ruling 69): the pair's net work
+    on the member and the largest dynamic ratio against the limit with what it was formed from, and, when the engine
+    flagged the member, a line that the one-way carried-load result is not valid for it from the flagged time and why.
+    `CarriedRecord.values()` per member in document order: (..., work J, largest force N, largest quasi-static
+    deflection m, largest ratio, unresolved, unresolved from s, at the largest ratio: foot position m, floor m, window
+    peak m, largest nodal deflection relative to the own-weight shape m)."""
+    lines: list[str] = []
+    for member, value in zip(model.lumped_members, values, strict=True):
+        if len(member.carries) == 0:
+            continue
+        work, force, quasi_static, ratio = value[4], value[5], value[6], value[7]
+        unresolved, since = bool(value[8]), value[9]
+        position, floor, window, sample = value[10], value[11], value[12], value[13]
+        lines.append(
+            f"lumped member '{member.name}': the carried load-path pair did {work:.6g} J of net work on the member "
+            f"over the run (energy the carried bodies never lose: they do not ride the deflection); largest rerouted "
+            f"force {force:.6g} N, largest quasi-static deflection {quasi_static:.6g} m, largest dynamic ratio "
+            f"from the evaluation start (the member's largest nodal deflection relative to its own-weight shape, over "
+            f"the larger of the carried loads' largest nodal quasi-static deflection within the window of the "
+            f"member's first loaded mode and the carried weight's worst-case static deflection over its travel) "
+            f"{ratio:.6g} against the limit {CARRIED_RATIO_LIMIT:.6g}, at that step the foot at {position:.6g} m, "
+            f"the largest nodal relative deflection {sample:.6g} m, the window peak {window:.6g} m and the floor "
+            f"{floor:.6g} m; no flag bounds only this: from the evaluation start the member's largest deflection "
+            f"relative to its own-weight shape stayed within {CARRIED_RATIO_LIMIT:.6g} times that base (ENG-052, "
+            f"PHY-035, rulings 74, 76, 77)"
+        )
+        if unresolved:
+            lines.append(
+                f"lumped member '{member.name}': the one-way carried-load result is not valid from t = {since:.6g} s: "
+                f"relative to its own-weight shape the member deflects somewhere more than {CARRIED_RATIO_LIMIT:.6g} "
+                f"times the larger of the largest nodal quasi-static deflection of its carried loads within the "
+                f"window and the carried weight's worst-case static deflection over its travel, more than a load "
+                f"applied no faster than suddenly causes, so the carried system drives it near its own frequency, "
+                f"where the missing back-reaction of the one-way coupling matters; full coupling is milestone 4 "
+                f"(ruling 69, ENG-052)"
+            )
+    return tuple(lines)
+
+
+def steps_before(start: float, rate: Fraction, substeps: int) -> int:
+    """How many adapter steps lie wholly before `start` (s) (PHY-036, ruling 75), by the engine's own step rule
+    (ENG-047, ENG-052): with h = den / (num substeps) the engine step as the native adapter forms it and t_0 = 0, the
+    first engine step the engine judges is n = max(0, ceil(start / h - 1e-9)), exact for a start that is a whole number
+    of engine steps and rounding up between steps. Adapter step j (recorded row j + 1) holds engine steps j s to
+    j s + s - 1 at s substeps, so the rows whose every engine step is held are the first floor(n / s); a row holding
+    engine step n or later may carry the snap and is not counted. At one substep this is n."""
+    h = float(rate.denominator) / (float(rate.numerator) * float(substeps))
+    steps = math.ceil(start / h - 1e-9)
+    if steps <= 0:
+        return 0
+    return steps // substeps
 
 
 def driven_mode_lines(model: PhysicsModel, decays: Sequence[tuple[int, float]]) -> tuple[str, ...]:
@@ -529,17 +622,28 @@ def _transmission(
         raise UnmappableElementError(f"transmission {transmission!r}", "unknown transmission type")
     driven = model.bodies[joints[transmission.driven_joint]]
     stiffness = float(transmission.stiffness)
+    damping = float(transmission.damping)
+    loss = "no damping (ruling 10)"
+    if damping > 0.0:
+        loss = f"damping {damping:.6g} at the output (ruling 78)"
     if isinstance(transmission, GearPair):
         mode = (
             "the output inertia: x = omega h from the engine's scheme decay pi x at run time, amplitude kept per "
             "period (1 + x^2)^(-pi / atan x), frequency ratio atan(x) / x, unresolved above x = 0.2"
         )
     else:
-        omega = math.sqrt(stiffness / _subtree_mass(model, driven.name))
+        mass = driven_mass(model, driven.name)
+        omega = math.sqrt(stiffness / mass)
         mode = f"omega = sqrt(k / m) = {omega:.6g} rad/s on the driven mass: {mode_text(omega * h)}"
+        if damping > 0.0:
+            loss += (
+                f", zeta = D / (2 sqrt(k m)) = {damping / (2.0 * math.sqrt(stiffness * mass)):.6g} on the "
+                f"driven mass m = {mass:.6g} kg (its bodies and member chains), time constant 2 m / D = "
+                f"{2.0 * mass / damping:.6g} s"
+            )
     report.append(
-        f"transmission '{transmission.name}': compliant, stiffness {stiffness:.6g} at the output, no damping (ruling "
-        f"10); efficiency {float(transmission.efficiency):.6g} both directions; mode on {mode} (backward Euler, "
+        f"transmission '{transmission.name}': compliant, stiffness {stiffness:.6g} at the output, {loss}; "
+        f"efficiency {float(transmission.efficiency):.6g} both directions; mode on {mode} (backward Euler, "
         "rulings 21, 45)"
     )
     creep = _creep_line(transmission, model, driven)
@@ -555,7 +659,7 @@ def _transmission(
         "back_efficiency": float(transmission.efficiency),
         "self_locking": self_locking,
         "stiffness": stiffness,
-        "damping": 0.0,
+        "damping": damping,
         "backlash": float(transmission.backlash),
         "slip": float(transmission.slip),
     }
@@ -588,12 +692,17 @@ def translate(
     payloads: Mapping[str, str] | None = None,
     starts: Mapping[str, float] | None = None,
     substeps: int = 1,
+    evaluation_start: float = 0.0,
 ) -> Translation:
     """The engine model document and the approximation report (SCO-013); `step` (s) is the run's physics step when
     it is not the model's, `payloads` maps payload bodies to carriers, `starts` single-DOF joints to coordinates,
-    `substeps` the engine steps per adapter step (written when above one; every line then uses h / substeps)."""
+    `substeps` the engine steps per adapter step (written when above one; every line then uses h / substeps),
+    `evaluation_start` (s) the time from which the carried-load validity flag is evaluated and a rope may snap (both
+    keys written when above zero; ENG-052, PHY-035, ruling 74; ENG-047, PHY-036, ruling 75)."""
     if substeps < 1:
         raise UnmappableElementError(f"substeps {substeps}", "at least one engine step per adapter step")
+    if not (math.isfinite(evaluation_start) and evaluation_start >= 0.0):
+        raise UnmappableElementError(f"evaluation start {evaluation_start}", "a finite time in seconds, at least 0")
     h = float(model.run.step)
     if step is not None:
         h = float(step)
@@ -650,7 +759,7 @@ def translate(
             "kept per period (1 + x^2)^(-pi / atan x), frequency ratio atan(x) / x, unresolved above x = 0.2 "
             f"(h = {h:.6g} s; K is the controller's, so x is known only at run time; ruling 45)"
         )
-    members = [_member(member, index.get(member.parent, -1), h, report) for member in model.lumped_members]
+    members = [_member(member, index, h, report) for member in model.lumped_members]
     ropes = [_rope(rope, index, model, h, report) for rope in model.ropes]
     transmissions = [_transmission(item, model, joints, h, report) for item in model.transmissions]
     contact = _contact(model, index, report)
@@ -704,6 +813,9 @@ def translate(
     }
     if substeps > 1:
         document["substeps"] = substeps
+    if evaluation_start > 0.0:
+        document["carried_evaluation_start"] = float(evaluation_start)
+        document["rope_snap_evaluation_start"] = float(evaluation_start)
     for kind in document["elements"]:
         if kind not in SUPPORTED_ELEMENTS:
             raise UnmappableElementError(kind, "not mapped by the native adapter (PHY-019)")

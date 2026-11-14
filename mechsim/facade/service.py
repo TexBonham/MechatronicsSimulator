@@ -23,6 +23,7 @@ from mechsim.facade.protocol import ErrorCode
 from mechsim.integrity.export import load_case
 from mechsim.integrity.plugin import IntegrityError
 from mechsim.record.archive import RunArchive
+from mechsim.record.validity import CarriedValidity, flagged
 from mechsim.schema_base import StrictModel
 from mechsim.scoring.score import (
     CriterionResult,
@@ -303,6 +304,26 @@ class IntegrityMemberResult(StrictModel):
     safety_factor_evaluated: bool
     safety_factor_time: float
     flags: list[str]
+    state: Literal["valid", "not_valid"] = Field(
+        default="valid",
+        description=(
+            "not_valid: the engine flagged the member's one-way carried-load result (rulings 69, 72); its values count "
+            "the samples up to `not_valid_from` and a criterion reading it after then is unevaluable."
+        ),
+    )
+    not_valid_from: float | None = Field(default=None, description="Flag time, s; None while valid.")
+
+
+def _state(member: str, records: dict[str, CarriedValidity]) -> Literal["valid", "not_valid"]:
+    if member in records:
+        return "not_valid"
+    return "valid"
+
+
+def _since(member: str, records: dict[str, CarriedValidity]) -> float | None:
+    if member in records:
+        return records[member].since
+    return None
 
 
 def _evaluated_value(value: float) -> float | None:
@@ -855,6 +876,7 @@ class Facade:
         results = replay.metadata.integrity
         if results is None:
             raise FacadeError("not_found", f"run {run_id}: no integrity results", "FAC-013", "run_id")
+        records = flagged(tuple(replay.view.validity))
         return IntegrityResultsResult(
             run_id=run_id,
             members=[
@@ -870,6 +892,8 @@ class Facade:
                     safety_factor_evaluated=not math.isnan(entry.safety_factor),
                     safety_factor_time=entry.safety_factor_time,
                     flags=list(entry.flags),
+                    state=_state(entry.member, records),
+                    not_valid_from=_since(entry.member, records),
                 )
                 for entry in results.members
             ],

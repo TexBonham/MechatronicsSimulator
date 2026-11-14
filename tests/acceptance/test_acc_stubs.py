@@ -2,6 +2,7 @@
 
 import itertools
 import math
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
@@ -463,23 +464,281 @@ def test_acc_024(gantry: dict[str, RunResult]) -> None:
     _passes(gantry["G11"], "target_refused", "rehoming")
 
 
+@pytest.mark.req("BLD-039")
+def test_bridge_keeps_the_rope_payload_on_its_carrier_with_one_line(gantry: dict[str, RunResult]) -> None:
+    """G7 on the bridge (milestone 2, a 2 kg payload attached to the hook from the start, the design's integrity file
+    present): the line is emitted only for a case payload (G3 has none), so G7's payload on payload_rope stays fixed
+    to the hook with one stand-in line naming the rope and the carrier, tier 1 is reported not evaluated, and the
+    case still passes (G12 and G15 hang the payload on the rope on native: `native_gantry`)."""
+    result = gantry["G7"]
+    assert result.report is not None
+    lines = result.report.approximations
+    stand_in = [line for line in lines if line.startswith("payload rope 'payload_rope': not modeled")]
+    assert len(stand_in) == 1
+    assert "fixed to 'hook'" in stand_in[0]
+    assert any(line.startswith("integrity tier 1: not evaluated on this adapter") for line in lines)
+    assert result.score.status == "pass"
+
+
 # ===== ACC-025 to ACC-028 ===================================================
+# G12 and G15 on the native adapter (rope payload, 100 microseconds): each runs once per module, archived, so the
+# load case export and the archive digest are checked; the determinism test runs each a second time (invariant 4).
+# The swing's pendulum length L: the hook's rope fitting 0.02 m below the hook origin, the rope's 0.3 m rest length and
+# half the 0.1 m payload box to its centre (the swing is measured from the hook origin to the payload centre): 0.37 m.
+SWING_A, SWING_G, SWING_V = 0.05, 9.81, 0.1
+SWING_L = 0.02 + 0.3 + 0.05
+HOOK_ON_LIMIT = 0.54
+
+
+@pytest.fixture(scope="module")
+def native_gantry(tmp_path_factory: pytest.TempPathFactory) -> dict[str, tuple[RunResult, CoreDriver]]:
+    out = tmp_path_factory.mktemp("native_gantry")
+    return {case: _native_run(case, out) for case in ("G12", "G15")}
+
+
+def _native_run(case: str, out: Path) -> tuple[RunResult, CoreDriver]:
+    services = core_services()
+    driver = CoreDriver()
+    result = run_case(GANTRY_CASES / f"{case}.yaml", replace(services, driver=lambda: driver), None, out)
+    assert result.report is not None, result.score
+    assert not result.report.errored, result.report.error
+    return result, driver
+
+
+def _swing(driver: CoreDriver) -> tuple[Any, Any, Any]:
+    """Times and the swing of the payload about the hook per axis: the line from the hook's origin (the hook_swing
+    pivot) to the payload's centre, its angle from the vertical in the x-z and the y-z planes, from the recorded body
+    poses indexed by name."""
+    recording = driver.recording().recording
+    positions = recording.series["physics/bodies/position"]
+    names = list(positions.names)
+    values = np.asarray(positions.values, dtype=np.float64)
+    line = values[:, names.index("payload"), :] - values[:, names.index("hook"), :]
+    times = np.asarray(driver.recording().series("pose:hook.x").times, dtype=np.float64)
+    return times, np.arctan2(line[:, 0], -line[:, 2]), np.arctan2(line[:, 1], -line[:, 2])
+
+
+def _peak(times: Any, values: Any, start: float, end: float) -> float:
+    inside = (times >= start) & (times <= end)
+    return float(np.max(np.abs(values[inside])))
+
+
+def _residual(times: Any, values: Any, start: float) -> float:
+    """The undamped free swing already present at `start`: its peak over the last rope period 2 pi sqrt(L / g) before
+    `start`. The true pendulum is longer, so the window can miss the true peak: R0 reads low and the bound is tighter,
+    never looser."""
+    return _peak(times, values, start - 2.0 * math.pi * math.sqrt(SWING_L / SWING_G), start)
+
+
+def _check_g12(driver: CoreDriver) -> None:
+    names = list(driver.recording().recording.series["physics/bodies/position"].names)
+    assert len(names) == 11 + 16 + 9
+    assert names[9:11] == ["payload_shackle", "payload"]
+    assert names[11] == "rail_x_beam.node0"
+    assert names[27] == "rail_y_beam.node0"
+
+
 @pytest.mark.req("ACC-025")
-@pytest.mark.xfail(strict=True, reason="stub")
-def test_acc_025() -> None:
+def test_acc_025(native_gantry: dict[str, tuple[RunResult, CoreDriver]]) -> None:
     """Reference design (gantry), G12: after a fast move and after an E-stop, the peak load swing angle
     shall be within its limit.
+
+    The fast move (8 s to 20 s). Limit 0.1 rad (swing_limit_angle, placeholder), scored by the case on the swing angle.
+    Oracle (G12 header), per axis: each of the six step changes of acceleration (a = 0.05 m/s^2) in the trapezoid with
+    its slow zone adds a free swing of at most a / g about an offset of at most a / g, on top of the free swing R0 left
+    by homing (measured over the last rope period before 8 s; no damping removes it): theta <= R0 + 7 a / g. The angle
+    is measured from the body poses after checking the recorded body list (neutral bodies with the shackle and the
+    payload, then the member nodes by name). The E-stop part: `test_acc_025_bounds`.
     """
-    raise NotImplementedError
+    result, driver = native_gantry["G12"]
+    _check_g12(driver)
+    times, swing_x, swing_y = _swing(driver)
+    for axis, swing in (("x", swing_x), ("y", swing_y)):
+        bound = _residual(times, swing, 8.0) + 7.0 * SWING_A / SWING_G
+        measured = _peak(times, swing, 8.0, 20.0)
+        print(f"G12 move swing {axis}: {measured!r} rad (bound R0 + 7 a / g = {bound!r}, limit 0.1)")
+        assert measured <= bound
+        assert measured <= 0.1
+    for name in ("move_swing_x", "move_swing_y"):
+        criterion = _criterion(result, name)
+        print(f"G12 {name}: swing {criterion.measured} rad ({criterion.limit})")
+        assert criterion.status == "pass", criterion
+
+
+def _hook_path(driver: CoreDriver, axis: int) -> Any:
+    recording = driver.recording().recording
+    positions = recording.series["physics/bodies/position"]
+    return np.asarray(positions.values, dtype=np.float64)[:, list(positions.names).index("hook"), axis]
+
+
+def _follower_peak(zeta: float) -> float:
+    """Peak acceleration, per unit commanded acceleration, of a second-order follower (a carriage on a belt of
+    stiffness k with the damper c in parallel, BLD-041) when the commanded position starts a ramp in rate: the input's
+    acceleration steps from 0 to a. With H(s) = (2 zeta w s + w^2) / (s^2 + 2 zeta w s + w^2) the acceleration is
+    a [1 - exp(-zeta w t) (cos w_d t - zeta / sqrt(1 - zeta^2) sin w_d t)], w_d = w sqrt(1 - zeta^2); its first maximum
+    lies within the first damped period and does not depend on w, so it is taken from the closed form on a fine grid of
+    w_d t over one period. At zeta = 0 it is exactly 2; it falls with zeta."""
+    root = math.sqrt(1.0 - zeta * zeta)
+    phase = np.linspace(0.0, 2.0 * math.pi, 200001)
+    response = 1.0 - np.exp(-zeta * phase / root) * (np.cos(phase) - zeta / root * np.sin(phase))
+    return float(np.max(response))
+
+
+def _realised_ratio(result: RunResult, transmission: str) -> float:
+    """The smallest of the damping ratios the run prints for `transmission` (stated, at build time, in this run;
+    BLD-041): a smaller ratio gives the follower a larger peak, so the allowance stays an upper bound."""
+    assert result.report is not None
+    for line in result.report.approximations:
+        if line.startswith(f"transmission '{transmission}': damping ratio stated "):
+            numbers = [
+                float(line.split("damping ratio stated ")[1].split(" ")[0]),
+                float(line.split("realised at build time ")[1].split(" ")[0]),
+                float(line.split("realised in this run ")[1].split(" ")[0]),
+            ]
+            return min(numbers)
+    raise AssertionError(f"no damping line for {transmission}")
+
+
+def _hook_acceleration(times: Any, path: Any, start: float, end: float, span: float) -> float:
+    """The hook's largest acceleration over [start, end] as the second difference of its recorded position across
+    `span` seconds (the acceleration averaged over that span)."""
+    inside = (times >= start - span) & (times <= end + span)
+    t = times[inside]
+    x = path[inside]
+    step = round(span / float(t[1] - t[0]))
+    accel = (x[2 * step :] - 2.0 * x[step:-step] + x[: -2 * step]) / (span * span)
+    centre = t[step:-step]
+    keep = (centre >= start) & (centre <= end)
+    return float(np.max(np.abs(accel[keep])))
+
+
+def _forced_peak(times: Any, path: Any, start: float, end: float) -> float:
+    """The largest swing a pendulum of length L hung from a pivot following `path` from rest at `start` can be forced
+    to (Duhamel, integrated by parts): theta(t) = -(omega^2 / g) integral v(s) cos(omega (t - s)) ds, omega =
+    sqrt(g / L); with v = a t it peaks at 2 a / g. The free swing already present adds on top (`_residual`)."""
+    omega = math.sqrt(SWING_G / SWING_L)
+    inside = (times >= start) & (times <= end)
+    t = times[inside]
+    velocity = np.gradient(path[inside] - path[inside][0], t)
+    forced = [
+        abs(np.trapezoid(velocity[: i + 1] * np.cos(omega * (t[i] - t[: i + 1])), t[: i + 1])) for i in range(len(t))
+    ]
+    return float(max(forced)) * omega * omega / SWING_G
+
+
+@pytest.mark.req("ACC-025")
+def test_acc_025_bounds(native_gantry: dict[str, tuple[RunResult, CoreDriver]]) -> None:
+    """The first ramp and the E-stop (G12 header). Per axis: over the first ramp (8 s to 10 s) theta <= R0 + the
+    swing the hook's recorded motion forces (2 a / g for an exact ramp), and a priori theta <= R0 + 2 a_max / g with
+    a_max = a p(zeta) the peak a second-order follower of a ramp in rate permits (`_follower_peak`, zeta the smallest
+    ratio the run prints for the axis belt; brief M3-X1f item 1; the recorded acceleration against a_max is
+    `test_acc_025_first_ramp_allowance`); after the E-stop at full speed (22.5 s to 30 s), stopped in a time short
+    against the period, theta <= R1 + v / sqrt(g L) with R1 the free swing at the press; two-sided on the first ramp
+    (ruling 60): theta is the free part plus the forced part, so its peak is at least the forced peak less R0; the
+    case's swing criterion within 0.1 rad; the lift on its lower limit through the stop (E6): the hook never above
+    its drive-held height before the press, never below its height with the lift on the limit (0.54 m, design header;
+    the limit row admits no penetration)."""
+    result, driver = native_gantry["G12"]
+    times, swing_x, swing_y = _swing(driver)
+    for index, (axis, swing) in enumerate((("x", swing_x), ("y", swing_y))):
+        residual = _residual(times, swing, 8.0)
+        forced = _forced_peak(times, _hook_path(driver, index), 8.0, 10.0)
+        ramp = residual + forced
+        stop = _residual(times, swing, 22.5) + SWING_V / math.sqrt(SWING_G * SWING_L)
+        measured = (_peak(times, swing, 8.0, 10.0), _peak(times, swing, 22.5, 30.0))
+        a_max = SWING_A * _follower_peak(_realised_ratio(result, f"{axis}_belt"))
+        prior = residual + 2.0 * a_max / SWING_G
+        print(f"G12 first ramp {axis}: {measured[0]!r} rad (R0 + forced {ramp!r}; R0 + 2 a_max / g {prior!r})")
+        print(f"G12 E-stop {axis}: {measured[1]!r} rad (bound R1 + v / sqrt(g L) = {stop!r})")
+        assert measured[0] <= ramp
+        assert measured[0] >= forced - residual
+        assert measured[0] <= prior
+        assert measured[1] <= stop
+    lift = _hook_path(driver, 2)
+    held = lift[(times >= 22.5) & (times <= 30.0)]
+    before = lift[(times >= 20.0) & (times < 22.5)]
+    print(f"G12 hook height over the stop: {held.min()!r} to {held.max()!r} m (before {before.max()!r} m)")
+    assert held.max() <= before.max()
+    assert held.min() >= HOOK_ON_LIMIT - 1e-9
+    criterion = _criterion(result, "estop_swing_x")
+    print(f"G12 estop_swing_x: {criterion.measured} rad ({criterion.limit})")
+    assert criterion.status == "pass", criterion
+
+
+@pytest.mark.req("ACC-025")
+@pytest.mark.xfail(
+    strict=True,
+    raises=AssertionError,
+    reason="brief M3-X1g item 5: the firmware commands a step train (80 000 steps/m, q = 12.5 micrometres), not a "
+    "ramp in rate; each step rings the axis's belt mode by q omega^2: x 0.25 m/s^2 on the measured 22.6 Hz mode "
+    "(the carriage with rail_y's beam), y 1.36 m/s^2 on 52.5 Hz (trolley 0.918 kg, 1e5 N/m), against the allowances "
+    "0.098 and 0.098 m/s^2; measured 0.56 in x and 3.32 in y at 8.777 s, where the per-tick step-count beat "
+    "abs(f_s - 3000 Hz) crosses the 52.5 Hz belt mode (8.737 and 8.763 s); no gantry value in the data converts it "
+    "(the drive's step size or microstepping, or belt damping, would)",
+)
+def test_acc_025_first_ramp_allowance(native_gantry: dict[str, tuple[RunResult, CoreDriver]]) -> None:
+    """The first ramp's drive allowance, a priori (brief M3-X1f item 1): the trolley follows the commanded ramp in rate
+    through its belt, a second-order follower (stiffness with its damper in parallel, BLD-041), so its acceleration is
+    at most a p(zeta), p the follower's peak response to a step of its input's acceleration (`_follower_peak`; 2 at
+    zeta = 0), zeta the smallest damping ratio the run prints for the axis belt (a smaller ratio, a larger peak). The
+    hook rides the trolley, so its recorded acceleration over 8 s to 10 s, as 1 ms second differences of its recorded
+    position, is asserted within that allowance per axis.
+
+    Why it fails (brief M3-X1g item 5), from the data: the firmware does not command a ramp in rate but whole steps
+    of q = 1 / 80 000 m = 12.5 micrometres. A step of the belt's input by q starts a free ring of the belt mode with
+    acceleration amplitude q omega^2. y: m = 0.918 kg (trolley, lift, hook, shackle; the payload hangs on the rope, a
+    pendulum to this mode), k = 1e5 N/m, omega^2 = 1.089e5 s^-2 (52.5 Hz), q omega^2 = 1.36 m/s^2; x: the carriage
+    carries rail_y's beam chain (4.47 kg, the measured ring 22.6 Hz with the drive's own compliance in series),
+    q omega^2 = 0.25 m/s^2. Both exceed a p(zeta) = 0.098 m/s^2
+    by far. Measured: x 0.56 m/s^2 (rings of successive steps in phase), y 3.32 m/s^2 at 8.777 s: at v = a (t - 8 s)
+    the step rate is f_s = 80 000 v, 3000 steps/s at 8.75 s, and the per-tick step count beats at abs(f_s - 3000 Hz),
+    which crosses 52.5 Hz at 8.737 s and 8.763 s, driving the belt mode at resonance. No gantry value in the data
+    today converts it: a smaller step (microstepping or the drive's step size) or belt damping would."""
+    result, driver = native_gantry["G12"]
+    times, _, _ = _swing(driver)
+    for index, axis in enumerate(("x", "y")):
+        allowance = SWING_A * _follower_peak(_realised_ratio(result, f"{axis}_belt"))
+        measured = _hook_acceleration(times, _hook_path(driver, index), 8.0, 10.0, 1e-3)
+        print(f"G12 first ramp hook acceleration {axis}: {measured!r} m/s^2 (allowance a p(zeta) = {allowance!r})")
+    for index, axis in enumerate(("x", "y")):
+        allowance = SWING_A * _follower_peak(_realised_ratio(result, f"{axis}_belt"))
+        assert _hook_acceleration(times, _hook_path(driver, index), 8.0, 10.0, 1e-3) <= allowance
 
 
 @pytest.mark.req("ACC-026")
-@pytest.mark.xfail(strict=True, reason="stub")
-def test_acc_026() -> None:
+@pytest.mark.xfail(
+    strict=True,
+    raises=AssertionError,
+    reason="ruling 64: the gantry model has no swing damping (hook_swing 0, rope axial only); the scheme's 0.16 "
+    "percent per period (L = 0.37 m, 100 microseconds) gives a derived settle of about 1135 s from the E-stop's 0.0450 "
+    "rad into the 0.01 rad band against the 5 s placeholder (move_settle_x 5.208 s, estop_settle_x not settled by "
+    "30 s); damping, limit and band owed by the gantry team",
+)
+def test_acc_026(native_gantry: dict[str, tuple[RunResult, CoreDriver]]) -> None:
     """Reference design (gantry), G12: after a fast move and after an E-stop, the swing settle time shall
     be within its limit.
+
+    Limit 5 s (swing_settle_time) into the 0.01 rad band (swing_settle_band), both placeholders. The model's physical
+    swing loss is zero to first order (G12 header), so the swing decays only by backward Euler's
+    (1 + x^2)^(-pi / atan x) per period, x = omega h = sqrt(g / L) 1e-4 s: from the E-stop's swing A0 the expected
+    settle time is ln(band / A0) / ln(kept) periods of 2 pi / omega, printed beside the measured swing at the run's
+    end. Strict expected failure until the gantry team gives the swing damping (the limit and the physics are not
+    tuned to pass).
     """
-    raise NotImplementedError
+    result, driver = native_gantry["G12"]
+    omega = math.sqrt(SWING_G / SWING_L)
+    x = omega * 1e-4
+    kept = (1.0 + x * x) ** (-math.pi / math.atan(x))
+    times, angle, _ = _swing(driver)
+    start = _peak(times, angle, 22.5, 30.0)
+    expected = math.log(0.01 / start) / math.log(kept) * 2.0 * math.pi / omega
+    print(f"G12 settle: scheme keeps {kept!r} per period; from {start!r} rad expected {expected!r} s (limit 5 s)")
+    print(f"G12 settle: swing over the last period {_peak(times, angle, 30.0 - 2.0 * math.pi / omega, 30.0)!r} rad")
+    for name in ("move_settle_x", "move_settle_y", "estop_settle_x"):
+        criterion = _criterion(result, name)
+        print(f"G12 {name}: {criterion.status}, measured {criterion.measured} s ({criterion.limit})")
+    for name in ("move_settle_x", "move_settle_y", "estop_settle_x"):
+        assert _criterion(result, name).status == "pass"
 
 
 @pytest.mark.req("ACC-027")
@@ -536,22 +795,211 @@ def test_acc_028(gantry: dict[str, RunResult]) -> None:
 
 
 # ===== ACC-029 to ACC-032 ===================================================
+# G15 oracles (G15 header, brief M3-X1d item 1, brief M3-X1f): the calibrated chains' E I (N m^2) and w (N/m), the
+# design load P with rope and shackle, the carried weights P_c (rail_y and all on it) and P_t (trolley, lift, hook),
+# mid-travel on both rails. Static deflection w L^4 / (384 E I) + (P_c + P) L^3 / (192 E I) clamped-clamped (rail_x),
+# 5 w L^4 / (384 E I) + (P_t + P) L^3 / (48 E I) pinned-roller (rail_y); static moment (P_c + P) L / 8 + w L^2 / 12 and
+# (P_t + P) L / 4 + w L^2 / 8, stress M c / I. The case carries the design load (`integrity.design_load_carried`,
+# TST-043), so the table's factor is 1, and integrity counts from 8 s (`evaluate_from`, TST-044). Both tiers read the
+# exact moment under a carried load from the clean spring samples each side of the foot (INT-005, ruling 75), so
+# the lower oracle of a peak is the continuum static stress less the chain's 2 percent. The upper oracle is what an
+# unflagged member's validity bounds (ENG-052, rulings 73, 77): from 8 s its deflection relative to its own-weight
+# shape, anywhere on the span, within 2.04 times the larger of the windowed peak of its carried loads' largest nodal
+# quasi-static deflection (under the actual loads, the lift's landing in the stop included) and the worst-case static
+# carried deflection over the travel; the engine's dynamic ratio is that quotient, so the bound is asserted as the
+# printed ratio at most 2.04 with no flag. No fixed multiple of the mid-travel static value is a bound: the base is
+# larger than it whenever the loads peak (brief M3-X1g item 4). A flagged member's results are not valid (ruling
+# 69), never pass or fail. Ruling 73's conditions for a result of record: (a) the verdicts restated with deflection
+# and stress scaled by 2.04 over the member's peak dynamic ratio, checked here; (b) the verdicts reproduced at 10, 20
+# and 40 substeps with no member flagged at any of them: the fixture runs 10 substeps only, so the other two are the
+# hand record of the gate report (`G15_RECORD`, brief M3-X1f), asserted here: the 10-substep run must match its row,
+# and every row must be unflagged and agree, so a 10-substep pass alone cannot convert the stubs; (c) the loaded
+# first frequency is reported in the G15 header (the chain's eigenfrequency with the engine's carried mass).
+G15_SPAN = 0.5
+G15_LOAD = 51.286
+G15_TABLE_FACTOR = 1.0
+G15_CHAIN = 0.02
+G15_FLAG_LIMIT = 2.04
+# (substeps, flagged, safety factor verdict, peak deflection verdict) per rail from the M3-X1f runs (G15 header);
+# a verdict of a flagged member is None (not valid). Re-recorded by hand whenever the gantry data changes.
+G15_RECORD = {
+    "rail_x": ((10, False, False, True), (20, False, False, True), (40, False, False, True)),
+    "rail_y": ((10, True, None, None), (20, True, None, None), (40, True, None, None)),
+}
+G15_RAILS = {
+    "rail_x": (64.087, 51.641, 43.856, 192.0, 384.0 / 1.0, 8.0, 12.0),
+    "rail_y": (256.35, 39.710, 9.000, 48.0, 384.0 / 5.0, 4.0, 8.0),
+}
+
+
+def _g15_oracle(member: str) -> tuple[float, float]:
+    """(static deflection m, static stress Pa) of `member` at mid-travel under its own weight, its carried weight and
+    the design load, before the table's factor."""
+    stiffness, weight, carried, point, distributed, point_moment, distributed_moment = G15_RAILS[member]
+    span = G15_SPAN
+    deflection = weight * span**4 / (distributed * stiffness) + (carried + G15_LOAD) * span**3 / (point * stiffness)
+    moment = (carried + G15_LOAD) * span / point_moment + weight * span**2 / distributed_moment
+    return deflection, moment * 0.02 / 2e-8
+
+
+def _g15_flags(result: RunResult) -> dict[str, tuple[float, bool]]:
+    """Each lumped member's largest dynamic ratio from the evaluation start and whether the engine flagged it, from the
+    run's approximation lines (ENG-052)."""
+    assert result.report is not None
+    found: dict[str, tuple[float, bool]] = {}
+    for line in result.report.approximations:
+        for member in ("rail_x", "rail_y"):
+            prefix = f"lumped member '{member}_beam': the carried load-path pair did "
+            if line.startswith(prefix):
+                text = line.split("largest dynamic ratio from the evaluation start")[1].split(" against the limit")[0]
+                found[member] = (float(text.rsplit(" ", 1)[1]), False)
+    for line in result.report.approximations:
+        for member in ("rail_x", "rail_y"):
+            if line.startswith(f"lumped member '{member}_beam': the one-way carried-load result is not valid from"):
+                found[member] = (found[member][0], True)
+    assert sorted(found) == ["rail_x", "rail_y"], found
+    return found
+
+
+def _g15_reproduced(member: str, flagged: bool, verdict: bool | None, column: int) -> None:
+    """Ruling 73 (b) against the hand record: this 10-substep run matches its row, and the verdict reproduces at
+    every recorded step size with the member unflagged at each (fails while any member is flagged or any verdict
+    differs)."""
+    rows = G15_RECORD[member]
+    assert rows[0][0] == 10
+    assert (rows[0][1], rows[0][column]) == (flagged, verdict), (member, rows[0])
+    for _, recorded_flag, *_ in rows:
+        assert not recorded_flag, (member, rows)
+    assert len({row[column] for row in rows}) == 1, (member, rows)
+
+
 @pytest.mark.req("ACC-029")
-@pytest.mark.xfail(strict=True, reason="stub")
-def test_acc_029() -> None:
+@pytest.mark.xfail(
+    strict=True,
+    raises=AssertionError,
+    reason="placeholder rail section and PETG strength (gantry team): rail_x's safety factor is 1.424, 1.414, 1.280 "
+    "at 10, 20, 40 substeps (16.549 s, when the E-stop drops the lift onto its lower limit; 9.616 s at 40) against the "
+    "1.5 minimum (13.71 MPa on the 40 x 40 mm, 2e-8 m^4 placeholder section; the stop raises rail_x's root moment from "
+    "7.0 to 9.6 N m); and rail_y is not valid from 8.31 s at every step size run (dynamic ratio 2.76, 3.63, 4.11 at "
+    "10, 20, 40 substeps, against 2.04: the trolley starts 24 mm from rail_y's support; rulings 69, 78), so its "
+    "safety factor is not evaluated; the 20 and 40 substep verdicts are the gate report's hand record (G15_RECORD), "
+    "which a 10-substep pass alone cannot change",
+)
+def test_acc_029(native_gantry: dict[str, tuple[RunResult, CoreDriver]]) -> None:
     """Reference design (gantry), G15: under maximum acceleration with rated load and an E-stop with a
     swinging load, every member shall stay above the minimum safety factor.
+
+    Minimum 1.5 (design, gantry team 2026-11-11). Per rail: the table's peak stress from 8 s (the carried design load)
+    beside the static oracles, the engine's peak dynamic ratio and flag, and the verdict restated with the stress
+    scaled by 2.04 over that ratio (ruling 73 (a): all that no flag bounds; a verdict that flips is not established).
+    Asserted: neither rail flagged and each printed dynamic ratio at most 2.04 (the upper oracle as the engine defines
+    it, ENG-052); each peak stress at least the continuum static stress less the chain's 2 percent; the case's
+    safety-factor criteria pass, also when scaled; ruling 73 (b) against the hand record of 20 and 40 substeps
+    (`_g15_reproduced`); no tier 1 crossing; the load case exported beside the archive.
     """
-    raise NotImplementedError
+    result, _ = native_gantry["G15"]
+    assert result.metadata is not None
+    assert result.metadata.integrity is not None
+    assert result.archive is not None
+    for suffix in (".load_case.json", ".load_case.csv", ".integrity.json"):
+        assert result.archive.with_suffix(suffix).is_file(), suffix
+    flags = _g15_flags(result)
+    print(f"G15 crossings: {result.score.crossings}")
+    for member in ("rail_x", "rail_y"):
+        row = result.metadata.integrity.member(member)
+        static = _g15_oracle(member)[1] * G15_TABLE_FACTOR
+        ratio, flagged = flags[member]
+        scaled = row.safety_factor * ratio / G15_FLAG_LIMIT
+        print(
+            f"G15 {member}: safety factor {row.safety_factor!r} at {row.safety_factor_time!r} s (minimum 1.5), peak "
+            f"stress {row.peak_stress!r} Pa at {row.peak_stress_time!r} s (continuum static {static!r} Pa); dynamic "
+            f"ratio {ratio!r}, flagged {flagged}; scaled by {G15_FLAG_LIMIT} / ratio: safety factor {scaled!r}"
+        )
+    for member in ("rail_x", "rail_y"):
+        row = result.metadata.integrity.member(member)
+        static = _g15_oracle(member)[1] * G15_TABLE_FACTOR
+        ratio, flagged = flags[member]
+        criterion = _criterion(result, f"safety_factor_{member}")
+        verdict = None
+        if criterion.status in ("pass", "fail"):
+            verdict = criterion.status == "pass"
+        _g15_reproduced(member, flagged, verdict, 2)
+        assert not flagged
+        assert ratio <= G15_FLAG_LIMIT
+        assert criterion.status == "pass"
+        assert row.safety_factor * ratio / G15_FLAG_LIMIT >= 1.5
+        assert row.peak_stress >= (1.0 - G15_CHAIN) * static
+    assert result.score.crossings == ()
+    assert result.score.status == "pass"
 
 
 @pytest.mark.req("ACC-030")
-@pytest.mark.xfail(strict=True, reason="stub")
-def test_acc_030() -> None:
+@pytest.mark.xfail(
+    strict=True,
+    raises=AssertionError,
+    reason="rail_y is not valid from 8.31 s at every step size run (dynamic ratio 2.76, 3.63, 4.11 at 10, 20, 40 "
+    "substeps against 2.04; rulings 69, 78: placeholder rails and belts at the fixed 0.01 damping), so its "
+    "deflection criteria are not evaluated; rail_x passes at every step size (peak 1.134, 1.141, 1.119 mm; scaled by "
+    "2.04 over its ratio 2.25, 1.91, 1.46 mm; settled 1.0806 mm against 1.0977 mm); the 20 and 40 substep verdicts "
+    "are the gate report's hand record (G15_RECORD), which a 10-substep pass alone cannot change",
+)
+def test_acc_030(native_gantry: dict[str, tuple[RunResult, CoreDriver]]) -> None:
     """Reference design (gantry), G15: under the same worst cases, member deflection shall stay under the
     target.
+
+    Target 1 cm (ACC-030 row), the dynamic node-pose peak from 8 s (the conservative reading). Settled (14 s to 15 s,
+    both carriages at mid-travel): the case's own criterion within 2 percent of the closed form (G15 header; the
+    table's factor is 1, the case carrying the design load). Peak: the engine's printed dynamic ratio at most 2.04
+    with no flag (what no flag bounds, ENG-052: the base is the larger of the windowed quasi-static peak under the
+    actual loads and the worst-case static carried deflection, not the mid-travel static value), at least the static
+    value less the chain's 2 percent, and under the target, also when scaled by 2.04 over the member's peak dynamic
+    ratio (ruling 73 (a)); ruling 73 (b) against the hand record (`_g15_reproduced`).
     """
-    raise NotImplementedError
+    result, _ = native_gantry["G15"]
+    assert result.metadata is not None
+    assert result.metadata.integrity is not None
+    flags = _g15_flags(result)
+    for member in ("rail_x", "rail_y"):
+        static = _g15_oracle(member)[0] * G15_TABLE_FACTOR
+        settled = _criterion(result, f"settled_deflection_{member}")
+        peak = _criterion(result, f"deflection_{member}")
+        print(
+            f"G15 {member}: settled {settled.measured} m ({settled.status}), peak from 8 s {peak.measured} m at "
+            f"{peak.worst_time} s ({peak.status}); static oracle {static!r} m; dynamic ratio, flagged {flags[member]}"
+        )
+    for member in ("rail_x", "rail_y"):
+        static = _g15_oracle(member)[0] * G15_TABLE_FACTOR
+        ratio, flagged = flags[member]
+        peak = _criterion(result, f"deflection_{member}")
+        verdict = None
+        if peak.status in ("pass", "fail"):
+            verdict = peak.status == "pass"
+        _g15_reproduced(member, flagged, verdict, 3)
+        assert not flagged
+        assert ratio <= G15_FLAG_LIMIT
+        assert _criterion(result, f"settled_deflection_{member}").status == "pass"
+        assert peak.status == "pass"
+        assert peak.measured >= (1.0 - G15_CHAIN) * static
+        assert peak.measured * G15_FLAG_LIMIT / ratio < 0.01
+
+
+@pytest.mark.req("INV-014")
+@pytest.mark.parametrize("case", ["G12", "G15"])
+def test_native_gantry_cases_repeat_bit_identically(
+    case: str, native_gantry: dict[str, tuple[RunResult, CoreDriver]], tmp_path: Path
+) -> None:
+    """G12 and G15 run twice with the same seed give the same recording, compared bitwise (invariant 4: every series'
+    values and times, every event), and the same run report. The archive files are not compared: they also carry the
+    archive's own path and write metadata."""
+    first, one = native_gantry[case]
+    second, two = _native_run(case, tmp_path)
+    a = one.recording().recording
+    b = two.recording().recording
+    assert sorted(a.series) == sorted(b.series)
+    for path, series in a.series.items():
+        assert np.asarray(series.values).tobytes() == np.asarray(b.series[path].values).tobytes(), path
+    assert a.events == b.events
+    assert first.report == second.report
 
 
 @pytest.mark.req("ACC-031")

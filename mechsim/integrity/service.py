@@ -10,7 +10,7 @@ from typing import Any
 from mechsim.integrity.config import FILE_NAME, IntegrityConfig, load_config
 from mechsim.integrity.inputs import run_inputs
 from mechsim.integrity.plugin import MaterialView
-from mechsim.integrity.table import IntegrityReport, evaluate
+from mechsim.integrity.table import CARRIED_NOTE, IntegrityReport, evaluate, window_note
 from mechsim.materials.database import MaterialSet
 from mechsim.testing.driver import RecordView
 from mechsim.testing.schema import DESIGNS_ROOT, Case
@@ -19,7 +19,8 @@ from mechsim.testing.schema import DESIGNS_ROOT, Case
 class IntegrityService:
     """`(build, case, recording) -> IntegrityReport | None`. The configuration is `integrity.yaml` beside the design
     file, in `designs_root / <design name>` unless `design_dir` maps the design to its folder; without that file the
-    run carries no table (None). `config` replaces the file."""
+    run carries no table (None). `config` replaces the file. The case's `integrity.design_load_carried` (TST-043) sets
+    the load factor to 1 with a line, `integrity.evaluate_from` (TST-044) cuts the inputs there with a line."""
 
     def __init__(
         self,
@@ -52,4 +53,16 @@ class IntegrityService:
         views: dict[str, MaterialView] = {}
         for member in getattr(build, "members", ()):
             views[str(member.material)] = materials.integrity_view(str(member.material))
-        return evaluate(config, run_inputs(build, recording, views))
+        carried = False
+        start = 0.0
+        if case is not None and case.integrity is not None:
+            carried = case.integrity.design_load_carried
+            start = case.integrity.start_seconds()
+        inputs = run_inputs(build, recording, views, design_load_carried=carried)
+        lines: list[str] = []
+        if carried and design.structural is not None:
+            lines.append(CARRIED_NOTE)
+        if start > 0.0:
+            lines.append(window_note(start))
+            inputs = inputs.windowed(start)
+        return evaluate(config, inputs, lines, tuple(getattr(recording, "validity", ())))

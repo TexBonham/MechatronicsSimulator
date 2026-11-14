@@ -2,8 +2,9 @@ design:
   name: gantry
   version: 0.1.0
 suite: gantry
-note: 'placeholder-geometry: G1 to G11, G13, G14 with the gantry team values of 2026-11-11, the NEMA 23 motor placeholder
-  (M2-X7) and the 2 Hz amplifier placeholder (ruling 35, M2-X8)'
+note: "placeholder-geometry: G1 to G11, G13, G14 on the bridge and G12, G15 on the native adapter (M3-X1f: rails and belts
+  damped 0.01, ruling 78; M3-X1h: the belts' driven mass counts the member chains riding them), with the gantry team values
+  of 2026-11-11, the NEMA 23 motor placeholder (M2-X7) and the 2 Hz amplifier placeholder (ruling 35, M2-X8)"
 entries:
   - case: G1
     criterion: hold_band
@@ -13,8 +14,8 @@ entries:
     worst_time: 0.002 s
     run:
       run_id: G1-seed1
-      archive_sha256: a1bc3772ee52ff5662d02157c8e92e6fa44ba4c0db2e502d62b585800caa2fe6
-      design_hash: ca9f92e7037ac718ec7f917c1a440aa264762e80
+      archive_sha256: f721204d6caecde946c56b967b65deb08d2bb358dccddb44a3e97c51e99468bb
+      design_hash: b3572b707552f318ff675ee2f6fcc3b9ff322f54
       case_hash: 21a2da48115b208a9dff444ea709ade296060fb5
   - case: G1
     criterion: no_step_pulses_lift
@@ -24,8 +25,8 @@ entries:
     worst_time: 0.001 s
     run:
       run_id: G1-seed1
-      archive_sha256: a1bc3772ee52ff5662d02157c8e92e6fa44ba4c0db2e502d62b585800caa2fe6
-      design_hash: ca9f92e7037ac718ec7f917c1a440aa264762e80
+      archive_sha256: f721204d6caecde946c56b967b65deb08d2bb358dccddb44a3e97c51e99468bb
+      design_hash: b3572b707552f318ff675ee2f6fcc3b9ff322f54
       case_hash: 21a2da48115b208a9dff444ea709ade296060fb5
   - case: G1
     criterion: no_step_pulses_x
@@ -35,8 +36,8 @@ entries:
     worst_time: 0.001 s
     run:
       run_id: G1-seed1
-      archive_sha256: a1bc3772ee52ff5662d02157c8e92e6fa44ba4c0db2e502d62b585800caa2fe6
-      design_hash: ca9f92e7037ac718ec7f917c1a440aa264762e80
+      archive_sha256: f721204d6caecde946c56b967b65deb08d2bb358dccddb44a3e97c51e99468bb
+      design_hash: b3572b707552f318ff675ee2f6fcc3b9ff322f54
       case_hash: 21a2da48115b208a9dff444ea709ade296060fb5
   - case: G1
     criterion: no_step_pulses_y
@@ -46,8 +47,8 @@ entries:
     worst_time: 0.001 s
     run:
       run_id: G1-seed1
-      archive_sha256: a1bc3772ee52ff5662d02157c8e92e6fa44ba4c0db2e502d62b585800caa2fe6
-      design_hash: ca9f92e7037ac718ec7f917c1a440aa264762e80
+      archive_sha256: f721204d6caecde946c56b967b65deb08d2bb358dccddb44a3e97c51e99468bb
+      design_hash: b3572b707552f318ff675ee2f6fcc3b9ff322f54
       case_hash: 21a2da48115b208a9dff444ea709ade296060fb5
   - case: G1
     criterion: refusal_reported
@@ -57,8 +58,8 @@ entries:
     worst_time: 0.002 s
     run:
       run_id: G1-seed1
-      archive_sha256: a1bc3772ee52ff5662d02157c8e92e6fa44ba4c0db2e502d62b585800caa2fe6
-      design_hash: ca9f92e7037ac718ec7f917c1a440aa264762e80
+      archive_sha256: f721204d6caecde946c56b967b65deb08d2bb358dccddb44a3e97c51e99468bb
+      design_hash: b3572b707552f318ff675ee2f6fcc3b9ff322f54
       case_hash: 21a2da48115b208a9dff444ea709ade296060fb5
   - case: G2
     criterion: origin_x
@@ -68,8 +69,8 @@ entries:
     worst_time: 15.0 s
     run:
       run_id: G2-seed2
-      archive_sha256: f3d7e269ae3f85562b81f4063419bce7d797838430e972051329bb91ac9d38d3
-      design_hash: ca9f92e7037ac718ec7f917c1a440aa264762e80
+      archive_sha256: b9c79ec3139f6c8d9077195d32d967a18e016009c1c917a012b495930b134dc9
+      design_hash: b3572b707552f318ff675ee2f6fcc3b9ff322f54
       case_hash: 6d307a9a2ee27a01dc63ccc548969cccdbc7d53a
   - case: G2
     criterion: origin_y
@@ -79,8 +80,8 @@ entries:
     worst_time: 15.0 s
     run:
       run_id: G2-seed2
-      archive_sha256: f3d7e269ae3f85562b81f4063419bce7d797838430e972051329bb91ac9d38d3
-      design_hash: ca9f92e7037ac718ec7f917c1a440aa264762e80
+      archive_sha256: b9c79ec3139f6c8d9077195d32d967a18e016009c1c917a012b495930b134dc9
+      design_hash: b3572b707552f318ff675ee2f6fcc3b9ff322f54
       case_hash: 6d307a9a2ee27a01dc63ccc548969cccdbc7d53a
   - case: G2
     criterion: ready
@@ -90,8 +91,8 @@ entries:
     worst_time: 5.247 s
     run:
       run_id: G2-seed2
-      archive_sha256: f3d7e269ae3f85562b81f4063419bce7d797838430e972051329bb91ac9d38d3
-      design_hash: ca9f92e7037ac718ec7f917c1a440aa264762e80
+      archive_sha256: b9c79ec3139f6c8d9077195d32d967a18e016009c1c917a012b495930b134dc9
+      design_hash: b3572b707552f318ff675ee2f6fcc3b9ff322f54
       case_hash: 6d307a9a2ee27a01dc63ccc548969cccdbc7d53a
   - case: G2
     criterion: status_reported
@@ -101,8 +102,8 @@ entries:
     worst_time: 5.247 s
     run:
       run_id: G2-seed2
-      archive_sha256: f3d7e269ae3f85562b81f4063419bce7d797838430e972051329bb91ac9d38d3
-      design_hash: ca9f92e7037ac718ec7f917c1a440aa264762e80
+      archive_sha256: b9c79ec3139f6c8d9077195d32d967a18e016009c1c917a012b495930b134dc9
+      design_hash: b3572b707552f318ff675ee2f6fcc3b9ff322f54
       case_hash: 6d307a9a2ee27a01dc63ccc548969cccdbc7d53a
   - case: G3
     criterion: final_x
@@ -112,8 +113,8 @@ entries:
     worst_time: 25.0 s
     run:
       run_id: G3-seed3
-      archive_sha256: 2704beb623876e046b36163c8292a9acd237f6868c6c9b552add343ee299a62e
-      design_hash: ca9f92e7037ac718ec7f917c1a440aa264762e80
+      archive_sha256: 0b5afe249f6cf4ccfb59ba58f017d58b16896e800f2338aa8d0f6ed2e9e186b0
+      design_hash: b3572b707552f318ff675ee2f6fcc3b9ff322f54
       case_hash: a806ee6d0c0ed14a1f79bac1ab89386e7a0a476a
   - case: G3
     criterion: final_y
@@ -123,30 +124,30 @@ entries:
     worst_time: 25.0 s
     run:
       run_id: G3-seed3
-      archive_sha256: 2704beb623876e046b36163c8292a9acd237f6868c6c9b552add343ee299a62e
-      design_hash: ca9f92e7037ac718ec7f917c1a440aa264762e80
+      archive_sha256: 0b5afe249f6cf4ccfb59ba58f017d58b16896e800f2338aa8d0f6ed2e9e186b0
+      design_hash: b3572b707552f318ff675ee2f6fcc3b9ff322f54
       case_hash: a806ee6d0c0ed14a1f79bac1ab89386e7a0a476a
   - case: G3
     criterion: lift_travel_lower
     status: pass
-    measured: 6.88017332577e-05 m
+    measured: 6.88017332543e-05 m
     limit: minimum at_least 0 m
-    worst_time: 20.88 s
+    worst_time: 20.909 s
     run:
       run_id: G3-seed3
-      archive_sha256: 2704beb623876e046b36163c8292a9acd237f6868c6c9b552add343ee299a62e
-      design_hash: ca9f92e7037ac718ec7f917c1a440aa264762e80
+      archive_sha256: 0b5afe249f6cf4ccfb59ba58f017d58b16896e800f2338aa8d0f6ed2e9e186b0
+      design_hash: b3572b707552f318ff675ee2f6fcc3b9ff322f54
       case_hash: a806ee6d0c0ed14a1f79bac1ab89386e7a0a476a
   - case: G3
     criterion: lift_travel_upper
     status: pass
-    measured: 6.88017333187e-05 m
+    measured: 6.8801733308e-05 m
     limit: maximum at_most ${lift_travel}
-    worst_time: 20.89 s
+    worst_time: 20.904 s
     run:
       run_id: G3-seed3
-      archive_sha256: 2704beb623876e046b36163c8292a9acd237f6868c6c9b552add343ee299a62e
-      design_hash: ca9f92e7037ac718ec7f917c1a440aa264762e80
+      archive_sha256: 0b5afe249f6cf4ccfb59ba58f017d58b16896e800f2338aa8d0f6ed2e9e186b0
+      design_hash: b3572b707552f318ff675ee2f6fcc3b9ff322f54
       case_hash: a806ee6d0c0ed14a1f79bac1ab89386e7a0a476a
   - case: G3
     criterion: ready_after_homing
@@ -156,8 +157,8 @@ entries:
     worst_time: 5.247 s
     run:
       run_id: G3-seed3
-      archive_sha256: 2704beb623876e046b36163c8292a9acd237f6868c6c9b552add343ee299a62e
-      design_hash: ca9f92e7037ac718ec7f917c1a440aa264762e80
+      archive_sha256: 0b5afe249f6cf4ccfb59ba58f017d58b16896e800f2338aa8d0f6ed2e9e186b0
+      design_hash: b3572b707552f318ff675ee2f6fcc3b9ff322f54
       case_hash: a806ee6d0c0ed14a1f79bac1ab89386e7a0a476a
   - case: G3
     criterion: x_travel_lower
@@ -167,8 +168,8 @@ entries:
     worst_time: 15.0 s
     run:
       run_id: G3-seed3
-      archive_sha256: 2704beb623876e046b36163c8292a9acd237f6868c6c9b552add343ee299a62e
-      design_hash: ca9f92e7037ac718ec7f917c1a440aa264762e80
+      archive_sha256: 0b5afe249f6cf4ccfb59ba58f017d58b16896e800f2338aa8d0f6ed2e9e186b0
+      design_hash: b3572b707552f318ff675ee2f6fcc3b9ff322f54
       case_hash: a806ee6d0c0ed14a1f79bac1ab89386e7a0a476a
   - case: G3
     criterion: x_travel_upper
@@ -178,8 +179,8 @@ entries:
     worst_time: 21.01 s
     run:
       run_id: G3-seed3
-      archive_sha256: 2704beb623876e046b36163c8292a9acd237f6868c6c9b552add343ee299a62e
-      design_hash: ca9f92e7037ac718ec7f917c1a440aa264762e80
+      archive_sha256: 0b5afe249f6cf4ccfb59ba58f017d58b16896e800f2338aa8d0f6ed2e9e186b0
+      design_hash: b3572b707552f318ff675ee2f6fcc3b9ff322f54
       case_hash: a806ee6d0c0ed14a1f79bac1ab89386e7a0a476a
   - case: G3
     criterion: y_travel_lower
@@ -189,8 +190,8 @@ entries:
     worst_time: 15.0 s
     run:
       run_id: G3-seed3
-      archive_sha256: 2704beb623876e046b36163c8292a9acd237f6868c6c9b552add343ee299a62e
-      design_hash: ca9f92e7037ac718ec7f917c1a440aa264762e80
+      archive_sha256: 0b5afe249f6cf4ccfb59ba58f017d58b16896e800f2338aa8d0f6ed2e9e186b0
+      design_hash: b3572b707552f318ff675ee2f6fcc3b9ff322f54
       case_hash: a806ee6d0c0ed14a1f79bac1ab89386e7a0a476a
   - case: G3
     criterion: y_travel_upper
@@ -200,19 +201,19 @@ entries:
     worst_time: 19.508 s
     run:
       run_id: G3-seed3
-      archive_sha256: 2704beb623876e046b36163c8292a9acd237f6868c6c9b552add343ee299a62e
-      design_hash: ca9f92e7037ac718ec7f917c1a440aa264762e80
+      archive_sha256: 0b5afe249f6cf4ccfb59ba58f017d58b16896e800f2338aa8d0f6ed2e9e186b0
+      design_hash: b3572b707552f318ff675ee2f6fcc3b9ff322f54
       case_hash: a806ee6d0c0ed14a1f79bac1ab89386e7a0a476a
   - case: G4
     criterion: hold_band
     status: pass
-    measured: 1.11022302463e-16 m
+    measured: 0 m
     limit: every joint within ${hold_band} of its first sample
-    worst_time: 15.002 s
+    worst_time: 15.0 s
     run:
       run_id: G4-seed4
-      archive_sha256: 53907f06e13284084004120ad10bc9f0e9cf3743757dd20ae591da4c00ac233b
-      design_hash: ca9f92e7037ac718ec7f917c1a440aa264762e80
+      archive_sha256: 5f92b4bfb07bb16810058a05beaf02cad03b42cfcda1009dc878b580416f17db
+      design_hash: b3572b707552f318ff675ee2f6fcc3b9ff322f54
       case_hash: a2c43de1ad2db31ed86d44dbb668066a55d90f91
   - case: G4
     criterion: no_step_pulses_lift
@@ -222,8 +223,8 @@ entries:
     worst_time: 15.0 s
     run:
       run_id: G4-seed4
-      archive_sha256: 53907f06e13284084004120ad10bc9f0e9cf3743757dd20ae591da4c00ac233b
-      design_hash: ca9f92e7037ac718ec7f917c1a440aa264762e80
+      archive_sha256: 5f92b4bfb07bb16810058a05beaf02cad03b42cfcda1009dc878b580416f17db
+      design_hash: b3572b707552f318ff675ee2f6fcc3b9ff322f54
       case_hash: a2c43de1ad2db31ed86d44dbb668066a55d90f91
   - case: G4
     criterion: no_step_pulses_x
@@ -233,8 +234,8 @@ entries:
     worst_time: 15.0 s
     run:
       run_id: G4-seed4
-      archive_sha256: 53907f06e13284084004120ad10bc9f0e9cf3743757dd20ae591da4c00ac233b
-      design_hash: ca9f92e7037ac718ec7f917c1a440aa264762e80
+      archive_sha256: 5f92b4bfb07bb16810058a05beaf02cad03b42cfcda1009dc878b580416f17db
+      design_hash: b3572b707552f318ff675ee2f6fcc3b9ff322f54
       case_hash: a2c43de1ad2db31ed86d44dbb668066a55d90f91
   - case: G4
     criterion: no_step_pulses_y
@@ -244,8 +245,8 @@ entries:
     worst_time: 15.0 s
     run:
       run_id: G4-seed4
-      archive_sha256: 53907f06e13284084004120ad10bc9f0e9cf3743757dd20ae591da4c00ac233b
-      design_hash: ca9f92e7037ac718ec7f917c1a440aa264762e80
+      archive_sha256: 5f92b4bfb07bb16810058a05beaf02cad03b42cfcda1009dc878b580416f17db
+      design_hash: b3572b707552f318ff675ee2f6fcc3b9ff322f54
       case_hash: a2c43de1ad2db31ed86d44dbb668066a55d90f91
   - case: G4
     criterion: rejection_reported
@@ -255,20 +256,20 @@ entries:
     worst_time: 15.002 s
     run:
       run_id: G4-seed4
-      archive_sha256: 53907f06e13284084004120ad10bc9f0e9cf3743757dd20ae591da4c00ac233b
-      design_hash: ca9f92e7037ac718ec7f917c1a440aa264762e80
+      archive_sha256: 5f92b4bfb07bb16810058a05beaf02cad03b42cfcda1009dc878b580416f17db
+      design_hash: b3572b707552f318ff675ee2f6fcc3b9ff322f54
       case_hash: a2c43de1ad2db31ed86d44dbb668066a55d90f91
   - case: G5
     criterion: lift_up_ignored
     status: pass
-    measured: 6.51903734328e-08 m
+    measured: 4.02561106672e-09 m
     limit: every joint within ${hold_band} of its first sample
-    worst_time: 19.047 s
+    worst_time: 19.602 s
     run:
       run_id: G5-seed5
-      archive_sha256: e02929eaa9f167f8de239189f7fa0b085deaa05267f965b5101bb370814b50cb
-      design_hash: ca9f92e7037ac718ec7f917c1a440aa264762e80
-      case_hash: 0a1217e7df253b0cc2346cf6c2b96904b035c20b
+      archive_sha256: 5b604af17a874ee473ca8a61f2719e9f6e1ad4f846a33017c8f93d81f0a5d7fd
+      design_hash: b3572b707552f318ff675ee2f6fcc3b9ff322f54
+      case_hash: ab3b4cbff37c63b470b6f3cf61953aef6e161d2d
   - case: G5
     criterion: lift_up_refused
     status: pass
@@ -277,53 +278,53 @@ entries:
     worst_time: 18.0 s
     run:
       run_id: G5-seed5
-      archive_sha256: e02929eaa9f167f8de239189f7fa0b085deaa05267f965b5101bb370814b50cb
-      design_hash: ca9f92e7037ac718ec7f917c1a440aa264762e80
-      case_hash: 0a1217e7df253b0cc2346cf6c2b96904b035c20b
+      archive_sha256: 5b604af17a874ee473ca8a61f2719e9f6e1ad4f846a33017c8f93d81f0a5d7fd
+      design_hash: b3572b707552f318ff675ee2f6fcc3b9ff322f54
+      case_hash: ab3b4cbff37c63b470b6f3cf61953aef6e161d2d
   - case: G5
     criterion: lowered
     status: pass
-    measured: 0.100030594064 m
+    measured: 0.100030592447 m
     limit: final within 1 cm of 10 cm
     worst_time: 26.0 s
     run:
       run_id: G5-seed5
-      archive_sha256: e02929eaa9f167f8de239189f7fa0b085deaa05267f965b5101bb370814b50cb
-      design_hash: ca9f92e7037ac718ec7f917c1a440aa264762e80
-      case_hash: 0a1217e7df253b0cc2346cf6c2b96904b035c20b
+      archive_sha256: 5b604af17a874ee473ca8a61f2719e9f6e1ad4f846a33017c8f93d81f0a5d7fd
+      design_hash: b3572b707552f318ff675ee2f6fcc3b9ff322f54
+      case_hash: ab3b4cbff37c63b470b6f3cf61953aef6e161d2d
   - case: G6
     criterion: lift_stopped
     status: pass
-    measured: 0.208346051431 m
+    measured: 0.208246051472 m
     limit: maximum at_most 21.1 cm
-    worst_time: 12.07 s
+    worst_time: 12.069 s
     run:
       run_id: G6-seed6
-      archive_sha256: 24e939b8d7b5d9fe67d2a918a8f1f1328d369c5cd2bf20440927266baa506c32
-      design_hash: ca9f92e7037ac718ec7f917c1a440aa264762e80
-      case_hash: 54e1789f5fa2327f9f0ba0a45482dfec9b562e97
+      archive_sha256: 3c2f4daf67cd8e19846c2f06ebf126b837676bb62eeccbd14f5a5151808a07ff
+      design_hash: b3572b707552f318ff675ee2f6fcc3b9ff322f54
+      case_hash: 9ee6d853e85485d75ac3c5f5509b94325a600e08
   - case: G6
     criterion: set_down
     status: pass
-    measured: 0.0500535648049 m
+    measured: 0.0500535633583 m
     limit: final within 1 cm of 5 cm
     worst_time: 18.0 s
     run:
       run_id: G6-seed6
-      archive_sha256: 24e939b8d7b5d9fe67d2a918a8f1f1328d369c5cd2bf20440927266baa506c32
-      design_hash: ca9f92e7037ac718ec7f917c1a440aa264762e80
-      case_hash: 54e1789f5fa2327f9f0ba0a45482dfec9b562e97
+      archive_sha256: 3c2f4daf67cd8e19846c2f06ebf126b837676bb62eeccbd14f5a5151808a07ff
+      design_hash: b3572b707552f318ff675ee2f6fcc3b9ff322f54
+      case_hash: 9ee6d853e85485d75ac3c5f5509b94325a600e08
   - case: G7
     criterion: hook_held
     status: pass
-    measured: 0.00217758802647 m
+    measured: 0.00217741989142 m
     limit: every joint within ${hold_band} of its first sample
     worst_time: 12.05 s
     run:
       run_id: G7-seed7
-      archive_sha256: e9766acdb59658199da972adb458c7818a338e6ad4605181140999b74ba6e6af
-      design_hash: ca9f92e7037ac718ec7f917c1a440aa264762e80
-      case_hash: 3129e31c65a95dd9deac7e9c72b70ba5d4da07dd
+      archive_sha256: 04df23345835a441670362c867b36f7f30d82ee45583e98893c4564cd7132e03
+      design_hash: b3572b707552f318ff675ee2f6fcc3b9ff322f54
+      case_hash: 4309cee451b004db068e733cee1cbd0fd7ff5bc3
   - case: G7
     criterion: no_steps_x_until_command
     status: pass
@@ -332,9 +333,9 @@ entries:
     worst_time: 12.022 s
     run:
       run_id: G7-seed7
-      archive_sha256: e9766acdb59658199da972adb458c7818a338e6ad4605181140999b74ba6e6af
-      design_hash: ca9f92e7037ac718ec7f917c1a440aa264762e80
-      case_hash: 3129e31c65a95dd9deac7e9c72b70ba5d4da07dd
+      archive_sha256: 04df23345835a441670362c867b36f7f30d82ee45583e98893c4564cd7132e03
+      design_hash: b3572b707552f318ff675ee2f6fcc3b9ff322f54
+      case_hash: 4309cee451b004db068e733cee1cbd0fd7ff5bc3
   - case: G7
     criterion: no_steps_y_until_command
     status: pass
@@ -343,9 +344,9 @@ entries:
     worst_time: 12.022 s
     run:
       run_id: G7-seed7
-      archive_sha256: e9766acdb59658199da972adb458c7818a338e6ad4605181140999b74ba6e6af
-      design_hash: ca9f92e7037ac718ec7f917c1a440aa264762e80
-      case_hash: 3129e31c65a95dd9deac7e9c72b70ba5d4da07dd
+      archive_sha256: 04df23345835a441670362c867b36f7f30d82ee45583e98893c4564cd7132e03
+      design_hash: b3572b707552f318ff675ee2f6fcc3b9ff322f54
+      case_hash: 4309cee451b004db068e733cee1cbd0fd7ff5bc3
   - case: G7
     criterion: power_cut
     status: pass
@@ -354,9 +355,9 @@ entries:
     worst_time: 12.021 s
     run:
       run_id: G7-seed7
-      archive_sha256: e9766acdb59658199da972adb458c7818a338e6ad4605181140999b74ba6e6af
-      design_hash: ca9f92e7037ac718ec7f917c1a440aa264762e80
-      case_hash: 3129e31c65a95dd9deac7e9c72b70ba5d4da07dd
+      archive_sha256: 04df23345835a441670362c867b36f7f30d82ee45583e98893c4564cd7132e03
+      design_hash: b3572b707552f318ff675ee2f6fcc3b9ff322f54
+      case_hash: 4309cee451b004db068e733cee1cbd0fd7ff5bc3
   - case: G7
     criterion: relay_open
     status: pass
@@ -365,31 +366,31 @@ entries:
     worst_time: 12.021 s
     run:
       run_id: G7-seed7
-      archive_sha256: e9766acdb59658199da972adb458c7818a338e6ad4605181140999b74ba6e6af
-      design_hash: ca9f92e7037ac718ec7f917c1a440aa264762e80
-      case_hash: 3129e31c65a95dd9deac7e9c72b70ba5d4da07dd
+      archive_sha256: 04df23345835a441670362c867b36f7f30d82ee45583e98893c4564cd7132e03
+      design_hash: b3572b707552f318ff675ee2f6fcc3b9ff322f54
+      case_hash: 4309cee451b004db068e733cee1cbd0fd7ff5bc3
   - case: G7
     criterion: resumed_x
     status: pass
-    measured: 0.400068309046 m
+    measured: 0.400069015362 m
     limit: final within 1 cm of 40 cm
     worst_time: 30.0 s
     run:
       run_id: G7-seed7
-      archive_sha256: e9766acdb59658199da972adb458c7818a338e6ad4605181140999b74ba6e6af
-      design_hash: ca9f92e7037ac718ec7f917c1a440aa264762e80
-      case_hash: 3129e31c65a95dd9deac7e9c72b70ba5d4da07dd
+      archive_sha256: 04df23345835a441670362c867b36f7f30d82ee45583e98893c4564cd7132e03
+      design_hash: b3572b707552f318ff675ee2f6fcc3b9ff322f54
+      case_hash: 4309cee451b004db068e733cee1cbd0fd7ff5bc3
   - case: G7
     criterion: resumed_y
     status: pass
-    measured: 0.250066500824 m
+    measured: 0.250066504389 m
     limit: final within 1 cm of 25 cm
     worst_time: 30.0 s
     run:
       run_id: G7-seed7
-      archive_sha256: e9766acdb59658199da972adb458c7818a338e6ad4605181140999b74ba6e6af
-      design_hash: ca9f92e7037ac718ec7f917c1a440aa264762e80
-      case_hash: 3129e31c65a95dd9deac7e9c72b70ba5d4da07dd
+      archive_sha256: 04df23345835a441670362c867b36f7f30d82ee45583e98893c4564cd7132e03
+      design_hash: b3572b707552f318ff675ee2f6fcc3b9ff322f54
+      case_hash: 4309cee451b004db068e733cee1cbd0fd7ff5bc3
   - case: G8
     criterion: lift_no_steps
     status: pass
@@ -398,8 +399,8 @@ entries:
     worst_time: 9.07 s
     run:
       run_id: G8-seed8
-      archive_sha256: af6eed013c8c8e809e5933e3ab8a8613fa96b35e9b9d594268fdb915b9c32f7a
-      design_hash: ca9f92e7037ac718ec7f917c1a440aa264762e80
+      archive_sha256: 9ea2e9823e0338acbc0c27860d5941ba28513c77a5ae1eb6eb574663ec7a239b
+      design_hash: b3572b707552f318ff675ee2f6fcc3b9ff322f54
       case_hash: 280f263d7bc82e68c93e250ba5886b23fb6be761
   - case: G8
     criterion: motor_power_off
@@ -409,8 +410,8 @@ entries:
     worst_time: 9.07 s
     run:
       run_id: G8-seed8
-      archive_sha256: af6eed013c8c8e809e5933e3ab8a8613fa96b35e9b9d594268fdb915b9c32f7a
-      design_hash: ca9f92e7037ac718ec7f917c1a440aa264762e80
+      archive_sha256: 9ea2e9823e0338acbc0c27860d5941ba28513c77a5ae1eb6eb574663ec7a239b
+      design_hash: b3572b707552f318ff675ee2f6fcc3b9ff322f54
       case_hash: 280f263d7bc82e68c93e250ba5886b23fb6be761
   - case: G8
     criterion: x_no_steps
@@ -420,8 +421,8 @@ entries:
     worst_time: 9.07 s
     run:
       run_id: G8-seed8
-      archive_sha256: af6eed013c8c8e809e5933e3ab8a8613fa96b35e9b9d594268fdb915b9c32f7a
-      design_hash: ca9f92e7037ac718ec7f917c1a440aa264762e80
+      archive_sha256: 9ea2e9823e0338acbc0c27860d5941ba28513c77a5ae1eb6eb574663ec7a239b
+      design_hash: b3572b707552f318ff675ee2f6fcc3b9ff322f54
       case_hash: 280f263d7bc82e68c93e250ba5886b23fb6be761
   - case: G8
     criterion: y_no_steps
@@ -431,8 +432,8 @@ entries:
     worst_time: 9.07 s
     run:
       run_id: G8-seed8
-      archive_sha256: af6eed013c8c8e809e5933e3ab8a8613fa96b35e9b9d594268fdb915b9c32f7a
-      design_hash: ca9f92e7037ac718ec7f917c1a440aa264762e80
+      archive_sha256: 9ea2e9823e0338acbc0c27860d5941ba28513c77a5ae1eb6eb574663ec7a239b
+      design_hash: b3572b707552f318ff675ee2f6fcc3b9ff322f54
       case_hash: 280f263d7bc82e68c93e250ba5886b23fb6be761
   - case: G9
     criterion: homing_after_home
@@ -442,19 +443,19 @@ entries:
     worst_time: 14.0 s
     run:
       run_id: G9-seed9
-      archive_sha256: 90c12f85da4b2b99990cb9a6402d2867b571c5b9392d778d242162a36639b032
-      design_hash: ca9f92e7037ac718ec7f917c1a440aa264762e80
+      archive_sha256: 8666fb69306cb9fb51233bda57cbb7c6c83c2233b4f0ae99d37700b56333cf9c
+      design_hash: b3572b707552f318ff675ee2f6fcc3b9ff322f54
       case_hash: bbad595c791e710db706deb605447cbd8e2a1a08
   - case: G9
     criterion: load_held
     status: pass
-    measured: 0.00217779134683 m
+    measured: 0.0021775249144 m
     limit: every joint within ${hold_band} of its first sample
     worst_time: 12.03 s
     run:
       run_id: G9-seed9
-      archive_sha256: 90c12f85da4b2b99990cb9a6402d2867b571c5b9392d778d242162a36639b032
-      design_hash: ca9f92e7037ac718ec7f917c1a440aa264762e80
+      archive_sha256: 8666fb69306cb9fb51233bda57cbb7c6c83c2233b4f0ae99d37700b56333cf9c
+      design_hash: b3572b707552f318ff675ee2f6fcc3b9ff322f54
       case_hash: bbad595c791e710db706deb605447cbd8e2a1a08
   - case: G9
     criterion: no_steps_lift_until_home
@@ -464,8 +465,8 @@ entries:
     worst_time: 12.501 s
     run:
       run_id: G9-seed9
-      archive_sha256: 90c12f85da4b2b99990cb9a6402d2867b571c5b9392d778d242162a36639b032
-      design_hash: ca9f92e7037ac718ec7f917c1a440aa264762e80
+      archive_sha256: 8666fb69306cb9fb51233bda57cbb7c6c83c2233b4f0ae99d37700b56333cf9c
+      design_hash: b3572b707552f318ff675ee2f6fcc3b9ff322f54
       case_hash: bbad595c791e710db706deb605447cbd8e2a1a08
   - case: G9
     criterion: no_steps_x_until_home
@@ -475,8 +476,8 @@ entries:
     worst_time: 12.501 s
     run:
       run_id: G9-seed9
-      archive_sha256: 90c12f85da4b2b99990cb9a6402d2867b571c5b9392d778d242162a36639b032
-      design_hash: ca9f92e7037ac718ec7f917c1a440aa264762e80
+      archive_sha256: 8666fb69306cb9fb51233bda57cbb7c6c83c2233b4f0ae99d37700b56333cf9c
+      design_hash: b3572b707552f318ff675ee2f6fcc3b9ff322f54
       case_hash: bbad595c791e710db706deb605447cbd8e2a1a08
   - case: G9
     criterion: no_steps_y_until_home
@@ -486,8 +487,8 @@ entries:
     worst_time: 12.501 s
     run:
       run_id: G9-seed9
-      archive_sha256: 90c12f85da4b2b99990cb9a6402d2867b571c5b9392d778d242162a36639b032
-      design_hash: ca9f92e7037ac718ec7f917c1a440aa264762e80
+      archive_sha256: 8666fb69306cb9fb51233bda57cbb7c6c83c2233b4f0ae99d37700b56333cf9c
+      design_hash: b3572b707552f318ff675ee2f6fcc3b9ff322f54
       case_hash: bbad595c791e710db706deb605447cbd8e2a1a08
   - case: G9
     criterion: not_homed_after_restore
@@ -497,8 +498,8 @@ entries:
     worst_time: 12.501 s
     run:
       run_id: G9-seed9
-      archive_sha256: 90c12f85da4b2b99990cb9a6402d2867b571c5b9392d778d242162a36639b032
-      design_hash: ca9f92e7037ac718ec7f917c1a440aa264762e80
+      archive_sha256: 8666fb69306cb9fb51233bda57cbb7c6c83c2233b4f0ae99d37700b56333cf9c
+      design_hash: b3572b707552f318ff675ee2f6fcc3b9ff322f54
       case_hash: bbad595c791e710db706deb605447cbd8e2a1a08
   - case: G9
     criterion: target_refused
@@ -508,8 +509,8 @@ entries:
     worst_time: 13.501 s
     run:
       run_id: G9-seed9
-      archive_sha256: 90c12f85da4b2b99990cb9a6402d2867b571c5b9392d778d242162a36639b032
-      design_hash: ca9f92e7037ac718ec7f917c1a440aa264762e80
+      archive_sha256: 8666fb69306cb9fb51233bda57cbb7c6c83c2233b4f0ae99d37700b56333cf9c
+      design_hash: b3572b707552f318ff675ee2f6fcc3b9ff322f54
       case_hash: bbad595c791e710db706deb605447cbd8e2a1a08
   - case: G10
     criterion: slip_carriage_stopped
@@ -519,9 +520,9 @@ entries:
     worst_time: 31.71 s
     run:
       run_id: G10-seed10
-      archive_sha256: b137d4b680d21e7d84e8f2322c2d738faa16951b9d6a7e2086b55cfdf5e39880
-      design_hash: ca9f92e7037ac718ec7f917c1a440aa264762e80
-      case_hash: ef105cf2f0eeb1fe7175756a53ec8767acfa974c
+      archive_sha256: e8dbc42027ea3d9a7a46a11194c2580cb282242665fc73d928391229a2e456bb
+      design_hash: b3572b707552f318ff675ee2f6fcc3b9ff322f54
+      case_hash: 2c1d6f0cebcb60d38232af5caf341350c9b2b071
   - case: G10
     criterion: slip_fault
     status: pass
@@ -530,9 +531,9 @@ entries:
     worst_time: 31.427 s
     run:
       run_id: G10-seed10
-      archive_sha256: b137d4b680d21e7d84e8f2322c2d738faa16951b9d6a7e2086b55cfdf5e39880
-      design_hash: ca9f92e7037ac718ec7f917c1a440aa264762e80
-      case_hash: ef105cf2f0eeb1fe7175756a53ec8767acfa974c
+      archive_sha256: e8dbc42027ea3d9a7a46a11194c2580cb282242665fc73d928391229a2e456bb
+      design_hash: b3572b707552f318ff675ee2f6fcc3b9ff322f54
+      case_hash: 2c1d6f0cebcb60d38232af5caf341350c9b2b071
   - case: G10
     criterion: slip_rehoming
     status: pass
@@ -541,9 +542,9 @@ entries:
     worst_time: 33.001 s
     run:
       run_id: G10-seed10
-      archive_sha256: b137d4b680d21e7d84e8f2322c2d738faa16951b9d6a7e2086b55cfdf5e39880
-      design_hash: ca9f92e7037ac718ec7f917c1a440aa264762e80
-      case_hash: ef105cf2f0eeb1fe7175756a53ec8767acfa974c
+      archive_sha256: e8dbc42027ea3d9a7a46a11194c2580cb282242665fc73d928391229a2e456bb
+      design_hash: b3572b707552f318ff675ee2f6fcc3b9ff322f54
+      case_hash: 2c1d6f0cebcb60d38232af5caf341350c9b2b071
   - case: G10
     criterion: slip_stopped_x
     status: pass
@@ -552,9 +553,9 @@ entries:
     worst_time: 32.0 s
     run:
       run_id: G10-seed10
-      archive_sha256: b137d4b680d21e7d84e8f2322c2d738faa16951b9d6a7e2086b55cfdf5e39880
-      design_hash: ca9f92e7037ac718ec7f917c1a440aa264762e80
-      case_hash: ef105cf2f0eeb1fe7175756a53ec8767acfa974c
+      archive_sha256: e8dbc42027ea3d9a7a46a11194c2580cb282242665fc73d928391229a2e456bb
+      design_hash: b3572b707552f318ff675ee2f6fcc3b9ff322f54
+      case_hash: 2c1d6f0cebcb60d38232af5caf341350c9b2b071
   - case: G10
     criterion: slip_stopped_y
     status: pass
@@ -563,9 +564,9 @@ entries:
     worst_time: 32.0 s
     run:
       run_id: G10-seed10
-      archive_sha256: b137d4b680d21e7d84e8f2322c2d738faa16951b9d6a7e2086b55cfdf5e39880
-      design_hash: ca9f92e7037ac718ec7f917c1a440aa264762e80
-      case_hash: ef105cf2f0eeb1fe7175756a53ec8767acfa974c
+      archive_sha256: e8dbc42027ea3d9a7a46a11194c2580cb282242665fc73d928391229a2e456bb
+      design_hash: b3572b707552f318ff675ee2f6fcc3b9ff322f54
+      case_hash: 2c1d6f0cebcb60d38232af5caf341350c9b2b071
   - case: G10
     criterion: slip_target_refused
     status: pass
@@ -574,9 +575,9 @@ entries:
     worst_time: 32.501 s
     run:
       run_id: G10-seed10
-      archive_sha256: b137d4b680d21e7d84e8f2322c2d738faa16951b9d6a7e2086b55cfdf5e39880
-      design_hash: ca9f92e7037ac718ec7f917c1a440aa264762e80
-      case_hash: ef105cf2f0eeb1fe7175756a53ec8767acfa974c
+      archive_sha256: e8dbc42027ea3d9a7a46a11194c2580cb282242665fc73d928391229a2e456bb
+      design_hash: b3572b707552f318ff675ee2f6fcc3b9ff322f54
+      case_hash: 2c1d6f0cebcb60d38232af5caf341350c9b2b071
   - case: G10
     criterion: stall_fault
     status: pass
@@ -585,9 +586,9 @@ entries:
     worst_time: 9.161 s
     run:
       run_id: G10-seed10
-      archive_sha256: b137d4b680d21e7d84e8f2322c2d738faa16951b9d6a7e2086b55cfdf5e39880
-      design_hash: ca9f92e7037ac718ec7f917c1a440aa264762e80
-      case_hash: ef105cf2f0eeb1fe7175756a53ec8767acfa974c
+      archive_sha256: e8dbc42027ea3d9a7a46a11194c2580cb282242665fc73d928391229a2e456bb
+      design_hash: b3572b707552f318ff675ee2f6fcc3b9ff322f54
+      case_hash: 2c1d6f0cebcb60d38232af5caf341350c9b2b071
   - case: G10
     criterion: stall_rehomed
     status: pass
@@ -596,9 +597,9 @@ entries:
     worst_time: 12.044 s
     run:
       run_id: G10-seed10
-      archive_sha256: b137d4b680d21e7d84e8f2322c2d738faa16951b9d6a7e2086b55cfdf5e39880
-      design_hash: ca9f92e7037ac718ec7f917c1a440aa264762e80
-      case_hash: ef105cf2f0eeb1fe7175756a53ec8767acfa974c
+      archive_sha256: e8dbc42027ea3d9a7a46a11194c2580cb282242665fc73d928391229a2e456bb
+      design_hash: b3572b707552f318ff675ee2f6fcc3b9ff322f54
+      case_hash: 2c1d6f0cebcb60d38232af5caf341350c9b2b071
   - case: G10
     criterion: stall_stopped_x
     status: pass
@@ -607,9 +608,9 @@ entries:
     worst_time: 10.0 s
     run:
       run_id: G10-seed10
-      archive_sha256: b137d4b680d21e7d84e8f2322c2d738faa16951b9d6a7e2086b55cfdf5e39880
-      design_hash: ca9f92e7037ac718ec7f917c1a440aa264762e80
-      case_hash: ef105cf2f0eeb1fe7175756a53ec8767acfa974c
+      archive_sha256: e8dbc42027ea3d9a7a46a11194c2580cb282242665fc73d928391229a2e456bb
+      design_hash: b3572b707552f318ff675ee2f6fcc3b9ff322f54
+      case_hash: 2c1d6f0cebcb60d38232af5caf341350c9b2b071
   - case: G10
     criterion: stall_stopped_y
     status: pass
@@ -618,9 +619,9 @@ entries:
     worst_time: 10.0 s
     run:
       run_id: G10-seed10
-      archive_sha256: b137d4b680d21e7d84e8f2322c2d738faa16951b9d6a7e2086b55cfdf5e39880
-      design_hash: ca9f92e7037ac718ec7f917c1a440aa264762e80
-      case_hash: ef105cf2f0eeb1fe7175756a53ec8767acfa974c
+      archive_sha256: e8dbc42027ea3d9a7a46a11194c2580cb282242665fc73d928391229a2e456bb
+      design_hash: b3572b707552f318ff675ee2f6fcc3b9ff322f54
+      case_hash: 2c1d6f0cebcb60d38232af5caf341350c9b2b071
   - case: G10
     criterion: stall_target_refused
     status: pass
@@ -629,9 +630,9 @@ entries:
     worst_time: 10.501 s
     run:
       run_id: G10-seed10
-      archive_sha256: b137d4b680d21e7d84e8f2322c2d738faa16951b9d6a7e2086b55cfdf5e39880
-      design_hash: ca9f92e7037ac718ec7f917c1a440aa264762e80
-      case_hash: ef105cf2f0eeb1fe7175756a53ec8767acfa974c
+      archive_sha256: e8dbc42027ea3d9a7a46a11194c2580cb282242665fc73d928391229a2e456bb
+      design_hash: b3572b707552f318ff675ee2f6fcc3b9ff322f54
+      case_hash: 2c1d6f0cebcb60d38232af5caf341350c9b2b071
   - case: G11
     criterion: limit_fault
     status: pass
@@ -640,8 +641,8 @@ entries:
     worst_time: 8.997 s
     run:
       run_id: G11-seed11
-      archive_sha256: 14b242e900a94dc334b13b5950877bd453f76b280445c8ba2848c295e2078cef
-      design_hash: ca9f92e7037ac718ec7f917c1a440aa264762e80
+      archive_sha256: 8fa4658fee0accccf641ca66e4cdfe3798e2ce9b93e2028f0e4af352e67e7526
+      design_hash: b3572b707552f318ff675ee2f6fcc3b9ff322f54
       case_hash: b40b3496907d02e02e28816595c072bf76a38ae8
   - case: G11
     criterion: rehoming
@@ -651,8 +652,8 @@ entries:
     worst_time: 10.501 s
     run:
       run_id: G11-seed11
-      archive_sha256: 14b242e900a94dc334b13b5950877bd453f76b280445c8ba2848c295e2078cef
-      design_hash: ca9f92e7037ac718ec7f917c1a440aa264762e80
+      archive_sha256: 8fa4658fee0accccf641ca66e4cdfe3798e2ce9b93e2028f0e4af352e67e7526
+      design_hash: b3572b707552f318ff675ee2f6fcc3b9ff322f54
       case_hash: b40b3496907d02e02e28816595c072bf76a38ae8
   - case: G11
     criterion: stopped_x
@@ -662,8 +663,8 @@ entries:
     worst_time: 9.4 s
     run:
       run_id: G11-seed11
-      archive_sha256: 14b242e900a94dc334b13b5950877bd453f76b280445c8ba2848c295e2078cef
-      design_hash: ca9f92e7037ac718ec7f917c1a440aa264762e80
+      archive_sha256: 8fa4658fee0accccf641ca66e4cdfe3798e2ce9b93e2028f0e4af352e67e7526
+      design_hash: b3572b707552f318ff675ee2f6fcc3b9ff322f54
       case_hash: b40b3496907d02e02e28816595c072bf76a38ae8
   - case: G11
     criterion: stopped_y
@@ -673,8 +674,8 @@ entries:
     worst_time: 9.4 s
     run:
       run_id: G11-seed11
-      archive_sha256: 14b242e900a94dc334b13b5950877bd453f76b280445c8ba2848c295e2078cef
-      design_hash: ca9f92e7037ac718ec7f917c1a440aa264762e80
+      archive_sha256: 8fa4658fee0accccf641ca66e4cdfe3798e2ce9b93e2028f0e4af352e67e7526
+      design_hash: b3572b707552f318ff675ee2f6fcc3b9ff322f54
       case_hash: b40b3496907d02e02e28816595c072bf76a38ae8
   - case: G11
     criterion: target_refused
@@ -684,9 +685,86 @@ entries:
     worst_time: 10.001 s
     run:
       run_id: G11-seed11
-      archive_sha256: 14b242e900a94dc334b13b5950877bd453f76b280445c8ba2848c295e2078cef
-      design_hash: ca9f92e7037ac718ec7f917c1a440aa264762e80
+      archive_sha256: 8fa4658fee0accccf641ca66e4cdfe3798e2ce9b93e2028f0e4af352e67e7526
+      design_hash: b3572b707552f318ff675ee2f6fcc3b9ff322f54
       case_hash: b40b3496907d02e02e28816595c072bf76a38ae8
+  - case: G12
+    criterion: estop_settle_x
+    status: fail
+    measured: 7.5 s
+    limit: settle within ${swing_settle_band} at_most ${swing_settle_time}
+    worst_time: 30.0 s
+    run:
+      run_id: G12-seed12-native
+      archive_sha256: 72f7355470601bf73b7246d5a42ce5d6b912b80a0f890b6fa5bd9b5807ad3264
+      design_hash: b3572b707552f318ff675ee2f6fcc3b9ff322f54
+      case_hash: a21240cad1227460c575175ec6f57d755cf0c5fa
+  - case: G12
+    criterion: estop_swing_x
+    status: pass
+    measured: 0.0449998900911 rad
+    limit: peak_absolute at_most ${swing_limit_angle}
+    worst_time: 23.502 s
+    run:
+      run_id: G12-seed12-native
+      archive_sha256: 72f7355470601bf73b7246d5a42ce5d6b912b80a0f890b6fa5bd9b5807ad3264
+      design_hash: b3572b707552f318ff675ee2f6fcc3b9ff322f54
+      case_hash: a21240cad1227460c575175ec6f57d755cf0c5fa
+  - case: G12
+    criterion: move_settle_x
+    status: fail
+    measured: 5.208 s
+    limit: settle within ${swing_settle_band} at_most ${swing_settle_time}
+    worst_time: 19.707 s
+    run:
+      run_id: G12-seed12-native
+      archive_sha256: 72f7355470601bf73b7246d5a42ce5d6b912b80a0f890b6fa5bd9b5807ad3264
+      design_hash: b3572b707552f318ff675ee2f6fcc3b9ff322f54
+      case_hash: a21240cad1227460c575175ec6f57d755cf0c5fa
+  - case: G12
+    criterion: move_settle_y
+    status: pass
+    measured: 0 s
+    limit: settle within ${swing_settle_band} at_most ${swing_settle_time}
+    worst_time: 14.5 s
+    run:
+      run_id: G12-seed12-native
+      archive_sha256: 72f7355470601bf73b7246d5a42ce5d6b912b80a0f890b6fa5bd9b5807ad3264
+      design_hash: b3572b707552f318ff675ee2f6fcc3b9ff322f54
+      case_hash: a21240cad1227460c575175ec6f57d755cf0c5fa
+  - case: G12
+    criterion: move_swing_x
+    status: pass
+    measured: 0.0131140468457 rad
+    limit: peak_absolute at_most ${swing_limit_angle}
+    worst_time: 12.855 s
+    run:
+      run_id: G12-seed12-native
+      archive_sha256: 72f7355470601bf73b7246d5a42ce5d6b912b80a0f890b6fa5bd9b5807ad3264
+      design_hash: b3572b707552f318ff675ee2f6fcc3b9ff322f54
+      case_hash: a21240cad1227460c575175ec6f57d755cf0c5fa
+  - case: G12
+    criterion: move_swing_y
+    status: pass
+    measured: 0.0105619633661 rad
+    limit: peak_absolute at_most ${swing_limit_angle}
+    worst_time: 8.623 s
+    run:
+      run_id: G12-seed12-native
+      archive_sha256: 72f7355470601bf73b7246d5a42ce5d6b912b80a0f890b6fa5bd9b5807ad3264
+      design_hash: b3572b707552f318ff675ee2f6fcc3b9ff322f54
+      case_hash: a21240cad1227460c575175ec6f57d755cf0c5fa
+  - case: G12
+    criterion: ready_after_homing
+    status: pass
+    measured: '2'
+    limit: state:ready present
+    worst_time: 5.222 s
+    run:
+      run_id: G12-seed12-native
+      archive_sha256: 72f7355470601bf73b7246d5a42ce5d6b912b80a0f890b6fa5bd9b5807ad3264
+      design_hash: b3572b707552f318ff675ee2f6fcc3b9ff322f54
+      case_hash: a21240cad1227460c575175ec6f57d755cf0c5fa
   - case: G13
     criterion: arrived_x
     status: pass
@@ -695,8 +773,8 @@ entries:
     worst_time: 20.0 s
     run:
       run_id: G13-seed13
-      archive_sha256: 2fb0fcf46a83e1682afb0b8f475caa9d7f4d32dea955167412ac3308bf2d8df9
-      design_hash: ca9f92e7037ac718ec7f917c1a440aa264762e80
+      archive_sha256: cbfce1ffb4face4000cf97864a6d4e583c0c3a2ad96003b679a4d0c027ca5494
+      design_hash: b3572b707552f318ff675ee2f6fcc3b9ff322f54
       case_hash: ab5ed97551743c4ed42c869f1e2152557786bfce
   - case: G13
     criterion: arrived_y
@@ -706,19 +784,19 @@ entries:
     worst_time: 20.0 s
     run:
       run_id: G13-seed13
-      archive_sha256: 2fb0fcf46a83e1682afb0b8f475caa9d7f4d32dea955167412ac3308bf2d8df9
-      design_hash: ca9f92e7037ac718ec7f917c1a440aa264762e80
+      archive_sha256: cbfce1ffb4face4000cf97864a6d4e583c0c3a2ad96003b679a4d0c027ca5494
+      design_hash: b3572b707552f318ff675ee2f6fcc3b9ff322f54
       case_hash: ab5ed97551743c4ed42c869f1e2152557786bfce
   - case: G13
     criterion: lift_held
     status: pass
-    measured: 1.11022302463e-16 m
+    measured: 0 m
     limit: every joint within ${hold_band} of its first sample
-    worst_time: 8.504 s
+    worst_time: 8.5 s
     run:
       run_id: G13-seed13
-      archive_sha256: 2fb0fcf46a83e1682afb0b8f475caa9d7f4d32dea955167412ac3308bf2d8df9
-      design_hash: ca9f92e7037ac718ec7f917c1a440aa264762e80
+      archive_sha256: cbfce1ffb4face4000cf97864a6d4e583c0c3a2ad96003b679a4d0c027ca5494
+      design_hash: b3572b707552f318ff675ee2f6fcc3b9ff322f54
       case_hash: ab5ed97551743c4ed42c869f1e2152557786bfce
   - case: G13
     criterion: lift_refused_busy
@@ -728,8 +806,8 @@ entries:
     worst_time: 8.5 s
     run:
       run_id: G13-seed13
-      archive_sha256: 2fb0fcf46a83e1682afb0b8f475caa9d7f4d32dea955167412ac3308bf2d8df9
-      design_hash: ca9f92e7037ac718ec7f917c1a440aa264762e80
+      archive_sha256: cbfce1ffb4face4000cf97864a6d4e583c0c3a2ad96003b679a4d0c027ca5494
+      design_hash: b3572b707552f318ff675ee2f6fcc3b9ff322f54
       case_hash: ab5ed97551743c4ed42c869f1e2152557786bfce
   - case: G13
     criterion: lift_refused_event
@@ -739,8 +817,8 @@ entries:
     worst_time: 8.5 s
     run:
       run_id: G13-seed13
-      archive_sha256: 2fb0fcf46a83e1682afb0b8f475caa9d7f4d32dea955167412ac3308bf2d8df9
-      design_hash: ca9f92e7037ac718ec7f917c1a440aa264762e80
+      archive_sha256: cbfce1ffb4face4000cf97864a6d4e583c0c3a2ad96003b679a4d0c027ca5494
+      design_hash: b3572b707552f318ff675ee2f6fcc3b9ff322f54
       case_hash: ab5ed97551743c4ed42c869f1e2152557786bfce
   - case: G13
     criterion: no_lift_steps
@@ -750,8 +828,8 @@ entries:
     worst_time: 8.5 s
     run:
       run_id: G13-seed13
-      archive_sha256: 2fb0fcf46a83e1682afb0b8f475caa9d7f4d32dea955167412ac3308bf2d8df9
-      design_hash: ca9f92e7037ac718ec7f917c1a440aa264762e80
+      archive_sha256: cbfce1ffb4face4000cf97864a6d4e583c0c3a2ad96003b679a4d0c027ca5494
+      design_hash: b3572b707552f318ff675ee2f6fcc3b9ff322f54
       case_hash: ab5ed97551743c4ed42c869f1e2152557786bfce
   - case: G14
     criterion: first_move_not_too_fast
@@ -761,8 +839,8 @@ entries:
     worst_time: 10.829 s
     run:
       run_id: G14-seed14
-      archive_sha256: 044a431bbaaea569d32d5f45beb0617e2cb07bbbfe0d45feea6e800138cb5b18
-      design_hash: ca9f92e7037ac718ec7f917c1a440aa264762e80
+      archive_sha256: 8d0bf62b399891bfa886537dfbcf4f6f1ff1f2b328c4846cb099ad1176f9e56c
+      design_hash: b3572b707552f318ff675ee2f6fcc3b9ff322f54
       case_hash: 4b2bd8f70e8b60a3740523474796952d769d9016
   - case: G14
     criterion: first_move_not_too_slow
@@ -772,8 +850,8 @@ entries:
     worst_time: 10.829 s
     run:
       run_id: G14-seed14
-      archive_sha256: 044a431bbaaea569d32d5f45beb0617e2cb07bbbfe0d45feea6e800138cb5b18
-      design_hash: ca9f92e7037ac718ec7f917c1a440aa264762e80
+      archive_sha256: 8d0bf62b399891bfa886537dfbcf4f6f1ff1f2b328c4846cb099ad1176f9e56c
+      design_hash: b3572b707552f318ff675ee2f6fcc3b9ff322f54
       case_hash: 4b2bd8f70e8b60a3740523474796952d769d9016
   - case: G14
     criterion: malformed_refused
@@ -783,8 +861,8 @@ entries:
     worst_time: 8.501 s
     run:
       run_id: G14-seed14
-      archive_sha256: 044a431bbaaea569d32d5f45beb0617e2cb07bbbfe0d45feea6e800138cb5b18
-      design_hash: ca9f92e7037ac718ec7f917c1a440aa264762e80
+      archive_sha256: 8d0bf62b399891bfa886537dfbcf4f6f1ff1f2b328c4846cb099ad1176f9e56c
+      design_hash: b3572b707552f318ff675ee2f6fcc3b9ff322f54
       case_hash: 4b2bd8f70e8b60a3740523474796952d769d9016
   - case: G14
     criterion: no_overlap_lift
@@ -793,8 +871,8 @@ entries:
     limit: no overlap of event:motion_start to event:motion_end on lift_driver
     run:
       run_id: G14-seed14
-      archive_sha256: 044a431bbaaea569d32d5f45beb0617e2cb07bbbfe0d45feea6e800138cb5b18
-      design_hash: ca9f92e7037ac718ec7f917c1a440aa264762e80
+      archive_sha256: 8d0bf62b399891bfa886537dfbcf4f6f1ff1f2b328c4846cb099ad1176f9e56c
+      design_hash: b3572b707552f318ff675ee2f6fcc3b9ff322f54
       case_hash: 4b2bd8f70e8b60a3740523474796952d769d9016
   - case: G14
     criterion: no_overlap_x
@@ -803,8 +881,8 @@ entries:
     limit: no overlap of event:motion_start to event:motion_end on x_driver
     run:
       run_id: G14-seed14
-      archive_sha256: 044a431bbaaea569d32d5f45beb0617e2cb07bbbfe0d45feea6e800138cb5b18
-      design_hash: ca9f92e7037ac718ec7f917c1a440aa264762e80
+      archive_sha256: 8d0bf62b399891bfa886537dfbcf4f6f1ff1f2b328c4846cb099ad1176f9e56c
+      design_hash: b3572b707552f318ff675ee2f6fcc3b9ff322f54
       case_hash: 4b2bd8f70e8b60a3740523474796952d769d9016
   - case: G14
     criterion: no_overlap_y
@@ -813,6 +891,77 @@ entries:
     limit: no overlap of event:motion_start to event:motion_end on y_driver
     run:
       run_id: G14-seed14
-      archive_sha256: 044a431bbaaea569d32d5f45beb0617e2cb07bbbfe0d45feea6e800138cb5b18
-      design_hash: ca9f92e7037ac718ec7f917c1a440aa264762e80
+      archive_sha256: 8d0bf62b399891bfa886537dfbcf4f6f1ff1f2b328c4846cb099ad1176f9e56c
+      design_hash: b3572b707552f318ff675ee2f6fcc3b9ff322f54
       case_hash: 4b2bd8f70e8b60a3740523474796952d769d9016
+  - case: G15
+    criterion: deflection_rail_x
+    status: pass
+    measured: 0.00113383895252 m
+    limit: maximum below 1 cm
+    worst_time: 16.548 s
+    run:
+      run_id: G15-seed15-native
+      archive_sha256: b0896b5bf39d4e0696117ed43bfcafb56dda76f517164bcb69a8aaf7fafc082b
+      design_hash: b3572b707552f318ff675ee2f6fcc3b9ff322f54
+      case_hash: 602e963cf548e1e4bd413cc10223c55944448b40
+  - case: G15
+    criterion: deflection_rail_y
+    status: error
+    limit: maximum below 1 cm
+    run:
+      run_id: G15-seed15-native
+      archive_sha256: b0896b5bf39d4e0696117ed43bfcafb56dda76f517164bcb69a8aaf7fafc082b
+      design_hash: b3572b707552f318ff675ee2f6fcc3b9ff322f54
+      case_hash: 602e963cf548e1e4bd413cc10223c55944448b40
+  - case: G15
+    criterion: ready_after_homing
+    status: pass
+    measured: '2'
+    limit: state:ready present
+    worst_time: 5.218 s
+    run:
+      run_id: G15-seed15-native
+      archive_sha256: b0896b5bf39d4e0696117ed43bfcafb56dda76f517164bcb69a8aaf7fafc082b
+      design_hash: b3572b707552f318ff675ee2f6fcc3b9ff322f54
+      case_hash: 602e963cf548e1e4bd413cc10223c55944448b40
+  - case: G15
+    criterion: safety_factor_rail_x
+    status: fail
+    measured: '1.4243543122'
+    limit: minimum at_least ${minimum_safety_factor}
+    worst_time: 16.549 s
+    run:
+      run_id: G15-seed15-native
+      archive_sha256: b0896b5bf39d4e0696117ed43bfcafb56dda76f517164bcb69a8aaf7fafc082b
+      design_hash: b3572b707552f318ff675ee2f6fcc3b9ff322f54
+      case_hash: 602e963cf548e1e4bd413cc10223c55944448b40
+  - case: G15
+    criterion: safety_factor_rail_y
+    status: error
+    limit: minimum at_least ${minimum_safety_factor}
+    run:
+      run_id: G15-seed15-native
+      archive_sha256: b0896b5bf39d4e0696117ed43bfcafb56dda76f517164bcb69a8aaf7fafc082b
+      design_hash: b3572b707552f318ff675ee2f6fcc3b9ff322f54
+      case_hash: 602e963cf548e1e4bd413cc10223c55944448b40
+  - case: G15
+    criterion: settled_deflection_rail_x
+    status: pass
+    measured: 0.00108056432275 m
+    limit: mean within 2 percent of 1.0976722e-3 m
+    worst_time: 15.0 s
+    run:
+      run_id: G15-seed15-native
+      archive_sha256: b0896b5bf39d4e0696117ed43bfcafb56dda76f517164bcb69a8aaf7fafc082b
+      design_hash: b3572b707552f318ff675ee2f6fcc3b9ff322f54
+      case_hash: 602e963cf548e1e4bd413cc10223c55944448b40
+  - case: G15
+    criterion: settled_deflection_rail_y
+    status: error
+    limit: mean within 2 percent of 7.384859e-4 m
+    run:
+      run_id: G15-seed15-native
+      archive_sha256: b0896b5bf39d4e0696117ed43bfcafb56dda76f517164bcb69a8aaf7fafc082b
+      design_hash: b3572b707552f318ff675ee2f6fcc3b9ff322f54
+      case_hash: 602e963cf548e1e4bd413cc10223c55944448b40

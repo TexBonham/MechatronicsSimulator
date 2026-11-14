@@ -570,8 +570,11 @@ STRUCTURAL_PARAMETERS: dict[str, dict[str, str]] = {
         "mass_per_length": "[mass] / [length]",
         "breaking_tension": FORCE,
         "rest_length": "[length]",
+        "end_fitting_mass": "[mass]",
     },
 }
+# Parameters with a catalog default (LIB-020): the rope's top end fitting, 1 g.
+STRUCTURAL_DEFAULTS = {"end_fitting_mass": 1e-3}
 
 
 def _structural_raw(type_name: str) -> dict[str, Any]:
@@ -607,7 +610,7 @@ def test_structural_type_parameters_are_positive_quantities(type_name: str) -> N
     for name, dimension in STRUCTURAL_PARAMETERS[type_name].items():
         assert dimensions_equal(quantities[name].dimension, dimension), name
         assert quantities[name].minimum == 0.0, name
-        assert quantities[name].default is None, name
+        assert quantities[name].default == STRUCTURAL_DEFAULTS.get(name), name
 
 
 @pytest.mark.req("LIB-030")
@@ -634,7 +637,13 @@ def test_hook_is_an_attach_point_with_capacity_and_a_rope_mount() -> None:
 @pytest.mark.req("LIB-020")
 def test_rope_is_the_adr_0016_element_with_snap_in_its_own_tier() -> None:
     component = load_catalog_file(CATALOG_DIR / "rope.yaml").types[0]
-    assert component.tier_parameters("ideal") == ["axial_stiffness", "damping", "mass_per_length", "rest_length"]
+    assert component.tier_parameters("ideal") == [
+        "axial_stiffness",
+        "damping",
+        "mass_per_length",
+        "rest_length",
+        "end_fitting_mass",
+    ]
     assert component.tier_parameters("breaking")[-1] == "breaking_tension"
     assert [item.parameter for item in component.ratings.absolute_maximums] == ["breaking_tension"]
     values = default_registry().part("rope_3mm_steel_generic").values
@@ -645,6 +654,7 @@ def test_rope_is_the_adr_0016_element_with_snap_in_its_own_tier() -> None:
             "mass_per_length": 0.035,
             "breaking_tension": 5.0e3,
             "rest_length": 0.3,
+            "end_fitting_mass": 1e-3,
         },
         rel=1e-15,
     )

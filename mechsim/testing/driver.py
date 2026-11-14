@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Literal, Protocol
 
 from mechsim.design.schema import Design
+from mechsim.record.validity import CarriedValidity
 from mechsim.testing.schema import Case, InitialState
 
 FaultOwner = Literal["signals", "physics", "controller"]
@@ -45,6 +46,7 @@ class RunConfig:
     controller_mode: Literal["native", "emulated"] | None
     dry: bool = False
     physics_adapter: str = "mujoco"
+    physics_substeps: int = 1
 
 
 @dataclass(frozen=True)
@@ -126,7 +128,12 @@ class RecordView(Protocol):
 
     `series` takes a case quantity reference (`signal:`, `pose:`, `joint:`, `state:`) or `actuator:<name>.position`
     and raises KeyError when the recording has no such series. `controller_states` has one entry per row.
+    `validity` the engine's carried-load validity record per carrying member (ruling 75: part of the view; a view
+    without it is an error, never read as valid); empty when the run carries nothing.
     """
+
+    @property
+    def validity(self) -> Sequence[CarriedValidity]: ...
 
     def times(self) -> Sequence[float]: ...
 

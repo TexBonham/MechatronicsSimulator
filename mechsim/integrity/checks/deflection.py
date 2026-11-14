@@ -40,7 +40,8 @@ class Deflection(IntegrityCheck):
                         member.name, "deflection", math.nan, 0.0, 1, inputs.deflection_limit, None, (NOT_EVALUATED,)
                     )
                 )
-                notes.append(not_evaluated_note(member.name))
+                if member.loads is not None:
+                    notes.append(not_evaluated_note(member.name))
                 continue
             history = node_deflection(member, inputs.bodies) * inputs.load_factor
             value, time = peak(history, inputs.times)

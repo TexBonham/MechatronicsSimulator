@@ -1,0 +1,28 @@
+# Integrity table of the gantry (ruling 27, brief M3-X1a item 2). Limits from the design's structural section: minimum
+# safety factor 1.5 and the 1 cm accuracy target as the deflection limit (plan assumption 6; gantry team 2026-11-11
+# for the 1.5). Tier 1 (strength, deflection, buckling, fastener) runs on the native adapter only; a bridge run with
+# this file carries the "tier 1 not evaluated" line and no member series (rulings 29, 34). Tier 2: impact, and
+# rope_snap for payload_rope. Strength stays at tier 1: at tier 2 its yield offset sends model change requests
+# through the physics party, and a native run then fails in the core binding ("coupling payload
+# 'ModelChangeRequests' has no Python form"; reported by M3-X1a, owner core/bindings). Fatigue and resonance are left
+# out: the printed PETG record holds no S-N data and the drive excitation table is not set (both owed by the gantry
+# team).
+schema_version: 1
+checks:
+  - check: strength
+  - check: deflection
+  - check: buckling
+  - check: fastener
+    parameters:
+      # PLACEHOLDER ratings until the gantry team gives fastener grades and counts (ruling 27; catalog grade ratings
+      # owed, M4): one load rating per mount, the fixed joints holding the frame on the world and rail_x on the frame.
+      ratings:
+        frame_mount: 2 kN
+        rail_x_mount: 2 kN
+  - check: impact
+    parameters:
+      impact_factor: 2.0
+      step_threshold: 50 N
+      window: 20 ms
+  - check: rope_snap
+    tier: 2

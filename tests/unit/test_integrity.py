@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import json
 import math
+import re
 from fractions import Fraction
 from pathlib import Path
 from types import SimpleNamespace
@@ -18,14 +19,24 @@ from mechsim.integrity import config as config_module
 from mechsim.integrity import registry as registry_module
 from mechsim.integrity.beam import effective_length_factor, first_frequency, node_deflection, peak
 from mechsim.integrity.checks.buckling import Buckling, BucklingParameters
-from mechsim.integrity.checks.fastener import Fastener, FastenerParameters
+from mechsim.integrity.checks.fastener import Fastener, FastenerParameters, rating
 from mechsim.integrity.checks.fatigue import cycles_to_failure, rainflow, reversals
 from mechsim.integrity.checks.impact import Impact, ImpactParameters, events
 from mechsim.integrity.checks.resonance import Resonance, ResonanceParameters
 from mechsim.integrity.checks.strength import Strength
 from mechsim.integrity.config import IntegrityConfig, config_for, load_config, parse_config
 from mechsim.integrity.export import load_case, write_beside
-from mechsim.integrity.inputs import member_axes, node_chains, recorded_body_count, run_inputs, section_properties
+from mechsim.integrity.inputs import (
+    MEMBER_SERIES as LOAD_SERIES,
+)
+from mechsim.integrity.inputs import (
+    _member_loads,
+    member_axes,
+    node_chains,
+    recorded_body_count,
+    run_inputs,
+    section_properties,
+)
 from mechsim.integrity.plugin import (
     BodyPoses,
     CheckResult,
@@ -35,16 +46,19 @@ from mechsim.integrity.plugin import (
     MemberInputs,
     NodeChain,
     NoParameters,
+    RopeLoads,
     RunInputs,
+    Spread,
     Wrenches,
 )
 from mechsim.integrity.service import IntegrityService
-from mechsim.integrity.table import THERMAL_NOTE, IntegrityReport, evaluate
+from mechsim.integrity.table import CARRIED_NOTE, THERMAL_NOTE, IntegrityReport, evaluate, window_note
 from mechsim.record.layout import MEMBER_SERIES, Columns
 from mechsim.record.stream import Recorder
 from mechsim.record.tick import BodyState, JointForce, MemberEndLoads, PhysicsOutputs, TickRecord, Wrench
 from mechsim.schema_base import StrictModel
 from mechsim.testing.driver import IntegrityResults, MemberSection, Series
+from mechsim.testing.schema import IntegritySettings
 from tests.reference.test_integrity_checks import (
     AREA,
     C_Y,
@@ -287,6 +301,7 @@ class _View:
         self.recording = recording
         self._times = tuple(float(t) for t in recording.series["time/seconds"].values)
         self._series = series or {}
+        self.validity: tuple[Any, ...] = ()
 
     def times(self) -> tuple[float, ...]:
         return self._times
@@ -456,7 +471,7 @@ def test_members_over_the_deflection_target_are_flagged() -> None:
     load = 50.0
     tip = load * LENGTH**3 / (3.0 * MODULUS * I_Z)
     (chain,), poses = cantilever_poses([[tip, tip]])
-    rail = member(cantilever(load), nodes=chain)
+    rail = member(cantilever(load, 2), nodes=chain)
     over = evaluate(IntegrityConfig(schema_version=1), inputs([rail], 2, deflection_limit=tip * 0.99, bodies=poses))
     assert over.member("rail").flags == ("deflection_over_target",)
     under = evaluate(IntegrityConfig(schema_version=1), inputs([rail], 2, deflection_limit=tip * 1.01, bodies=poses))
@@ -573,6 +588,99 @@ def test_the_service_evaluates_a_build_with_the_designs_folder_configuration(tmp
     report = given(build, None, _recorded(_cantilever_rows(1.0)))  # type: ignore[arg-type]
     assert report is not None
     assert [result.check for result in report.checks] == ["strength", "deflection"]
+
+
+def _case(carried: bool = False, start: float = 0.0) -> Any:
+    settings = IntegritySettings.model_validate({"design_load_carried": carried, "evaluate_from": f"{start!r} s"})
+    return SimpleNamespace(integrity=settings)
+
+
+@pytest.mark.req("INT-019", "TST-043")
+def test_a_case_carrying_the_design_load_gets_factor_one_and_a_line(tmp_path: Path) -> None:
+    # Ruling 52: the design's rule (allowance 3/20) scales the recorded loads by 1.15 unless the case states that its
+    # payload already carries the design load; then the factor is 1 and the report says so. Root stress of the
+    # recorded tip load P = 10 N: P L c / I.
+    service = IntegrityService(tmp_path, config=IntegrityConfig(schema_version=1))
+    build = SimpleNamespace(design=_design("3/20"), members=(_member(),))
+    recorded = 10.0 * LENGTH * C_Y / I_Z
+    for case, factor, lines in (
+        (None, 1.15, ()),
+        (SimpleNamespace(integrity=None), 1.15, ()),
+        (_case(carried=False), 1.15, ()),
+        (_case(carried=True), 1.0, (CARRIED_NOTE,)),
+    ):
+        report = service(build, case, _recorded(_cantilever_rows(10.0)))
+        assert report is not None
+        assert report.load_factor == factor
+        assert report.member("rail").peak_stress == pytest.approx(factor * recorded, rel=1e-12)
+        assert tuple(note for note in report.notes if note == CARRIED_NOTE) == lines
+    # A design without the rule: factor 1 either way and no line (nothing was dropped).
+    plain = SimpleNamespace(design=_design(None), members=(_member(),))
+    report = service(plain, _case(carried=True), _recorded(_cantilever_rows(10.0)))
+    assert report is not None
+    assert report.load_factor == 1.0
+    assert CARRIED_NOTE not in report.notes
+
+
+@pytest.mark.req("TST-044", "INT-005", "INT-010", "INT-022")
+def test_results_count_from_the_cases_evaluation_start(tmp_path: Path) -> None:
+    # Ticks at 0, 1, ..., 5 ms; a 40 N start transient in the first two rows, 10 N after. From 2 ms on the peak stress
+    # is that of 10 N and its time 2 ms; the mount's reaction and the rope tension count from there too. A start
+    # between samples counts from the next sample; a start past the last sample is an error.
+    rows = [_cantilever_rows(40.0, 1)[0]] * 2 + [_cantilever_rows(10.0, 1)[0]] * 4
+    service = IntegrityService(tmp_path, config=IntegrityConfig(schema_version=1))
+    build = SimpleNamespace(design=_design("0"), members=(_member(),))
+    whole = service(build, _case(), _recorded(rows))
+    assert whole is not None
+    assert whole.member("rail").peak_stress == pytest.approx(40.0 * LENGTH * C_Y / I_Z, rel=1e-12)
+    assert not any("evaluation from" in note for note in whole.notes)
+    for start in (2e-3, 1.5e-3):
+        late = service(build, _case(start=start), _recorded(rows))
+        assert late is not None
+        assert late.member("rail").peak_stress == pytest.approx(10.0 * LENGTH * C_Y / I_Z, rel=1e-12)
+        assert late.member("rail").peak_stress_time == pytest.approx(2e-3)
+        assert late.times[0] == pytest.approx(2e-3)
+        assert window_note(start) in late.notes
+    with pytest.raises(IntegrityError, match="evaluation from"):
+        service(build, _case(start=0.01), _recorded(rows))
+
+
+@pytest.mark.req("TST-044")
+def test_the_window_cuts_every_per_sample_input() -> None:
+    rows = 4
+    times = np.arange(rows) * 1e-3
+    force = np.arange(rows * 3, dtype=np.float64).reshape(rows, 3)
+    joint = JointLoads("bolts", "fastener", "j", force, force + 1.0)
+    rope = RopeLoads("rope", np.arange(rows, dtype=np.float64))
+    poses = BodyPoses(np.zeros((rows, 1, 3)), np.ones((rows, 1, 4)))
+
+    def reader(reference: str) -> tuple[np.ndarray, np.ndarray]:
+        return times, times * 2.0
+
+    full = RunInputs(
+        times,
+        (member(cantilever(1.0, rows)),),
+        {},
+        TEMPERATURE,
+        joints=(joint,),
+        ropes=(rope,),
+        bodies=poses,
+        series=reader,
+    )
+    assert full.windowed(0.0) is full
+    cut = full.windowed(2e-3)
+    assert cut.times.tolist() == pytest.approx([2e-3, 3e-3])
+    loads = cut.members[0].loads
+    assert loads is not None
+    assert loads.start_force.shape == (2, 3)
+    assert cut.joints[0].force.tolist() == force[2:].tolist()
+    assert cut.joints[0].moment.tolist() == (force[2:] + 1.0).tolist()
+    assert cut.ropes[0].tension.tolist() == [2.0, 3.0]
+    assert cut.bodies is not None
+    assert cut.bodies.positions.shape == (2, 1, 3)
+    series_times, values = cut.series("x")
+    assert series_times.tolist() == pytest.approx([2e-3, 3e-3])
+    assert values.tolist() == pytest.approx([4e-3, 6e-3])
 
 
 # ===== Thermal slot and wear seam (INT-036, INT-037) ====================
@@ -756,6 +864,31 @@ def test_fastener_edges() -> None:
         Fastener().evaluate(inputs([], rows, joints=(bare,)), FastenerParameters(), 1)
 
 
+@pytest.mark.req("INT-010", "INT-023")
+def test_a_rated_mount_and_a_rated_fastener_both_give_rows_by_the_one_rule() -> None:
+    # One rule (`fastener.rating`) for the post-run check and the tier 1 table: every fastener set needs a rating, a
+    # mount is rated when given one. Peak 500 N (3-4-5 reaction) on the mount against 1 kN, margin 2; 300 N on the
+    # fastener against 600 N, margin 2; an unrated mount gives no row.
+    rows = 2
+    mount = JointLoads("base_mount", "mount", "m", np.tile([300.0, 400.0, 0.0], (rows, 1)), np.zeros((rows, 3)))
+    bolts = JointLoads("bolts", "fastener", "b", np.tile([0.0, 0.0, 300.0], (rows, 1)), np.zeros((rows, 3)))
+    spare = JointLoads("spare_mount", "mount", "s", np.tile([0.0, 0.0, 900.0], (rows, 1)), np.zeros((rows, 3)))
+    rated = FastenerParameters.model_validate({"ratings": {"base_mount": "1 kN", "bolts": "600 N"}})
+    result = Fastener().evaluate(inputs([], rows, joints=(mount, bolts, spare)), rated, 1)
+    assert [(row.subject, row.value, row.limit) for row in result.rows] == [
+        ("base_mount", 500.0, 1000.0),
+        ("bolts", 300.0, 600.0),
+    ]
+    assert [row.margin for row in result.rows] == [Spread(2.0, 2.0, 2.0), Spread(2.0, 2.0, 2.0)]
+    assert rating("base_mount", "mount", rated.ratings) == 1000.0
+    assert rating("spare_mount", "mount", rated.ratings) is None
+    assert rating("bolts", "fastener", rated.ratings) == 600.0
+    with pytest.raises(IntegrityError, match="fastener 'loose': no load rating"):
+        rating("loose", "fastener", rated.ratings)
+    with pytest.raises(IntegrityError, match="fastener 'base_mount': no load rating"):
+        rating("base_mount", "mount", {"base_mount": 0.0})
+
+
 @pytest.mark.req("INT-011")
 def test_impact_events_are_one_per_window_and_include_mounts() -> None:
     times = np.arange(10) * 1e-3
@@ -816,7 +949,7 @@ def test_impact_rows_carry_their_own_margin_flag() -> None:
 def test_the_member_axis_comes_from_the_lumped_placement() -> None:
     # Placement turned +90 deg about z: q = (cos 45, 0, 0, sin 45) maps x to y.
     half = math.sqrt(0.5)
-    section = SimpleNamespace(length=0.5)
+    section = SimpleNamespace(length=0.5, elastic_modulus=7e10, second_moment_of_area=1e-8)
     lumped = (
         SimpleNamespace(
             name="rail_chain",
@@ -853,8 +986,8 @@ def test_the_member_axis_comes_from_the_lumped_placement() -> None:
     assert run_inputs(build, posed, _views()).members[0].axis_body == pytest.approx((0.0, 1.0, 0.0), abs=1e-15)
     # Node chains follow the neutral bodies in lumped order; a pinned root adds its pin segment as node 0.
     chains = node_chains(SimpleNamespace(lumped_members=lumped, bodies=bodies))
-    assert chains["rail"] == NodeChain(2, 8, "clamped", 1, (0.1, 0.0, 0.0), (half, 0.0, 0.0, half), 0.0625)
-    assert chains["other"] == NodeChain(10, 5, "pinned", None, (0.0, 0.0, 0.0), (1.0, 0.0, 0.0, 0.0), 0.125)
+    assert chains["rail"] == NodeChain(2, 8, "clamped", 1, (0.1, 0.0, 0.0), (half, 0.0, 0.0, half), 0.0625, 11200.0)
+    assert chains["other"] == NodeChain(10, 5, "pinned", None, (0.0, 0.0, 0.0), (1.0, 0.0, 0.0, 0.0), 0.125, 5600.0)
     assert node_chains(None) == {}
     rigid = run_inputs(
         SimpleNamespace(design=_design("0"), members=(_member(),)), _recorded(_cantilever_rows(1.0)), _views()
@@ -895,7 +1028,7 @@ def _lumped(name: str, parent: str, root: str, segments: int) -> SimpleNamespace
         parent=parent,
         root=root,
         segments=segments,
-        section=SimpleNamespace(length=1.0),
+        section=SimpleNamespace(length=1.0, elastic_modulus=7e10, second_moment_of_area=1e-8),
     )
 
 
@@ -950,14 +1083,25 @@ def _flexible_build() -> SimpleNamespace:
     )
 
 
+def _bodies_of(view: _View) -> Any:
+    """The pose check of a recording read without its body names: the build's layout count."""
+    from mechsim.integrity.inputs import _bodies
+
+    model = _flexible_build().physics
+    rows = len(view.times())
+    return _bodies(view.recording.series, rows, model, node_chains(model), ())
+
+
 @pytest.mark.req("INT-006")
 def test_the_recorded_body_count_must_equal_neutral_bodies_plus_member_nodes() -> None:
     # 2 neutral bodies + 8 + 5 nodes = 15; a recording of 14 poses per sample (one neutral body short, every node
-    # named) names both counts.
+    # named) names the missing body; without names the layout count names both counts.
     assert recorded_body_count(_flexible_build().physics) == 15
     assert run_inputs(_flexible_build(), _posed(_cantilever_rows(1.0), _NAMES), _views()).bodies is not None
-    with pytest.raises(IntegrityError, match="has 14 body poses per sample, the model 15"):
+    with pytest.raises(IntegrityError, match=r"the published bodies \(14\) name no \['frame'\]"):
         run_inputs(_flexible_build(), _posed(_cantilever_rows(1.0), _NAMES[1:]), _views())
+    with pytest.raises(IntegrityError, match="has 14 body poses per sample, the model 15"):
+        _bodies_of(_posed(_cantilever_rows(1.0), _NAMES[1:]))
 
 
 @pytest.mark.req("INT-006")
@@ -969,3 +1113,108 @@ def test_a_flexible_run_missing_the_body_series_is_an_error_not_built_rigid() ->
         SimpleNamespace(design=_design("0"), members=(_member(),)), _recorded(_cantilever_rows(1.0)), _views()
     )
     assert rigid.bodies is None
+
+
+# ===== Rigid builds (rulings 29, 34, 60) ================================
+
+_RIGID_CHECKS = {
+    "schema_version": 1,
+    "checks": [
+        {"check": "strength", "tier": 2},
+        {"check": "deflection"},
+        {"check": "buckling"},
+        {"check": "fatigue"},
+        {"check": "impact", "parameters": {"impact_factor": 2.0, "step_threshold": "50 N", "window": "20 ms"}},
+    ],
+}
+
+
+def _rigid_build(lumped: tuple[Any, ...] = ()) -> SimpleNamespace:
+    """The bridge's build (BLD-033): a physics model without lumped members, the member list kept."""
+    return SimpleNamespace(
+        design=_design("3/20", "3/2"),
+        members=(_member(),),
+        physics=SimpleNamespace(lumped_members=lumped, bodies=_TWO, fastenings=(), ropes=()),
+    )
+
+
+@pytest.mark.req("INT-005", "INT-006", "SCO-029")
+def test_a_rigid_member_is_not_evaluated_by_every_check_reading_end_loads_or_node_poses(tmp_path: Path) -> None:
+    from mechsim.scoring.score import _StructuralView, _UnevaluableError
+
+    run = run_inputs(_rigid_build(), _recorded(_cantilever_rows(1.0), names=()), _views())
+    assert run.members[0].loads is None
+    report = evaluate(parse_config(_RIGID_CHECKS, "c"), run)
+    row = report.member("rail")
+    assert math.isnan(row.peak_stress)
+    assert math.isnan(row.safety_factor)
+    assert math.isnan(row.deflection)
+    assert "end_loads_not_evaluated" in row.flags
+    assert STATIC in row.flags
+    for result in report.checks:
+        (found,) = [item for item in result.rows if item.subject == "rail"][:1]
+        assert math.isnan(found.value), result.check
+    lines = [note for note in report.notes if "'rail'" in note]
+    assert lines == [
+        "member 'rail': strength, deflection, buckling, fatigue, impact not evaluated, the member is built rigid and "
+        "the run recorded no end-loads or node poses (rulings 29, 34)"
+    ]
+    view = _StructuralView(_recorded(_cantilever_rows(1.0), names=()), report)
+    for reference in ("safety_factor:rail", "deflection:rail"):
+        with pytest.raises(_UnevaluableError, match="not evaluated by integrity"):
+            view.series(reference)
+    # The load case leaves the rigid member out; the report is still written.
+    archive = tmp_path / "run.mrec"
+    metadata = SimpleNamespace(
+        members=(MemberSection("rail", "petg_printed", AREA, I_Z, LENGTH),),
+        design_name="machine",
+        design_version="0.1.0",
+        run_id="r",
+    )
+    written = write_beside(archive, report, _recorded(_cantilever_rows(1.0), names=()), metadata)
+    assert [path.name for path in written] == ["run.integrity.json"]
+
+
+@pytest.mark.req("INT-005")
+def test_a_flexible_member_or_a_build_without_a_model_still_needs_its_end_loads() -> None:
+    lumped = (
+        SimpleNamespace(**{**vars(_lumped("rail_chain", "carriage", "clamped", 8)), "structural_member": "rail"}),
+    )
+    with pytest.raises(IntegrityError, match="member 'rail': no recorded end-loads"):
+        run_inputs(_rigid_build(lumped), _recorded(_cantilever_rows(1.0), names=()), _views())
+    with pytest.raises(IntegrityError, match="member 'rail': no recorded end-loads"):
+        run_inputs(
+            SimpleNamespace(design=_design("0"), members=(_member(),)),
+            _recorded(_cantilever_rows(1.0), names=()),
+            _views(),
+        )
+    # A rigid member whose end-loads were recorded is evaluated from them.
+    recorded = run_inputs(_rigid_build(), _recorded(_cantilever_rows(1.0)), _views())
+    assert recorded.members[0].loads is not None
+
+
+@pytest.mark.req("INT-005")
+@pytest.mark.parametrize("recorded", [1, 2, 3])
+def test_a_rigid_member_with_only_some_end_load_series_is_a_partial_recording(recorded: int) -> None:
+    values = np.zeros((2, 1, 3))
+    series: dict[str, Any] = {path: SimpleNamespace(names=("rail",), values=values) for path in LOAD_SERIES}
+    for path in LOAD_SERIES[recorded:]:
+        series[path] = SimpleNamespace(names=("other",), values=values)
+    with pytest.raises(IntegrityError, match="member 'rail': partial end-load recording"):
+        _member_loads(series, "rail", 2, True)
+    for path in LOAD_SERIES[recorded:]:
+        del series[path]
+    with pytest.raises(IntegrityError, match=re.escape(f"lacks {list(LOAD_SERIES[recorded:])}")):
+        _member_loads(series, "rail", 2, True)
+
+
+@pytest.mark.req("INT-005")
+def test_a_rigid_member_with_no_or_all_end_load_series_is_not_evaluated_or_read() -> None:
+    values = np.zeros((2, 1, 3))
+    assert _member_loads({}, "rail", 2, True) is None
+    others = {path: SimpleNamespace(names=("other",), values=values) for path in LOAD_SERIES}
+    assert _member_loads(others, "rail", 2, True) is None
+    full = {path: SimpleNamespace(names=("rail",), values=values) for path in LOAD_SERIES}
+    loads = _member_loads(full, "rail", 2, True)
+    assert loads is not None
+    assert loads.start_force.shape == (2, 3)

@@ -90,6 +90,7 @@ struct MultibodyOutputs {
     std::vector<MemberOutput> members;  // per model.members, at the step's start state like joints (ENG-030)
     std::vector<RopeOutput> ropes;      // per model.ropes, at the end state (PHY-004)
     std::vector<PayloadOutput> payloads;   // one per attachment, at the step's start state (ENG-035)
+    std::vector<CarriedLoadOutput> carried;  // per carried joint, member order, the pair applied this step (ENG-052)
     std::vector<ModelChangeEvent> events;  // changes applied in this step and snaps detected at its end
     double time = 0.0;  // end of the step, s
 };
@@ -167,6 +168,13 @@ public:
     // Rope rest length for the next step on (winch), m, finite and > 0 (ENG-047); not an event.
     void set_rope_rest_length(Eigen::Index rope, double length);
     [[nodiscard]] std::vector<RopeOutput> rope_states(const Eigen::VectorXd& q, const Eigen::VectorXd& v) const;
+    // Generalized force at q of the carried joints' rerouted pairs with the loads the next step applies (ENG-052);
+    // before the first step, the first step's static loads at (q, 0).
+    [[nodiscard]] Eigen::VectorXd carried_generalized_forces(const Eigen::VectorXd& q) const;
+    // The carried masses' block of the generalized mass matrix at q, the sum of m_c G^T G (ENG-052, member_loads.hpp
+    // Carried mass): (1/2) v^T B v is the kinetic energy of the carried masses' deflection motion. Zero without
+    // carried joints.
+    [[nodiscard]] Eigen::MatrixXd carried_mass_matrix(const Eigen::VectorXd& q) const;
 
     StepHealth step(Integrator& integrator, State& state);
     [[nodiscard]] const MultibodyOutputs& outputs() const noexcept;
@@ -204,7 +212,35 @@ private:
     void add_rope_wrenches(const Kinematics& kin, std::vector<spatial::Vector6d>& wrenches) const;
     void add_rope_terms(const Kinematics& kin, DynamicsTerms& terms) const;
     void setup_members_and_ropes();
+    [[nodiscard]] std::vector<CarriedPair> carried_pairs(const Kinematics& kin,
+                                                         const std::vector<spatial::Vector6d>& loads) const;
+    void add_carried_wrenches(const Kinematics& kin, const std::vector<spatial::Vector6d>& loads,
+                              std::vector<spatial::Vector6d>& wrenches) const;
+    [[nodiscard]] std::vector<spatial::Vector6d> static_carried_loads(const Kinematics& kin) const;
+    [[nodiscard]] Eigen::RowVectorXd carried_rate_row(const Kinematics& kin, const CarriedPair& pair) const;
+    [[nodiscard]] double carried_mass(Eigen::Index joint) const;
+    [[nodiscard]] Eigen::MatrixXd carried_mass_block(const Kinematics& kin) const;
+    void add_carried_inertia_wrenches(const Kinematics& kin, const Eigen::VectorXd& qdd,
+                                      const Eigen::VectorXd& before_v, double h,
+                                      std::vector<spatial::Vector6d>& wrenches) const;
+    [[nodiscard]] CarriedPair carried_pair_at_position(const Kinematics& kin, Eigen::Index joint, double s) const;
+    [[nodiscard]] bool carried_moved(Eigen::Index joint, const CarriedPair& pair) const;
+    void add_carried_momentum_force(const Kinematics& kin, const Eigen::VectorXd& v, DynamicsTerms& terms) const;
+    void prepare_carried(const State& before, double h);
+    void check_carried_stability(const State& before, double h);
+    void compute_member_compliance(const Kinematics& kin, const Eigen::MatrixXd& modes,
+                                   const Eigen::VectorXd& omega_squared, const Eigen::MatrixXd& modal_damping,
+                                   double h);
+    void record_carried_validity(const Kinematics& kin, const std::vector<CarriedPair>& pairs, const State& before,
+                                 const State& after, double h);
+    [[nodiscard]] Eigen::MatrixXd angular_jacobian(const Kinematics& kin, Eigen::Index body) const;
     void record_members_and_ropes(const State& before, const State& after, double h);
+    // The evaluation starts as step counts (ENG-047, ENG-052): steps taken since load, and the first step index at or
+    // after each start, fixed at the first step: n = max(0, ceil((start - t_0) / h - 1e-9)), t_0 and h that step's.
+    [[nodiscard]] static std::int64_t start_step(double start, double t0, double h);
+    std::int64_t step_index_ = 0;
+    std::int64_t carried_start_step_ = 0;
+    std::int64_t rope_start_step_ = 0;
     void check_constraint_change(Eigen::Index constraint) const;
     ModelChangeEvent release_load(LoadSource source, Eigen::Index target, double time);
     Eigen::Index release_payload(Eigen::Index body);
@@ -258,7 +294,47 @@ private:
     std::vector<std::uint8_t> constraint_enabled_;  // per constraint, persistent (ENG-033)
     std::vector<double> rope_rest_;                 // per rope, current rest length, m
     std::vector<std::uint8_t> rope_attached_;       // per rope, to_body attachment held
+    std::vector<double> rope_held_tension_;         // per rope, RopeOutput::held_tension
     std::vector<ModelChangeEvent> pending_events_;  // listed in the next step's outputs
+    struct CarriedJoint {
+        Eigen::Index member = 0;
+        Eigen::Index body = 0;
+        std::vector<Eigen::Index> subtree;  // the body and its tree descendants: the carried mass m_c
+    };
+    std::vector<CarriedJoint> carried_;               // member order, then each member's carried order
+    std::vector<spatial::Vector6d> carried_load_;     // per carried_, world-aligned [M about r_c; F] on the member
+    bool carried_ready_ = false;                      // carried_load_ holds a reaction (else computed at step start)
+    std::vector<CarriedLoadOutput> carried_stability_;  // per carried_, the lag's stability fields at load
+    // per carried_, the base's floor: max over the joint's travel of C(s) W at load (member_loads.hpp, Definition (c))
+    std::vector<double> carried_travel_floor_;
+    void compute_travel_floor(const Kinematics& kin, const State& before, const std::vector<CarriedPair>& pairs);
+    // Per member, at load (member_loads.hpp, Work and validity): node compliances and gravity deflection, empty for
+    // a member that carries nothing; and the running work and validity state.
+    struct MemberCompliance {
+        Eigen::MatrixXd force;    // C_f, m/N
+        Eigen::MatrixXd moment;   // C_m, m/(N m)
+        Eigen::VectorXd gravity;  // d_g, m
+        double window_periods = 0.0;    // N (member_loads.hpp, Validity)
+        Eigen::Index bucket_steps = 1;  // b
+    };
+    std::vector<MemberCompliance> member_compliance_;
+    // The base's sliding window per member: a fixed ring of 4 ceil(N) bucket maxima and the bucket being filled.
+    struct MemberWindow {
+        std::vector<double> buckets;
+        std::size_t next = 0;      // the oldest bucket, overwritten when the current one is full
+        Eigen::Index filled = 0;   // steps in the current bucket
+        double current = 0.0;      // the current bucket's largest abs(u_qs), m
+        double stored = 0.0;       // the largest over the ring, m
+    };
+    std::vector<MemberWindow> member_window_;
+    // The momentum form (member_loads.hpp, Carried mass): s of each carried joint at the previous step's start, and
+    // whether one exists; the force is added only while step() runs the integrator.
+    std::vector<double> carried_previous_position_;
+    std::vector<double> carried_start_position_;  // s at this step's start, from prepare_carried
+    bool carried_has_previous_ = false;
+    bool carried_momentum_active_ = false;
+    double carried_step_ = 0.0;  // h of the step in progress, s
+    std::vector<MemberOutput> member_validity_;  // the running fields of MemberOutput, per member
     // Written by the const step hooks for step(); single-threaded by ENG-023.
     mutable std::vector<Eigen::VectorXd> impulse_;
     mutable std::vector<ConstraintError> error_;

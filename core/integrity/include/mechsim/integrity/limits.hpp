@@ -24,6 +24,13 @@ struct Support {
     SupportCondition condition = SupportCondition::clamped;
 };
 
+// A joint the member carries (ENG-052): its child body in PhysicsOutputs::bodies and its reaction in
+// PhysicsOutputs::joints.
+struct CarriedJoint {
+    std::size_t body = 0;
+    std::size_t joint = 0;
+};
+
 // The lumped chain's node bodies in PhysicsOutputs::bodies (after the neutral bodies, root to tip; a pinned root's pin
 // segment is node 0) and the root frame: the parent body (none: world) and the member placement in it.
 struct NodeChain {
@@ -33,6 +40,12 @@ struct NodeChain {
     std::optional<std::size_t> parent_body;
     std::array<double, 3> position{};
     std::array<double, 4> orientation{1.0, 0.0, 0.0, 0.0};  // w first
+    bool carries = false;  // the member carries a joint (ENG-052): strength reads the moments at its loads (ruling 75)
+    std::vector<CarriedJoint> carried;  // the carried joints, each read at its foot point (rulings 71, 75)
+    // Ruling 79: 3 w l^2 (N m) and the stretches [lo, hi] (m) where the own weight's moment hogs; a carried couple
+    // applied there can make the read low by up to the bound. Optional key `hogging`; absent: 0 and none.
+    double hogging_bound = 0.0;
+    std::vector<std::array<double, 2>> hogging;
 };
 
 // One structural member, SI, the member frame of ruling 24 (x start to end, y and z the section's principal axes).
@@ -65,12 +78,16 @@ struct FasteningLimits {
     std::string name;
     std::size_t joint = 0;    // in PhysicsOutputs::joints
     double load_limit = 0.0;  // N: the rating over the minimum safety factor
+    std::optional<std::size_t> member;  // a mount: the held member's place in Limits::members (ruling 75)
 };
 
 struct Limits {
     std::vector<MemberLimits> members;
     std::vector<FasteningLimits> fastenings;
     double minimum_safety_factor = 1.0;
+    // Bodies physics publishes per tick (neutral bodies, those a case adds at run time, member nodes), from the
+    // prepared native model; when set the party requires exactly this many. Absent or null: not checked.
+    std::optional<std::size_t> bodies;
     bool stress = false;
     bool buckling = false;
     bool deflection = false;

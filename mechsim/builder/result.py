@@ -8,7 +8,7 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict
 
 from mechsim.design.schema import Design
-from mechsim.physics.neutral import PhysicsModel, StructuralMember
+from mechsim.physics.neutral import PhysicsModel, Rope, StructuralMember
 
 
 class BuildError(ValueError):
@@ -133,7 +133,9 @@ class ChipConfig(_Out):
 class LumpedRecord(_Out):
     """A lumped member as the engine will lump it, with the calibration the design records for it and the scale
     factors applied to the member's E (`stiffness_scale`) and density (`mass_scale`) to reproduce it (BLD-019);
-    `calibrated` false: the member uses its section and material as is."""
+    `calibrated` false: the member uses its section and material as is. `first_frequency` is the lumped chain's
+    unloaded first mode (rad/s), `damping_ratio` the design's (None: undamped) and `node_damping` its conversion
+    (N m s/rad, BLD-040)."""
 
     member: str
     body: str
@@ -149,6 +151,9 @@ class LumpedRecord(_Out):
     calibration_frequency: float | None = None
     stiffness_scale: float | None = None
     mass_scale: float | None = None
+    first_frequency: float | None = None
+    damping_ratio: float | None = None
+    node_damping: float = 0.0
 
 
 class BuildResult(_Out):
@@ -165,6 +170,7 @@ class BuildResult(_Out):
     lumped: tuple[LumpedRecord, ...]
     pending: tuple[str, ...]
     notes: tuple[str, ...]
+    payload_ropes: tuple[Rope, ...] = ()
 
     def to_json(self) -> str:
         """Canonical JSON: the same build gives the same bytes (BLD-026)."""

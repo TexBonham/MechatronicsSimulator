@@ -15,7 +15,7 @@ from __future__ import annotations
 import math
 from abc import ABC, abstractmethod
 from collections.abc import Callable, Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Annotated, Any, ClassVar, Literal, Protocol
 
 import numpy as np
@@ -147,7 +147,11 @@ class NodeChain:
     """Where a lumped member's chain sits among the recorded body poses (`physics/bodies/*`, the native adapter's
     `PhysicsOutputs.bodies`: the neutral bodies, then each lumped member's node bodies root to tip, a pinned root's
     pin segment as node 0), and its root frame: the parent body's index (None: the world) with the member's placement
-    in it. `segment_length` l = L / N: the last node's far end lies l / 2 along its x (INT-006, ruling 28)."""
+    in it. `segment_length` l = L / N: the last node's far end lies l / 2 along its x (INT-006, ruling 28);
+    `stiffness` the node springs' k = E I / l of the simulated section (the node moments, INT-005); `carries` whether
+    the member carries a joint (the neutral member's `carries`, ENG-052): its strength reads the moments at its loads
+    (rulings 71, 75); `carried` each carried joint's (child body, joint) in the published bodies and
+    `PhysicsOutputs.joints`, for tier 1's limits table (ruling 75)."""
 
     first_body: int
     count: int
@@ -156,9 +160,14 @@ class NodeChain:
     position: tuple[float, float, float]
     orientation: tuple[float, float, float, float]
     segment_length: float
+    stiffness: float = 0.0
+    carries: bool = False
+    carried: tuple[tuple[int, int], ...] = ()
 
     def to_limits(self) -> dict[str, Any]:
         return {
+            "carried": [{"body": body, "joint": joint} for body, joint in self.carried],
+            "carries": self.carries,
             "count": self.count,
             "first_body": self.first_body,
             "orientation": list(self.orientation),
@@ -177,20 +186,37 @@ class BodyPoses:
 
 
 @dataclass(frozen=True)
+class CarriedLoad:
+    """A joint the member carries (ENG-052, ruling 63) as the run recorded it: the child body's index in the recorded
+    body poses and the load on the member, the negative of the recorded joint reaction (parent on child,
+    world-aligned, the moment about the child origin), (rows, 3) each. The engine's own carried output (s, F . y,
+    M_p . z per joint) is not recorded; `beam.carried_at` rebuilds it from these and the poses (rulings 72, 75)."""
+
+    joint: str
+    body: int
+    force: FloatArray
+    moment: FloatArray
+
+
+@dataclass(frozen=True)
 class MemberInputs:
-    """One structural member (BLD-008) with its recorded end-loads. `axis_body` is the member axis in its body frame
-    (the direction for direction-dependent strengths); `natural_frequency` the calibrated first frequency (Hz) when
-    the design records one (BLD-019)."""
+    """One structural member (BLD-008) with its recorded end-loads; `loads` None when the member is built rigid and the
+    run recorded none (rulings 29, 34, 60: every check reading them reports the member not evaluated). `axis_body` is
+    the member axis in its body frame (the direction for direction-dependent strengths); `natural_frequency` the
+    calibrated first frequency (Hz) when the design records one (BLD-019); `spring_offsets` (rows, N) rad the permanent
+    rest offset of each node spring in effect at each sample (the tier 2 yield, INT-028; None: none requested)."""
 
     name: str
     material: str
     section: SectionProperties
     supports: tuple[tuple[float, SupportCondition], ...]
-    loads: Wrenches
+    loads: Wrenches | None
     axis_body: tuple[float, float, float] = (1.0, 0.0, 0.0)
     natural_frequency: float | None = None
     mounts: tuple[str, ...] = ()
     nodes: NodeChain | None = None
+    spring_offsets: FloatArray | None = None
+    carried: tuple[CarriedLoad, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -227,7 +253,8 @@ def _no_series(reference: str) -> tuple[FloatArray, FloatArray]:
 class RunInputs:
     """Everything a check reads from one run. `load_factor` is the design-load rule's factor from the design file
     (INT-019; 1 when the design states none); `temperature` the run's ambient temperature (K); `series` reads a
-    recorded scalar series by case quantity reference (times, values)."""
+    recorded scalar series by case quantity reference (times, values); `gravity` abs(g) of the design's environment
+    (m/s^2; 0 when not given), for the own-weight line of ruling 79."""
 
     times: FloatArray
     members: tuple[MemberInputs, ...]
@@ -241,6 +268,65 @@ class RunInputs:
     ropes: tuple[RopeLoads, ...] = ()
     design_tension: float | None = None
     bodies: BodyPoses | None = None
+    gravity: float = 0.0
+
+    def windowed(self, start: float) -> RunInputs:
+        """These inputs from the first sample at or after `start` (s) on (TST-044): every per-sample array and the
+        series reader cut there, so every check's peaks and safety factors count from it. 0 or before the first
+        sample: unchanged; past the last sample: an `IntegrityError`."""
+        if self.times.size == 0 or start <= float(self.times[0]):
+            return self
+        first = int(np.searchsorted(self.times, start, side="left"))
+        if first >= self.times.size:
+            raise IntegrityError(
+                f"integrity evaluation from {start!r} s: the run's last sample is at {float(self.times[-1])!r} s"
+            )
+        return self._rows(slice(first, None), lambda times: times >= start)
+
+    def until(self, end: float) -> RunInputs:
+        """These inputs up to the last sample at or before `end` (s): the samples a flagged member's results keep
+        (rulings 69, 72). May be empty."""
+        last = int(np.searchsorted(self.times, end, side="right"))
+        return self._rows(slice(0, last), lambda times: times <= end)
+
+    def _rows(self, rows: slice, keep: Callable[[FloatArray], Any]) -> RunInputs:
+        def cut(array: FloatArray) -> FloatArray:
+            result: FloatArray = array[rows]
+            return result
+
+        members = []
+        for member in self.members:
+            loads = member.loads
+            if loads is not None:
+                loads = Wrenches(
+                    cut(loads.start_force), cut(loads.start_moment), cut(loads.end_force), cut(loads.end_moment)
+                )
+            offsets = member.spring_offsets
+            if offsets is not None:
+                offsets = cut(offsets)
+            carried = tuple(replace(item, force=cut(item.force), moment=cut(item.moment)) for item in member.carried)
+            members.append(replace(member, loads=loads, spring_offsets=offsets, carried=carried))
+        joints = tuple(replace(joint, force=cut(joint.force), moment=cut(joint.moment)) for joint in self.joints)
+        ropes = tuple(replace(rope, tension=cut(rope.tension)) for rope in self.ropes)
+        bodies = self.bodies
+        if bodies is not None:
+            bodies = BodyPoses(cut(bodies.positions), cut(bodies.orientations))
+        reader = self.series
+
+        def series(reference: str) -> tuple[FloatArray, FloatArray]:
+            times, values = reader(reference)
+            kept = keep(np.asarray(times, dtype=np.float64))
+            return np.asarray(times)[kept], np.asarray(values)[kept]
+
+        return replace(
+            self,
+            times=cut(self.times),
+            members=tuple(members),
+            joints=joints,
+            ropes=ropes,
+            bodies=bodies,
+            series=series,
+        )
 
     def material(self, name: str) -> MaterialView:
         if name not in self.materials:
@@ -255,6 +341,16 @@ class RunInputs:
 
 
 # ===== Results ==========================================================
+
+LOADS_NOT_EVALUATED = "end_loads_not_evaluated"
+
+
+def rigid_note(member: str, checks: Sequence[str]) -> str:
+    """The one line naming why a rigid member's end-load checks were not evaluated (rulings 29, 34, 60)."""
+    return (
+        f"member {member!r}: {', '.join(checks)} not evaluated, the member is built rigid and the run recorded no "
+        "end-loads or node poses (rulings 29, 34)"
+    )
 
 
 @dataclass(frozen=True)
@@ -306,6 +402,11 @@ class CheckResult:
 
     def rows_of_tier(self, tier: int) -> tuple[CheckRow, ...]:
         return tuple(row for row in self.rows if row.tier <= tier)
+
+
+def not_evaluated(subject: str, quantity: str, tier: int, limit: float | None = None) -> CheckRow:
+    """A rigid member's row of a check that reads end-loads: NaN, never zero, flagged (invariant 7)."""
+    return CheckRow(subject, quantity, math.nan, 0.0, tier, limit, None, (LOADS_NOT_EVALUATED,))
 
 
 class IntegrityCheck(ABC):

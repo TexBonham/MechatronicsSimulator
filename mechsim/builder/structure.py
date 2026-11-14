@@ -6,6 +6,8 @@ spring E I / l at each segment midpoint x_j = (j + 1/2) l, rigid spans node to n
 on the parent, a pinned root adding a free pin at x = 0 and a body [0, l/2], a roller end holding the transverse
 displacement at x = L. Linearized in the hinge angles theta: y(x) = sum over x_j < x of theta_j (x - x_j); each
 span is a thin rod of mass rho A s and inertia rho A s^3 / 12 about its centre, as the engine builds it.
+Structural damping (BLD-040, ruling 78): a modal damping ratio of the first bending mode becomes stiffness-proportional
+node damping, `node_damping`.
 """
 
 from __future__ import annotations
@@ -101,6 +103,101 @@ def chain_first_frequency(chain: Chain, flexural_rigidity: float, mass_per_lengt
     stiffness, mass, basis = _matrices(chain, flexural_rigidity, mass_per_length)
     values = linalg.eigh(basis.T @ stiffness @ basis, basis.T @ mass @ basis, eigvals_only=True)
     return math.sqrt(max(float(values[0]), 0.0))
+
+
+# ===== Structural damping ===============================================
+
+
+def _member_chain(root: str, end: str, segments: int, length: float) -> Chain:
+    """The chain of any lumped support pair; a clamped far end uses the roller layout, its rotation held separately."""
+    if end == "clamped":
+        return chain_layout(root, "roller", segments, length)
+    return chain_layout(root, end, segments, length)
+
+
+def _member_system(
+    root: str, end: str, segments: int, length: float, flexural_rigidity: float, mass_per_length: float
+) -> tuple[Chain, NDArray[np.float64], NDArray[np.float64], NDArray[np.float64]]:
+    """The one chain of any support pair (BLD-019, BLD-040): stiffness, mass and the basis of allowed angles; a
+    clamped far end holds both the end deflection and the end slope (ENG-022, ruling 16)."""
+    chain = _member_chain(root, end, segments, length)
+    stiffness, mass, basis = _matrices(chain, flexural_rigidity, mass_per_length)
+    if end == "clamped":
+        basis = linalg.null_space(np.vstack([_influence(chain, length), np.ones(len(chain.hinges))]))
+    return chain, stiffness, mass, basis
+
+
+def member_deflection(
+    root: str, end: str, segments: int, length: float, flexural_rigidity: float, load: float, at: float
+) -> float:
+    """Static deflection at `at` under a point load `load` there, on the member's chain for its supports."""
+    chain, stiffness, _mass, basis = _member_system(root, end, segments, length, flexural_rigidity, 1.0)
+    reduced = basis.T @ stiffness @ basis
+    if np.linalg.matrix_rank(reduced) < reduced.shape[0]:
+        raise ChainError("the member's supports leave it a mechanism; it has no static deflection")
+    influence = _influence(chain, at)
+    angles = basis @ np.linalg.solve(reduced, load * (basis.T @ influence))
+    return float(influence @ angles)
+
+
+def loaded_first_frequency(
+    root: str,
+    end: str,
+    segments: int,
+    length: float,
+    flexural_rigidity: float,
+    mass_per_length: float,
+    carried_mass: float = 0.0,
+    at: float = 0.0,
+) -> float:
+    """Lowest eigenfrequency (rad/s) of the member's chain for its supports, with a point mass `carried_mass` moving
+    with the deflection at `at` (the engine's carried mass, ENG-052: inertia at the foot point for the deflection
+    motion, no weight, no rotary inertia): M + m a a^T, a the deflection influence of the hinge angles at `at`. The
+    same chain calibrates a member (BLD-019), so a calibrated member's damping uses its recorded frequency."""
+    chain, stiffness, mass, basis = _member_system(root, end, segments, length, flexural_rigidity, mass_per_length)
+    influence = _influence(chain, at)
+    mass = mass + carried_mass * np.outer(influence, influence)
+    values = linalg.eigh(basis.T @ stiffness @ basis, basis.T @ mass @ basis, eigvals_only=True)
+    return math.sqrt(max(float(values[0]), 0.0))
+
+
+def node_damping(ratio: float, omega: float, node_stiffness: float) -> float:
+    """The node damper c (N m s/rad) that gives the chain's first bending mode the modal damping ratio `ratio`.
+
+    Derivation (stiffness-proportional damping, ruling 78). The chain in its hinge angles theta is
+    M theta'' + C theta' + K theta = 0 with K = k diag(spring nodes), k = E I / l, and the engine puts the damper c on
+    the same nodes (a pinned root's pin has neither), so C = beta K with beta = c / k; a clamped far end or a roller
+    restricts theta to a basis B, and B^T C B = beta B^T K B still. Then the undamped modes phi_n of (K, M) diagonalise
+    C: phi_n^T C phi_n = beta omega_n^2 m_n = 2 zeta_n omega_n m_n, so zeta_n = beta omega_n / 2 exactly. Choosing
+    beta = 2 zeta / omega_1, omega_1 the chain's own first mode for its supports and section (unloaded), gives
+    zeta_1 = zeta and zeta_n = zeta omega_n / omega_1 above it; c = beta k = 2 zeta k / omega_1. A carried mass adds to
+    M only, so C = beta K holds and the loaded first mode omega_c < omega_1 gets zeta omega_c / omega_1."""
+    return 2.0 * ratio * node_stiffness / omega
+
+
+def lowest_carried_frequency(
+    root: str,
+    end: str,
+    segments: int,
+    length: float,
+    flexural_rigidity: float,
+    mass_per_length: float,
+    carried_mass: float,
+) -> tuple[float, float]:
+    """The lowest loaded first frequency (rad/s) over the span and the foot position (m) giving it, with the carried
+    mass at 4 N + 1 evenly spaced points of [0, L]."""
+    count = 4 * segments
+    lowest = math.inf
+    where = 0.0
+    for index in range(count + 1):
+        at = length * index / count
+        omega = loaded_first_frequency(
+            root, end, segments, length, flexural_rigidity, mass_per_length, carried_mass, at
+        )
+        if omega < lowest:
+            lowest = omega
+            where = at
+    return lowest, where
 
 
 CALIBRATION_MIN_SEGMENTS = 8
@@ -220,6 +317,18 @@ def rope_element(rope: Rope, values: Mapping[str, float | bool]) -> dict[str, An
     """The neutral rope (ADR 0016) of a design rope; None while its to end is a case payload (placed at run time)."""
     if rope.to_end.body is None or rope.from_end.body is None:
         return None
+    return _rope(rope, rope.to_end.body, values)
+
+
+def payload_rope_element(rope: Rope, values: Mapping[str, float | bool]) -> dict[str, Any] | None:
+    """The neutral rope of a design rope whose to end is a case payload, `to_body` naming the payload and `to_point`
+    the design's point, offset from the payload's top face centre (BLD-032; `payload.with_payload` places both)."""
+    if rope.to_end.payload is None or rope.from_end.body is None:
+        return None
+    return _rope(rope, rope.to_end.payload, values)
+
+
+def _rope(rope: Rope, to_body: str, values: Mapping[str, float | bool]) -> dict[str, Any]:
     rest: float | bool | OpenValue | None = rope.rest_length
     if rest is None:
         rest = values["rest_length"]
@@ -230,7 +339,7 @@ def rope_element(rope: Rope, values: Mapping[str, float | bool]) -> dict[str, An
         "name": rope.name,
         "from_body": rope.from_end.body,
         "from_point": _points(rope.from_end.point),
-        "to_body": rope.to_end.body,
+        "to_body": to_body,
         "to_point": _points(rope.to_end.point),
         "segments": rope.segments,
         "axial_stiffness": f"{float(numbers['axial_stiffness'])!r} N",

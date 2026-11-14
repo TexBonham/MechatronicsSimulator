@@ -2,8 +2,10 @@
 #include <catch2/catch_test_macros.hpp>
 #include <cmath>
 #include <cstddef>
+#include <cstdio>
 #include <limits>
 #include <numbers>
+#include <vector>
 
 #include "mechsim/engine/dynamics_provider.hpp"
 #include "mechsim/engine/engine_error.hpp"
@@ -18,6 +20,8 @@ using mechsim::engine::InvalidModelError;
 using mechsim::engine::JointType;
 using mechsim::engine::LoadSource;
 using mechsim::engine::ModelChange;
+using mechsim::engine::ModelChangeEvent;
+using mechsim::engine::MultibodyConfig;
 using mechsim::engine::MultibodyModel;
 using mechsim::engine::MultibodyProvider;
 using mechsim::engine::Rope;
@@ -332,6 +336,160 @@ TEST_CASE("a load above the breaking tension snaps the rope within one step", "[
     REQUIRE(provider.outputs().ropes[0].tension.back() == 0.0);
     REQUIRE(provider.outputs().events.empty());
     REQUIRE_THROWS_AS(provider.release_rope(0), InvalidModelError);
+}
+
+// The snap's evaluation start (INT-031, ruling 75; rope.hpp, Snap). Bob M = 1 kg on a 1 m, N = 2 rope, EA = 1e4 N
+// (omega h = sqrt(EA / (L M)) h = 0.1 at 1 ms), mu = 1e-4 kg/m, released from straight (the rope unstretched,
+// tension 0) under gravity. Backward Euler's step response of the bob-on-rope mode peaks at n theta = pi, theta =
+// atan x: the tension reaches g M (1 + (1 + x^2)^(-pi / (2 atan x))) = 1.85 g M (the rope's own mass, 1e-4 of M,
+// shifts it below the 2 percent asserted) and stays below 2 g (M + mu L) (the step bound). Breaking at 1.5 g M:
+//   start 0.5 s (eight periods of the mode, its ringing then e^(-8 pi x) = 0.08 of the 0.85 g M overshoot, below
+// breaking, asserted): no snap, the load stays attached, held_tension reads the peak; a 10 N step load after the
+// start adds 10 (1 - cos(n theta)) N under the scheme, past g M + 10 N > breaking + 4 N at n theta = pi / 2 less the
+// ringing left (0.08 of 0.85 g M = 0.7 N), so it snaps within ceil(pi / (2 atan x)) = 16 steps, not before 0.5 s;
+//   start 0: the same run snaps in the first step whose tension exceeds breaking, the first step held above; and a
+// default config steps bit-identically to start 0.
+TEST_CASE("a rope does not snap before the snap's evaluation start and snaps from it on", "[ENG-047][ENG-034]") {
+    MultibodyModel model;
+    model.gravity = Eigen::Vector3d(0.0, 0.0, -gravity);
+    const Eigen::Vector3d at(0.0, 0.0, -1.0);
+    const Eigen::Index bob = add_bob(model, at, 1.0);
+    Rope rope = basic_rope(bob, 2);
+    rope.axial_rigidity = 1e4;
+    rope.mass_per_length = 1e-4;
+    rope.breaking_tension = 1.5 * gravity;
+    static_cast<void>(add_rope(model, rope, Eigen::Vector3d::Zero(), at));
+    const double x = 0.1;
+    const double peak = gravity * (1.0 + std::pow(1.0 + (x * x), -std::numbers::pi / (2.0 * std::atan(x))));
+    const auto run = [&](const MultibodyConfig& config, int steps, std::vector<double>& path, double& held,
+                         double& first, bool& snapped, double& snap_time, State& state) {
+        MultibodyProvider provider(model, config);
+        SemiImplicitEuler integrator(StepConfig{1e-3});
+        state = rest_state(provider);
+        for (int n = 0; n < steps; ++n) {
+            provider.step(integrator, state);
+            const auto& out = provider.outputs();
+            if (first < 0.0 && out.ropes[0].max_tension > rope.breaking_tension) {
+                first = state.t;
+            }
+            held = out.ropes[0].held_tension;
+            for (const ModelChangeEvent& event : out.events) {
+                if (event.kind == ModelChange::RopeSnapped && !snapped) {
+                    snapped = true;
+                    snap_time = event.time;
+                }
+            }
+            path.push_back(state.q[provider.position_offset(bob) + 2]);
+        }
+        return provider.rope_attached(0);
+    };
+    MultibodyConfig late;
+    late.rope_snap_evaluation_start = 0.5;
+    std::vector<double> held_path;
+    double held = 0.0;
+    double first = -1.0;
+    bool snapped = false;
+    double snap_time = -1.0;
+    State held_state;
+    const bool attached = run(late, 499, held_path, held, first, snapped, snap_time, held_state);
+    MultibodyConfig zero;
+    zero.rope_snap_evaluation_start = 0.0;
+    std::vector<double> zero_path;
+    double zero_held = 0.0;
+    double zero_first = -1.0;
+    bool zero_snapped = false;
+    double zero_snap_time = -1.0;
+    State zero_state;
+    static_cast<void>(run(zero, 499, zero_path, zero_held, zero_first, zero_snapped, zero_snap_time, zero_state));
+    std::vector<double> default_path;
+    double default_held = 0.0;
+    double default_first = -1.0;
+    bool default_snapped = false;
+    double default_snap_time = -1.0;
+    State default_state;
+    static_cast<void>(run(MultibodyConfig{}, 499, default_path, default_held, default_first, default_snapped,
+                          default_snap_time, default_state));
+    std::printf("rope snap start: peak tension before the start %.6f N (derived %.6f N, breaking %.6f N, bound %.6f "
+                "N), first above breaking at %.4f s; start 0 snapped at %.4f s\n",
+                held, peak, rope.breaking_tension, 2.0 * gravity * (1.0 + 1e-4), first, zero_snap_time);
+    REQUIRE(attached);
+    REQUIRE_FALSE(snapped);
+    REQUIRE(held > rope.breaking_tension);
+    REQUIRE(std::abs(held / peak - 1.0) <= 0.02);
+    REQUIRE(held < 2.0 * gravity * (1.0 + 1e-4));
+    REQUIRE(zero_snapped);
+    REQUIRE(zero_snap_time == first);
+    REQUIRE(zero_held == 0.0);
+    REQUIRE(default_path == zero_path);
+    REQUIRE(default_snap_time == zero_snap_time);
+
+    MultibodyProvider provider(model, late);
+    SemiImplicitEuler integrator(StepConfig{1e-3});
+    State state = rest_state(provider);
+    while (state.t + 5e-4 < 0.5) {
+        provider.step(integrator, state);
+    }
+    REQUIRE(provider.rope_attached(0));
+    provider.step(integrator, state);
+    REQUIRE(provider.outputs().ropes[0].max_tension < rope.breaking_tension);
+    REQUIRE(provider.rope_attached(0));
+    const auto limit = static_cast<int>(std::ceil(std::numbers::pi / (2.0 * std::atan(x))));
+    int loaded = 0;
+    bool released = false;
+    while (loaded < limit && !released) {
+        provider.apply_body_wrench(bob, Eigen::Vector3d::Zero(), Eigen::Vector3d(0.0, 0.0, -10.0));
+        provider.step(integrator, state);
+        ++loaded;
+        for (const ModelChangeEvent& event : provider.outputs().events) {
+            released = released || event.kind == ModelChange::RopeSnapped;
+        }
+    }
+    std::printf("rope snap start: after the start a 10 N step load snaps in step %d of at most %d\n", loaded, limit);
+    REQUIRE(released);
+    REQUIRE_FALSE(provider.rope_attached(0));
+    REQUIRE(provider.outputs().ropes[0].held_tension == held);
+}
+
+// The snap's evaluation start by step count (rope.hpp, Snap): the first judged step is n = ceil(start / h - 1e-9). A
+// bob hung at its static stretch with a breaking tension below g M exceeds it in every step, so the rope snaps in step
+// n exactly and stays attached for the n steps before: start / h for 0.01 s and 8 s at 1 ms and 0.1 ms, 2 for
+// 0.15 ms at 0.1 ms (rounded up), 0 for start 0.
+TEST_CASE("a rope's snap evaluation start is a whole number of steps, rounded up", "[ENG-047][ENG-034]") {
+    struct Case {
+        double h;
+        double start;
+        long expected;
+    };
+    for (const Case c : {Case{1e-3, 0.01, 10}, Case{1e-4, 0.01, 100}, Case{1e-3, 8.0, 8000}, Case{1e-4, 8.0, 80000},
+                         Case{1e-4, 1.5e-4, 2}, Case{1e-3, 0.0, 0}}) {
+        MultibodyModel model;
+        model.gravity = Eigen::Vector3d(0.0, 0.0, -gravity);
+        const double axial = 1e4;
+        const double length = 1.0 + gravity * (1.0 + 0.5 * 1e-4 * 0.5) / axial;
+        const Eigen::Vector3d at(0.0, 0.0, -length);
+        const Eigen::Index bob = add_bob(model, at, 1.0);
+        Rope rope = basic_rope(bob, 2);
+        rope.axial_rigidity = axial;
+        rope.mass_per_length = 1e-4;
+        rope.breaking_tension = 0.5 * gravity;
+        static_cast<void>(add_rope(model, rope, Eigen::Vector3d::Zero(), at));
+        MultibodyConfig config;
+        config.rope_snap_evaluation_start = c.start;
+        MultibodyProvider provider(model, config);
+        SemiImplicitEuler integrator(StepConfig{c.h});
+        State state = rest_state(provider);
+        long attached = 0;
+        while (provider.rope_attached(0) && attached <= c.expected) {
+            provider.step(integrator, state);
+            if (provider.rope_attached(0)) {
+                ++attached;
+            }
+        }
+        std::printf("rope snap start %.6g s at h %.0e: %ld steps held (expected %ld)\n", c.start, c.h, attached,
+                    c.expected);
+        CHECK(attached == c.expected);
+        CHECK_FALSE(provider.rope_attached(0));
+    }
 }
 
 TEST_CASE("a rope released on request lets its load go and lists the release", "[ENG-034][ENG-047]") {

@@ -1,0 +1,187 @@
+# G15 (Requirements doc, Test cases, gantry suite): structural worst cases with the design load. Pass: every member's
+# minimum safety factor at or above the design's minimum (ACC-029; 1.5, gantry team 2026-11-11), every member's
+# node-pose deflection under the 1 cm target from 8 s (ACC-030; the dynamic peak, the conservative reading while the
+# target's static or dynamic sense is owed: deflection_target_mode) and its settled value within 2 percent of the
+# closed form, and no tier 1 crossing (a crossing fails a passing case, SCO-015). Tier 1 runs
+# (designs/gantry/integrity.yaml) without halting, so the whole run is scored; the peak member end loads are exported
+# beside the archive as the load case (INT-022). Native adapter only: the bridge builds the rails rigid and evaluates
+# no tier 1 (rulings 29, 34).
+#
+# Design load (ruling 52: the case carries it, tier 1 applies no factor): rated load + 15 percent = 4.536 kg x 1.15 =
+# 5.2164 kg on payload_rope (the rated load is the gantry team's 10 lb; the rule is the design's structural section).
+# `integrity.design_load_carried` says so, so the post-run table applies factor 1 (TST-043, brief M3-I4).
+# Part (a), maximum acceleration: target (25, 25) at 8 s, both axes at the 0.05 m/s^2 limit to mid-travel of both
+# rails (rail_y at x 0.25 m, the middle of rail_x; the trolley at y 0.25 m, the middle of rail_y), arrived by about
+# 12.75 s, held to 15 s. Part (b), E-stop with a swinging load: target (5, 25) at 15 s, the E-stop at 16.5 s, 1.5 s
+# into the ramp (0.075 m/s) with the payload still swinging from part (a), released 1 s later; observed to 22 s.
+# Step: 100 microseconds (substeps 10), as G12 (ruling 21); ruling 77 repeats the run at 20 and 40 substeps (brief
+# M3-X1f: the case files differ only in `physics.substeps`).
+#
+# Damping and the evaluation start. The rails carry a stated modal damping ratio of 0.01 and the belts 0.01 (ruling
+# 78, placeholders fixed in advance), anchored at the unloaded mode and the build-time mass (ruling 80); every run
+# prints stated, build-time and run ratios on the masses the engine carries (brief M3-X1g item 6: tree-carried bodies
+# and the member chains on them, the payload on its rope never; rail_x 0.01 / 0.00429 / 0.00429, rail_y 0.01 /
+# 0.00724 / 0.00724; M3-X1f printed 0.00341 and 0.00375 counting the payload). The run
+# starts with the rails straight (no static start); integrity, the engine's validity flag and the deflection criteria
+# count from 8 s (`integrity.evaluate_from`, TST-044), after homing ends at 5.25 s.
+#
+# Oracles (item 1 of brief M3-X1d; E I and w of the calibrated chains: rail_x 64.087 N m^2, 51.641 N/m, 16 segments
+# clamped-clamped; rail_y 256.35 N m^2, 39.710 N/m, 8 segments pinned-roller, rail_calibration 100 N for 1 mm at
+# mid-span, 50 Hz). Static deflection at mid-travel: rail_x w L^4 / (384 E I) + (P_c + P) L^3 / (192 E I), rail_y
+# 5 w L^4 / (384 E I) + (P_t + P) L^3 / (48 E I), with P = 51.286 N (design load, rope and 1 g end fitting), P_c =
+# 43.856 N (rail_y and everything on it), P_t = 9.000 N (trolley, lift, hook): 1.09767 mm and 0.73849 mm, the settled
+# criteria's targets (the chain's -1 / N^2 at mid-span; ruling 67's L^2 / (4 N^2 a b) is 1.6 percent at mid-span).
+# Static bending stress M c / I, c = 0.02 m, I = 2e-8 m^4: rail_x (P_c + P) L / 8 + w L^2 / 12 = 7.02 N m, 7.02 MPa;
+# rail_y (P_t + P) L / 4 + w L^2 / 8 = 8.78 N m, 8.78 MPa (static safety factor 13.71 / 8.78 = 1.56 against the
+# placeholder PETG strength). Both tiers read the exact moment under a carried load from the clean spring samples each
+# side of the foot (INT-005, ruling 75).
+# rail_y's settled stress (brief M3-X1f item 2; 10 substeps, mean over 14 s to 15 s, trolley at 0.250024 m): end
+# shears 40.041 N and 40.101 N sum to 80.141 N = own weight w L 19.855 N + carried 60.286 N (the y_axis reaction
+# 60.287 N, the hand P_t + P 60.286 N); net of half the own weight each, a = L F_1 / (F_0 + F_1) = 0.25025 m against
+# the trolley's 0.25002 m; the y_axis reaction moment about the bending axis is 0.06 N m (a carried couple worth
+# C b / L = 0.03 N m, 0.4 percent); the spring moments each side of the load lie on lines through the ends (left
+# samples at 0.156 and 0.219 m, the last two clean samples left of the foot, extrapolate to 8.81 N m at the foot,
+# right samples to 8.82 N m; the samples 3.571 and 5.757 N m at 0.094 and 0.156 m quoted before extrapolate to 9.04;
+# statics M(a) = F_0 a - w a^2 / 2 = 8.77 N m). So the settled rail_y stress is 8.77 MPa, the hand oracle above; a
+# figure of 11.24 MPa is the end-shear sum taken as the point load, 80.14 N x L / 4 + w L^2 / 8 = 11.26 N m, which
+# counts the own weight twice. The 9.91 MPa reading is not reproduced: rail_y is flagged from 8.31 s, so its table
+# rows stop there.
+#
+# Measured (M3-X1f, native; 10 / 20 / 40 substeps). rail_y is flagged not valid at every step size: from 8.311 /
+# 8.350 / 8.350 s, dynamic ratio 2.76 / 3.63 / 4.11 against 2.04, the trolley starting the move 24 mm
+# from its support; its results are not valid (ruling 69) and the case errors. rail_x unflagged: dynamic ratio 1.026
+# / 1.216 / 1.559; settled 1.0806 mm (-1.56 percent); peak deflection from 8 s 1.134 / 1.141 / 1.119 mm
+# (2.25 / 1.91 / 1.46 mm scaled by 2.04 over the ratio: under 1 cm, established); peak stress 9.63 / 9.70 / 10.71
+# MPa, at 16.549 s at 10 and 20 substeps (the E-stop drops the lift onto its lower limit; root moment 7.0 to 9.6 N m)
+# and at 9.616 s at 40 (the move's start rings rail_x harder as the step is refined): safety factor 1.424 / 1.414 /
+# 1.280 against 1.5, a fail on the placeholder section and strength at every step size, also when scaled (0.72 /
+# 0.84 / 0.98); tier 1 crossing of rail_x at 16.547 / 9.616 / 9.531 s. Neither rail's dynamic ratio converges as
+# the step is refined, damped as they now are (ruling 77). Fastenings: frame_mount 462 / 479 / 490 N, rail_x_mount
+# 163 / 180 / 191 N at 8.98 s against the 2 kN placeholder: pass, also scaled. The rail_x_mount strength row
+# (53.6 MPa, 0.37) puts the whole rail's reaction moment about the mount on the rail's section: not a verdict (no mount
+# section, INT-005). Loaded first frequency (ruling 73 (c), brief M3-X1g items 2 and 3). The one-way oracle is the
+# member's chain with the carried mass the engine carries (ENG-052's m_c): the carried joint's tree subtree with the
+# member chains rooted in it, rigid; a body hung on a rope from a carried body is not in it (the rope's own bounce is
+# near 21 Hz: with it the rail and the payload form a coupled pair near 14.5 and 52 Hz, beyond one-way coupling; it
+# reaches the member through the rope's tension only, milestone 4). rail_y: m_c 0.918 kg (trolley, lift, hook,
+# shackle), chain eigenfrequency 36.27 Hz at mid-travel against the measured 36.25 Hz (M3-X1f; the one-mode
+# estimate 36.22). rail_x: m_c 4.472 kg, the x carriage's tree (2.446 kg) and rail_y's beam chain riding it (2.026
+# kg with its roller body); the chain's eigenfrequency from the prepared model's own mass and stiffness (16 segments,
+# E I 64.087 N m^2, 5.264 kg/m, the carried mass at the foot): 21.54 Hz at the foot 0.25 m, 23.29 Hz at 0.1898 m.
+# Measured (10 substeps, the free ring of rail_x's mid-span pair of nodes after the stop, 17.6 s to 22 s, foot at
+# 0.1898 m): 23.285 Hz, 0.02 percent from the chain's 23.289 Hz. M3-X1f's 22.7 Hz (window and foot not recorded) is
+# 2.6 percent from the chain at 0.19 m and 5 percent at 0.25 m; at 0.25 m in the hold (12.75 s to 15 s) the ring is
+# 1e-6 m and its peak (20.8 Hz) sits on the rope's bounce, not a measurement of the mode. The one-mode estimates
+# (16.99 and 26.99 Hz) counted the payload, then left out rail_y's beam: neither is the engine's mass. G15 is not a
+# result of record (ACC-029, ACC-030).
+id: G15
+title: Structural worst cases with the design load
+design:
+  name: gantry
+  version: 0.1.0
+controller_mode: native
+seed: 15
+physics:
+  adapter: native
+  substeps: 10
+integrity:
+  halt_on_crossing: false
+  design_load_carried: true
+  evaluate_from: 8 s
+open_parameters:
+  - name: design_load_mass
+    dimension: "[mass]"
+    owed_by: gantry team
+    note: Design load on the rope, rated load + 15 percent (4.536 kg x 1.15); PLACEHOLDER with the rated load.
+    default: "5.2164 kg"
+initial_state:
+  joints:
+    - joint: x_axis
+      position: 0.1 m
+      velocity: 0 m/s
+    - joint: y_axis
+      position: 0.1 m
+      velocity: 0 m/s
+    - joint: lift_axis
+      position: 0.1 m
+      velocity: 0 m/s
+  controller:
+    state: not_homed
+  payload:
+    attached: true
+    body: hook
+    mass: ${design_load_mass}
+commands:
+  - at: 0 s
+    message: home
+  - at: 8 s
+    message: target
+    payload:
+      x: 25 cm
+      y: 25 cm
+  - at: 15 s
+    message: target
+    payload:
+      x: 5 cm
+      y: 25 cm
+faults:
+  - kind: estop_press
+    target: estop
+    start: 16.5 s
+    duration: 1 s
+end:
+  at: 22 s
+  max_duration: 22 s
+criteria:
+  - name: ready_after_homing
+    check: event
+    event: state:ready
+    expect: present
+  - name: safety_factor_rail_x
+    check: value
+    quantity: safety_factor:rail_x
+    statistic: minimum
+    comparison: at_least
+    limit: ${minimum_safety_factor}
+  - name: safety_factor_rail_y
+    check: value
+    quantity: safety_factor:rail_y
+    statistic: minimum
+    comparison: at_least
+    limit: ${minimum_safety_factor}
+  - name: deflection_rail_x
+    check: value
+    quantity: deflection:rail_x
+    statistic: maximum
+    window:
+      start: 8 s
+    comparison: below
+    limit: 1 cm
+  - name: settled_deflection_rail_x
+    check: value
+    quantity: deflection:rail_x
+    statistic: mean
+    window:
+      start: 14 s
+      end: 15 s
+    comparison: within
+    target: 1.0976722e-3 m
+    relative_limit: "0.02"
+  - name: deflection_rail_y
+    check: value
+    quantity: deflection:rail_y
+    statistic: maximum
+    window:
+      start: 8 s
+    comparison: below
+    limit: 1 cm
+  - name: settled_deflection_rail_y
+    check: value
+    quantity: deflection:rail_y
+    statistic: mean
+    window:
+      start: 14 s
+      end: 15 s
+    comparison: within
+    target: 7.384859e-4 m
+    relative_limit: "0.02"

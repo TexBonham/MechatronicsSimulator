@@ -351,6 +351,35 @@ NodeChain node_chain(const Value& entry, const std::string& where) {
     }
     chain.position = triple(entry, "position", where);
     chain.orientation = quaternion(entry, "orientation", where);
+    chain.carries = flag(entry, "carries", where);
+    std::size_t k = 0;
+    for (const Value& item : array(entry, "carried", where)) {
+        const std::string at = where + ".carried[" + std::to_string(k) + "]";
+        chain.carried.push_back(CarriedJoint{count(item, "body", at), count(item, "joint", at)});
+        ++k;
+    }
+    if (!chain.carried.empty() && !chain.carries) {
+        throw LimitsError("limits table: " + where + " lists carried joints but carries is false");
+    }
+    if (entry.fields.find("hogging") != entry.fields.end()) {
+        const std::string at = where + ".hogging";
+        const Value& hogging = field(entry, "hogging", where);
+        chain.hogging_bound = number(hogging, "bound", at);
+        if (!std::isfinite(chain.hogging_bound) || chain.hogging_bound < 0.0) {
+            throw LimitsError("limits table: " + at + ".bound must be finite and >= 0");
+        }
+        std::size_t i = 0;
+        for (const Value& item : array(hogging, "intervals", at)) {
+            const std::string place = at + ".intervals[" + std::to_string(i) + "]";
+            if (item.kind != Value::Kind::array || item.items.size() != 2 ||
+                item.items[0].kind != Value::Kind::number || item.items[1].kind != Value::Kind::number ||
+                !(item.items[0].number <= item.items[1].number)) {
+                throw LimitsError("limits table: " + place + " must be [lo, hi] with lo <= hi");
+            }
+            chain.hogging.push_back({item.items[0].number, item.items[1].number});
+            ++i;
+        }
+    }
     return chain;
 }
 
@@ -403,6 +432,9 @@ Limits parse_limits(std::string_view json) {
     }
     Limits limits;
     limits.minimum_safety_factor = positive(root, "minimum_safety_factor", "root");
+    if (root.fields.find("bodies") != root.fields.end() && field(root, "bodies", "root").kind != Value::Kind::null) {
+        limits.bodies = count(root, "bodies", "root");
+    }
     const Value& checks = field(root, "checks", "root");
     limits.stress = flag(checks, "stress", "checks");
     limits.buckling = flag(checks, "buckling", "checks");
@@ -414,6 +446,12 @@ Limits parse_limits(std::string_view json) {
         limits.members.push_back(member(entry, k));
         ++k;
     }
+    for (const MemberLimits& m : limits.members) {
+        if (m.nodes.has_value() && !limits.bodies.has_value()) {
+            throw LimitsError("limits table: member '" + m.name +
+                              "' has nodes, so the table must give the published body count 'bodies' (INT-006)");
+        }
+    }
     k = 0;
     for (const Value& entry : array(root, "fastenings", "root")) {
         const std::string where = "fastenings[" + std::to_string(k) + "]";
@@ -421,6 +459,13 @@ Limits parse_limits(std::string_view json) {
         f.name = text(entry, "name", where);
         f.joint = count(entry, "joint", where);
         f.load_limit = positive(entry, "load_limit", where);
+        if (field(entry, "member", where).kind != Value::Kind::null) {
+            f.member = count(entry, "member", where);
+            if (f.member.value() >= limits.members.size()) {
+                throw LimitsError("limits table: " + where + ".member " + std::to_string(f.member.value()) +
+                                  " outside the " + std::to_string(limits.members.size()) + " members");
+            }
+        }
         limits.fastenings.push_back(std::move(f));
         ++k;
     }

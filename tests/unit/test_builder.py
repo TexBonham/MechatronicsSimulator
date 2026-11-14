@@ -119,7 +119,8 @@ def test_joints_map_one_to_one_with_their_types() -> None:
     assert built == {joint.name: joint.type for joint in design.joints}
     x_axis = _body(model, "rail_y").joint
     assert x_axis is not None
-    assert x_axis.axis == (1.0, 0.0, 0.0)
+    # rail_y's frame has x along world y, y along world z (M3-X1d, ruling 65), so the world-x travel is its z.
+    assert x_axis.axis == (0.0, 0.0, 1.0)
     assert x_axis.linear[0].lower == 0.0
     assert x_axis.linear[0].upper == 1.0
     assert x_axis.linear[0].friction == 1.0
@@ -278,7 +279,7 @@ def test_flexible_bodies_become_lumped_members() -> None:
     scales = {record.member: record for record in result.lumped}
     members = {member.name: member for member in model.lumped_members}
     rail_x = members["rail_x_beam"]
-    assert (rail_x.root, rail_x.end, rail_x.segments) == ("clamped", "free", 8)
+    assert (rail_x.root, rail_x.end, rail_x.segments) == ("clamped", "free", 16)
     rail_y = members["rail_y_beam"]
     assert (rail_y.root, rail_y.end, rail_y.segments) == ("pinned", "roller", 8)
     assert rail_x.parent == "rail_x"
@@ -323,12 +324,12 @@ def test_lumped_record_follows_the_engine_segment_rule() -> None:
     assert rail_x.stiffness_scale is not None
     assert rail_x.mass_scale is not None
     e, rho = e * rail_x.stiffness_scale, rho * rail_x.mass_scale
-    assert rail_x.segment_length == 0.125
-    assert rail_x.node_stiffness == pytest.approx(e * 1e-8 / 0.125, rel=1e-15)
-    assert rail_x.spans == (0.125,) * 7 + (0.0625,)
+    assert rail_x.segment_length == 0.0625
+    assert rail_x.node_stiffness == pytest.approx(e * 1e-8 / 0.0625, rel=1e-15)
+    assert rail_x.spans == (0.0625,) * 15 + (0.03125,)
     for span, mass in zip(rail_x.spans, rail_x.masses, strict=True):
         assert mass == pytest.approx(rho * 1e-4 * span, rel=1e-15)
-    assert math.fsum(rail_x.masses) == pytest.approx(rho * 1e-4 * (1.0 - 0.0625), rel=1e-14)
+    assert math.fsum(rail_x.masses) == pytest.approx(rho * 1e-4 * (1.0 - 0.03125), rel=1e-14)
     rail_y = records["rail_y_beam"]
     assert rail_y.stiffness_scale is not None
     assert rail_y.mass_scale is not None
@@ -484,9 +485,17 @@ def test_step_body_cross_checks_and_takes_the_hulls() -> None:
         "rope 'payload_rope': its to end is case payload 'payload'; not emitted until the case places the payload "
         "(BLD-032)"
     )
-    assert [note for note in result.notes if "is an approximation" not in note] == [rope_note]
+    plane = "gravity entirely outside its bending plane"
+    damping = "(DES-047, BLD-040, ruling 78)"
+    others = [
+        note for note in result.notes if "is an approximation" not in note and plane not in note and damping not in note
+    ]
+    assert others == [rope_note]
+    assert [note.split("'")[1] for note in result.notes if damping in note] == ["rail_x", "rail_y"]
     approximations = [note for note in result.notes if "is an approximation" in note]
     assert [note.split("'")[1] for note in approximations] == ["rail_x", "rail_y"]
+    # The fixture's placements carry no rotation, so both rails' frames are the world's, z along gravity (BLD-038).
+    assert [note.split("'")[1] for note in result.notes if plane in note] == ["rail_x", "rail_y"]
 
 
 def test_step_body_mass_mismatch_fails() -> None:

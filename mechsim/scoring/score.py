@@ -14,6 +14,7 @@ from dataclasses import dataclass, replace
 from typing import Any, Literal, Protocol, runtime_checkable
 
 from mechsim.design.schema import OpenValue
+from mechsim.record.validity import NOT_VALID_KIND, CarriedValidity, flagged
 from mechsim.scoring.statistics import StatisticError, compare, statistic, window_indices, within
 from mechsim.testing.baseline import Baseline, BaselineDiff, Change, Entry, RunIdentity, diff_baselines, entry_key
 from mechsim.testing.driver import (
@@ -122,27 +123,42 @@ def score_run(
     sweep: tuple[str, str] | None = None,
     run: RunIdentity | None = None,
     integrity: IntegrityResults | None = None,
+    gravity: Sequence[float] | None = None,
 ) -> CaseScore:
     """Score one run of a resolved case. `limits` maps criterion name to the limit text of the case as written
     (its `${}` forms), which the baseline keeps; by default the resolved criterion's own text. Structural criteria
-    read `integrity` (SCO-014); a recorded tier 1 crossing fails the case (SCO-015)."""
-    recording = _StructuralView(recording, integrity)
+    read `integrity` (SCO-014); a recorded tier 1 crossing fails the case (SCO-015). `gravity` (the design's, m/s^2)
+    gives the down direction `swing:` quantities are measured from (SCO-030); without it they are unevaluable."""
+    not_valid = flagged(tuple(recording.validity))
+    view = _StructuralView(_SwingView(recording, gravity), integrity, not_valid)
+    recording = view
     results: list[CriterionResult] = []
     for criterion in case.criteria:
         limit = _limit_text(criterion, limits)
         if report.errored:
             results.append(CriterionResult(criterion.name, "error", limit, note=f"run error: {report.error}"))
             continue
+        view.read_not_valid = None
         try:
             results.append(_evaluate(criterion, recording, limit))
         except (_UnevaluableError, StatisticError, KeyError) as error:
-            results.append(CriterionResult(criterion.name, "error", limit, note=_reason(error)))
+            note = _reason(error)
+            reason = view.not_valid_reason()
+            if not isinstance(error, KeyError) and reason is not None:
+                note = reason
+            results.append(CriterionResult(criterion.name, "error", limit, note=note))
     status = _case_status(results)
     crossings = _crossings(recording)
+    invalid = _not_valid_crossings(recording, not_valid)
+    case_error = report.error
     if (len(crossings) > 0 or report.reason == "integrity_halt") and status == "pass":
         status = "fail"
+    if len(invalid) > 0 and status != "fail":
+        status = "error"
+        case_error = "; ".join(dict.fromkeys(reason for _, reason in invalid))
     if report.errored:
         status = "error"
+        case_error = report.error
     return CaseScore(
         case_id=case.id,
         status=status,
@@ -153,16 +169,123 @@ def score_run(
         ran=True,
         end_reason=report.reason,
         end_time=report.end_time,
-        error=report.error,
+        error=case_error,
         sweep=sweep,
         run=run,
         approximations=report.approximations + _layer_approximations(recording),
-        crossings=crossings,
+        crossings=crossings + tuple(line for line, _ in invalid),
         notes=tuple(report.notes),
     )
 
 
 STRUCTURAL_KINDS = ("safety_factor", "deflection")
+SWING_KIND = "swing"
+_AXES = {"x": (1.0, 0.0, 0.0), "y": (0.0, 1.0, 0.0), "z": (0.0, 0.0, 1.0)}
+
+
+class _ReferencePoses(Protocol):
+    """The recording's body order and reference-configuration world poses (the record reader's `Kinematics`)."""
+
+    @property
+    def bodies(self) -> Sequence[str]: ...
+
+    @property
+    def reference(self) -> Sequence[tuple[Sequence[float], Sequence[float]]]: ...
+
+
+@runtime_checkable
+class _Placed(Protocol):
+    """A record view that also gives each body's reference pose, so `pose:` displacements become world origins."""
+
+    @property
+    def kinematics(self) -> _ReferencePoses: ...
+
+    def series(self, reference: str) -> Series: ...
+
+
+class _SwingView:
+    """The record view plus `swing:<a>.<b>` (SCO-030): at each sample the angle (rad) between the line from body a's
+    origin to body b's and the gravity direction g, acos(d . g / (|d| |g|)), unsigned in [0, pi]; and
+    `swing:<a>.<b>.<axis>` (axis x, y or z), the signed angle of that line in the vertical plane through g and the
+    world axis, atan2(d . e, d . g_hat) with e the axis made orthogonal to g, positive toward the axis: a planar swing's
+    angle, so its period and settle statistics read the swing itself. A body's origin is its reference-configuration
+    origin plus its recorded `pose:` displacement (TST-038); a view without reference poses is unevaluable.
+    No gravity, a zero gravity, an axis along gravity or coincident origins is unevaluable (invariant 7)."""
+
+    def __init__(self, recording: RecordView, gravity: Sequence[float] | None) -> None:
+        self._recording = recording
+        self._gravity = gravity
+
+    @property
+    def validity(self) -> Sequence[CarriedValidity]:
+        return self._recording.validity
+
+    def times(self) -> Sequence[float]:
+        return self._recording.times()
+
+    def controller_states(self) -> Sequence[str]:
+        return self._recording.controller_states()
+
+    def events(self) -> Sequence[RecordedEvent]:
+        return self._recording.events()
+
+    def series(self, reference: str) -> Series:
+        kind, _, rest = reference.partition(":")
+        if kind != SWING_KIND:
+            return self._recording.series(reference)
+        parts = rest.split(".")
+        down = self._down(reference)
+        start = self._position(parts[0])
+        end = self._position(parts[1])
+        values: list[float] = []
+        across: tuple[float, float, float] | None = None
+        if len(parts) == 3:
+            across = self._across(reference, parts[2], down)
+        for index, time in enumerate(self._recording.times()):
+            line = [end[axis][index] - start[axis][index] for axis in range(3)]
+            length = math.sqrt(sum(value * value for value in line))
+            if length == 0.0:
+                raise _UnevaluableError(f"{reference}: the two bodies' origins coincide at {time:.12g} s")
+            along = sum(line[axis] * down[axis] for axis in range(3))
+            if across is None:
+                values.append(math.acos(max(-1.0, min(1.0, along / length))))
+            else:
+                values.append(math.atan2(sum(line[axis] * across[axis] for axis in range(3)), along))
+        return Series(tuple(self._recording.times()), tuple(values), "rad")
+
+    def _down(self, reference: str) -> tuple[float, float, float]:
+        if self._gravity is None:
+            raise _UnevaluableError(f"{reference}: no gravity input: scoring was given no design gravity")
+        x, y, z = (float(value) for value in self._gravity)
+        norm = math.sqrt(x * x + y * y + z * z)
+        if norm == 0.0:
+            raise _UnevaluableError(f"{reference}: gravity is zero, no down direction")
+        return (x / norm, y / norm, z / norm)
+
+    def _position(self, body: str) -> tuple[list[float], list[float], list[float]]:
+        """Body origin in world: the reference-configuration origin plus the `pose:` displacement (TST-038)."""
+        if not isinstance(self._recording, _Placed):
+            raise _UnevaluableError(f"swing: the recording carries no reference pose for body {body!r}")
+        kinematics = self._recording.kinematics
+        if body not in kinematics.bodies:
+            raise KeyError(f"no body {body!r} in the recording")
+        origin = kinematics.reference[kinematics.bodies.index(body)][0]
+        displacement = [self._recording.series(f"pose:{body}.{axis}").values for axis in ("x", "y", "z")]
+        return (
+            [origin[0] + value for value in displacement[0]],
+            [origin[1] + value for value in displacement[1]],
+            [origin[2] + value for value in displacement[2]],
+        )
+
+    @staticmethod
+    def _across(reference: str, axis: str, down: tuple[float, float, float]) -> tuple[float, float, float]:
+        unit = _AXES[axis]
+        dot = sum(unit[k] * down[k] for k in range(3))
+        rest = [unit[k] - dot * down[k] for k in range(3)]
+        norm = math.sqrt(sum(value * value for value in rest))
+        if norm < 1e-12:
+            raise _UnevaluableError(f"{reference}: axis {axis} is along gravity, no swing plane")
+        return (rest[0] / norm, rest[1] / norm, rest[2] / norm)
 
 
 @runtime_checkable
@@ -178,11 +301,29 @@ class _StructuralView:
     `deflection:<member>` (m) the member's deflection at every recorded sample when the results carry it (SCO-027: its
     maximum is the table's peak, its mean over a final window the settled value), else the table's peak as one sample;
     never recomputed from the recording. A table value integrity did not evaluate (NaN) is unevaluable, never a number
-    (invariant 7). Other refs go to the recording."""
+    (invariant 7). A member the engine flagged (`not_valid`, rulings 69, 72): its safety factor (the minimum over the
+    run, which holds the not-valid interval) and a deflection without its history are unevaluable with the not-valid
+    reason; its deflection history is NaN after the flag time, so a window reaching into it is unevaluable with that
+    reason (`read_not_valid`) and a window before it is scored. Other refs go to the recording."""
 
-    def __init__(self, recording: RecordView, integrity: IntegrityResults | None) -> None:
+    def __init__(
+        self,
+        recording: RecordView,
+        integrity: IntegrityResults | None,
+        not_valid: dict[str, CarriedValidity] | None = None,
+    ) -> None:
         self._recording = recording
         self._integrity = integrity
+        self._not_valid = dict(not_valid or {})
+        self.read_not_valid: str | None = None
+
+    @property
+    def validity(self) -> Sequence[CarriedValidity]:
+        return self._recording.validity
+
+    def not_valid_reason(self) -> str | None:
+        """The not-valid reason of the flagged history the last criterion read, if any."""
+        return self.read_not_valid
 
     def times(self) -> Sequence[float]:
         return self._recording.times()
@@ -211,14 +352,34 @@ class _StructuralView:
             value = entry.deflection
             time = entry.deflection_time
             unit = "m"
-        if math.isnan(value):
+        record = self._not_valid.get(member)
+        if record is not None and kind == "safety_factor":
+            raise _UnevaluableError(f"{reference}: {record.reason()}")
+        if math.isnan(value) and record is None:
             flags = ", ".join(entry.flags)
             raise _UnevaluableError(f"{reference}: not evaluated by integrity (flags: {flags})")
         if kind == "deflection" and isinstance(self._integrity, _DeflectionHistory):
             history = self._integrity.deflection_series(member)
             if history is not None:
-                return Series(tuple(history[0]), tuple(history[1]), "m")
+                values = tuple(history[1])
+                if record is not None:
+                    self.read_not_valid = f"{reference}: {record.reason()}"
+                    values = tuple(_not_valid_after(record, history[0], values))
+                return Series(tuple(history[0]), values, "m")
+        if record is not None:
+            raise _UnevaluableError(f"{reference}: {record.reason()}")
         return Series((time,), (value,), unit)
+
+
+def _not_valid_after(record: CarriedValidity, times: Sequence[float], values: Sequence[float]) -> list[float]:
+    """The history with every sample inside the not-valid interval NaN (SCO-029)."""
+    out: list[float] = []
+    for time, value in zip(times, values, strict=True):
+        if record.covers(float(time)):
+            out.append(math.nan)
+        else:
+            out.append(value)
+    return out
 
 
 def _crossings(recording: RecordView) -> tuple[str, ...]:
@@ -239,6 +400,29 @@ def _crossings(recording: RecordView) -> tuple[str, ...]:
         except StructuralError as error:
             lines.append(f"unreadable crossing at {event.time:.12g} s: {error}")
     return tuple(lines)
+
+
+def _not_valid_crossings(recording: RecordView, not_valid: dict[str, CarriedValidity]) -> tuple[tuple[str, str], ...]:
+    """Each tier 1 crossing recorded as not valid (kind `integrity_not_valid`, rulings 69, 72) as (report line,
+    reason): never counted, but a case whose only crossings they are is unevaluable."""
+    out: list[tuple[str, str]] = []
+    for event in recording.events():
+        if event.kind != NOT_VALID_KIND:
+            continue
+        try:
+            crossing = IntegrityCrossing.parse(event.detail)
+        except StructuralError as error:
+            out.append((f"unreadable not-valid crossing at {event.time:.12g} s: {error}", str(error)))
+            continue
+        reason = f"one-way carried-load result not valid for {crossing.member}"
+        if crossing.member in not_valid:
+            reason = not_valid[crossing.member].reason()
+        line = (
+            f"{crossing.member} {crossing.quantity} {crossing.value:.12g} crossed limit {crossing.limit:.12g} at "
+            f"{event.time:.12g} s (tier {crossing.tier}): not valid, {reason}"
+        )
+        out.append((line, reason))
+    return tuple(out)
 
 
 def _layer_approximations(recording: RecordView) -> tuple[str, ...]:

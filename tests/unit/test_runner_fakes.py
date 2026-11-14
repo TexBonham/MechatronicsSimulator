@@ -13,6 +13,7 @@ from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from fractions import Fraction
 from pathlib import Path
+from typing import Any
 
 from mechsim.design.schema import Design
 from mechsim.testing.driver import (
@@ -52,6 +53,7 @@ class FakeRecording:
         self._times = list(times)
         self._rows = list(rows)
         self._units = dict(units)
+        self.validity: tuple[Any, ...] = ()
 
     def times(self) -> Sequence[float]:
         return self._times

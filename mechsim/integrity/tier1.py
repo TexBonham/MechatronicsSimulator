@@ -10,15 +10,17 @@ from __future__ import annotations
 
 import json
 from collections.abc import Callable, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
 import numpy as np
 
-from mechsim.integrity.beam import effective_length_factor
+from mechsim.integrity.beam import effective_length_factor, hogging_intervals, own_weight_bound
+from mechsim.integrity.checks.fastener import rating
+from mechsim.integrity.checks.strength import hogging_note
 from mechsim.integrity.config import FILE_NAME, IntegrityConfig, load_config
-from mechsim.integrity.inputs import member_axes, node_chains, section_properties
+from mechsim.integrity.inputs import SPRINGS_PER_JOINT, member_axes, node_chains, section_properties
 from mechsim.integrity.plugin import IntegrityError, MaterialView, MemberInputs, NodeChain, Spread, Wrenches
 from mechsim.materials.database import MaterialSet
 from mechsim.testing.schema import DESIGNS_ROOT
@@ -27,7 +29,6 @@ FORMAT = "mechsim-integrity-limits-1"
 PARTY = "integrity"
 MODEL_REQUESTS = "integrity.model_requests"
 QUANTITIES = (("strength", "stress"), ("buckling", "buckling"), ("deflection", "deflection"), ("fastener", "fastener"))
-SPRINGS_PER_JOINT = {"revolute": 1, "prismatic": 1, "planar": 3, "fixed": 0, "spherical": 0, "free": 0}
 YIELD_RULE = (
     "integrity tier 2 yield: placeholder plasticity rule (ruling 35): at the member end with the larger bending moment "
     "the nearest node spring takes the permanent offset (peak |M_n| - M_y) / k, M_y = sigma_y I_z / c_y, k = E I / l, "
@@ -47,6 +48,13 @@ class Tier1Setup:
     limits: str
     yield_offset: bool
     approximations: tuple[str, ...]
+
+
+# The event kind of a tier 1 crossing before the case's evaluation start (TST-044): recorded, never counted.
+BEFORE_EVALUATION_KIND = "integrity_before_evaluation"
+
+# The native document's `ends` of a member with a pinned root, whose spring-free pin segment publishes node 0.
+PINNED_ROOT_ENDS = "simply_supported"
 
 
 def enabled(config: IntegrityConfig) -> dict[str, bool]:
@@ -81,6 +89,26 @@ def first_springs(native: Mapping[str, Any]) -> list[int]:
     return out
 
 
+def published_names(model: Any, native: Mapping[str, Any]) -> tuple[str, ...]:
+    """The bodies the native adapter publishes per tick, by name: the prepared document's neutral bodies (the build's
+    plus those a case adds at run time, such as a payload and its shackle), then each lumped member's nodes root to
+    tip, `<member>.node<k>`, each member's node count from its document entry (`segments`, plus node 0 for the pin
+    segment of a pinned root, `ends` simply_supported; `mechsim.physics.native.member_node_names`), its name from the
+    physics model's member at the same place (the document's member list must match it)."""
+    names = [str(body["name"]) for body in native["bodies"][: int(native["neutral_bodies"])]]
+    entries = list(native["members"])
+    if len(entries) != len(model.lumped_members):
+        raise IntegrityError(
+            f"the native model lists {len(entries)} members, the physics model {len(model.lumped_members)}"
+        )
+    for lumped, entry in zip(model.lumped_members, entries, strict=True):
+        count = int(entry["segments"])
+        if entry["ends"] == PINNED_ROOT_ENDS:
+            count += 1
+        names.extend(f"{lumped.name}.node{k}" for k in range(count))
+    return tuple(names)
+
+
 def _parameters(config: IntegrityConfig, check: str) -> Any:
     for entry in config.checks:
         if str(entry.check) == check:
@@ -96,6 +124,10 @@ def _supports(member: Any) -> list[dict[str, Any]]:
             condition = "pinned"
         out.append({"at": float(support.at), "condition": condition})
     return out
+
+
+def _support_pairs(member: Any) -> tuple[tuple[float, Any], ...]:
+    return tuple((float(support.at), support.condition) for support in member.supports)
 
 
 def _effective_length(member: Any, section: Any, config: IntegrityConfig, buckling: bool) -> float:
@@ -118,10 +150,30 @@ def _effective_length(member: Any, section: Any, config: IntegrityConfig, buckli
         return 1.0
 
 
-def _nodes(chain: NodeChain | None) -> dict[str, Any] | None:
+def node_record(chain: NodeChain | None, inputs: MemberInputs, gravity: float) -> dict[str, Any] | None:
+    """The chain's record; a carrying chain also gets `hogging` (ruling 79): `bound` 3 w l^2 (N m, live, no design-load
+    factor) and the `intervals` (m) where the own weight's moment hogs."""
     if chain is None:
         return None
-    return chain.to_limits()
+    out = chain.to_limits()
+    if chain.carries:
+        member = replace(inputs, nodes=chain)
+        out["hogging"] = {
+            "bound": own_weight_bound(member, gravity),
+            "intervals": [[lo, hi] for lo, hi in hogging_intervals(member)],
+        }
+    return out
+
+
+def trace_notes(limits: str, trace: Any) -> tuple[str, ...]:
+    """The party's own-weight lines (ruling 79) from its trace: one per member whose `hogging_bound` is set, the same
+    text as the strength check's (`hogging_note`)."""
+    members = json.loads(limits)["members"]
+    out: list[str] = []
+    for place, bound in enumerate(trace.hogging_bound):
+        if bound > 0.0:
+            out.append(hogging_note(str(members[place]["name"]), float(bound), float(trace.hogging_read[place])))
+    return tuple(out)
 
 
 def limits_table(
@@ -133,7 +185,8 @@ def limits_table(
 ) -> dict[str, Any]:
     """The limits table: one record per lumped member the build lists as a structural member (index in
     `PhysicsOutputs.members` = its place in `model.lumped_members`), one per rated fastening. `native` is the prepared
-    native model document the run loads; its member list must match the model's."""
+    native model document the run loads; its member list must match the model's. Node indices and the exact published
+    body count (`bodies`, checked by the party) come from that document, never the build's layout (INT-006)."""
     flags = enabled(config)
     design = build.design
     structural = design.structural
@@ -144,11 +197,13 @@ def limits_table(
             minimum = float(structural.minimum_safety_factor)
         deflection_limit = float(structural.accuracy_target)
     temperature = float(design.environment.ambient_temperature)
+    gravity = float(np.linalg.norm(np.asarray(design.environment.gravity, dtype=np.float64)))
     structural_members = {str(member.name): member for member in build.members}
     records = {str(record.member): record for record in getattr(build, "lumped", ())}
     axes = member_axes(build)
     springs = first_springs(native)
-    chains = node_chains(model)
+    names = published_names(model, native)
+    chains = node_chains(model, names)
     if len(springs) != len(model.lumped_members):
         raise IntegrityError(
             f"the native model lists {len(springs)} members, the physics model {len(model.lumped_members)}"
@@ -195,31 +250,44 @@ def limits_table(
                 "segments": segments,
                 "segment_length": segment_length,
                 "node_stiffness": stiffness,
-                "nodes": _nodes(chains.get(name)),
+                "nodes": node_record(
+                    chains.get(name),
+                    MemberInputs(name, str(member.material), section, _support_pairs(member), None),
+                    gravity,
+                ),
             }
         )
     fastenings: list[dict[str, Any]] = []
     if flags["fastener"]:
         ratings = _parameters(config, "fastener").ratings
         order = [str(body.joint.name) for body in model.bodies if body.joint is not None]
+        places = {str(entry["name"]): place for place, entry in enumerate(members)}
+        holders: dict[str, int] = {}
+        for structural in build.members:
+            for mount in getattr(structural, "mounts", ()):
+                if str(structural.name) in places:
+                    holders[str(mount)] = places[str(structural.name)]
         for fastening in model.fastenings:
-            rating = ratings.get(str(fastening.name))
-            if rating is None and fastening.kind != "fastener":
+            limit = rating(str(fastening.name), str(fastening.kind), ratings)
+            if limit is None:
                 continue
-            if rating is None or float(rating) <= 0.0:
-                raise IntegrityError(f"fastener {fastening.name!r}: no load rating")
             if str(fastening.joint) not in order:
                 raise IntegrityError(f"fastening {fastening.name!r}: joint {fastening.joint!r} is not in the model")
+            held: int | None = None
+            if str(fastening.kind) == "mount" and str(fastening.joint) in holders:
+                held = holders[str(fastening.joint)]
             fastenings.append(
                 {
                     "name": str(fastening.name),
                     "joint": order.index(str(fastening.joint)),
-                    "load_limit": float(rating) / minimum,
+                    "load_limit": limit / minimum,
+                    "member": held,
                 }
             )
     return {
         "format": FORMAT,
         "minimum_safety_factor": minimum,
+        "bodies": len(names),
         "checks": {
             "stress": flags["stress"],
             "buckling": flags["buckling"],

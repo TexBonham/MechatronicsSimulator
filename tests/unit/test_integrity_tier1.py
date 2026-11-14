@@ -25,7 +25,9 @@ from mechsim.integrity.checks.strength import Strength
 from mechsim.integrity.config import IntegrityConfig, parse_config
 from mechsim.integrity.inputs import run_inputs
 from mechsim.integrity.plugin import IntegrityError
+from mechsim.integrity.table import window_note
 from mechsim.integrity.tier1 import (
+    BEFORE_EVALUATION_KIND,
     FORMAT,
     MODEL_REQUESTS,
     NOT_EVALUATED,
@@ -35,6 +37,7 @@ from mechsim.integrity.tier1 import (
     enabled,
     first_springs,
     limits_table,
+    published_names,
     tier1_enabled,
 )
 from mechsim.materials.database import MaterialSet
@@ -112,7 +115,10 @@ def build_of(model: PhysicsModel, structural: Any = None) -> Any:
     support = SimpleNamespace(at=0.0, condition="clamped")
     arm = SimpleNamespace(name="arm", material=MATERIAL, section=member.section, supports=(support,), mounts=())
     design = SimpleNamespace(
-        name="bench", structural=structural, environment=SimpleNamespace(ambient_temperature=293.15), materials=None
+        name="bench",
+        structural=structural,
+        environment=SimpleNamespace(ambient_temperature=293.15, gravity=(0.0, 0.0, -9.81)),
+        materials=None,
     )
     return SimpleNamespace(design=design, members=(arm,), lumped=(), physics=model)
 
@@ -206,6 +212,49 @@ def test_the_limits_table_carries_the_member_data_and_conservative_allowable() -
         core.check_integrity_limits(json.dumps(bad))
 
 
+@pytest.mark.req("INT-006", "INT-023")
+def test_node_indices_and_the_body_count_come_from_the_prepared_native_model() -> None:
+    # The prepared document lists the build's bodies plus two a case added at run time (a payload and its shackle)
+    # before the member's nodes: the chain starts after all of them, its parent is found by name, and the table states
+    # the exact published count, neutral bodies plus N node bodies.
+    model = cantilever_model()
+    structural = SimpleNamespace(minimum_safety_factor=2.0, accuracy_target=0.01)
+    native = native_of(model)
+    neutral = int(native["neutral_bodies"])
+    plain = limits_table(build_of(model, structural), model, config({"check": "deflection"}), views(), native)
+    assert plain["bodies"] == neutral + SEGMENTS
+    assert plain["members"][0]["nodes"]["first_body"] == neutral
+    extra = [{"name": "payload_shackle", "joint": {"type": "fixed"}}, {"name": "payload", "joint": {"type": "free"}}]
+    native["bodies"] = [*native["bodies"][:neutral], *extra, *native["bodies"][neutral:]]
+    native["neutral_bodies"] = neutral + 2
+    names = published_names(model, native)
+    assert names[neutral : neutral + 2] == ("payload_shackle", "payload")
+    assert names[neutral + 2 :] == tuple(f"{model.lumped_members[0].name}.node{k}" for k in range(SEGMENTS))
+    table = limits_table(build_of(model, structural), model, config({"check": "deflection"}), views(), native)
+    assert table["bodies"] == neutral + 2 + SEGMENTS
+    nodes = table["members"][0]["nodes"]
+    assert (nodes["first_body"], nodes["count"]) == (neutral + 2, SEGMENTS)
+    assert nodes["parent_body"] == plain["members"][0]["nodes"]["parent_body"]
+    core.check_integrity_limits(json.dumps(table))
+
+
+@pytest.mark.req("INT-006", "INT-023")
+def test_the_node_names_are_counted_from_the_native_document_not_the_model() -> None:
+    # The document's member entry is what the adapter loads: its `segments`, plus the pin segment's node 0 when its
+    # `ends` is simply_supported (a pinned root), sets the published node count; the model's member names them.
+    model = cantilever_model()
+    native = native_of(model)
+    neutral = int(native["neutral_bodies"])
+    name = model.lumped_members[0].name
+    native["members"][0]["segments"] = 3
+    assert published_names(model, native)[neutral:] == tuple(f"{name}.node{k}" for k in range(3))
+    native["members"][0]["ends"] = "simply_supported"
+    assert published_names(model, native)[neutral:] == tuple(f"{name}.node{k}" for k in range(4))
+    native["members"] = []
+    with pytest.raises(IntegrityError, match="the native model lists 0 members, the physics model 1"):
+        published_names(model, native)
+
+
 @pytest.mark.req("INT-023", "INT-010")
 def test_a_fastening_without_a_rating_is_a_build_error() -> None:
     model = cantilever_model()
@@ -216,7 +265,18 @@ def test_a_fastening_without_a_rating_is_a_build_error() -> None:
         limits_table(build_of(rated), rated, config({"check": "fastener"}), views(), native_of(rated))
     rating = config({"check": "fastener", "parameters": {"ratings": {"bolts": "500 N"}}})
     table = limits_table(build_of(rated), rated, rating, views(), native_of(rated))
-    assert table["fastenings"] == [{"name": "bolts", "joint": 0, "load_limit": 500.0}]
+    assert table["fastenings"] == [{"name": "bolts", "joint": 0, "load_limit": 500.0, "member": None}]
+    # The rule of the post-run check (`fastener.rating`): a mount is rated when given a rating, else left out.
+    data["fastenings"].append({"name": "base", "kind": "mount", "body_a": "link", "body_b": "link", "joint": "pivot"})
+    mounted = PhysicsModel.model_validate(data)
+    table = limits_table(build_of(mounted), mounted, rating, views(), native_of(mounted))
+    assert [entry["name"] for entry in table["fastenings"]] == ["bolts"]
+    both = config({"check": "fastener", "parameters": {"ratings": {"bolts": "500 N", "base": "2 kN"}}})
+    table = limits_table(build_of(mounted), mounted, both, views(), native_of(mounted))
+    assert table["fastenings"] == [
+        {"name": "bolts", "joint": 0, "load_limit": 500.0, "member": None},
+        {"name": "base", "joint": 0, "load_limit": 2000.0, "member": None},
+    ]
 
 
 @pytest.mark.req("INT-023", "INT-028")
@@ -562,6 +622,60 @@ def test_only_the_case_field_true_halts_at_the_crossing(tmp_path: Path, extra: s
         assert result.score.notes == ()
 
 
+@pytest.mark.req("TST-044", "INT-024", "INT-025", "SCO-015")
+def test_a_crossing_before_the_evaluation_start_is_recorded_and_does_not_fail_the_case(tmp_path: Path) -> None:
+    # The mount's vanishing rating is crossed from tick 1 on. From 5 ms: the tick-1 crossing is one
+    # integrity_before_evaluation event and the first counted crossing is tick 5, which fails the case. From 30 ms
+    # (past the 20-tick run): the early event only, and the case scores as the run without tier 1 does.
+    result, driver = gantry_run(tmp_path, "native", mount_config(), "integrity:\n  evaluate_from: 5 ms")
+    early = [event for event in driver.recording().events() if event.kind == BEFORE_EVALUATION_KIND]
+    assert [round(event.time * 1000) for event in early] == [1]
+    assert [round(event.time * 1000) for event in integrity_events(driver)] == [5]
+    assert IntegrityCrossing.parse(early[0].detail).member == "rail_x_mount"
+    assert len(driver.integrity_trace.before_evaluation) == 1
+    assert result.score.status == "fail"
+    assert window_note(0.005) in result.report.approximations
+    late, quiet = gantry_run(tmp_path, "native", mount_config(), "integrity:\n  evaluate_from: 30 ms")
+    assert integrity_events(quiet) == []
+    assert len([event for event in quiet.recording().events() if event.kind == BEFORE_EVALUATION_KIND]) == 1
+    assert len(quiet.integrity_trace.crossings) == 0
+    assert list(quiet.integrity_trace.peak_fastener_load) == [0.0]
+    plain, _ = gantry_run(tmp_path, "native", None)
+    assert late.score.status == plain.score.status
+
+
+@pytest.mark.req("TST-043", "TST-044")
+def test_the_case_integrity_fields_default_and_validate() -> None:
+    settings = accepted(pendulum_case())
+    assert settings.integrity is None
+    data = pendulum_case()
+    data["integrity"] = {}
+    empty = accepted(data).integrity
+    assert empty is not None
+    assert (empty.design_load_carried, empty.evaluate_from) == (False, 0.0)
+    data["integrity"] = {"design_load_carried": True, "evaluate_from": "250 ms"}
+    given = accepted(data).integrity
+    assert given is not None
+    assert (given.design_load_carried, given.evaluate_from) == (True, 0.25)
+    for field, wrong in (
+        ("design_load_carried", "yes"),
+        ("design_load_carried", 1),
+        ("evaluate_from", "-1 s"),
+        ("evaluate_from", "2 m"),
+        ("evaluate_from", 0.5),
+    ):
+        data = pendulum_case()
+        data["integrity"] = {field: wrong}
+        rejected(data, field)
+    schema = json.loads((ROOT / "schemas" / "test_case.json").read_text(encoding="utf-8"))
+    data = pendulum_case()
+    data["integrity"] = {"design_load_carried": True, "evaluate_from": "2 s"}
+    jsonschema.validate(data, schema)
+    properties = Case.model_json_schema()["$defs"]["IntegritySettings"]["properties"]
+    assert properties["design_load_carried"]["default"] is False
+    assert properties["evaluate_from"]["default"] == 0.0
+
+
 @pytest.mark.req("INT-026", "REC-010", "FAC-005")
 def test_the_halt_end_reason_reaches_the_archive_and_the_facade(tmp_path: Path) -> None:
     path, services = archived_run(tmp_path, mount_config(), "integrity:\n  halt_on_crossing: true")
@@ -716,3 +830,31 @@ def test_the_rope_snap_gate_reaches_the_run_and_its_report_through_the_driver(tm
         assert kinds == []
         assert off in result.report.approximations
         assert f"  approximation: {off}" in report_text(SuiteScore("s", result.score.design, (result.score,)))
+
+
+ADAPTER_INCLUDE = re.compile(r'^\s*#\s*include\s*[<"](mechsim/physics/|mujoco/)', re.MULTILINE)
+
+
+@pytest.mark.req("INT-026", "INT-023")
+def test_the_integrity_package_and_its_binding_include_no_adapter_header() -> None:
+    """Invariant 5 (ruling 79): the party reads the engine's flag through `ValiditySource`, which the physics binding
+    fills; neither the integrity library's sources and headers nor its binding include an adapter or MuJoCo header (the
+    integration test `core/integrity/tests/test_integrity_native.cpp` runs the party beside the native adapter and is
+    not part of the library)."""
+    files = [
+        *sorted((ROOT / "core" / "integrity" / "include").rglob("*.hpp")),
+        *sorted((ROOT / "core" / "integrity" / "src").rglob("*.cpp")),
+        ROOT / "core" / "bindings" / "src" / "bind_integrity.cpp",
+    ]
+    assert len(files) >= 8
+    for path in files:
+        assert ADAPTER_INCLUDE.search(path.read_text(encoding="utf-8")) is None, path
+
+
+@pytest.mark.req("INT-026")
+def test_a_validity_source_from_the_engine_record_refuses_a_member_it_does_not_hold() -> None:
+    """Ruling 79: an out-of-range member is an error, never read as valid. A fresh adapter's record holds no member
+    until a model loads."""
+    source = core.NativeAdapter().carried_record().validity_source()
+    with pytest.raises(IndexError, match="holds 0 members"):
+        source.not_valid(0)

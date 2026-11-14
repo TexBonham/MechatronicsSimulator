@@ -1,12 +1,14 @@
 #include "mechsim/engine/multibody_provider.hpp"
 
 #include <Eigen/Cholesky>
+#include <Eigen/Eigenvalues>
 #include <Eigen/LU>
 #include <Eigen/QR>
 #include <algorithm>
 #include <array>
 #include <cmath>
 #include <cstddef>
+#include <cstdint>
 #include <limits>
 #include <numbers>
 #include <string>
@@ -499,6 +501,9 @@ Eigen::MatrixXd MultibodyProvider::mass_matrix(const Kinematics& kin) const {
         }
     }
     Eigen::MatrixXd full = lower.selfadjointView<Eigen::Lower>();
+    if (config_.carried_added_mass && !carried_.empty()) {
+        full += carried_mass_block(kin);
+    }
     return full;
 }
 
@@ -550,6 +555,7 @@ std::vector<Vector6d> MultibodyProvider::applied_body_wrenches(const Kinematics&
         out.push_back(to_body(x, world_point(x, at(model_.bodies, i).com), w.head<3>(), w.tail<3>()));
     }
     add_rope_wrenches(kin, out);
+    add_carried_wrenches(kin, carried_load_, out);
     return out;
 }
 
@@ -566,6 +572,9 @@ void MultibodyProvider::evaluate(double t, const Eigen::VectorXd& q, const Eigen
     const Eigen::VectorXd external = inverse_dynamics(kin, zero, Vector6d::Zero(), applied_body_wrenches(kin), false,
                                                       forces);
     terms.force = tau_ - external + joint_spring_forces(q, v);
+    if (carried_momentum_active_) {
+        add_carried_momentum_force(kin, v, terms);
+    }
     terms.stiffness = stiffness_.asDiagonal();
     terms.damping = damping_.asDiagonal();
     add_joint_drives(q, v, terms);
@@ -704,7 +713,7 @@ void MultibodyProvider::add_attachment_terms(const Kinematics& kin, const Eigen:
 
 // Transmissions (ENG-043 to ENG-048): f gets the shaft torque input, F on the output and -g F on the shaft; in
 // contact K += k a b^T and D += c a b^T, a = [g_k, -1], b = [n_eff, -1] over (shaft, output), and the shaft gets the
-// regularised efficiency damping below omega_s (ruling 47); self-locking rows recorded for solve_constraints in
+// efficiency loss as implicit damping at every speed (ruling 47, brief M3-E6); self-locking rows recorded for solve_constraints in
 // transmission order (ruling 48); derivation in transmission.hpp.
 TransmissionCoupling MultibodyProvider::coupling(Eigen::Index transmission, const Eigen::VectorXd& q,
                                                  const Eigen::VectorXd& v) const {
@@ -1288,6 +1297,49 @@ void MultibodyProvider::setup_members_and_ropes() {
             throw InvalidModelError(0.0, label + "references a missing parent or constraint");
         }
     }
+    std::vector<std::uint8_t> member_body(static_cast<std::size_t>(bodies), 0);
+    for (const LumpedBeam& beam : model_.members) {
+        for (const Eigen::Index b : beam.bodies) {
+            at(member_body, b) = 1;
+        }
+        if (beam.roller >= 0 && beam.roller < bodies) {
+            at(member_body, beam.roller) = 1;
+        }
+    }
+    std::vector<std::uint8_t> carried_by(static_cast<std::size_t>(bodies), 0);
+    for (Eigen::Index m = 0; m < count(model_.members.size()); ++m) {
+        const LumpedBeam& beam = at(model_.members, m);
+        for (const Eigen::Index c : beam.carried) {
+            const std::string label = "member " + std::to_string(m) + ": carried body " + std::to_string(c) + " ";
+            if (c < 0 || c >= bodies) {
+                throw InvalidModelError(0.0, label + "is missing");
+            }
+            if (at(member_body, c) != 0) {
+                throw InvalidModelError(0.0, label + "is a member's own body");
+            }
+            if (at(model_.bodies, c).parent != beam.parent) {
+                throw InvalidModelError(0.0, label + "is not a child of the member's parent");
+            }
+            if (at(carried_by, c) != 0) {
+                throw InvalidModelError(0.0, label + "is carried by more than one member");
+            }
+            at(carried_by, c) = 1;
+            CarriedJoint joint;
+            joint.member = m;
+            joint.body = c;
+            for (Eigen::Index b = 0; b < bodies; ++b) {
+                Eigen::Index up = b;
+                while (up >= 0 && up != c) {
+                    up = at(model_.bodies, up).parent;
+                }
+                if (up == c) {
+                    joint.subtree.push_back(b);
+                }
+            }
+            carried_.push_back(joint);
+            carried_load_.emplace_back(Vector6d::Zero());
+        }
+    }
     for (Eigen::Index r = 0; r < count(model_.ropes.size()); ++r) {
         const Rope& rope = at(model_.ropes, r);
         validate_rope_parameters(rope, r);
@@ -1305,17 +1357,710 @@ void MultibodyProvider::setup_members_and_ropes() {
         }
         rope_rest_.push_back(rope.rest_length);
         rope_attached_.push_back(1);
+        rope_held_tension_.push_back(0.0);
     }
 }
 
+// Load-path coupling (ENG-052); the derivation is in member_loads.hpp.
+std::vector<CarriedPair> MultibodyProvider::carried_pairs(const Kinematics& kin,
+                                                          const std::vector<Vector6d>& loads) const {
+    std::vector<CarriedPair> out;
+    if (carried_.empty()) {
+        return out;
+    }
+    std::vector<Eigen::Matrix3d> rotation;
+    std::vector<Eigen::Vector3d> origin;
+    for (const Transform& x : kin.world) {
+        rotation.emplace_back(x.rotation.transpose());
+        origin.push_back(x.translation);
+    }
+    for (Eigen::Index i = 0; i < count(carried_.size()); ++i) {
+        const CarriedJoint& c = at(carried_, i);
+        CarriedPair pair = carried_pair(at(model_.members, c.member), c.body, rotation, origin, at(loads, i));
+        pair.output.member = c.member;
+        out.push_back(pair);
+    }
+    return out;
+}
+
+void MultibodyProvider::add_carried_wrenches(const Kinematics& kin, const std::vector<Vector6d>& loads,
+                                             std::vector<Vector6d>& wrenches) const {
+    const auto apply = [&](Eigen::Index body, const Eigen::Vector3d& point, const Eigen::Vector3d& torque,
+                           const Eigen::Vector3d& force) {
+        if (body >= 0) {
+            at(wrenches, body) += to_body(at(kin.world, body), point, torque, force);
+        }
+    };
+    for (const CarriedPair& pair : carried_pairs(kin, loads)) {
+        const Eigen::Index parent = at(model_.members, pair.output.member).parent;
+        const double w_lower = pair.output.weight;
+        const double w_upper = 1.0 - w_lower;
+        const Eigen::Vector3d force = pair.output.force * pair.axis_y;
+        const Eigen::Vector3d torque = pair.output.moment * pair.axis_z;
+        apply(pair.body_lower, pair.point_lower, w_lower * torque, w_lower * force);
+        apply(pair.body_upper, pair.point_upper, w_upper * torque, w_upper * force);
+        apply(parent, pair.point_lower, -w_lower * torque, -w_lower * force);
+        apply(parent, pair.point_upper, -w_upper * torque, -w_upper * force);
+    }
+}
+
+// The first step's load: the reaction at the start state with zero accelerations (a body at rest: its static
+// weight), from the subtree's Newton-Euler with the applied wrenches (the pairs themselves left out: they act on no
+// carried subtree from outside it).
+std::vector<Vector6d> MultibodyProvider::static_carried_loads(const Kinematics& kin) const {
+    Vector6d base = Vector6d::Zero();
+    base.tail<3>() = -model_.gravity;
+    std::vector<Vector6d> external;
+    for (Eigen::Index i = 0; i < count(model_.bodies.size()); ++i) {
+        const Transform& x = at(kin.world, i);
+        const Vector6d& w = at(wrench_, i);
+        external.push_back(to_body(x, world_point(x, at(model_.bodies, i).com), w.head<3>(), w.tail<3>()));
+    }
+    add_rope_wrenches(kin, external);
+    std::vector<Vector6d> forces;
+    static_cast<void>(inverse_dynamics(kin, Eigen::VectorXd::Zero(nv_), base, external, true, forces));
+    std::vector<Vector6d> loads;
+    for (const CarriedJoint& c : carried_) {
+        const Eigen::Matrix3d r = at(kin.world, c.body).rotation.transpose();
+        Vector6d load;
+        load.head<3>() = -(r * at(forces, c.body).head<3>());
+        load.tail<3>() = -(r * at(forces, c.body).tail<3>());
+        loads.push_back(load);
+    }
+    return loads;
+}
+
+// The carried mass (member_loads.hpp, Carried mass): G v = u'(p), the lever-weighted deflection rate of the
+// member at the foot point along the member frame y, relative to the parent at the same points.
+Eigen::RowVectorXd MultibodyProvider::carried_rate_row(const Kinematics& kin, const CarriedPair& pair) const {
+    const Eigen::Index parent = at(model_.members, pair.output.member).parent;
+    const Eigen::RowVector3d y = pair.axis_y.transpose();
+    const double w = pair.output.weight;
+    const Eigen::MatrixXd lower =
+        point_jacobian(kin, pair.body_lower, pair.point_lower) - point_jacobian(kin, parent, pair.point_lower);
+    const Eigen::MatrixXd upper =
+        point_jacobian(kin, pair.body_upper, pair.point_upper) - point_jacobian(kin, parent, pair.point_upper);
+    return (w * y * lower) + ((1.0 - w) * y * upper);
+}
+
+double MultibodyProvider::carried_mass(Eigen::Index joint) const {
+    double mass = 0.0;
+    for (const Eigen::Index b : at(carried_, joint).subtree) {
+        mass += at(model_.bodies, b).mass;
+    }
+    return mass;
+}
+
+// Sum over carried joints of m_c G^T G at the start-of-step configuration; each term is exactly symmetric.
+Eigen::MatrixXd MultibodyProvider::carried_mass_block(const Kinematics& kin) const {
+    Eigen::MatrixXd block = Eigen::MatrixXd::Zero(nv_, nv_);
+    if (!config_.carried_added_mass) {
+        return block;
+    }
+    const std::vector<CarriedPair> pairs =
+        carried_pairs(kin, std::vector<Vector6d>(carried_.size(), Vector6d::Zero()));
+    for (Eigen::Index i = 0; i < count(pairs.size()); ++i) {
+        const Eigen::RowVectorXd g = carried_rate_row(kin, at(pairs, i));
+        block.noalias() += carried_mass(i) * (g.transpose() * g);
+    }
+    return block;
+}
+
+// The block's inertial force in the recorded reactions: -m_c (G qdd) along y at the foot point, on the nodes by the
+// lever rule and the opposite on the parent, so the members' end loads include it (no moment: the force is along y
+// and the joint origin's offset from the foot point is normal to the member axis).
+// With the momentum form, a carriage that moved in the step adds -m_c G_n v_n / h at today's lever position and
+// +m_c G' v_n / h at the previous one: the total is the momentum rate -(m_c G_n v_{n+1} - m_c G' v_n) / h.
+void MultibodyProvider::add_carried_inertia_wrenches(const Kinematics& kin, const Eigen::VectorXd& qdd,
+                                                     const Eigen::VectorXd& before_v, double h,
+                                                     std::vector<Vector6d>& wrenches) const {
+    if (!config_.carried_added_mass || carried_.empty()) {
+        return;
+    }
+    const std::vector<CarriedPair> pairs =
+        carried_pairs(kin, std::vector<Vector6d>(carried_.size(), Vector6d::Zero()));
+    std::vector<Vector6d> loads;
+    for (Eigen::Index i = 0; i < count(pairs.size()); ++i) {
+        const CarriedPair& pair = at(pairs, i);
+        const double acceleration = (carried_rate_row(kin, pair) * qdd).value();
+        Vector6d load = Vector6d::Zero();
+        load.tail<3>() = -carried_mass(i) * acceleration * pair.axis_y;
+        loads.push_back(load);
+    }
+    add_carried_wrenches(kin, loads, wrenches);
+    if (!carried_momentum_active_) {
+        return;
+    }
+    const auto apply = [&](const CarriedPair& pair, double force) {
+        const Eigen::Index parent = at(model_.members, pair.output.member).parent;
+        const Eigen::Vector3d f = force * pair.axis_y;
+        const double w = pair.output.weight;
+        const auto put = [&](Eigen::Index body, const Eigen::Vector3d& point, const Eigen::Vector3d& value) {
+            if (body >= 0) {
+                at(wrenches, body) += to_body(at(kin.world, body), point, Eigen::Vector3d::Zero(), value);
+            }
+        };
+        put(pair.body_lower, pair.point_lower, w * f);
+        put(pair.body_upper, pair.point_upper, (1.0 - w) * f);
+        put(parent, pair.point_lower, -w * f);
+        put(parent, pair.point_upper, -(1.0 - w) * f);
+    };
+    for (Eigen::Index i = 0; i < count(pairs.size()); ++i) {
+        const CarriedPair& pair = at(pairs, i);
+        if (!carried_moved(i, pair)) {
+            continue;
+        }
+        const CarriedPair previous = carried_pair_at_position(kin, i, at(carried_previous_position_, i));
+        const double mass = carried_mass(i);
+        apply(pair, -mass * (carried_rate_row(kin, pair) * before_v).value() / h);
+        apply(previous, mass * (carried_rate_row(kin, previous) * before_v).value() / h);
+    }
+}
+
+CarriedPair MultibodyProvider::carried_pair_at_position(const Kinematics& kin, Eigen::Index joint, double s) const {
+    std::vector<Eigen::Matrix3d> rotation;
+    std::vector<Eigen::Vector3d> origin;
+    for (const Transform& x : kin.world) {
+        rotation.emplace_back(x.rotation.transpose());
+        origin.push_back(x.translation);
+    }
+    const CarriedJoint& c = at(carried_, joint);
+    CarriedPair pair = carried_pair_at(at(model_.members, c.member), s, rotation, origin);
+    pair.output.member = c.member;
+    pair.output.body = c.body;
+    return pair;
+}
+
+bool MultibodyProvider::carried_moved(Eigen::Index joint, const CarriedPair& pair) const {
+    return carried_has_previous_ && pair.output.position != at(carried_previous_position_, joint);
+}
+
+// The momentum form (member_loads.hpp, Carried mass): -(B_n - B'_{n-1}) v_n / h for each carriage that moved, with
+// B'_{n-1} = m_c G'^T G' at the previous step's position and today's Jacobians; nothing for a standing one.
+void MultibodyProvider::add_carried_momentum_force(const Kinematics& kin, const Eigen::VectorXd& v,
+                                                   DynamicsTerms& terms) const {
+    const std::vector<CarriedPair> pairs =
+        carried_pairs(kin, std::vector<Vector6d>(carried_.size(), Vector6d::Zero()));
+    for (Eigen::Index i = 0; i < count(pairs.size()); ++i) {
+        const CarriedPair& pair = at(pairs, i);
+        if (!carried_moved(i, pair)) {
+            continue;
+        }
+        const CarriedPair previous = carried_pair_at_position(kin, i, at(carried_previous_position_, i));
+        const Eigen::RowVectorXd now = carried_rate_row(kin, pair);
+        const Eigen::RowVectorXd before = carried_rate_row(kin, previous);
+        const double scale = carried_mass(i) / carried_step_;
+        terms.force -= scale * ((now.transpose() * now.dot(v)) - (before.transpose() * before.dot(v)));
+    }
+}
+
+Eigen::MatrixXd MultibodyProvider::carried_mass_matrix(const Eigen::VectorXd& q) const {
+    if (q.size() != nq_) {
+        throw InvalidModelError(0.0, "the carried mass matrix needs q of the model's size");
+    }
+    if (carried_.empty()) {
+        return Eigen::MatrixXd::Zero(nv_, nv_);
+    }
+    return carried_mass_block(kinematics(q, Eigen::VectorXd::Zero(nv_)));
+}
+
+// Every step checks that each carried body's foot point lies on its member's span.
+void MultibodyProvider::prepare_carried(const State& before, double h) {
+    if (carried_.empty()) {
+        return;
+    }
+    const Kinematics kin = kinematics(before.q, before.v);
+    if (!carried_ready_) {
+        member_validity_.assign(model_.members.size(), MemberOutput{});
+        check_carried_stability(before, h);
+        carried_load_ = static_carried_loads(kin);
+        carried_ready_ = true;
+        carried_has_previous_ = false;
+    }
+    carried_start_position_.clear();
+    for (const CarriedPair& pair : carried_pairs(kin, carried_load_)) {
+        carried_start_position_.push_back(pair.output.position);
+        if (pair.excursion > config_.drift_threshold_m) {
+            throw InvalidModelError(before.t, "member " + std::to_string(pair.output.member) + ": carried body " +
+                                                  std::to_string(pair.output.body) + " left the span by " +
+                                                  std::to_string(pair.excursion) + " m");
+        }
+    }
+}
+
+// The lag's stability at load (member_loads.hpp, Stability): modes of K and M on the loop constraints' null space,
+// the pair's lagged generalized force m_c (J_P - J_n)^T J_c in them, every joint and every elastic mode together.
+void MultibodyProvider::check_carried_stability(const State& before, double h) {
+    const Eigen::VectorXd rest = Eigen::VectorXd::Zero(nv_);
+    const Kinematics kin = kinematics(before.q, rest);
+    DynamicsTerms terms;
+    evaluate(before.t, before.q, rest, terms);
+    Eigen::MatrixXd basis = Eigen::MatrixXd::Identity(nv_, nv_);
+    const std::vector<ConstraintRows> rows = all_rows(kin);
+    Eigen::Index row_count = 0;
+    for (const ConstraintRows& r : rows) {
+        row_count += r.jacobian.rows();
+    }
+    if (row_count > 0) {
+        Eigen::MatrixXd g(row_count, nv_);
+        Eigen::Index next = 0;
+        for (const ConstraintRows& r : rows) {
+            g.middleRows(next, r.jacobian.rows()) = r.jacobian;
+            next += r.jacobian.rows();
+        }
+        const Eigen::ColPivHouseholderQR<Eigen::MatrixXd> qr(g.transpose());
+        const Eigen::MatrixXd q_full = qr.householderQ();
+        basis = q_full.rightCols(nv_ - qr.rank());
+    }
+    const Eigen::MatrixXd stiffness = 0.5 * (terms.stiffness + terms.stiffness.transpose());
+    const Eigen::GeneralizedSelfAdjointEigenSolver<Eigen::MatrixXd> solver(
+        basis.transpose() * stiffness * basis, basis.transpose() * terms.mass * basis);
+    const Eigen::MatrixXd modes = basis * solver.eigenvectors();
+    const Eigen::VectorXd& omega_squared = solver.eigenvalues();
+
+    std::vector<Eigen::Index> elastic;
+    const double largest = std::max(omega_squared.maxCoeff(), 0.0);
+    for (Eigen::Index k = 0; k < omega_squared.size(); ++k) {
+        // Rigid modes (omega^2 round-off) carry no lever and no stiffness: they decouple from the elastic ones.
+        if (omega_squared[k] > 1e-12 * largest) {
+            elastic.push_back(k);
+        }
+    }
+    const auto elastic_count = count(elastic.size());
+    Eigen::MatrixXd lag = Eigen::MatrixXd::Zero(elastic_count, elastic_count);
+    Eigen::VectorXd elastic_omega_squared(elastic_count);
+    Eigen::MatrixXd elastic_modes(nv_, elastic_count);
+    for (Eigen::Index p = 0; p < elastic_count; ++p) {
+        elastic_omega_squared[p] = omega_squared[at(elastic, p)];
+        elastic_modes.col(p) = modes.col(at(elastic, p));
+    }
+    const Eigen::MatrixXd modal_damping = elastic_modes.transpose() * terms.damping * elastic_modes;
+    compute_member_compliance(kin, elastic_modes, elastic_omega_squared, modal_damping, h);
+
+    const std::vector<CarriedPair> pairs =
+        carried_pairs(kin, std::vector<Vector6d>(carried_.size(), Vector6d::Zero()));
+    compute_travel_floor(kin, before, pairs);
+    carried_stability_.assign(carried_.size(), CarriedLoadOutput{});
+    std::vector<std::uint8_t> coupled(carried_.size(), 0);
+    Eigen::Index critical = -1;
+    double closest = -std::numeric_limits<double>::infinity();
+    for (Eigen::Index i = 0; i < count(carried_.size()); ++i) {
+        const CarriedJoint& c = at(carried_, i);
+        const CarriedPair& pair = at(pairs, i);
+        const Eigen::Index parent = at(model_.members, c.member).parent;
+        const Eigen::RowVector3d y = pair.axis_y.transpose();
+        const double w = pair.output.weight;
+        const Eigen::RowVectorXd j_parent = (w * y * point_jacobian(kin, parent, pair.point_lower)) +
+                                            ((1.0 - w) * y * point_jacobian(kin, parent, pair.point_upper));
+        const Eigen::RowVectorXd j_nodes = (w * y * point_jacobian(kin, pair.body_lower, pair.point_lower)) +
+                                           ((1.0 - w) * y * point_jacobian(kin, pair.body_upper, pair.point_upper));
+        double carried_mass = 0.0;
+        Eigen::RowVectorXd j_carried = Eigen::RowVectorXd::Zero(nv_);
+        for (Eigen::Index b = 0; b < count(model_.bodies.size()); ++b) {
+            Eigen::Index up = b;
+            while (up >= 0 && up != c.body) {
+                up = at(model_.bodies, up).parent;
+            }
+            if (up != c.body) {
+                continue;
+            }
+            const Body& body = at(model_.bodies, b);
+            const Eigen::Vector3d com = world_point(at(kin.world, b), body.com);
+            j_carried += body.mass * y * point_jacobian(kin, b, com);
+            carried_mass += body.mass;
+        }
+        CarriedLoadOutput& out = at(carried_stability_, i);
+        out.inverse_inertia = (j_parent * modes).squaredNorm();
+        if (carried_mass <= 0.0 || out.inverse_inertia * carried_mass <= 1e-12) {
+            continue;
+        }
+        at(coupled, i) = 1;
+        j_carried /= carried_mass;
+        const Eigen::RowVectorXd carried_modal = j_carried * elastic_modes;
+        const Eigen::RowVectorXd lever_modal = (j_parent - j_nodes) * elastic_modes;
+        lag += carried_mass * lever_modal.transpose() * carried_modal;
+        double joint_closest = -std::numeric_limits<double>::infinity();
+        for (Eigen::Index p = 0; p < elastic_count; ++p) {
+            const double r = carried_mass * carried_modal[p] * lever_modal[p];
+            const double x = std::sqrt(elastic_omega_squared[p]) * h;
+            if (r / lag_stability_boundary(x) > joint_closest) {
+                joint_closest = r / lag_stability_boundary(x);
+                out.lag_ratio = r;
+                out.lag_omega_h = x;
+            }
+        }
+        if (joint_closest > closest) {
+            closest = joint_closest;
+            critical = i;
+        }
+    }
+    if (critical < 0) {
+        return;
+    }
+    const double damped = lag_spectral_radius(lag, elastic_omega_squared, modal_damping, h);
+    for (Eigen::Index i = 0; i < count(carried_.size()); ++i) {
+        if (at(coupled, i) != 0) {
+            at(carried_stability_, i).lag_factor = damped;
+        }
+    }
+    const double undamped =
+        lag_spectral_radius(lag, elastic_omega_squared, Eigen::MatrixXd::Zero(elastic_count, elastic_count), h);
+    if (undamped > 1.0 && config_.refuse_unstable_carried) {
+        const CarriedJoint& c = at(carried_, critical);
+        const CarriedLoadOutput& out = at(carried_stability_, critical);
+        throw InvalidModelError(
+            before.t, "member " + std::to_string(c.member) + ": carried joint of body " + std::to_string(c.body) +
+                          ": the one-step-lagged load path grows on a parent free across the member (r = " +
+                          std::to_string(out.lag_ratio) + ", single-mode boundary (1 + x^2) / 2 = " +
+                          std::to_string(lag_stability_boundary(out.lag_omega_h)) + " at omega h = " +
+                          std::to_string(out.lag_omega_h) + ", undamped growth factor " + std::to_string(undamped) +
+                          " per step; ENG-052, ruling 67)");
+    }
+}
+
+Eigen::VectorXd MultibodyProvider::carried_generalized_forces(const Eigen::VectorXd& q) const {
+    if (q.size() != nq_) {
+        throw InvalidModelError(0.0, "carried forces need q of the model's size");
+    }
+    const Kinematics kin = kinematics(q, Eigen::VectorXd::Zero(nv_));
+    std::vector<Vector6d> loads = carried_load_;
+    if (!carried_ready_) {
+        loads = static_carried_loads(kin);
+    }
+    std::vector<Vector6d> wrenches(model_.bodies.size(), Vector6d::Zero());
+    add_carried_wrenches(kin, loads, wrenches);
+    std::vector<Vector6d> forces;
+    return -inverse_dynamics(kin, Eigen::VectorXd::Zero(nv_), Vector6d::Zero(), wrenches, false, forces);
+}
+
+Eigen::MatrixXd MultibodyProvider::angular_jacobian(const Kinematics& kin, Eigen::Index body) const {
+    return world_jacobian(kin, body).topRows<3>();
+}
+
+// Node compliances and the gravity deflection of every carrying member at load (member_loads.hpp, Work and
+// validity); modes M-normalised, elastic only.
+void MultibodyProvider::compute_member_compliance(const Kinematics& kin, const Eigen::MatrixXd& modes,
+                                                  const Eigen::VectorXd& omega_squared,
+                                                  const Eigen::MatrixXd& modal_damping, double h) {
+    member_compliance_.assign(model_.members.size(), MemberCompliance{});
+    member_window_.assign(model_.members.size(), MemberWindow{});
+    Vector6d base = Vector6d::Zero();
+    base.tail<3>() = -model_.gravity;
+    const std::vector<Vector6d> none(model_.bodies.size(), Vector6d::Zero());
+    std::vector<Vector6d> forces;
+    const Eigen::VectorXd gravity = -inverse_dynamics(kin, Eigen::VectorXd::Zero(nv_), base, none, false, forces);
+    const Eigen::VectorXd inverse = omega_squared.cwiseInverse();
+    const Eigen::VectorXd modal_gravity = inverse.asDiagonal() * (modes.transpose() * gravity);
+    const std::vector<CarriedPair> pairs =
+        carried_pairs(kin, std::vector<Vector6d>(carried_.size(), Vector6d::Zero()));
+    for (const CarriedPair& pair : pairs) {
+        MemberCompliance& out = at(member_compliance_, pair.output.member);
+        if (out.gravity.size() > 0) {
+            continue;
+        }
+        const LumpedBeam& beam = at(model_.members, pair.output.member);
+        const std::vector<LoadNode> nodes = load_nodes(beam);
+        const auto node_count = count(nodes.size());
+        Eigen::MatrixXd g(node_count, nv_);
+        Eigen::MatrixXd r(node_count, nv_);
+        const Eigen::MatrixXd parent_angular = angular_jacobian(kin, beam.parent);
+        for (Eigen::Index a = 0; a < node_count; ++a) {
+            const LoadNode& node = at(nodes, a);
+            Eigen::Vector3d point = node.point;
+            if (node.body >= 0) {
+                point = world_point(at(kin.world, node.body), node.point);
+            }
+            g.row(a) = pair.axis_y.transpose() *
+                       (point_jacobian(kin, node.body, point) - point_jacobian(kin, beam.parent, point));
+            r.row(a) = pair.axis_z.transpose() * (angular_jacobian(kin, node.body) - parent_angular);
+        }
+        const Eigen::MatrixXd g_modal = g * modes;
+        const Eigen::MatrixXd r_modal = r * modes;
+        out.force = g_modal * inverse.asDiagonal() * g_modal.transpose();
+        out.moment = g_modal * inverse.asDiagonal() * r_modal.transpose();
+        out.gravity = g_modal * modal_gravity;
+        // The member's first loaded mode: the largest share of its node compliance (member_loads.hpp, Validity).
+        Eigen::Index first = 0;
+        double share = -1.0;
+        for (Eigen::Index p = 0; p < g_modal.cols(); ++p) {
+            const double this_share = g_modal.col(p).squaredNorm() * inverse[p];
+            if (this_share > share) {
+                share = this_share;
+                first = p;
+            }
+        }
+        double periods = carried_window_periods_max;
+        Eigen::Index bucket = 1;
+        if (g_modal.cols() > 0) {
+            const double omega = std::sqrt(omega_squared[first]);
+            const double zeta = modal_damping(first, first) / (2.0 * omega);
+            periods = carried_window_periods(zeta);
+            bucket = carried_window_bucket(omega * h);
+        }
+        out.window_periods = periods;
+        out.bucket_steps = bucket;
+        at(member_window_, pair.output.member).buckets.assign(4 * static_cast<std::size_t>(std::ceil(periods)), 0.0);
+    }
+}
+
+// The floor of each carried joint at load (member_loads.hpp, Definition (c)): C(s) W at the worst s over the joint's
+// travel. C(s) = e^T C_f e is convex in the lever weight on a segment (C_f is positive semi-definite), so its maximum
+// over [s_lo, s_hi] is at s_lo, s_hi or a load node between them. A prismatic joint's limits map to s along the
+// member at its axis's rate ds/dq at load, and one across the member (rate 0) has no travel; a joint whose child
+// origin is fixed in the parent (revolute, fixed, spherical) has none either: s_lo = s_hi = its own s. Open limits,
+// the planar, free and translation joints and the span's ends give [0, L].
+void MultibodyProvider::compute_travel_floor(const Kinematics& kin, const State& before,
+                                             const std::vector<CarriedPair>& pairs) {
+    carried_travel_floor_.assign(carried_.size(), 0.0);
+    for (Eigen::Index i = 0; i < count(carried_.size()); ++i) {
+        const CarriedJoint& c = at(carried_, i);
+        const CarriedPair& pair = at(pairs, i);
+        const LumpedBeam& beam = at(model_.members, c.member);
+        const MemberCompliance& compliance = at(member_compliance_, c.member);
+        if (compliance.force.rows() == 0) {
+            continue;
+        }
+        double s_lo = 0.0;
+        double s_hi = beam.length;
+        const Joint& joint = at(model_.bodies, c.body).joint;
+        const bool fixed_foot = joint.type == JointType::Revolute || joint.type == JointType::Fixed ||
+                                joint.type == JointType::Spherical;
+        double rate = 0.0;
+        if (joint.type == JointType::Prismatic) {
+            Eigen::Matrix3d parent_rotation = Eigen::Matrix3d::Identity();
+            if (beam.parent >= 0) {
+                parent_rotation = at(kin.world, beam.parent).rotation.transpose();
+            }
+            const Eigen::Vector3d axis = parent_rotation * (joint.orientation * joint.axis);
+            rate = axis.dot(pair.axis_y.cross(pair.axis_z));
+        }
+        if (fixed_foot || (joint.type == JointType::Prismatic && std::abs(rate) <= 1e-12)) {
+            s_lo = pair.output.position;
+            s_hi = pair.output.position;
+        } else if (joint.type == JointType::Prismatic && joint.lower.size() == 1 && joint.upper.size() == 1 &&
+                   std::isfinite(joint.lower[0]) && std::isfinite(joint.upper[0])) {
+            const double q = before.q[position_offset(c.body)];
+            const double a = pair.output.position + (rate * (joint.lower[0] - q));
+            const double b = pair.output.position + (rate * (joint.upper[0] - q));
+            s_lo = std::clamp(std::min(a, b), 0.0, beam.length);
+            s_hi = std::clamp(std::max(a, b), 0.0, beam.length);
+        }
+        const auto collocated = [&compliance](const CarriedPair& at_s) {
+            const Eigen::Index k = at_s.output.node;
+            const double w = at_s.output.weight;
+            return (w * w * compliance.force(k, k)) + (2.0 * w * (1.0 - w) * compliance.force(k, k + 1)) +
+                   ((1.0 - w) * (1.0 - w) * compliance.force(k + 1, k + 1));
+        };
+        const CarriedPair low = carried_pair_at_position(kin, i, s_lo);
+        const CarriedPair high = carried_pair_at_position(kin, i, s_hi);
+        double largest = std::max(collocated(low), collocated(high));
+        for (Eigen::Index j = low.output.node + 1; j <= high.output.node; ++j) {
+            largest = std::max(largest, compliance.force(j, j));
+        }
+        const double weight = carried_mass(i) * model_.gravity.dot(pair.axis_y);
+        at(carried_travel_floor_, i) = std::abs(largest * weight);
+    }
+}
+
+// The pair's work in this step and the member's validity (member_loads.hpp, Work and validity); after the step,
+// pairs at the start state with the loads the step applied. The sample and the base are member-wide (Definition,
+// ruling 77): over the member's load nodes, the deflection and the carried loads' quasi-static deflection relative to
+// the own-weight shape.
+void MultibodyProvider::record_carried_validity(const Kinematics& kin, const std::vector<CarriedPair>& pairs,
+                                                const State& before, const State& after, double h) {
+    std::vector<std::uint8_t> carrying(model_.members.size(), 0);
+    std::vector<double> foot_relative(model_.members.size(), -1.0);
+    std::vector<double> foot_position(model_.members.size(), 0.0);
+    for (const CarriedPair& pair : pairs) {
+        MemberOutput& running = at(member_validity_, pair.output.member);
+        running.carried_force = 0.0;
+        running.quasi_static_deflection = 0.0;
+        running.relative_deflection = 0.0;
+        running.static_floor = 0.0;
+        at(carrying, pair.output.member) = 1;
+    }
+    std::vector<double> carried_base(model_.members.size(), 0.0);
+    const auto weighted = [](const Eigen::MatrixXd& matrix, const CarriedPair& i, const CarriedPair& j) {
+        const Eigen::Index ki = i.output.node;
+        const Eigen::Index kj = j.output.node;
+        const double wi = i.output.weight;
+        const double wj = j.output.weight;
+        return (wi * wj * matrix(ki, kj)) + (wi * (1.0 - wj) * matrix(ki, kj + 1)) +
+               ((1.0 - wi) * wj * matrix(ki + 1, kj)) + ((1.0 - wi) * (1.0 - wj) * matrix(ki + 1, kj + 1));
+    };
+    const auto at_node = [](const Eigen::MatrixXd& matrix, Eigen::Index a, const CarriedPair& j) {
+        const Eigen::Index kj = j.output.node;
+        const double wj = j.output.weight;
+        return (wj * matrix(a, kj)) + ((1.0 - wj) * matrix(a, kj + 1));
+    };
+    for (Eigen::Index i = 0; i < count(pairs.size()); ++i) {
+        const CarriedPair& pair = at(pairs, i);
+        const Eigen::Index m = pair.output.member;
+        const LumpedBeam& beam = at(model_.members, m);
+        MemberOutput& running = at(member_validity_, m);
+        const double w = pair.output.weight;
+        const Eigen::RowVector3d y = pair.axis_y.transpose();
+        const Eigen::RowVector3d z = pair.axis_z.transpose();
+        const Eigen::RowVectorXd lever_force =
+            (w * y * (point_jacobian(kin, pair.body_lower, pair.point_lower) -
+                      point_jacobian(kin, beam.parent, pair.point_lower))) +
+            ((1.0 - w) * y *
+             (point_jacobian(kin, pair.body_upper, pair.point_upper) -
+              point_jacobian(kin, beam.parent, pair.point_upper)));
+        const Eigen::RowVectorXd lever_moment =
+            z * ((w * angular_jacobian(kin, pair.body_lower)) + ((1.0 - w) * angular_jacobian(kin, pair.body_upper)) -
+                 angular_jacobian(kin, beam.parent));
+        running.carried_work +=
+            h * ((pair.output.force * lever_force.dot(after.v)) + (pair.output.moment * lever_moment.dot(after.v)));
+        running.carried_force = std::max(running.carried_force, std::abs(pair.output.force));
+
+        const MemberCompliance& compliance = at(member_compliance_, m);
+        const Eigen::Index k = pair.output.node;
+        const double own_weight = (w * compliance.gravity[k]) + ((1.0 - w) * compliance.gravity[k + 1]);
+        double carried = 0.0;
+        for (const CarriedPair& other : pairs) {
+            if (other.output.member != m) {
+                continue;
+            }
+            carried += (weighted(compliance.force, pair, other) * other.output.force) +
+                       (weighted(compliance.moment, pair, other) * other.output.moment);
+        }
+        running.quasi_static_deflection = std::max(running.quasi_static_deflection, std::abs(own_weight + carried));
+        running.static_floor = std::max(running.static_floor, at(carried_travel_floor_, i));
+        const double foot = std::abs(pair.output.deflection - own_weight);
+        if (foot > at(foot_relative, m)) {
+            at(foot_relative, m) = foot;
+            at(foot_position, m) = pair.output.position;
+        }
+    }
+    std::vector<Eigen::Matrix3d> rotation;
+    std::vector<Eigen::Vector3d> origin;
+    for (const Transform& x : kin.world) {
+        rotation.emplace_back(x.rotation.transpose());
+        origin.push_back(x.translation);
+    }
+    for (Eigen::Index m = 0; m < count(model_.members.size()); ++m) {
+        if (at(carrying, m) == 0) {
+            continue;
+        }
+        const MemberCompliance& compliance = at(member_compliance_, m);
+        MemberOutput& running = at(member_validity_, m);
+        const std::vector<double> deflection = node_deflections(at(model_.members, m), rotation, origin);
+        for (Eigen::Index a = 0; a < compliance.gravity.size(); ++a) {
+            double carried = 0.0;
+            for (const CarriedPair& other : pairs) {
+                if (other.output.member != m) {
+                    continue;
+                }
+                carried += (at_node(compliance.force, a, other) * other.output.force) +
+                           (at_node(compliance.moment, a, other) * other.output.moment);
+            }
+            running.relative_deflection =
+                std::max(running.relative_deflection, std::abs(at(deflection, a) - compliance.gravity[a]));
+            at(carried_base, m) = std::max(at(carried_base, m), std::abs(carried));
+        }
+    }
+    const bool evaluating = step_index_ >= carried_start_step_;
+    for (Eigen::Index m = 0; m < count(model_.members.size()); ++m) {
+        if (at(carrying, m) == 0) {
+            continue;
+        }
+        MemberOutput& running = at(member_validity_, m);
+        MemberOutput& published = at(outputs_.members, m);
+        running.peak_carried_force = std::max(running.peak_carried_force, running.carried_force);
+        running.peak_quasi_static = std::max(running.peak_quasi_static, running.quasi_static_deflection);
+        const MemberCompliance& compliance = at(member_compliance_, m);
+        running.window_periods = compliance.window_periods;
+        MemberWindow& window = at(member_window_, m);
+        running.window_steps = count(window.buckets.size()) * compliance.bucket_steps;
+        running.dynamic_ratio = 0.0;
+        if (evaluating) {
+            window.current = std::max(window.current, at(carried_base, m));
+            running.window_peak = std::max(window.stored, window.current);
+            running.window_quasi_static = std::max(running.window_peak, running.static_floor);
+            window.filled += 1;
+            if (window.filled >= compliance.bucket_steps && !window.buckets.empty()) {
+                window.buckets[window.next] = window.current;
+                window.next = (window.next + 1) % window.buckets.size();
+                window.current = 0.0;
+                window.filled = 0;
+                window.stored = *std::max_element(window.buckets.begin(), window.buckets.end());
+            }
+            if (running.window_quasi_static > 0.0) {
+                running.dynamic_ratio = running.relative_deflection / running.window_quasi_static;
+            }
+            if (running.dynamic_ratio > running.peak_ratio) {
+                running.peak_ratio = running.dynamic_ratio;
+                running.peak_position = at(foot_position, m);
+                running.peak_window_peak = running.window_peak;
+                running.peak_relative_deflection = running.relative_deflection;
+            }
+            if (!running.unresolved && running.dynamic_ratio > carried_ratio_limit) {
+                running.unresolved = true;
+                running.unresolved_time = before.t;
+            }
+        }
+        published.carried_work = running.carried_work;
+        published.carried_force = running.carried_force;
+        published.peak_carried_force = running.peak_carried_force;
+        published.quasi_static_deflection = running.quasi_static_deflection;
+        published.relative_deflection = running.relative_deflection;
+        published.static_floor = running.static_floor;
+        published.window_peak = running.window_peak;
+        published.peak_quasi_static = running.peak_quasi_static;
+        published.window_quasi_static = running.window_quasi_static;
+        published.window_periods = running.window_periods;
+        published.window_steps = running.window_steps;
+        published.dynamic_ratio = running.dynamic_ratio;
+        published.peak_ratio = running.peak_ratio;
+        published.peak_position = running.peak_position;
+        published.peak_window_peak = running.peak_window_peak;
+        published.peak_relative_deflection = running.peak_relative_deflection;
+        published.unresolved = running.unresolved;
+        published.unresolved_time = running.unresolved_time;
+    }
+}
+
+// The first step whose begin time t_0 + n h is at or after the start, counted in steps so that the summed time's
+// round-off cannot move it: n = ceil((start - t_0) / h - 1e-9), the 1e-9 of a step absorbing the division's
+// round-off on a start that is a whole number of steps; a start between steps rounds up. At most 0 gives 0.
+std::int64_t MultibodyProvider::start_step(double start, double t0, double h) {
+    const double steps = std::ceil(((start - t0) / h) - 1e-9);
+    if (!(steps > 0.0)) {
+        return 0;
+    }
+    return static_cast<std::int64_t>(std::min(steps, 9.0e18));
+}
+
 void MultibodyProvider::record_members_and_ropes(const State& before, const State& after, double h) {
+    if (step_index_ == 0) {
+        carried_start_step_ = start_step(config_.carried_evaluation_start, before.t, h);
+        rope_start_step_ = start_step(config_.rope_snap_evaluation_start, before.t, h);
+    }
     outputs_.events = pending_events_;
     pending_events_.clear();
     outputs_.members.clear();
+    outputs_.carried.clear();
     if (!model_.members.empty()) {
         const std::vector<BodyOutput> poses = body_states(before.q, before.v);
         for (const LumpedBeam& beam : model_.members) {
             outputs_.members.push_back(member_end_loads(beam, poses, outputs_.joints, outputs_.constraints));
+        }
+        if (!carried_.empty()) {
+            const Kinematics kin = kinematics(before.q, before.v);
+            const std::vector<CarriedPair> pairs = carried_pairs(kin, carried_load_);
+            for (const CarriedPair& pair : pairs) {
+                outputs_.carried.push_back(pair.output);
+                const CarriedLoadOutput& stable = at(carried_stability_, count(outputs_.carried.size()) - 1);
+                CarriedLoadOutput& published = outputs_.carried.back();
+                published.inverse_inertia = stable.inverse_inertia;
+                published.lag_ratio = stable.lag_ratio;
+                published.lag_omega_h = stable.lag_omega_h;
+                published.lag_factor = stable.lag_factor;
+                double& largest = at(outputs_.members, pair.output.member).carried_deflection;
+                largest = std::max(largest, std::abs(pair.output.deflection));
+            }
+            record_carried_validity(kin, pairs, before, after, h);
         }
     }
     outputs_.ropes = rope_states(after.q, after.v);
@@ -1328,8 +2073,15 @@ void MultibodyProvider::record_members_and_ropes(const State& before, const Stat
             out.snatch_underestimated = out.snatch_omega_h > Rope::snatch_resolution_limit;
         }
         if (at(rope_attached_, r) == 0 || !(out.max_tension > rope.breaking_tension)) {
+            out.held_tension = at(rope_held_tension_, r);
             continue;
         }
+        if (step_index_ < rope_start_step_) {
+            at(rope_held_tension_, r) = std::max(at(rope_held_tension_, r), out.max_tension);
+            out.held_tension = at(rope_held_tension_, r);
+            continue;
+        }
+        out.held_tension = at(rope_held_tension_, r);
         Eigen::Index worst = 0;
         for (Eigen::Index s = 0; s < count(out.tension.size()); ++s) {
             if (at(out.tension, s) > at(out.tension, worst)) {
@@ -1706,8 +2458,12 @@ StepHealth MultibodyProvider::step(Integrator& integrator, State& state) {
     const State before = state;
     StepHealth health;
     try {
+        prepare_carried(before, integrator.config().h);
+        carried_momentum_active_ = config_.carried_momentum && config_.carried_added_mass && carried_has_previous_;
+        carried_step_ = integrator.config().h;
         health = integrator.step(*this, state);
     } catch (...) {
+        carried_momentum_active_ = false;
         clear_inputs();
         throw;
     }
@@ -1724,6 +2480,15 @@ StepHealth MultibodyProvider::step(Integrator& integrator, State& state) {
             row.sign * at(lock_impulse_, r) / integrator.config().h;
     }
     record_members_and_ropes(before, state, integrator.config().h);
+    ++step_index_;
+    carried_momentum_active_ = false;
+    for (Eigen::Index i = 0; i < count(carried_.size()); ++i) {
+        at(carried_load_, i) = -at(outputs_.joints, at(carried_, i).body).reaction_wrench;
+    }
+    if (!carried_.empty()) {
+        carried_previous_position_ = carried_start_position_;
+        carried_has_previous_ = true;
+    }
     clear_inputs();
     return health;
 }
@@ -1776,6 +2541,7 @@ void MultibodyProvider::record_outputs(const State& before, const State& after, 
     Vector6d base = Vector6d::Zero();
     base.tail<3>() = -model_.gravity;
     const Eigen::VectorXd qdd = (after.v - before.v) / h;
+    add_carried_inertia_wrenches(kin, qdd, before.v, h, external);
     std::vector<Vector6d> forces;
     static_cast<void>(inverse_dynamics(kin, qdd, base, external, true, forces));
     outputs_.joints.clear();

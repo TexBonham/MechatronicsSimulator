@@ -1,9 +1,13 @@
 """Fatigue (INT-008, INT-037): rainflow cycle counting (ASTM E1049-85, three-point method; residual ranges count
-as half cycles) on each member's signed normal stress at the eight end-section corners, Miner damage sum
+as half cycles) on each member's signed normal stress at the four corners of its governing section along the member
+(`beam.member_sections`: the strength check's ends, node springs and moment under a carried load; the eight
+end-section corners for a member without node poses, ruling 72), Miner damage sum
 D = sum n_i / N(S_a,i) against the material's S-N curve with S_a = range / 2 and no mean-stress correction. N(S) is
 log-log linear between the S-N points; below the curve's last amplitude the life is infinite (no damage); above its
-first amplitude the first sloped segment is extended. The governing history's cycle count is recorded for the wear
-seam (INT-037)."""
+first amplitude the first sloped segment is extended. The governing section is the one with the largest damage over
+its corners (ruling 75; the larger cycle count on a tie, then the first), reported in the row's detail `section` (and
+`position` where the section is fixed); a read under a carried load that lacks a value in some row is not evaluated,
+with a line, never read as zero. The governing history's cycle count is recorded for the wear seam (INT-037)."""
 
 from __future__ import annotations
 
@@ -11,9 +15,10 @@ import itertools
 import math
 from collections.abc import Sequence
 
+import numpy as np
 from pydantic import Field
 
-from mechsim.integrity.beam import fibre_histories
+from mechsim.integrity.beam import member_sections
 from mechsim.integrity.plugin import (
     CheckResult,
     CheckRow,
@@ -22,6 +27,7 @@ from mechsim.integrity.plugin import (
     IntegrityError,
     RunInputs,
     Spread,
+    not_evaluated,
 )
 from mechsim.schema_base import StrictModel
 
@@ -103,6 +109,13 @@ def damage(curve: Sequence[tuple[float, float]], history: Sequence[float] | Floa
     return total, count
 
 
+def missing_note(member: str, index: int, missing: int, rows: int) -> str:
+    return (
+        f"fatigue of {member!r}: section {index} (a read under a carried load) has no value in {missing} of {rows} "
+        "rows, not evaluated (a missing row is never read as zero, INT-008)"
+    )
+
+
 class Fatigue(IntegrityCheck):
     name = "fatigue"
     parameters = FatigueParameters
@@ -112,16 +125,39 @@ class Fatigue(IntegrityCheck):
         assert isinstance(parameters, FatigueParameters)
         rows: list[CheckRow] = []
         counts: list[tuple[str, float]] = []
+        notes: list[str] = []
         end_time = 0.0
         if inputs.times.size:
             end_time = float(inputs.times[-1])
         for member in inputs.members:
+            if member.loads is None:
+                rows.append(not_evaluated(member.name, "fatigue_damage", 1, parameters.damage_limit))
+                continue
             curve = inputs.material(member.material).sn_curve()
             governing = (0.0, 0.0)
-            for history in fibre_histories(member.loads.scaled(inputs.load_factor), member.section):
-                found = damage(curve, history)
-                if found[0] > governing[0] or (found[0] == governing[0] and found[1] > governing[1]):
-                    governing = found
+            chosen = None
+            sections = member_sections(
+                member.loads.scaled(inputs.load_factor),
+                member.section,
+                member,
+                inputs.bodies,
+                inputs.load_factor,
+                member.spring_offsets,
+            )
+            for candidate in sections:
+                missing = int(candidate.present.size - np.count_nonzero(candidate.present))
+                if missing > 0:
+                    notes.append(missing_note(member.name, candidate.index, missing, candidate.present.size))
+                    continue
+                for history in candidate.corners:
+                    found = damage(curve, history)
+                    if (
+                        chosen is None
+                        or found[0] > governing[0]
+                        or (found[0] == governing[0] and found[1] > governing[1])
+                    ):
+                        governing = found
+                        chosen = candidate
             flags: tuple[str, ...] = ()
             if governing[0] >= parameters.damage_limit:
                 flags = (FLAG,)
@@ -129,7 +165,11 @@ class Fatigue(IntegrityCheck):
             if governing[0] > 0.0:
                 ratio = parameters.damage_limit / governing[0]
                 margin = Spread(ratio, ratio, ratio)
-            detail = (("cycles", governing[1]),)
+            detail: tuple[tuple[str, float], ...] = (("cycles", governing[1]),)
+            if chosen is not None and chosen.index >= 0:
+                detail = (*detail, ("section", float(chosen.index)))
+                if math.isfinite(chosen.position):
+                    detail = (*detail, ("position", chosen.position))
             rows.append(
                 CheckRow(
                     member.name,
@@ -144,7 +184,7 @@ class Fatigue(IntegrityCheck):
                 )
             )
             counts.append((member.name, governing[1]))
-        return CheckResult(self.name, tier, tuple(rows), tuple(counts))
+        return CheckResult(self.name, tier, tuple(rows), tuple(counts), tuple(notes))
 
 
 CHECK = Fatigue

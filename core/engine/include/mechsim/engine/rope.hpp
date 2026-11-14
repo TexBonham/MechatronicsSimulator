@@ -30,7 +30,10 @@ struct MultibodyModel;
 // A small-swing pendulum on it decays with the logarithmic decrement of I theta'' + c theta' + g S theta = 0.
 //
 // Snap (ENG-034). When a segment's end-of-step tension exceeds breaking_tension, the last segment (to to_body) is
-// removed from the next step on; the chain stays hung from from_body.
+// removed from the next step on; the chain stays hung from from_body. Only from MultibodyConfig::
+// rope_snap_evaluation_start (INT-031, ruling 75; counted in steps: the first judged step is n = ceil((start - t_0) /
+// h - 1e-9) after load): in a step starting before it the exceedance is published as
+// RopeOutput::held_tension and the load stays attached.
 //
 // Snatch resolution (rulings 15 and 22, ADR 0016 Consequences): the rope's fundamental with the load,
 // omega_s = sqrt(EA / (rest_length M)), M the to_body mass; above omega_s h = 0.2 the first snatch peak is about
@@ -68,6 +71,9 @@ struct RopeOutput {
     bool snatch_underestimated = false;  // snatch_omega_h > Rope::snatch_resolution_limit: first snatch peak
                                          // about 15 % low
     double scheme_decay = 0.0;           // pi omega h of the swing mode (ruling 21); 0 without gravity
+    // The largest max_tension above breaking_tension in a step before MultibodyConfig::rope_snap_evaluation_start,
+    // since load, N: a snap held back (not released); 0 when none.
+    double held_tension = 0.0;
 };
 
 // Appends the chain's nodes evenly between from_world and to_world (the attach points' world positions in the model's

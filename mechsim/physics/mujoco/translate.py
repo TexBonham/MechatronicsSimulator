@@ -463,7 +463,10 @@ def _reflections(model: PhysicsModel, report: list[str]) -> dict[str, _Reflectio
         )
         if shaft.shapes:
             report.append(f"{element}: the {len(shaft.shapes)} shape(s) of shaft body '{shaft.name}' are not emitted")
-        report.append(f"{element}: stiffness {_num(transmission.stiffness)} treated as rigid (milestone 1)")
+        rigid = f"{element}: stiffness {_num(transmission.stiffness)} treated as rigid (milestone 1)"
+        if transmission.damping > 0.0:
+            rigid += f"; its damping {_num(transmission.damping)} is not modelled on a rigid coupling (PHY-037)"
+        report.append(rigid)
         report.append(
             f"{element}: the rotor's reaction torque on its mount body '{shaft.parent}' and the spin-mount "
             "(gyroscopic) coupling are dropped: the shaft has no hinge in the MJCF"

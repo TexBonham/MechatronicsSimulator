@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Collection, Mapping
 from pathlib import Path
 
-from mechsim.builder.physics import Collector, build_physics
+from mechsim.builder.physics import Collector, build_physics, payload_ropes
 from mechsim.builder.result import BuildError, BuildResult
 from mechsim.builder.wiring import build_wiring
 from mechsim.design.cad import StepImporter
@@ -13,6 +13,7 @@ from mechsim.design.chip import Chip, shipped_chips
 from mechsim.design.schema import Design
 from mechsim.library.registry import Registry
 from mechsim.materials.schema import Material
+from mechsim.physics.neutral import Rope
 
 UNSET_BLOB = "0" * 40
 
@@ -82,6 +83,9 @@ def build(
         raise BuildError(collector.failures)
     if len(collector.pending) > 0 and design.status == "release":
         raise BuildError([f"release design holds an open value at {path}" for path in collector.pending])
+    ropes: tuple[Rope, ...] = ()
+    if physics.model is not None:
+        ropes = payload_ropes(design, registry)
     return BuildResult(
         design=design,
         module_instances=module_order(design, registry),
@@ -92,4 +96,5 @@ def build(
         lumped=physics.lumped,
         pending=tuple(sorted(set(collector.pending))),
         notes=tuple(collector.notes),
+        payload_ropes=ropes,
     )

@@ -108,7 +108,8 @@ TransmissionCoupling couple(const Transmission& transmission, double slip, doubl
     }
     if (speed >= slip_threshold) {
         c.gain = full_gain;
-        c.stiffness_gain = full_gain;
+        c.stiffness_gain = c.n;
+        c.shaft_damping = damping_loss * std::abs(lossless) / speed;
     } else {
         c.gain = c.n * (1.0 + (speed / slip_threshold) * loss);
         c.stiffness_gain = c.n;

@@ -13,13 +13,13 @@ Namespace `mechsim::engine`; q (nq), v (nv). Eigen only, dense (ENG-001).
 | `step_health.hpp` | `StepHealth { max_constraint_drift, converged, iterations, time, step }` (ENG-026) |
 | `engine_error.hpp` | `EngineError(time, cause)`; `NonFiniteStateError`, `SolverNonConvergenceError`, `DriftError` (+`constraint_index()`), `InvalidModelError`, `InvalidConfigError` |
 | `spatial.hpp` | Featherstone 6-vectors (angular first), `Transform` B_X_A (`motion`, `force`, `inverse_*`, `then_from`), `inertia`, `cross_motion/force` |
-| `multibody_model.hpp` | `JointType`, `Joint`, `Body`, `LoopConstraint` (Point 3, Hinge 5 rows), `MultibodyModel`, `MultibodyConfig` |
+| `multibody_model.hpp` | `JointType`, `Joint`, `Body`, `LoopConstraint` (Point 3, Hinge 5 rows), `MultibodyModel`, `MultibodyConfig` (test seams `refuse_unstable_carried`, `carried_added_mass`, `carried_momentum`) |
 | `multibody_provider.hpp` | `MultibodyProvider`, output structs |
 | `transmission.hpp` | `Transmission` (belt, screw, gear), `TransmissionOutput`, `PowerFlow`, `couple` (derivation) |
 | `collision.hpp` | `ShapeKind`, `shape_kind(name)` (unknown throws, ENG-017), `Shape`, `Pose`, `ContactPoint{point, normal a->b, depth}`, `Aabb`, `bounds`, `broad_phase`, `collide(a, pa, b, pb)`, `support` |
 | `contact.hpp` | `ContactParameters{K_n, C_n, mu}`, `MaterialPair`, `Geometry` (neutral sizes, body -1 world), `ContactModel{geometries, default, pairs, exclusions, slip_velocity 1e-4}`, `contact_force`, `WeldAttachment`, `PayloadOutput` (derivations in the header) |
 | `lumped_beam.hpp` | `BeamSpec`, `add_lumped_beam(model, spec, parent, position, orientation)` (registers `model.members`), `beam_point(beam, x)` (ENG-022) |
-| `member_loads.hpp` | `LumpedBeam`, `member_nodes(beam)`, `MemberOutput` (start/end moment, force), `member_end_loads` (ENG-030) |
+| `member_loads.hpp` | `LumpedBeam` (+ `carried`), `member_nodes(beam)`, `MemberOutput` (start/end moment, force, `carried_deflection`, work and validity fields), `carried_ratio_limit`, `carried_window_periods`/`carried_window_bucket`, `member_end_loads` (ENG-030); `CarriedLoadOutput`, `load_nodes`, `carried_pair`, `carried_pair_at` (ENG-052, derivation in the header) |
 | `rope.hpp` | `Rope`, `RopeOutput`, `add_rope(model, rope, from_world, to_world)`, `rope_segment`, `validate_rope_parameters` (ENG-047, ADR 0016) |
 
 ## DynamicsProvider hooks
@@ -65,8 +65,8 @@ Also `constraint_errors(q)`, `body_states(q, v)`, `neutral_positions()`, `*_offs
 Hooks write mutable `impulse_`/`error_`; single-threaded (ENG-023).
 Transmissions: Revolute shaft to Prismatic or (gear) Revolute output; K, D += k, c a b^T in contact, a = [g_k, -1].
 Efficiency (ruling 47): gain n (1 + s_w alpha), s_w = min(|omega| / omega_s, 1), omega_s = `friction_slip_threshold`;
-exact n / eta_f, n eta_b at and above omega_s (g_k = g); below it g_k = n and the shaft gets implicit damping
-c = |alpha| n |F| / omega_s (larger loss at omega = 0). Static sag n F / K exact; creep tau_f = (n F (1 / eta_f - 1) /
+explicit gain exact n / eta_f, n eta_b at and above omega_s; g_k = n always and the shaft gets implicit damping
+c = |alpha| n |F| / max(|omega|, omega_s) (larger loss at omega = 0), so the loss never adds energy (M3-E6). Static sag n F / K exact; creep tau_f = (n F (1 / eta_f - 1) /
 omega_s + D_d) / K, tau_b = (n F (1 - eta_b) / omega_s + D_d) / K. `Static` = shaft at exactly zero speed (or F = 0).
 Self-locking screw (ruling 48): `lock_rows_` from `evaluate` (transmission order), scalar row s omega >= 0 after the
 limit rows in `solve_constraints`, absent when the shaft's own torque T (tau, body wrenches, drive and model joint
@@ -79,6 +79,40 @@ spring-damper) has T L > 0 (lowering: gain 0); two-sided only at omega == 0 with
 
 Members (ENG-030): `outputs().members` per `model.members`, support-on-member wrench at x = 0 and x = L, moments about
 the end point, member root frame axes, from the step's start state like `joints`.
+Carried joints (ENG-052, ruling 63): `LumpedBeam::carried` child bodies of the member's parent (validated at
+construction: in range, not a member body or roller, one member each). Load = -(previous step's `reaction_wrench`), the
+first step's from Newton-Euler at the start state with zero accelerations (`static_carried_loads`). Rerouted: only F . y
+and M_p . z (member frame, ruling 65); axial, out-of-plane and torsion stay on the parent. Lever rule onto `load_nodes`
+(x = 0: parent if clamped, pin segment if pinned; spring nodes; x = L: last segment tip), exact opposite on the parent
+at the same points, added in `applied_body_wrenches` (so `evaluate`, joint reactions and end loads see it). Explicit,
+one step lagged, not in K, D or H. `outputs().carried` per carried joint; `MemberOutput::carried_deflection` per member;
+`carried_generalized_forces(q)` for the energy oracle. Foot point off [0, L] by more than `drift_threshold_m`: InvalidModelError.
+Lag stability (brief M3-E7b, header Stability): at the first step, modes of K, M on the loop null space; per joint
+`CarriedLoadOutput::inverse_inertia`, `lag_ratio`, `lag_omega_h`, `lag_factor` (damped spectral radius,
+`lag_spectral_radius`; one mode `lag_growth_factor`, boundary `lag_stability_boundary` = (1 + x^2) / 2); undamped
+radius > 1 refused (InvalidModelError, ruling 67); `MultibodyConfig::refuse_unstable_carried` is a test seam only.
+Work and validity (brief M3-E7c, ruling 69, header Work and validity): per carrying member `MemberOutput::carried_work`
+(cumulative h Q_n . v_{n+1}), `carried_force`/`peak_carried_force`, `quasi_static_deflection`/`peak_quasi_static`
+(node compliances and gravity deflection from the elastic modes at load, `member_compliance_`), `dynamic_ratio`,
+`peak_ratio`, `unresolved` + `unresolved_time` above `carried_ratio_limit` = 2 (1 + `carried_validity_margin` 0.02);
+information only, nothing clamped. Definition (briefs M3-E7f, M3-E7g, rulings 74, 77, header Definition),
+member-wide over the load nodes: ratio = `relative_deflection` (max over nodes abs(d_a - g_a), `node_deflections`) /
+`window_quasi_static` = max(window peak of max over nodes abs(u_qs,a - g_a), `static_floor` = max over the travel of
+C(s) W, `carried_travel_floor_` at load, ruling 76; no travel for revolute, fixed, spherical or a cross-axis
+prismatic); `window_peak` before the floor; at the peak ratio `peak_position`, `peak_window_peak`,
+`peak_relative_deflection`; window N = ln 50 / (2 pi zeta) periods of the first loaded
+mode (node damping only; cap 100, undamped gets the cap), a fixed ring of 4 ceil(N) quarter-period buckets
+(`member_window_`); evaluated, and the window fed, from `MultibodyConfig::carried_evaluation_start` (s, default 0);
+`window_periods`, `window_steps` published; `peak_quasi_static` stays the largest abs(u_qs) since load.
+Carried mass (brief M3-E7d, ruling 70 b, header Carried mass): `mass_matrix` adds m_c G^T G per carried joint (G v the
+lever-weighted deflection rate at the foot point along member y relative to the parent, `carried_rate_row`; m_c the
+carried body's tree subtree, `carried_mass`), at the start-of-step configuration; no added weight, zero along the
+parent's rigid motion, no rotary inertia; its force -B q'' goes into the recorded reactions
+(`add_carried_inertia_wrenches`). `carried_mass_matrix(q)` for the energy oracle. Stability on the loaded modes:
+abs(r) <= 1/2, the refusal a guard. `MultibodyConfig::carried_added_mass` false (test seam only) is the E7c one-way pair.
+Momentum form (brief M3-E7e): a carriage whose s changed since the previous step's start adds -(B_n - B'_{n-1}) v_n / h
+(`add_carried_momentum_force`, B' at the previous s, `carried_previous_position_`, active only inside `step()`), and
+the reactions carry the momentum rate; a standing carriage is bit-identical; `carried_momentum` false is the E7d form.
 Mid-run changes (ENG-031 to 034), next step on, each listed in the next step's `outputs().events` (`ModelChange`):
 `set_spring_offset(member, node, offset)` (rest = built + offset), `set_spring_stiffness(member, node, k)`,
 `disable_constraint(c)` / `release_load(c)` (zero rows; twice throws), `release_rope(r)` (same path); `constraint_enabled`, `rope_attached`.
@@ -87,7 +121,9 @@ tension-only spring-dampers, slack or taut from the step start; K gets k n n^T +
 top attachment damping and friction (spherical joint torque, in D); `set_rope_rest_length(r, L)` (winch);
 `outputs().ropes` per segment tension, max, load end, `snatch_omega_h` = sqrt(EA / (L M)) h (flag above 0.2:
 first snatch peak about 15 % low); snap: end-of-step tension
-over `breaking_tension` releases `to_body` from the next step, event `RopeSnapped`.
+over `breaking_tension` releases `to_body` from the next step, event `RopeSnapped`, only in steps starting at or after
+`MultibodyConfig::rope_snap_evaluation_start` (s, default 0; document key `rope_snap_evaluation_start`); before it
+the exceedance is held, `RopeOutput::held_tension` the largest since load (INT-031, ruling 75).
 Ruling 21: swing and belt modes go through K, so they integrate as backward Euler: with x = omega h the mode loses
 (1 + x^2)^(-pi / atan x) of its amplitude per period (about pi x; 1 % at 1 ms for a 1 m pendulum) and runs x^2 / 3
 slow (1 % at 27 Hz at 1 kHz); `RopeOutput::scheme_decay` and `TransmissionOutput::scheme_decay` publish pi omega h
@@ -104,10 +140,10 @@ collects the events after each step.
 | Construction | 302 |
 | Kinematics | 397 |
 | Dynamics | 469 |
-| Transmissions | 703 |
-| Constraints | 855 |
-| Members, ropes and model changes | 1091 |
-| Inputs and outputs | 1579 |
+| Transmissions | 704 |
+| Constraints | 856 |
+| Members, ropes and model changes | 1092 |
+| Inputs and outputs | 1722 |
 
 ## Section index, `src/collision.cpp`
 
@@ -155,7 +191,8 @@ Planar bending about root z; two-axis bending plus torsion: next tier. Derivatio
 ## Tests
 
 Unit: `mechsim_engine_tests`. Reference: `mechsim_engine_reference`, `ctest -L reference`. Contact helpers:
-`tests/contact_helpers.hpp`.
+`tests/contact_helpers.hpp`; energy oracle `tests/energy_helpers.hpp` (`mechanical_energy`); carried rigs and the
+lever-rule chain value `tests/carried_helpers.hpp`.
 
 ## Conventions
 

@@ -418,8 +418,29 @@
     },
     "IntegritySettings": {
       "additionalProperties": false,
-      "description": "The case's integrity section (INT-026, ADR 0010 amendment, round 5 ruling 4): `halt_on_crossing` true ends\nthe run at the first tier 1 limit crossing, false lets it run to its end; the case fails on a crossing either\nway (INT-025). Absent or empty: false; nothing else sets it (round 5 rulings 4, 50).",
+      "description": "The case's integrity section (INT-026, ADR 0010 amendment, round 5 ruling 4): `halt_on_crossing` true ends\nthe run at the first tier 1 limit crossing, false lets it run to its end; the case fails on a crossing either\nway (INT-025). Absent or empty: false; nothing else sets it (round 5 rulings 4, 50). `design_load_carried`\n(TST-043) and `evaluate_from` (TST-044) shape the integrity results, never the run.",
       "properties": {
+        "design_load_carried": {
+          "default": false,
+          "description": "The run's loads already carry the design load (TST-043, INT-019, ruling 52): the post-run table applies factor 1 and says so; false: the design's design-load rule scales the recorded loads.",
+          "title": "Design Load Carried",
+          "type": "boolean"
+        },
+        "evaluate_from": {
+          "anyOf": [
+            {
+              "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s+\\S.*)?$",
+              "type": "string"
+            },
+            {
+              "pattern": "^\\$\\{[a-z][a-z0-9_]*\\}$",
+              "type": "string"
+            }
+          ],
+          "default": 0.0,
+          "description": "Time from which integrity results count (TST-044): peaks, safety factors and tier 1 crossings; a crossing before it is recorded as an `integrity_before_evaluation` event and does not fail the case.",
+          "title": "Evaluate From"
+        },
         "halt_on_crossing": {
           "default": false,
           "description": "End the run at the first tier 1 crossing (INT-026).",
@@ -867,7 +888,7 @@
     },
     "PhysicsSettings": {
       "additionalProperties": false,
-      "description": "The run configuration's physics section (TST-040): `adapter` selects the physics adapter, `mujoco` by default\nuntil X2 (ruling 41); `--set physics.adapter=<name>` overrides it.",
+      "description": "The run configuration's physics section (TST-040): `adapter` selects the physics adapter, `mujoco` by default\nuntil X2 (ruling 41); `--set physics.adapter=<name>` overrides it. `substeps` (TST-042, rulings 21, 49): engine\nsteps per physics step on the native adapter, each h / substeps, the control tick unchanged; above one on the\nbridge the run fails.",
       "properties": {
         "adapter": {
           "default": "mujoco",
@@ -877,6 +898,12 @@
           ],
           "title": "Adapter",
           "type": "string"
+        },
+        "substeps": {
+          "default": 1,
+          "minimum": 1,
+          "title": "Substeps",
+          "type": "integer"
         }
       },
       "title": "PhysicsSettings",
@@ -1343,7 +1370,7 @@
           "type": "string"
         },
         "quantity": {
-          "pattern": "^(signal:[a-z][a-z0-9_]*\\.[a-z][a-z0-9_]*|pose:[a-z][a-z0-9_]*\\.(x|y|z|roll|pitch|yaw)|joint:[a-z][a-z0-9_]*\\.(position|velocity)|rail:[a-z][a-z0-9_]*(\\.voltage)?|state:[a-z][a-z0-9_]*|fault:[a-z][a-z0-9_]*|count:(message|state|fault)\\.[a-z][a-z0-9_]*|safety_factor:[a-z][a-z0-9_]*|deflection:[a-z][a-z0-9_]*)$",
+          "pattern": "^(signal:[a-z][a-z0-9_]*\\.[a-z][a-z0-9_]*|pose:[a-z][a-z0-9_]*\\.(x|y|z|roll|pitch|yaw)|joint:[a-z][a-z0-9_]*\\.(position|velocity)|rail:[a-z][a-z0-9_]*(\\.voltage)?|state:[a-z][a-z0-9_]*|fault:[a-z][a-z0-9_]*|count:(message|state|fault)\\.[a-z][a-z0-9_]*|safety_factor:[a-z][a-z0-9_]*|deflection:[a-z][a-z0-9_]*|swing:[a-z][a-z0-9_]*\\.[a-z][a-z0-9_]*(\\.(x|y|z))?)$",
           "title": "Quantity",
           "type": "string"
         },
@@ -1539,7 +1566,7 @@
           "type": "string"
         },
         "quantity": {
-          "pattern": "^(signal:[a-z][a-z0-9_]*\\.[a-z][a-z0-9_]*|pose:[a-z][a-z0-9_]*\\.(x|y|z|roll|pitch|yaw)|joint:[a-z][a-z0-9_]*\\.(position|velocity)|rail:[a-z][a-z0-9_]*(\\.voltage)?|state:[a-z][a-z0-9_]*|fault:[a-z][a-z0-9_]*|count:(message|state|fault)\\.[a-z][a-z0-9_]*|safety_factor:[a-z][a-z0-9_]*|deflection:[a-z][a-z0-9_]*)$",
+          "pattern": "^(signal:[a-z][a-z0-9_]*\\.[a-z][a-z0-9_]*|pose:[a-z][a-z0-9_]*\\.(x|y|z|roll|pitch|yaw)|joint:[a-z][a-z0-9_]*\\.(position|velocity)|rail:[a-z][a-z0-9_]*(\\.voltage)?|state:[a-z][a-z0-9_]*|fault:[a-z][a-z0-9_]*|count:(message|state|fault)\\.[a-z][a-z0-9_]*|safety_factor:[a-z][a-z0-9_]*|deflection:[a-z][a-z0-9_]*|swing:[a-z][a-z0-9_]*\\.[a-z][a-z0-9_]*(\\.(x|y|z))?)$",
           "title": "Quantity",
           "type": "string"
         },
