@@ -1033,6 +1033,122 @@ def test_fatigue_of_a_pinned_member_reads_the_centre_bending_amplitude_and_count
     assert result.cycle_counts == (("rail", float(periods)),)
 
 
+def _pinned_springs(moments: np.ndarray, carried: np.ndarray | None = None) -> tuple[MemberInputs, BodyPoses]:
+    """The pinned chain (N = 9, no end loads) whose springs read `moments` (rows, N): node j + 1 turned about z by the
+    sum of M_i / k up to spring j. `carried` (rows, n): the foot points of n carried joints of zero load, bodies after
+    the nodes on the member axis."""
+    rows = moments.shape[0]
+    segment = LENGTH / _SPAN
+    stiffness = MODULUS * I_Z / segment
+    count = 0
+    if carried is not None:
+        count = carried.shape[1]
+    angles = np.cumsum(moments / stiffness, axis=1)
+    orientations = np.zeros((rows, _SPAN + 1 + count, 4))
+    orientations[:, :, 0] = 1.0
+    orientations[:, 1 : _SPAN + 1, 0] = np.cos(angles / 2.0)
+    orientations[:, 1 : _SPAN + 1, 3] = np.sin(angles / 2.0)
+    positions = np.zeros((rows, _SPAN + 1 + count, 3))
+    zero = np.zeros((rows, 3))
+    loads: list[CarriedLoad] = []
+    for j in range(count):
+        assert carried is not None
+        positions[:, _SPAN + 1 + j, 0] = carried[:, j]
+        loads.append(CarriedLoad(f"slide{j}", _SPAN + 1 + j, zero.copy(), zero.copy()))
+    chain = NodeChain(
+        0,
+        _SPAN + 1,
+        "pinned",
+        None,
+        (0.0, 0.0, 0.0),
+        (1.0, 0.0, 0.0, 0.0),
+        segment,
+        stiffness,
+        carries=count > 0,
+        carried=tuple((_SPAN + 1 + j, j) for j in range(count)),
+    )
+    member_inputs = MemberInputs(
+        "rail",
+        "fake",
+        SECTION,
+        ((0.0, "pinned"), (LENGTH, "roller")),
+        Wrenches(zero, zero.copy(), zero.copy(), zero.copy()),
+        nodes=chain,
+        carried=tuple(loads),
+    )
+    return member_inputs, BodyPoses(positions, orientations)
+
+
+@pytest.mark.req("INT-008")
+def test_fatigue_never_reads_a_missing_read_under_a_carried_load_as_zero() -> None:
+    """Two carried joints of zero load on the pinned chain: while their segments differ by at most 2 they form one
+    cluster with two reads (columns 0, 1); apart, two clusters with four, so columns 2 and 3 have a value only in the
+    rows where they are apart. Read as zero there, the jump to and from zero would fabricate cycles; the check leaves
+    those two sections out, one line each naming the rows without a value. Spring 5 (5.5 l) cycles four times; it is
+    outside both lines of the cluster (samples 0, 1 and 3, 4), so the reads that stay are zero and spring 5 governs
+    with its 4 cycles (column 2, line A of the far load through springs 5 and 6, is the one left out)."""
+    rows = 41
+    segment = LENGTH / _SPAN
+    phase = 2.0 * math.pi * np.arange(rows) / 10.0
+    moments = np.zeros((rows, _SPAN))
+    moments[:, 5] = -50e6 * I_Z / C_Y * np.cos(phase)
+    feet = np.zeros((rows, 2))
+    feet[:, 0] = 1.2 * segment
+    feet[:, 1] = 2.2 * segment
+    feet[rows // 2 :, 1] = 7.2 * segment
+    member_inputs, bodies = _pinned_springs(moments, feet)
+    result = Fatigue().evaluate(inputs([member_inputs], rows, bodies=bodies), FatigueParameters(), 1)
+    (row,) = result.rows
+    apart = rows - rows // 2 - 1
+    assert result.notes == tuple(
+        f"fatigue of 'rail': section {2 + _SPAN + column} (a read under a carried load) has no value in "
+        f"{rows - apart} of {rows} rows, not evaluated (a missing row is never read as zero, INT-008)"
+        for column in (2, 3)
+    )
+    assert dict(row.detail)["section"] == 2 + 5
+    assert dict(row.detail)["cycles"] == 4
+
+
+def _sn_life(amplitude: float) -> float:
+    """N(S) by hand from the test material's two S-N points (1e3, 100 MPa), (1e6, 40 MPa), log-log linear."""
+    weight = math.log(100e6 / amplitude) / math.log(100e6 / 40e6)
+    return math.exp(math.log(1e3) + weight * math.log(1e6 / 1e3))
+
+
+@pytest.mark.req("INT-004", "INT-008")
+def test_fatigue_governs_by_the_section_with_the_largest_damage_not_the_largest_peak() -> None:
+    """INT-008, ruling 75. The same pinned chain (N = 9, no end moments, no axial force, so each section's four corners
+    carry +-M c_y / I_z, one rainflow up to sign). Spring 6 at 6.5 l: M = -M_s cos(2 pi t / T) over n = 200 periods,
+    S_a = 50 MPa, the turning points -S, +S, ..., -S rainflow to exactly n cycles of range 2 S, so D_6 = n / N(50 MPa)
+    = 200 / 1.86e5 = 1.08e-3. Spring 1 at 1.5 l: zero but for one excursion -90, +90 MPa on two rows: reversals
+    0, -90, 90, 0 rainflow to half cycles of range 90, 180, 90 (the first popped, two residual), so D_1 = 0.5 / N(90)
+    + 0.5 / N(45) = 2.3e-4 with the larger peak, 90 MPa against 50. The check reports spring 6 (section 2 + 6, the
+    order ends, springs, reads under a carried load) and D_6 within 1e-9, its cycle count n."""
+    periods, per_period = 200, 8
+    small, large = 50e6, 90e6
+    rows = periods * per_period + 1
+    phase = 2.0 * math.pi * np.arange(rows) / per_period
+    segment = LENGTH / _SPAN
+    moments = np.zeros((rows, _SPAN))
+    moments[:, 6] = -small * I_Z / C_Y * np.cos(phase)
+    moments[rows // 2, 1] = -large * I_Z / C_Y
+    moments[rows // 2 + 1, 1] = large * I_Z / C_Y
+    member_inputs, bodies = _pinned_springs(moments)
+    run = inputs([member_inputs], rows, bodies=bodies)
+    result = Fatigue().evaluate(run, FatigueParameters(), 1)
+    (row,) = result.rows
+    expected = periods / _sn_life(small)
+    elsewhere = 0.5 / _sn_life(large) + 0.5 / _sn_life(large / 2.0)
+    report("fatigue damage of the high-cycle section", expected, row.value)
+    report("fatigue damage of the peak-stress section (not governing)", elsewhere, elsewhere)
+    assert elsewhere < expected
+    assert row.value == pytest.approx(expected, rel=EXACT)
+    assert dict(row.detail)["section"] == 2 + 6
+    assert dict(row.detail)["position"] == pytest.approx(6.5 * segment, rel=EXACT)
+    assert dict(row.detail)["cycles"] == periods
+    assert result.notes == ()
+
+
 @pytest.mark.req("INT-004", "INT-011")
 def test_impact_on_a_pinned_member_reads_the_mid_span_peak() -> None:
     rows, step, load, factor = 20, 5, 30.0, 2.0

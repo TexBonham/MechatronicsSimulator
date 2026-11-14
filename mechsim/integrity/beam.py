@@ -510,43 +510,23 @@ def member_normal_stress(
     return np.concatenate((ends, springs, under), axis=1)
 
 
-def member_fibre_histories(
-    loads: Wrenches,
-    section: SectionProperties,
-    member: MemberInputs,
-    bodies: BodyPoses | None,
-    factor: float = 1.0,
-    offsets: FloatArray | None = None,
+@dataclass(frozen=True)
+class SectionHistory:
+    """One section along a member (INT-008): `index` in the order of `member_normal_stress` (0 start, 1 end, 2 + j
+    spring j, then the reads under a carried load), `position` (m; NaN for a read under a carried load, which moves
+    with it), `corners` the signed normal stress at its four corners (eight end corners for a member without node
+    poses), `present` (rows,) the rows that have a value (a read under a carried load exists only in the rows whose
+    clusters give one)."""
+
+    index: int
+    position: float
+    corners: list[FloatArray]
+    present: FloatArray
+
+
+def _corners(
+    normal: FloatArray, moment_y: FloatArray, moment_z: FloatArray, section: SectionProperties
 ) -> list[FloatArray]:
-    """Signed normal stress at the four corners of the member's governing section (INT-008, INT-011, ruling 72): the
-    section of `member_normal_stress` (ends, springs, the moment under a carried load) whose peak over the run is the
-    largest, the first on a tie; N / A +- M_y c_z / I_y +- M_z c_y / I_z with that section's signed moments (a spring's
-    axial force the end value of the larger magnitude, the start's on a tie; M_y interpolated between the ends). A
-    member without node poses (or no rows) keeps the eight end-corner histories of `fibre_histories`. `loads` are
-    already scaled by `factor`; node moments scale with it."""
-    if member.nodes is None or bodies is None or loads.start_force.shape[0] == 0:
-        return fibre_histories(loads, section)
-    stress = member_normal_stress(loads, section, member, bodies, factor, offsets)
-    column = int(np.argmax(stress.max(axis=0)))
-    start_normal = -loads.start_force[:, 0]
-    end_normal = loads.end_force[:, 0]
-    if column == 0:
-        normal, moment_y, moment_z = start_normal, loads.start_moment[:, 1], loads.start_moment[:, 2]
-    elif column == 1:
-        normal, moment_y, moment_z = end_normal, loads.end_moment[:, 1], loads.end_moment[:, 2]
-    else:
-        normal = np.where(np.abs(start_normal) >= np.abs(end_normal), start_normal, end_normal)
-        moments, where = node_moments(member, bodies, offsets)
-        moments = moments * factor
-        springs = moments.shape[1]
-        if column < 2 + springs:
-            moment_z = moments[:, column - 2]
-            share = np.full(moment_z.shape, where[column - 2] / section.length)
-        else:
-            reads = carried_reads(member, loads, moments, bodies, factor)
-            moment_z = reads.values[:, column - 2 - springs]
-            share = reads.positions[:, column - 2 - springs] / section.length
-        moment_y = loads.start_moment[:, 1] * (1.0 - share) - loads.end_moment[:, 1] * share
     out: list[FloatArray] = []
     for sign_y in (1.0, -1.0):
         for sign_z in (1.0, -1.0):
@@ -554,6 +534,56 @@ def member_fibre_histories(
             value = value + sign_y * moment_y * section.c_z / section.i_y
             value = value + sign_z * moment_z * section.c_y / section.i_z
             out.append(value)
+    return out
+
+
+def member_sections(
+    loads: Wrenches,
+    section: SectionProperties,
+    member: MemberInputs,
+    bodies: BodyPoses | None,
+    factor: float = 1.0,
+    offsets: FloatArray | None = None,
+) -> list[SectionHistory]:
+    """Every section of `member_normal_stress` with the signed normal stress at its four corners (INT-008, INT-011,
+    rulings 72, 75): N / A +- M_y c_z / I_y +- M_z c_y / I_z with the section's signed moments (a spring's or a read's
+    axial force the end value of the larger magnitude, the start's on a tie; M_y interpolated between the ends). A
+    member without node poses (or no rows) has one section, index -1, the eight end-corner histories of
+    `fibre_histories`.
+    `loads` are already scaled by `factor`; node moments scale with it."""
+    rows = loads.start_force.shape[0]
+    if member.nodes is None or bodies is None or rows == 0:
+        return [SectionHistory(-1, math.nan, fibre_histories(loads, section), np.ones(rows, dtype=bool))]
+    everywhere = np.ones(rows, dtype=bool)
+    start_normal = -loads.start_force[:, 0]
+    end_normal = loads.end_force[:, 0]
+    out = [
+        SectionHistory(
+            0, 0.0, _corners(start_normal, loads.start_moment[:, 1], loads.start_moment[:, 2], section), everywhere
+        ),
+        SectionHistory(
+            1, section.length, _corners(end_normal, loads.end_moment[:, 1], loads.end_moment[:, 2], section), everywhere
+        ),
+    ]
+    normal = np.where(np.abs(start_normal) >= np.abs(end_normal), start_normal, end_normal)
+    moments, where = node_moments(member, bodies, offsets)
+    moments = moments * factor
+
+    def interior(moment_z: FloatArray, share: FloatArray) -> list[FloatArray]:
+        moment_y = loads.start_moment[:, 1] * (1.0 - share) - loads.end_moment[:, 1] * share
+        return _corners(normal, moment_y, moment_z, section)
+
+    springs = moments.shape[1]
+    for j in range(springs):
+        share = np.full(rows, where[j] / section.length)
+        out.append(SectionHistory(2 + j, float(where[j]), interior(moments[:, j], share), everywhere))
+    if not member.nodes.carries:
+        return out
+    reads = carried_reads(member, loads, moments, bodies, factor)
+    for column in range(reads.values.shape[1]):
+        present = reads.found[:, column].astype(bool)
+        share = reads.positions[:, column] / section.length
+        out.append(SectionHistory(2 + springs + column, math.nan, interior(reads.values[:, column], share), present))
     return out
 
 
