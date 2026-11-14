@@ -298,7 +298,7 @@ TEST_CASE("a rope going taut within a step is deterministic", "[ENG-047][ENG-023
 // axial block k) and no damper (its law is not taut at the start), so the first step already holds the load.
 TEST_CASE("a rope segment at its rest length is taut within the step, spring only", "[ENG-047]") {
     const Rig r = rig(1, 0.0, 5.0);
-    MultibodyProvider provider(r.model);
+    const MultibodyProvider provider(r.model);
     const State state{provider.neutral_positions(), Eigen::VectorXd::Zero(provider.velocity_size()), 0.0};
     DynamicsTerms terms;
     provider.evaluate(0.0, state.q, state.v, terms);
@@ -314,7 +314,7 @@ TEST_CASE("a rope segment at its rest length is taut within the step, spring onl
 TEST_CASE("a rope that stays taut settles its taut set in one pass every step", "[ENG-047]") {
     for (const double ratio : {1e-3, 0.1}) {
         CAPTURE(ratio);
-        mechsim::engine::test::RopePendulum p = mechsim::engine::test::rope_pendulum(8, 1.0, ratio, 0.3, 0.0);
+        const mechsim::engine::test::RopePendulum p = mechsim::engine::test::rope_pendulum(8, 1.0, ratio, 0.3, 0.0);
         MultibodyProvider provider(p.model);
         SemiImplicitEuler integrator(StepConfig{1e-3});
         State state{provider.neutral_positions(), Eigen::VectorXd::Zero(provider.velocity_size()), 0.0};
