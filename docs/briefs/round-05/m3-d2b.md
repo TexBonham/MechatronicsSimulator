@@ -58,6 +58,11 @@ belt. The placeholders stay 0.01.
    belt row gives the stated 0.01, the build-time realised ratio and the loaded realised ratio with the design
    load.
 
+6. Left by brief I5d (one line in `mechsim/testing/core_driver.py`, yours for this item): the tier 1 party's
+   hogging under-read lines are in its trace and in `tier1.trace_notes` but do not reach the run's notes: add
+   them to the run notes where the driver collects the party's results, with one test through a real run that
+   the note appears when its condition holds and is absent otherwise.
+
 ## Report
 
 Under 150 words: commits, filtered test counts, what the run line prints (one example), the boundary-step test,
