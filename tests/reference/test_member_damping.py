@@ -8,7 +8,8 @@ supports), which makes the first mode's modal damping ratio exactly zeta (`struc
 Release: a point load P held from rest at the tip (cantilever) or midspan (pinned-roller, clamped-clamped).
 Relative to the loaded static shape the chain starts displaced by minus that shape at rest, which is the unloaded
 chain released from the static shape (linearity), so the peaks of u = y - y_static decay at the first mode's
-logarithmic decrement Lambda = 2 pi zeta / sqrt(1 - zeta^2). The deflection is 1e-4 L, so the geometric terms are below 1e-7 relative.
+logarithmic decrement Lambda = 2 pi zeta / sqrt(1 - zeta^2). The deflection is 1e-4 L, so the geometric
+terms are below 1e-7 relative.
 
 Bounds (BLD-040, T4): the plain closed form within 2 percent, and the scheme-corrected value Lambda (1 + x / (2
 zeta)), x = omega h, within 0.2 percent. Budget:
