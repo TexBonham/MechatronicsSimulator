@@ -62,7 +62,8 @@ run), `test_native_clamped_members.py` (rigid bridge build), `test_native_adapte
 (bridge paths), `tests/unit/test_phy_stubs.py` (keep PHY-025), `tests/reference/test_phy_stubs.py` (PHY-021 live
 comparison) and every `mujoco`-parametrized reference test, `tests/invariant/test_phy_stubs.py` (PHY-026 stays,
 simplified: nothing imports MuJoCo at all), `tests/invariant/test_import_boundaries.py` (bridge boundary),
-`tests/acceptance/test_acc_stubs.py` (`bridge_g7`, `bridge_gantry`, `BRIDGE_RUNS`, `test_phy_016`,
+`tests/acceptance/test_acc_stubs.py` (`bridge_g7`, `bridge_gantry`, `BRIDGE_RUNS` (empty since M3-X2c: G5 and G6
+run on native), `test_phy_016`,
 `test_bridge_keeps_the_rope_payload_on_its_carrier_with_one_line`), `tests/acceptance/test_phy_stubs.py` (PHY-023's
 `not mujoco` filter becomes the whole tier).
 
