@@ -174,9 +174,26 @@ def node_chains(model: Any, names: tuple[str, ...] = ()) -> dict[str, NodeChain]
             * int(lumped.segments)
             / float(lumped.section.length),
             carries=len(tuple(getattr(lumped, "carries", ()))) > 0,
+            carried=_carried_places(lumped, bodies, index),
         )
         first += count
     return out
+
+
+def _carried_places(lumped: Any, bodies: tuple[Any, ...], index: Mapping[str, int]) -> tuple[tuple[int, int], ...]:
+    """Each carried child body's place among the published bodies and its joint's among the jointed bodies (the order
+    of `PhysicsOutputs.joints` and the recorded reactions)."""
+    names = tuple(getattr(lumped, "carries", ()))
+    if len(names) == 0:
+        return ()
+    order = [str(body.joint.name) for body in bodies if getattr(body, "joint", None) is not None]
+    out: list[tuple[int, int]] = []
+    for name in names:
+        child = next((body for body in bodies if str(body.name) == str(name)), None)
+        if child is None or getattr(child, "joint", None) is None or str(child.name) not in index:
+            raise IntegrityError(f"member {str(lumped.name)!r}: carried body {str(name)!r} has no joint (ruling 75)")
+        out.append((index[str(child.name)], order.index(str(child.joint.name))))
+    return tuple(out)
 
 
 SPRING_OFFSET_EVENT = "spring_offset spring "

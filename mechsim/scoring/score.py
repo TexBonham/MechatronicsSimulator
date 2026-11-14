@@ -129,7 +129,7 @@ def score_run(
     (its `${}` forms), which the baseline keeps; by default the resolved criterion's own text. Structural criteria
     read `integrity` (SCO-014); a recorded tier 1 crossing fails the case (SCO-015). `gravity` (the design's, m/s^2)
     gives the down direction `swing:` quantities are measured from (SCO-030); without it they are unevaluable."""
-    not_valid = flagged(tuple(getattr(recording, "validity", ())))
+    not_valid = flagged(tuple(recording.validity))
     view = _StructuralView(_SwingView(recording, gravity), integrity, not_valid)
     recording = view
     results: list[CriterionResult] = []
@@ -215,6 +215,10 @@ class _SwingView:
     def __init__(self, recording: RecordView, gravity: Sequence[float] | None) -> None:
         self._recording = recording
         self._gravity = gravity
+
+    @property
+    def validity(self) -> Sequence[CarriedValidity]:
+        return self._recording.validity
 
     def times(self) -> Sequence[float]:
         return self._recording.times()
@@ -313,6 +317,10 @@ class _StructuralView:
         self._not_valid = dict(not_valid or {})
         self.read_not_valid: str | None = None
 
+    @property
+    def validity(self) -> Sequence[CarriedValidity]:
+        return self._recording.validity
+
     def not_valid_reason(self) -> str | None:
         """The not-valid reason of the flagged history the last criterion read, if any."""
         return self.read_not_valid
@@ -356,13 +364,22 @@ class _StructuralView:
                 values = tuple(history[1])
                 if record is not None:
                     self.read_not_valid = f"{reference}: {record.reason()}"
-                    values = tuple(
-                        math.nan if record.covers(float(t)) else v for t, v in zip(history[0], values, strict=True)
-                    )
+                    values = tuple(_not_valid_after(record, history[0], values))
                 return Series(tuple(history[0]), values, "m")
         if record is not None:
             raise _UnevaluableError(f"{reference}: {record.reason()}")
         return Series((time,), (value,), unit)
+
+
+def _not_valid_after(record: CarriedValidity, times: Sequence[float], values: Sequence[float]) -> list[float]:
+    """The history with every sample inside the not-valid interval NaN (SCO-029)."""
+    out: list[float] = []
+    for time, value in zip(times, values, strict=True):
+        if record.covers(float(time)):
+            out.append(math.nan)
+        else:
+            out.append(value)
+    return out
 
 
 def _crossings(recording: RecordView) -> tuple[str, ...]:

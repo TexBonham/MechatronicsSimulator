@@ -2,12 +2,14 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <functional>
 #include <memory>
 #include <span>
 #include <string>
 #include <string_view>
 #include <vector>
 
+#include "mechsim/integrity/beam.hpp"
 #include "mechsim/integrity/limits.hpp"
 #include "mechsim/kernel/party.hpp"
 #include "mechsim/kernel/physics_party.hpp"
@@ -21,6 +23,9 @@ inline constexpr std::string_view event_source = "integrity";
 inline constexpr std::string_view event_kind = "integrity";
 // A crossing before the evaluation start (TST-044): recorded, never counted, so it does not fail the case.
 inline constexpr std::string_view before_evaluation_kind = "integrity_before_evaluation";
+// A counted crossing of a member the engine flagged at that tick, or of a mount holding it (rulings 69, 75): recorded,
+// never counted, never halting (SCO-029, INT-026).
+inline constexpr std::string_view not_valid_kind = "integrity_not_valid";
 
 // Quantity names in a crossing's detail (INT-024).
 inline constexpr std::string_view stress_quantity = "stress";
@@ -44,6 +49,7 @@ struct IntegrityTrace {
     std::vector<double> peak_fastener_load;   // per fastening, N
     std::vector<Crossing> crossings;          // counted crossings (at or after the evaluation start)
     std::vector<Crossing> before_evaluation;  // crossings before the evaluation start, recorded and not counted
+    std::vector<Crossing> not_valid;          // crossings of a flagged member or its mounts, recorded and not counted
     std::vector<kernel::ModelChangeRequest> requests;  // every model change requested, in order
 };
 
@@ -81,6 +87,10 @@ public:
 
     [[nodiscard]] const IntegrityTrace& trace() const noexcept;
 
+    // The engine's live validity flag per member (ruling 75): called each step with MemberLimits::index, true while
+    // the member's one-way carried-load result is not valid (flagged at or before this tick). Unset: never flagged.
+    void watch_validity(std::function<bool(std::size_t)> not_valid);
+
 private:
     struct MemberState {
         bool stress = false;
@@ -94,6 +104,10 @@ private:
         // Each node spring's yield offset in effect for the outputs read (INT-028): the party's own requests, applied
         // by physics before its next step, so from the next tick on; empty until the first request.
         std::vector<double> offsets;
+        // The carried loads as read from the previous tick's outputs, the state the engine placed this step's pair
+        // at (ruling 75); empty before the first tick.
+        std::vector<CarriedAt> carried;
+        bool has_carried = false;
     };
 
     struct FasteningState {
@@ -102,8 +116,8 @@ private:
     };
 
     void cross(kernel::SimTime t, const std::string& element, std::string_view quantity, double value, double limit);
-    void crossed(kernel::SimTime t, bool counts, bool& counted, bool& early, const std::string& element,
-                 std::string_view quantity, double value, double limit);
+    void crossed(kernel::SimTime t, bool counts, bool not_valid, bool& counted, bool& early,
+                 const std::string& element, std::string_view quantity, double value, double limit);
     void yield(const MemberLimits& member, const kernel::MemberEndLoads& loads, MemberState& state);
     void apply_offset(const kernel::ModelChangeRequest& request);
 
@@ -121,6 +135,7 @@ private:
     bool written_ = false;
     bool halted_ = false;
     mutable std::vector<kernel::RecordedEvent> pending_events_;
+    std::function<bool(std::size_t)> not_valid_;
 };
 
 // The event detail of a crossing: the JSON of mechsim.testing.driver.IntegrityCrossing (keys sorted, tier 1).

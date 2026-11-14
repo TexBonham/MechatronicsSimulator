@@ -424,6 +424,7 @@ def test_decimation_rejects_an_empty_window_or_zero_points() -> None:
 class _RecordingView:
     def __init__(self, recording: Recording) -> None:
         self._recording = recording
+        self.validity: tuple[Any, ...] = ()
 
     def times(self) -> Sequence[float]:
         return [float(t) for t in self._recording.series["time/seconds"].values]

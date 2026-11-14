@@ -352,6 +352,15 @@ NodeChain node_chain(const Value& entry, const std::string& where) {
     chain.position = triple(entry, "position", where);
     chain.orientation = quaternion(entry, "orientation", where);
     chain.carries = flag(entry, "carries", where);
+    std::size_t k = 0;
+    for (const Value& item : array(entry, "carried", where)) {
+        const std::string at = where + ".carried[" + std::to_string(k) + "]";
+        chain.carried.push_back(CarriedJoint{count(item, "body", at), count(item, "joint", at)});
+        ++k;
+    }
+    if (!chain.carried.empty() && !chain.carries) {
+        throw LimitsError("limits table: " + where + " lists carried joints but carries is false");
+    }
     return chain;
 }
 
@@ -431,6 +440,13 @@ Limits parse_limits(std::string_view json) {
         f.name = text(entry, "name", where);
         f.joint = count(entry, "joint", where);
         f.load_limit = positive(entry, "load_limit", where);
+        if (field(entry, "member", where).kind != Value::Kind::null) {
+            f.member = count(entry, "member", where);
+            if (f.member.value() >= limits.members.size()) {
+                throw LimitsError("limits table: " + where + ".member " + std::to_string(f.member.value()) +
+                                  " outside the " + std::to_string(limits.members.size()) + " members");
+            }
+        }
         limits.fastenings.push_back(std::move(f));
         ++k;
     }

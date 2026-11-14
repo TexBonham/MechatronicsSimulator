@@ -146,18 +146,19 @@ def _not_valid(
             replace(row, flags=tuple(sorted({*row.flags, NOT_VALID_FLAG})), detail=row.detail + marks) for row in kept
         )
         rows = tuple(row for row in result.rows if row.subject not in subjects) + marked
-        series = tuple(
-            (
-                subject,
-                tuple(
-                    math.nan if record.covers(float(time)) else value
-                    for time, value in zip(inputs.times, values, strict=True)
-                ),
-            )
-            if subject in subjects
-            else (subject, values)
-            for subject, values in result.series
-        )
+        series_out: list[tuple[str, tuple[float, ...]]] = []
+        for subject, values in result.series:
+            if subject not in subjects:
+                series_out.append((subject, values))
+                continue
+            masked: list[float] = []
+            for time, value in zip(inputs.times, values, strict=True):
+                if record.covers(float(time)):
+                    masked.append(math.nan)
+                else:
+                    masked.append(value)
+            series_out.append((subject, tuple(masked)))
+        series = tuple(series_out)
         out.append(replace(result, rows=rows, cycle_counts=counts, series=series))
     return out
 

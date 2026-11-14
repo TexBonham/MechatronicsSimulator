@@ -500,6 +500,9 @@ class CoreDriver:
             self.approximations = (f"physics adapter: {NATIVE_ADAPTER}", *prepared_native.report)
             prepared = core.PreparedModel(prepared_native.model_json, "", prepared_native.version)
             document = json.loads(prepared_native.model_json)
+            if self._evaluate_from() > 0.0:
+                document["carried_evaluation_start"] = self._evaluate_from()
+                prepared = core.PreparedModel(json.dumps(document), "", prepared_native.version)
             tier1 = self._tier1_setup(model, document)
             springs = self._first_springs(document)
         else:
@@ -548,7 +551,10 @@ class CoreDriver:
                 settings.evaluate_from = core.SimTime(math.ceil(Fraction(repr(start)) * config.base_rate))
                 self.approximations = (*self.approximations, window_note(start))
             self.integrity_trace = core.IntegrityTrace()
-            kernel.register_party(core.IntegrityParty(tier1.limits, settings, self.integrity_trace))
+            watcher = core.IntegrityParty(tier1.limits, settings, self.integrity_trace)
+            if carried_record is not None:
+                watcher.watch_validity(carried_record)
+            kernel.register_party(watcher)
             if halt:
                 kernel.set_end_triggers(core.EndTriggers(None, "", PARTY))
         self.labels = {}

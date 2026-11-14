@@ -5,6 +5,7 @@
 #include <cmath>
 #include <cstddef>
 #include <numbers>
+#include <optional>
 #include <span>
 #include <string>
 #include <vector>
@@ -165,56 +166,163 @@ std::vector<double> node_moments(std::span<const kernel::BodyState> bodies, cons
     return moments;
 }
 
-std::vector<std::optional<CarriedMoment>> carried_moments(const kernel::MemberEndLoads& loads,
-                                                          std::span<const double> moments,
-                                                          const MemberLimits& member) {
+namespace {
+
+constexpr double couple_floor = 1e-9;
+
+struct Line {
+    double x = 0.0;
+    double m = 0.0;
+    double slope = 0.0;
+};
+
+double at(const Line& line, double s) {
+    return line.m + line.slope * (s - line.x);
+}
+
+Line through(const std::vector<double>& x, const std::vector<double>& m, std::size_t first) {
+    return Line{x[first + 1], m[first + 1], (m[first + 1] - m[first]) / (x[first + 1] - x[first])};
+}
+
+struct Placed {
+    double s = 0.0;
+    std::size_t k = 0;
+    double force = 0.0;
+    double couple = 0.0;
+};
+
+kernel::Vec3 cross(const kernel::Vec3& a, const kernel::Vec3& b) {
+    return {a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]};
+}
+
+}  // namespace
+
+std::vector<CarriedAt> carried_at(std::span<const kernel::BodyState> bodies,
+                                  std::span<const kernel::JointForce> joints, const MemberLimits& member) {
+    if (!member.nodes.has_value()) {
+        throw LimitsError("member '" + member.name + "': no node poses (built rigid); no carried loads");
+    }
+    const NodeChain& chain = member.nodes.value();
+    kernel::Vec3 parent_position{};
+    kernel::Quat parent_orientation{1.0, 0.0, 0.0, 0.0};
+    if (chain.parent_body.has_value()) {
+        if (chain.parent_body.value() >= bodies.size()) {
+            throw LimitsError("member '" + member.name + "': parent body " +
+                              std::to_string(chain.parent_body.value()) + " outside the published bodies");
+        }
+        parent_position = bodies[chain.parent_body.value()].position;
+        parent_orientation = bodies[chain.parent_body.value()].orientation;
+    }
+    const kernel::Vec3 origin = plus(parent_position, rotate(parent_orientation, chain.position));
+    const kernel::Quat turn = multiply(parent_orientation, chain.orientation);
+    const kernel::Vec3 x = rotate(turn, {1.0, 0.0, 0.0});
+    const kernel::Vec3 y = rotate(turn, {0.0, 1.0, 0.0});
+    const kernel::Vec3 z = rotate(turn, {0.0, 0.0, 1.0});
+    std::vector<CarriedAt> out;
+    out.reserve(chain.carried.size());
+    for (const CarriedJoint& joint : chain.carried) {
+        if (joint.body >= bodies.size() || joint.joint >= joints.size()) {
+            throw LimitsError("member '" + member.name + "': carried body " + std::to_string(joint.body) +
+                              " or joint " + std::to_string(joint.joint) + " outside the published outputs");
+        }
+        const kernel::Vec3& child = bodies[joint.body].position;
+        const kernel::Wrench& reaction = joints[joint.joint].reaction;
+        const kernel::Vec3 force = scaled(reaction.force, -1.0);
+        const double s = dot(minus(child, origin), x);
+        const kernel::Vec3 foot = plus(origin, scaled(x, s));
+        const kernel::Vec3 moment = plus(scaled(reaction.moment, -1.0), cross(minus(child, foot), force));
+        out.push_back(CarriedAt{s, dot(force, y), dot(moment, z)});
+    }
+    return out;
+}
+
+CarriedReads carried_reads(const kernel::MemberEndLoads& loads, std::span<const double> moments,
+                           const MemberLimits& member, std::span<const CarriedAt> carried) {
+    CarriedReads out;
+    if (carried.empty() || !member.nodes.has_value()) {
+        return out;
+    }
     const std::size_t springs = moments.size();
-    std::vector<double> s;
+    std::vector<double> x;
     std::vector<double> m;
-    s.reserve(springs + 2);
+    x.reserve(springs + 2);
     m.reserve(springs + 2);
-    s.push_back(0.0);
+    x.push_back(0.0);
     m.push_back(-loads.start.moment[2]);
     for (std::size_t j = 0; j < springs; ++j) {
-        s.push_back((static_cast<double>(j) + 0.5) * member.segment_length);
+        x.push_back((static_cast<double>(j) + 0.5) * member.segment_length);
         m.push_back(moments[j]);
     }
-    s.push_back(member.length);
+    x.push_back(member.length);
     m.push_back(loads.end.moment[2]);
-    std::vector<double> chords;
-    chords.reserve(springs + 1);
-    for (std::size_t k = 0; k + 1 < s.size(); ++k) {
-        chords.push_back((m[k + 1] - m[k]) / (s[k + 1] - s[k]));
+    const std::size_t last = x.size() - 1;
+    std::vector<Placed> placed;
+    placed.reserve(carried.size());
+    for (const CarriedAt& load : carried) {
+        const double s = std::clamp(load.position, 0.0, member.length);
+        std::size_t k = 0;
+        while (k + 1 < last && x[k + 1] <= s) {
+            ++k;
+        }
+        placed.push_back(Placed{s, k, load.force, load.couple});
     }
-    std::vector<std::optional<CarriedMoment>> out;
-    out.reserve(springs + 1);
-    for (std::size_t k = 0; k <= springs; ++k) {
-        const double h = s[k + 1] - s[k];
-        double slope_a = loads.start.force[1];
-        if (k > 0) {
-            slope_a = chords[k - 1];
+    std::stable_sort(placed.begin(), placed.end(), [](const Placed& a, const Placed& b) { return a.s < b.s; });
+    const bool pinned = member.nodes.value().root == SupportCondition::pinned;
+    std::size_t first = 0;
+    while (first < placed.size()) {
+        std::size_t final = first;
+        while (final + 1 < placed.size() && placed[final + 1].k - placed[final].k <= 2) {
+            ++final;
         }
-        double slope_b = -loads.end.force[1];
-        if (k < springs) {
-            slope_b = chords[k + 1];
+        const Placed& head = placed[first];
+        const Placed& tail = placed[final];
+        std::optional<Line> left;
+        if (head.k >= 1) {
+            left = through(x, m, head.k - 1);
+        } else if (pinned) {
+            left = Line{0.0, m[0], loads.start.force[1]};
         }
-        const double difference = slope_a - slope_b;
-        if (difference == 0.0) {
-            out.emplace_back(std::nullopt);
-            continue;
+        Line right{member.length, m[last], -loads.end.force[1]};
+        if (tail.k + 3 <= last) {
+            right = through(x, m, tail.k + 2);
         }
-        const double u = (m[k + 1] - m[k] - slope_b * h) / difference;
-        if (std::isnan(u) || u <= 0.0 || u >= h) {
-            out.emplace_back(std::nullopt);
-            continue;
+        if (left.has_value()) {
+            out.reads.push_back(CarriedMoment{at(left.value(), head.s), head.s});
         }
-        out.emplace_back(CarriedMoment{m[k] + slope_a * u, s[k] + u});
+        out.reads.push_back(CarriedMoment{at(right, tail.s), tail.s});
+        const std::size_t size = final - first + 1;
+        bool coupled = false;
+        double forces = 0.0;
+        double couples = 0.0;
+        double stub = 0.0;
+        for (std::size_t i = first; i <= final; ++i) {
+            const Placed& load = placed[i];
+            if (std::abs(load.couple) > couple_floor * std::abs(load.force) * member.length) {
+                coupled = true;
+            }
+            forces += std::abs(load.force);
+            couples += std::abs(load.couple);
+            if (load.k == 0) {
+                stub += std::abs(load.force) * member.segment_length / 8.0 + std::abs(load.couple);
+            }
+        }
+        if (!left.has_value() || size > 2 || (size == 2 && coupled)) {
+            const double a = x[head.k];
+            const double b = x[std::min(tail.k + 2, last)];
+            double value = forces * (b - a) / 4.0 + couples;
+            if (!left.has_value()) {
+                value += stub;
+            }
+            out.bound = std::max(out.bound, value);
+        }
+        first = final + 1;
     }
     return out;
 }
 
 double peak_normal_stress(const kernel::MemberEndLoads& loads, std::span<const kernel::BodyState> bodies,
-                          const MemberLimits& member, std::span<const double> offsets) {
+                          const MemberLimits& member, std::span<const double> offsets,
+                          std::span<const CarriedAt> carried) {
     double peak = std::max(end_stress(loads.start, member), end_stress(loads.end, member));
     if (!member.nodes.has_value()) {
         return peak;
@@ -232,12 +340,11 @@ double peak_normal_stress(const kernel::MemberEndLoads& loads, std::span<const k
     if (!member.nodes.value().carries) {
         return peak;
     }
-    for (const std::optional<CarriedMoment>& candidate : carried_moments(loads, moments, member)) {
-        if (candidate.has_value()) {
-            peak = std::max(peak, interior(candidate.value().position / member.length, candidate.value().value));
-        }
+    const CarriedReads reads = carried_reads(loads, moments, member, carried);
+    for (const CarriedMoment& read : reads.reads) {
+        peak = std::max(peak, interior(read.position / member.length, read.value));
     }
-    return peak;
+    return peak + (reads.bound * member.c_y / member.i_z);
 }
 
 double start_node_moment(const kernel::Wrench& start, double segment_length) {

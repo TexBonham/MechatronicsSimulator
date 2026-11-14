@@ -7,6 +7,8 @@ operator commands scheduled for n as operator-message events, and stops at the e
 
 from __future__ import annotations
 
+from typing import Any
+
 import hashlib
 import json
 from collections.abc import Callable, Mapping, Sequence
@@ -52,6 +54,7 @@ class FakeRecording:
         self._times = list(times)
         self._rows = list(rows)
         self._units = dict(units)
+        self.validity: tuple[Any, ...] = ()
 
     def times(self) -> Sequence[float]:
         return self._times

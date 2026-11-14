@@ -149,8 +149,9 @@ class NodeChain:
     pin segment as node 0), and its root frame: the parent body's index (None: the world) with the member's placement
     in it. `segment_length` l = L / N: the last node's far end lies l / 2 along its x (INT-006, ruling 28);
     `stiffness` the node springs' k = E I / l of the simulated section (the node moments, INT-005); `carries` whether
-    the member carries a joint (the neutral member's `carries`, ENG-052): its strength adds the moment under the load
-    between two springs (ruling 71)."""
+    the member carries a joint (the neutral member's `carries`, ENG-052): its strength reads the moments at its loads
+    (rulings 71, 75); `carried` each carried joint's (child body, joint) in the published bodies and
+    `PhysicsOutputs.joints`, for tier 1's limits table (ruling 75)."""
 
     first_body: int
     count: int
@@ -161,9 +162,11 @@ class NodeChain:
     segment_length: float
     stiffness: float = 0.0
     carries: bool = False
+    carried: tuple[tuple[int, int], ...] = ()
 
     def to_limits(self) -> dict[str, Any]:
         return {
+            "carried": [{"body": body, "joint": joint} for body, joint in self.carried],
             "carries": self.carries,
             "count": self.count,
             "first_body": self.first_body,
@@ -187,7 +190,7 @@ class CarriedLoad:
     """A joint the member carries (ENG-052, ruling 63) as the run recorded it: the child body's index in the recorded
     body poses and the load on the member, the negative of the recorded joint reaction (parent on child,
     world-aligned, the moment about the child origin), (rows, 3) each. The engine's own carried output (s, F . y,
-    M_p . z per joint) is not recorded; `beam.carried_couples` rebuilds it from these (ruling 72)."""
+    M_p . z per joint) is not recorded; `beam.carried_at` rebuilds it from these and the poses (rulings 72, 75)."""
 
     joint: str
     body: int

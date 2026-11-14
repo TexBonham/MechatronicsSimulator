@@ -876,7 +876,7 @@ class Facade:
         results = replay.metadata.integrity
         if results is None:
             raise FacadeError("not_found", f"run {run_id}: no integrity results", "FAC-013", "run_id")
-        records = flagged(tuple(getattr(replay.view, "validity", ())))
+        records = flagged(tuple(replay.view.validity))
         return IntegrityResultsResult(
             run_id=run_id,
             members=[

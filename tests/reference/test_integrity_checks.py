@@ -472,26 +472,30 @@ def _limits_json(member_inputs: MemberInputs, bodies: int) -> str:
     )
 
 
-def _tier1(member_inputs: MemberInputs, bodies: BodyPoses) -> tuple[float, list[float]]:
+def _tier1(
+    member_inputs: MemberInputs, bodies: BodyPoses, carried: Sequence[tuple[float, float, float]] = ()
+) -> tuple[float, list[float]]:
     from mechsim import _core as core
 
     assert member_inputs.loads is not None
     loads = core.MemberEndLoads()
     start = core.Wrench()
-    start.force = list(member_inputs.loads.start_force[0])
-    start.moment = list(member_inputs.loads.start_moment[0])
+    start.force = list(member_inputs.loads.start_force[-1])
+    start.moment = list(member_inputs.loads.start_moment[-1])
     end = core.Wrench()
-    end.force = list(member_inputs.loads.end_force[0])
-    end.moment = list(member_inputs.loads.end_moment[0])
+    end.force = list(member_inputs.loads.end_force[-1])
+    end.moment = list(member_inputs.loads.end_moment[-1])
     loads.start = start
     loads.end = end
     states = []
-    for position, orientation in zip(bodies.positions[0], bodies.orientations[0], strict=True):
+    for position, orientation in zip(bodies.positions[-1], bodies.orientations[-1], strict=True):
         state = core.BodyState()
         state.position = list(position)
         state.orientation = list(orientation)
         states.append(state)
-    stress, moments = core.integrity_member_stress(_limits_json(member_inputs, len(states)), 0, loads, states)
+    stress, moments = core.integrity_member_stress(
+        _limits_json(member_inputs, len(states)), 0, loads, states, [list(item) for item in carried]
+    )
     return float(stress), [float(moment) for moment in moments]
 
 
@@ -588,36 +592,50 @@ def test_strength_clamped_own_weight_peak_moment_is_w_l2_over_12_at_the_ends() -
         assert abs(abs(value) / target - 1.0) <= CHAIN
 
 
-# ===== Moment under a carried load (ruling 71) =============================
+# ===== Moment under a carried load (rulings 71, 75) ========================
 #
-# The engine puts a carried load on the two lever nodes around it (`mechsim/integrity/beam.py`, section "Moment under
-# a carried load"): the samples (ends, springs) are exact, the moment between them is not. Both tiers take the
-# intersection of the neighbouring segments' moment lines, exact for one point load in a segment. The runs: the data-
-# only bar of `tests/unit/test_carried_members.py` (1 m, 20 mm square aluminium, pinned-roller or clamped-clamped,
-# N = 8, l = 0.125 m: springs at 0.0625 + 0.125 j) with its 40 mm cube carriage carried at a. Settling: the chain's
-# node damping D = 2 k / omega (k = E I / l, omega the first bending frequency) damps the first mode critically, the
-# higher ones overdamped; omega is about 290 rad/s (pinned) and 660 (clamped), so 600 ticks leave e^(-170) of the
-# start transient. Superposition isolates the carriage: carried run minus the same design carrying nothing (its
-# carriage then loads the rigid parent, not the beam), both under their own weight. Gravity 0.0981 m/s^2: the
-# deflection under own weight is 5 w L^4 / (384 E I) = 1.5e-6 m, and the geometric (second-order) part of the statics,
-# the roller's slide and the arms' change, is a few (delta / L)^2 = 2e-12 each (at 0.981 m/s^2 it is 2e-9: too
-# close), while the spring rotations (about 6e-7 rad) carry quaternion rounding of 1e-16 / 6e-7 = 2e-10 relative:
-# both below the 1e-9 of the oracle. Oracles:
-#   pinned-pinned, P = m g at a in {0.1, 0.3125, 0.5, 0.77} L: M* = P a b / L within 1e-9 relative (0.3125 L lies on
-#     spring 2 at N = 8, so the samples read it and the rule adds nothing above it; 0.5 L is mid-segment, the
-#     worst case before this rule: low by P l / 4).
-#   clamped-clamped, P at 0.5 L (mid-segment): 2 P a^2 b^2 / L^3 = P L / 8 within the chain's 2 percent row.
-# The two tiers agree on the total fields (own weight and carriage) within 1e-9.
+# The engine puts a carried load on the two lever nodes around its foot point s (`mechsim/integrity/beam.py`, section
+# "Moment under a carried load"): a force F and a couple C at s; every sample but the spring above s is clean, and the
+# moments just left and right of s are the clean lines A and B at s. The runs: the data-only bar of
+# `tests/unit/test_carried_members.py` (1 m, 20 mm square aluminium, pinned-roller or clamped-clamped, N = 8,
+# l = 0.125 m: springs at 0.0625 + 0.125 j) with its 40 mm cube carriage carried at a, the cube's centre offset by
+# e = 0.1 m along the member from the carriage's origin (its joint): the weight P = m g acts at a + e, which the engine
+# applies as F = -P at s = a and the couple of the weight about the foot point, a step K = P e in the spring-sense
+# moment at a (statically equivalent to P at a + e; sign: M(L) = 0 on the pinned span). Settling: the chain's node
+# damping D = 2 k / omega (k = E I / l, omega the first bending frequency) damps the first mode critically, the higher
+# ones overdamped; omega is about 290 rad/s (pinned) and 660 (clamped), so 600 ticks leave e^(-170) of the start
+# transient. Superposition isolates the carriage: carried run minus the same design carrying nothing (its carriage
+# then loads the rigid parent, not the beam), both under their own weight. Gravity 0.0981 m/s^2: the deflection under
+# own weight is 5 w L^4 / (384 E I) = 1.5e-6 m, and the geometric (second-order) part of the statics, the roller's
+# slide and the arms' change, is a few (delta / L)^2 = 2e-12 each, while the spring rotations (about 6e-7 rad) carry
+# quaternion rounding of 1e-16 / 6e-7 = 2e-10 relative: both below the 1e-9 of the oracle. Oracles:
+#   pinned-pinned, a in {0.1, 0.3125, 0.5, 0.77} (0.3125 on spring 2, 0.5 mid-segment, 0.77 in the last segment but
+#     one, so line B is the end's line): M(a-) = P a b / L - K a / L and M(a+) = P a b / L + K b / L within 1e-9
+#     relative to P a b / L (the statics of the applied force and couple, R0 = (P b - K) / L);
+#   clamped-clamped, a = 0.5: M(a-) and M(a+) within 1e-9 of the chain's statics (statically indeterminate: M0, R0
+#     from the clamps' compatibility over the springs, sum_j M_j = 0 and sum_j x_j M_j = 0, the spring above a short of
+#     its torque share w K), and M(a+) - M(a-) = K; the continuum's M0, R0 (integral M dx = 0, integral x M dx = 0) is
+#     printed: the chain sits w K / N from it (K / 16 here), the couple share its spring above the load lacks;
+#   the two tiers on the total fields (own weight and carriage) within 1e-9, and tier 1's (s, F, C) from the poses
+#     and reactions against tier 2's within 1e-12.
 
 _CARRIED_TICKS = 600
 _CARRIED_GRAVITY = 0.0981
+_OFFSET = 0.1
 
 
 def _carried_bar(carries: bool, a: float, supports: tuple[str, str]) -> tuple[MemberInputs, BodyPoses, float]:
-    """The bar after settling, as the check's member with its last row of poses, and the carriage's weight P."""
+    """The bar after settling, as the check's member with its last two rows of poses (the last row's carried loads
+    are read from the one before), and the carriage's weight P."""
     from mechsim.builder import build
     from mechsim.design.schema import Design, shipped_materials
-    from mechsim.integrity.inputs import BODY_ORIENTATION, BODY_POSITION, MEMBER_SERIES, node_chains
+    from mechsim.integrity.inputs import (
+        BODY_ORIENTATION,
+        BODY_POSITION,
+        MEMBER_SERIES,
+        carried_loads,
+        node_chains,
+    )
     from mechsim.library.registry import default_registry
     from tests.unit.test_carried_members import _design_data, _record
 
@@ -629,6 +647,7 @@ def _carried_bar(carries: bool, a: float, supports: tuple[str, str]) -> tuple[Me
     data["environment"]["gravity"] = ["0 m/s**2", f"-{_CARRIED_GRAVITY} m/s**2", "0 m/s**2"]
     data["bodies"][0]["flexible"]["segments"] = 8
     data["bodies"][0]["flexible"]["supports"] = list(supports)
+    data["bodies"][1]["geometry"]["shapes"][0]["position"] = [f"{_OFFSET} m", "0 m", "0 m"]
     result = build(Design.model_validate(data), default_registry(), shipped_materials())
     model = result.physics
     assert model is not None
@@ -644,13 +663,16 @@ def _carried_bar(carries: bool, a: float, supports: tuple[str, str]) -> tuple[Me
     damped = lumped.model_copy(update={"node_damping": 2.0 / omega * stiffness})
     model = model.model_copy(update={"lumped_members": (damped,)})
     recording = _record(model, _CARRIED_TICKS)
-    chain = replace(node_chains(model)["bar"], carries=carries)
+    chain = node_chains(model)["bar"]
     count = len(model.bodies) + chain.count
-    positions = np.asarray(recording.series[BODY_POSITION].values, dtype=np.float64).reshape(-1, count, 3)[-1:]
-    orientations = np.asarray(recording.series[BODY_ORIENTATION].values, dtype=np.float64).reshape(-1, count, 4)[-1:]
+    positions = np.asarray(recording.series[BODY_POSITION].values, dtype=np.float64).reshape(-1, count, 3)
+    orientations = np.asarray(recording.series[BODY_ORIENTATION].values, dtype=np.float64).reshape(-1, count, 4)
+    rows = positions.shape[0]
     wrenches = [
-        np.asarray(recording.series[path].values, dtype=np.float64).reshape(-1, 3)[-1:] for path in MEMBER_SERIES
+        np.asarray(recording.series[path].values, dtype=np.float64).reshape(-1, 3)[-2:] for path in MEMBER_SERIES
     ]
+    loads = carried_loads(model, recording.series, rows).get("bar", ())
+    loads = tuple(replace(item, force=item.force[-2:], moment=item.moment[-2:]) for item in loads)
     properties = SectionProperties(
         float(section.area),
         float(section.elastic_modulus),
@@ -662,16 +684,19 @@ def _carried_bar(carries: bool, a: float, supports: tuple[str, str]) -> tuple[Me
         0.01,
     )
     supports_at = ((0.0, supports[0]), (float(section.length), supports[1]))
-    member_inputs = MemberInputs("bar", "fake", properties, supports_at, Wrenches(*wrenches), nodes=chain)
+    member_inputs = MemberInputs(
+        "bar", "fake", properties, supports_at, Wrenches(*wrenches), nodes=chain, carried=loads
+    )
     weight = float(next(body.mass for body in model.bodies if body.name == "carriage")) * _CARRIED_GRAVITY
-    return member_inputs, BodyPoses(positions, orientations), weight
+    return member_inputs, BodyPoses(positions[-2:], orientations[-2:]), weight
 
 
-def _carriage_apex(
+def _carriage_sides(
     carried: tuple[MemberInputs, BodyPoses, float], plain: tuple[MemberInputs, BodyPoses, float]
-) -> float:
-    """The largest intersection moment of the carriage's own field (carried minus plain): moments and end loads."""
-    from mechsim.integrity.beam import carried_moments
+) -> tuple[float, float]:
+    """The rule's M(a-) and M(a+) on the carriage's own field (carried minus plain, moments and end loads) at the last
+    row."""
+    from mechsim.integrity.beam import carried_reads
 
     loaded, plain_inputs = carried[0], plain[0]
     assert loaded.loads is not None
@@ -683,58 +708,133 @@ def _carriage_apex(
         loaded.loads.end_force - plain_inputs.loads.end_force,
         loaded.loads.end_moment - plain_inputs.loads.end_moment,
     )
-    values, _, found = carried_moments(loaded, loads, moments)
-    samples = np.abs(moments).max()
-    apex = float(np.max(np.abs(np.where(found, values, 0.0))))
-    return max(apex, float(samples))
+    reads = carried_reads(loaded, loads, moments, carried[1])
+    assert bool(reads.found[-1, 0]) and bool(reads.found[-1, 1])
+    assert float(reads.bound[-1]) == 0.0
+    return float(reads.values[-1, 0]), float(reads.values[-1, 1])
 
 
 def _tiers_agree(member_inputs: MemberInputs, bodies: BodyPoses) -> None:
-    run = RunInputs(np.zeros(1), (member_inputs,), {"fake": FakeMaterial()}, TEMPERATURE, bodies=bodies)
-    (row,) = Strength().evaluate(run, NoParameters(), 1).rows
-    stress, _ = _tier1(member_inputs, bodies)
-    assert stress == pytest.approx(row.value, rel=EXACT)
+    """Tier 2 on the last row (the strength check's per-row read: the largest section plus the bound) against tier 1
+    on the same row with the carried loads tier 2 applies (from the row before), and tier 1's own rebuild of those
+    loads from that row's poses and reactions."""
+    from mechsim import _core as core
+    from mechsim.integrity.beam import carried_at, carried_reads, member_normal_stress
 
-
-@pytest.fixture(scope="module")
-def plain_pinned_bar() -> tuple[MemberInputs, BodyPoses, float]:
-    return _carried_bar(False, 0.5, ("pinned", "roller"))
+    assert member_inputs.loads is not None
+    section = member_inputs.section
+    normal = member_normal_stress(member_inputs.loads, section, member_inputs, bodies)
+    tier2 = float(normal[-1].max())
+    if member_inputs.nodes is not None and member_inputs.nodes.carries:
+        moments = node_moments(member_inputs, bodies)[0]
+        bound = carried_reads(member_inputs, member_inputs.loads, moments, bodies).bound
+        tier2 = tier2 + float(bound[-1]) * section.c_y / section.i_z
+    s, force, couple = carried_at(member_inputs, bodies)
+    items = [(float(s[-1, j]), float(force[-1, j]), float(couple[-1, j])) for j in range(s.shape[1])]
+    stress, _ = _tier1(member_inputs, bodies, items)
+    assert stress == pytest.approx(tier2, rel=EXACT)
+    if len(member_inputs.carried) == 0:
+        return
+    assert member_inputs.nodes is not None
+    states = []
+    for position, orientation in zip(bodies.positions[0], bodies.orientations[0], strict=True):
+        state = core.BodyState()
+        state.position = list(position)
+        state.orientation = list(orientation)
+        states.append(state)
+    places = [joint for _, joint in member_inputs.nodes.carried]
+    joints = [core.JointForce() for _ in range(max(places) + 1)]
+    for place, item in zip(places, member_inputs.carried, strict=True):
+        reaction = core.Wrench()
+        reaction.force = list(-item.force[0])
+        reaction.moment = list(-item.moment[0])
+        joints[place].reaction = reaction
+    rebuilt = core.integrity_carried_at(_limits_json(member_inputs, len(states)), 0, states, joints)
+    report("tier 1 rebuild of the carried couple", items[0][2], rebuilt[0][2])
+    assert len(rebuilt) == len(items)
+    for mine, theirs in zip(rebuilt, items, strict=True):
+        assert list(mine) == pytest.approx(list(theirs), rel=1e-12, abs=1e-15)
 
 
 @pytest.mark.req("INT-005", "INT-023")
 @pytest.mark.parametrize("fraction", [0.1, 0.3125, 0.5, 0.77])
-def test_strength_carried_load_between_springs_reads_p_a_b_over_l_exactly(
-    fraction: float, plain_pinned_bar: tuple[MemberInputs, BodyPoses, float]
-) -> None:
+def test_strength_carried_force_and_couple_read_both_sides_of_the_load_exactly(fraction: float) -> None:
     carried = _carried_bar(True, fraction, ("pinned", "roller"))
+    plain = _carried_bar(False, fraction, ("pinned", "roller"))
     length = carried[0].section.length
     a = fraction * length
-    target = carried[2] * a * (length - a) / length
-    measured = _carriage_apex(carried, plain_pinned_bar)
-    report(f"pinned carried load at {fraction} L", target, measured)
-    assert measured == pytest.approx(target, rel=EXACT)
+    b = length - a
+    load = carried[2]
+    step = load * _OFFSET
+    left, right = _carriage_sides(carried, plain)
+    report(f"pinned carried load at {fraction} L, M(a-)", load * a * b / length - step * a / length, left)
+    report(f"pinned carried load at {fraction} L, M(a+)", load * a * b / length + step * b / length, right)
+    scale = load * a * b / length
+    assert left == pytest.approx(load * a * b / length - step * a / length, abs=EXACT * scale)
+    assert right == pytest.approx(load * a * b / length + step * b / length, abs=EXACT * scale)
     _tiers_agree(*carried[:2])
 
 
+def _clamped_chain(load: float, step: float, a: float, length: float, n: int) -> tuple[float, float]:
+    """The clamped-clamped chain's statics: M_j = M0 + R0 x_j - P (x_j - a)+ + K H(x_j - a) at the springs, the spring
+    above a short of its torque share w K (beam.py header); the clamps hold the chain's end slope sum_j M_j l / (E I)
+    and end deflection sum_j (L - x_j) M_j l / (E I) at zero, so sum_j M_j = 0 and sum_j x_j M_j = 0 give M0, R0."""
+    l = length / n
+    x = (np.arange(n) + 0.5) * l
+    nodes = np.concatenate(([0.0], x, [length]))
+    k = 0
+    while k + 2 < nodes.size and nodes[k + 1] <= a:
+        k += 1
+    known = -load * np.clip(x - a, 0.0, None) + step * (x > a)
+    if k + 1 <= n:
+        known[k] = known[k] - (a - nodes[k]) / (nodes[k + 1] - nodes[k]) * step
+    matrix = np.asarray([[n, x.sum()], [x.sum(), (x * x).sum()]])
+    start, slope = np.linalg.solve(matrix, -np.asarray([known.sum(), (x * known).sum()]))
+    before = float(start + slope * a)
+    return before, before + step
+
+
+def _clamped_continuum(load: float, step: float, a: float, length: float) -> tuple[float, float]:
+    b = length - a
+    matrix = np.asarray([[length, length**2 / 2.0], [length**2 / 2.0, length**3 / 3.0]])
+    right_side = np.asarray(
+        [
+            load * b**2 / 2.0 - step * b,
+            load * (length**3 / 3.0 - a * length**2 / 2.0 + a**3 / 6.0) - step * (length**2 - a**2) / 2.0,
+        ]
+    )
+    start, slope = np.linalg.solve(matrix, right_side)
+    before = float(start + slope * a)
+    return before, before + step
+
+
 @pytest.mark.req("INT-005", "INT-023")
-def test_strength_clamped_carried_load_at_mid_segment_reads_p_l_over_8_within_the_row() -> None:
+def test_strength_clamped_carried_force_and_couple_step_by_the_couple_exactly() -> None:
     carried = _carried_bar(True, 0.5, ("clamped", "clamped"))
     plain = _carried_bar(False, 0.5, ("clamped", "clamped"))
-    target = carried[2] * carried[0].section.length / 8.0
-    measured = _carriage_apex(carried, plain)
-    report("clamped carried load at mid-segment", target, measured)
-    assert abs(measured / target - 1.0) <= CHAIN
+    length = carried[0].section.length
+    load = carried[2]
+    step = load * _OFFSET
+    left, right = _carriage_sides(carried, plain)
+    before, after = _clamped_chain(load, step, 0.5 * length, length, 8)
+    report("clamped carried load, M(a-) (chain statics)", before, left)
+    report("clamped carried load, M(a+) (chain statics)", after, right)
+    report("clamped carried load, step", step, right - left)
+    continuum = _clamped_continuum(load, step, 0.5 * length, length)
+    report("clamped carried load, M(a-) (continuum; the chain is off by w K / N, the share its spring lacks)", continuum[0], left)
+    scale = max(abs(before), abs(after))
+    assert left == pytest.approx(before, abs=EXACT * scale)
+    assert right == pytest.approx(after, abs=EXACT * scale)
+    assert right - left == pytest.approx(step, rel=EXACT)
     _tiers_agree(*carried[:2])
 
 
 @pytest.mark.req("INT-005", "INT-023")
-def test_strength_of_a_member_carrying_nothing_is_unchanged_to_the_last_bit(
-    plain_pinned_bar: tuple[MemberInputs, BodyPoses, float],
-) -> None:
+def test_strength_of_a_member_carrying_nothing_is_unchanged_to_the_last_bit() -> None:
     """The I4 formula (ends, then every spring) on the same inputs, written out: bit for bit."""
     from mechsim.integrity.beam import member_normal_stress, normal_stress
 
-    member_inputs, bodies, _ = plain_pinned_bar
+    member_inputs, bodies, _ = _carried_bar(False, 0.5, ("pinned", "roller"))
     assert member_inputs.loads is not None
     assert member_inputs.nodes is not None
     assert not member_inputs.nodes.carries
@@ -748,27 +848,42 @@ def test_strength_of_a_member_carrying_nothing_is_unchanged_to_the_last_bit(
     expected = np.concatenate((normal_stress(loads, section), interior), axis=1)
     measured = member_normal_stress(loads, section, member_inputs, bodies)
     assert measured.tobytes() == expected.tobytes()
+    _tiers_agree(member_inputs, bodies)
 
 
 @pytest.mark.req("INT-005", "INT-023")
-def test_strength_own_weight_on_a_carrying_member_stays_within_the_row() -> None:
-    """Own weight only, the rule on (`carries`): the neighbours' secants meet 3 w l^2 / 8 above the parabola at the
-    centre segment (beam.py header), so the peak reads w L^2 / 8 (1 + 3 / N^2): N = 16, +1.17 percent, inside the
-    2 percent row; the settled chain's springs sit on the parabola (each node's weight at its centre), so the value
-    holds within the settled residual (1e-6)."""
+def test_strength_own_weight_under_a_carried_load_errs_by_at_most_three_w_l_squared() -> None:
+    """Own weight w, a carried load of zero size at mid-segment s = 0.5 L (N = 16, pinned): line B extrapolates the
+    parabola from x_{k+2}, x_{k+3} back to s across 2 l, departing from it by (w / 2)(2 l)(3 l) = 3 w l^2 at most
+    (beam.py header); here d = s - x_{k+2} = -1.5 l, so B(s) - M(s) = (w / 2)(1.5 l)(2.5 l) = 1.875 w l^2 above the
+    sagging moment (conservative), and line A from x_k = s - l / 2 departs by (w / 2)(l / 2)(3 l / 2) = 0.375 w l^2.
+    The settled springs sit on the parabola (each node's weight at its centre) within the settled residual."""
+    from mechsim.integrity.beam import _root_frame
+
     n, g = 16, 0.5
     member_inputs, bodies = _settled_chain("SimplySupported", n, None, gravity=g)
     assert member_inputs.nodes is not None
-    member_inputs = replace(member_inputs, nodes=replace(member_inputs.nodes, carries=True))
+    rows = bodies.positions.shape[0]
+    positions = np.concatenate((bodies.positions, np.zeros((rows, 1, 3))), axis=1)
+    orientations = np.concatenate((bodies.orientations, np.tile([1.0, 0.0, 0.0, 0.0], (rows, 1, 1))), axis=1)
+    origin, axis, _, _ = _root_frame(member_inputs, BodyPoses(positions, orientations))
+    positions[:, -1, :] = origin + 0.5 * BEAM_LENGTH * axis
+    poses = BodyPoses(positions, orientations)
+    zero = np.zeros((rows, 3))
+    item = CarriedLoad("slide", positions.shape[1] - 1, zero, zero.copy())
+    member_inputs = replace(
+        member_inputs, nodes=replace(member_inputs.nodes, carries=True), carried=(item,)
+    )
     w = BEAM_DENSITY * BEAM_AREA * g
+    l = BEAM_LENGTH / n
     continuum = w * BEAM_LENGTH**2 / 8.0
-    run = RunInputs(np.zeros(1), (member_inputs,), {"fake": FakeMaterial()}, TEMPERATURE, bodies=bodies)
+    run = RunInputs(np.zeros(rows), (member_inputs,), {"fake": FakeMaterial()}, TEMPERATURE, bodies=poses)
     (row,) = Strength().evaluate(run, NoParameters(), 1).rows
     measured = row.value * member_inputs.section.i_z / member_inputs.section.c_y
-    report("pinned own weight, carrying member", continuum * (1.0 + 3.0 / n**2), measured)
-    assert measured / continuum - 1.0 <= CHAIN
-    assert measured == pytest.approx(continuum * (1.0 + 3.0 / n**2), rel=SETTLED)
-    _tiers_agree(member_inputs, bodies)
+    report("pinned own weight under a carried point, line B", continuum + 1.875 * w * l**2, measured)
+    assert measured >= continuum * (1.0 - SETTLED)
+    assert measured - continuum <= 3.0 * w * l**2 + SETTLED * continuum
+    assert measured == pytest.approx(continuum + 1.875 * w * l**2, rel=SETTLED)
 
 
 @pytest.mark.req("INT-005")
@@ -930,49 +1045,82 @@ def test_impact_on_a_pinned_member_reads_the_mid_span_peak() -> None:
     assert dict(row.detail)["event_time"] == pytest.approx(step * 1e-3)
 
 
-# ===== Unresolved carried loads (INT-005, ruling 72) =========================
+# ===== Carried couples and clusters (INT-005, rulings 72, 75) ================
 #
-# A pinned-pinned member (SECTION, L = 0.5 m, N = 8, l = 0.0625 m) carries a body at a = 0.2 m (between the samples
-# 0.15625 and 0.21875, s_j = (j - 1/2) l) at a height d = 0.02 m above its axis, loaded by its weight P = 30 N
-# and an axial push H at that
-# height: the engine reroutes F . y = -P and the couple C = ((r_c - p) x F) . z = -d H (the push itself stays on the
-# parent, ENG-052). By statics (couple taken as a step +C in the spring-sense moment at a) R_0 = P b / L - C / L,
-# M(x) = R_0 x left of a, R_0 x - P (x - a) + C right of it; the spring moments and end wrenches are these exactly,
-# the node poses built from them (quaternion rounding 1e-13 relative). The true peak is the larger of |M(a-)| and
-# |M(a+)|; with C > 0 it is M(a+) = P a b / L + C b / L. The rule's read alone misses it (it reads the tent of the
-# lines, not the step); the bound U = |C| (beam.py, section "What the carried-load rule does not resolve") makes the
-# conservative read at or above the true peak and within |C| of it, for either sign of the push. Two opposite loads
-# between the same two samples (0.225 and 0.27 m, both in [0.21875, 0.28125]): U = (|F_1| + |F_2|) h / 4 over the
-# larger sample; the same loads in neighbouring segments (0.195 and 0.24 m) read short without it (measured 3.748
-# against 3.9195 N m) and take the same bound per segment.
+# A pinned-pinned member (SECTION, L = 0.5 m, N = 8, l = 0.0625 m, samples x_0 = 0, x_i = (i - 1/2) l, x_9 = L)
+# carries a body at a = 0.2 m (between x_3 = 0.15625 and x_4 = 0.21875) at a height d = 0.02 m above its axis, loaded
+# by its weight P = 30 N and an axial push H at that height: the engine reroutes F . y = -P and the couple
+# C = ((r_c - p) x F) . z = -d H. Statics with a step +C in the spring-sense moment at a (the convention these
+# synthetic fields use): R_0 = P b / L - C / L, M(x) = R_0 x left of a, R_0 x - P (x - a) + C right of it; the spring
+# moments and end wrenches are these exactly except the spring above a (x_4), which lacks the share w_4 C (beam.py
+# header), and the node poses are built from them (quaternion rounding 1e-13 relative). The rule reads M(a-) from the
+# clean samples x_2, x_3 and M(a+) from x_5, x_6: exact, no bound. For the 400 N push the read is P a b / L + C b / L
+# = 7.2 + 1.2 = 8.4 N m (the I5 bound read 15.875, the plain samples 7.875). Two loads of opposite sign in one segment
+# (0.225 and 0.27 m, both in [x_4, x_5]) or in neighbouring segments (0.195 and 0.24 m): the moment between them is
+# linear, so lines A and B at the two loads give the peak exactly. Bounded clusters, the read at or above the true
+# peak and within U of it: a couple with a second load within two segments, U = sum abs(F) (b - a) / 4 + sum abs(C);
+# three loads; a load in a clamped root's stub.
+
+_SPRINGS = 8
+_SEGMENT = LENGTH / _SPRINGS
 
 
-def _carried_pinned(
-    moment_at: Callable[[np.ndarray], np.ndarray], start_fy: float, end_fy: float, carried: Sequence[tuple]
-) -> MemberInputs:
-    n = 8
-    segment = LENGTH / n
-    stiffness = MODULUS * I_Z / segment
-    where = (np.arange(n) + 0.5) * segment
-    angles = np.cumsum(moment_at(where) / stiffness)
+def _carried_member(
+    moment_at: Callable[[np.ndarray], np.ndarray],
+    start_fy: float,
+    end_fy: float,
+    carried: Sequence[tuple],
+    root: str = "pinned",
+    start_mz: float = 0.0,
+) -> tuple[MemberInputs, BodyPoses]:
+    """The chain whose springs carry `moment_at` (each carried couple's missing share at the spring above its load
+    taken off, the chain's own reading), with the carried bodies at their positions and loads; two identical rows."""
+    n = _SPRINGS
+    stiffness = MODULUS * I_Z / _SEGMENT
+    where = (np.arange(n) + 0.5) * _SEGMENT
+    samples = moment_at(where)
+    nodes = np.concatenate(([0.0], where, [LENGTH]))
+    for position, force in carried:
+        a = position[0]
+        couple = position[1] * -force[0]
+        k = 0
+        while k + 2 < nodes.size and nodes[k + 1] <= a:
+            k += 1
+        if k + 1 <= n:
+            samples[k] = samples[k] - (a - nodes[k]) / (nodes[k + 1] - nodes[k]) * couple
+    angles = np.cumsum(samples / stiffness)
     count = n + 1 + len(carried)
-    orientations = np.zeros((1, count, 4))
+    first = 1
+    if root == "clamped":
+        count = n + len(carried)
+        first = 0
+    orientations = np.zeros((2, count, 4))
     orientations[:, :, 0] = 1.0
-    orientations[0, 1 : n + 1, 0] = np.cos(angles / 2.0)
-    orientations[0, 1 : n + 1, 3] = np.sin(angles / 2.0)
-    positions = np.zeros((1, count, 3))
+    orientations[:, first : first + n, 0] = np.cos(angles / 2.0)
+    orientations[:, first : first + n, 3] = np.sin(angles / 2.0)
+    positions = np.zeros((2, count, 3))
     loads = []
+    base = count - len(carried)
     for k, (position, force) in enumerate(carried):
-        positions[0, n + 1 + k] = position
-        loads.append(CarriedLoad(f"slide{k}", n + 1 + k, np.asarray([force], float), np.zeros((1, 3))))
-    zero = np.zeros((1, 3))
-    chain = NodeChain(0, n + 1, "pinned", None, (0.0, 0.0, 0.0), (1.0, 0.0, 0.0, 0.0), segment, stiffness, True)
+        positions[:, base + k] = position
+        loads.append(CarriedLoad(f"slide{k}", base + k, np.tile(force, (2, 1)), np.zeros((2, 3))))
+    zero = np.zeros((2, 3))
+    joints = tuple((base + k, k) for k in range(len(carried)))
+    chain = NodeChain(0, base, root, None, (0.0, 0.0, 0.0), (1.0, 0.0, 0.0, 0.0), _SEGMENT, stiffness, True, joints)
+    end_condition = "roller"
+    if root == "clamped":
+        end_condition = "clamped"
     member_inputs = MemberInputs(
         "rail",
         "fake",
         SECTION,
-        ((0.0, "pinned"), (LENGTH, "roller")),
-        Wrenches(np.asarray([[0.0, start_fy, 0.0]]), zero, np.asarray([[0.0, end_fy, 0.0]]), zero.copy()),
+        ((0.0, root), (LENGTH, end_condition)),
+        Wrenches(
+            np.tile([0.0, start_fy, 0.0], (2, 1)),
+            np.tile([0.0, 0.0, start_mz], (2, 1)),
+            np.tile([0.0, end_fy, 0.0], (2, 1)),
+            zero.copy(),
+        ),
         nodes=chain,
         carried=tuple(loads),
     )
@@ -985,70 +1133,109 @@ def _true_peak(moment_at: Callable[[np.ndarray], np.ndarray], points: Sequence[f
 
 
 def _strength_moment(member_inputs: MemberInputs, bodies: BodyPoses) -> tuple[float, CheckResult]:
-    result = Strength().evaluate(inputs([member_inputs], 1, bodies=bodies), NoParameters(), 1)
+    result = Strength().evaluate(inputs([member_inputs], 2, bodies=bodies), NoParameters(), 1)
     return result.rows[0].value * I_Z / C_Y, result
 
 
-@pytest.mark.req("INT-005")
-@pytest.mark.parametrize("push", [400.0, -400.0])
-def test_strength_carried_couple_reads_conservatively_within_the_couple(push: float) -> None:
-    a, d, load = 0.2, 0.02, 30.0
-    b = LENGTH - a
-    couple = d * abs(push)
-    sign = math.copysign(1.0, push)
-    step = sign * couple
+def _pinned_field(loads: Sequence[tuple[float, float, float]]) -> tuple[Callable[[np.ndarray], np.ndarray], float, float]:
+    """M(x) of point loads (a, P down, step C) on the pinned span, and the start and end shear F_y0, F_y1."""
+    start = sum(p * (LENGTH - a) / LENGTH - c / LENGTH for a, p, c in loads)
+    end = sum(p * a / LENGTH + c / LENGTH for a, p, c in loads)
 
     def moment_at(x: np.ndarray) -> np.ndarray:
-        start = load * b / LENGTH - step / LENGTH
-        return np.where(x <= a, start * x, start * x - load * (x - a) + step)
+        value = start * x
+        for a, p, c in loads:
+            value = value - p * np.clip(x - a, 0.0, None) + c * (x > a)
+        return value
 
-    start_fy = load * b / LENGTH - step / LENGTH
-    end_fy = load * a / LENGTH + step / LENGTH
-    carried = (((a, d, 0.0), (-sign * abs(push), -load, 0.0)),)
-    member_inputs, bodies = _carried_pinned(moment_at, start_fy, end_fy, carried)
-    true = max(_true_peak(moment_at, [a - 1e-12, a + 1e-12]), abs(load * a * b / LENGTH + step * b / LENGTH))
+    return moment_at, start, end
+
+
+@pytest.mark.req("INT-005", "INT-023")
+@pytest.mark.parametrize("push", [400.0, -400.0])
+def test_strength_carried_couple_reads_exactly_without_a_bound(push: float) -> None:
+    a, d, load = 0.2, 0.02, 30.0
+    b = LENGTH - a
+    step = d * push
+    moment_at, start_fy, end_fy = _pinned_field([(a, load, step)])
+    carried = (((a, d, 0.0), (-push, -load, 0.0)),)
+    member_inputs, bodies = _carried_member(moment_at, start_fy, end_fy, carried)
+    true = max(abs(load * a * b / LENGTH - step * a / LENGTH), abs(load * a * b / LENGTH + step * b / LENGTH))
     plain, _ = _strength_moment(replace(member_inputs, carried=()), bodies)
     measured, result = _strength_moment(member_inputs, bodies)
     report(f"carried couple, push {push} N: true peak", true, measured)
     report(f"carried couple, push {push} N: plain read", true, plain)
     assert plain < true
-    assert measured >= true * (1.0 - EXACT)
-    assert measured <= (true + couple) * (1.0 + EXACT)
+    assert measured == pytest.approx(true, rel=EXACT)
     if push > 0.0:
-        assert true == pytest.approx(load * a * b / LENGTH + couple * b / LENGTH, rel=EXACT)
-    detail = dict(result.rows[0].detail)
-    assert detail["unresolved_moment"] == pytest.approx(couple, rel=EXACT)
-    assert detail["unresolved_stress"] == pytest.approx(couple * C_Y / I_Z, rel=EXACT)
-    assert result.rows[0].margin is not None
-    assert result.rows[0].margin.min == pytest.approx(40e6 / result.rows[0].value, rel=EXACT)
-    assert any("conservative" in note and "carried couple" in note for note in result.notes)
+        assert measured == pytest.approx(8.4, rel=EXACT)
+    assert dict(result.rows[0].detail) == {}
+    assert not any("conservative" in note for note in result.notes)
+    _tiers_agree(member_inputs, bodies)
 
 
-@pytest.mark.req("INT-005")
+@pytest.mark.req("INT-005", "INT-023")
 @pytest.mark.parametrize(("first", "second"), [(0.225, 0.27), (0.195, 0.24)])
-def test_strength_opposite_loads_in_one_segment_read_conservatively(first: float, second: float) -> None:
+def test_strength_two_opposite_loads_read_exactly_by_the_chord(first: float, second: float) -> None:
     load1, load2 = 50.0, -20.0
-    total = load1 + load2
-    moment_about_end = load1 * (LENGTH - first) + load2 * (LENGTH - second)
-    start_fy = moment_about_end / LENGTH
-    end_fy = total - start_fy
-
-    def moment_at(x: np.ndarray) -> np.ndarray:
-        value = start_fy * x
-        value = value - load1 * np.clip(x - first, 0.0, None)
-        return value - load2 * np.clip(x - second, 0.0, None)
-
+    moment_at, start_fy, end_fy = _pinned_field([(first, load1, 0.0), (second, load2, 0.0)])
     carried = (((first, 0.0, 0.0), (0.0, -load1, 0.0)), ((second, 0.0, 0.0), (0.0, -load2, 0.0)))
-    member_inputs, bodies = _carried_pinned(moment_at, start_fy, end_fy, carried)
+    member_inputs, bodies = _carried_member(moment_at, start_fy, end_fy, carried)
     true = _true_peak(moment_at, [first, second])
     measured, result = _strength_moment(member_inputs, bodies)
-    bound = (abs(load1) + abs(load2)) * (LENGTH / 8) / 4.0
-    if first < 0.21875:
-        bound = abs(load1) * (LENGTH / 8) / 4.0
     report(f"opposite loads at {first}, {second}: true peak", true, measured)
+    assert measured == pytest.approx(true, rel=EXACT)
+    assert dict(result.rows[0].detail) == {}
+
+
+@pytest.mark.req("INT-005", "INT-023")
+@pytest.mark.parametrize(
+    ("cluster", "kind"),
+    [
+        (((0.2, 30.0, 8.0), (0.27, -20.0, 0.0)), "couple"),
+        (((0.2, 30.0, 0.0), (0.24, -20.0, 0.0), (0.3, 10.0, 0.0)), "three"),
+    ],
+)
+def test_strength_unresolved_clusters_read_conservatively_within_the_bound(
+    cluster: tuple[tuple[float, float, float], ...], kind: str
+) -> None:
+    # Segments k: 0.2 -> 3, 0.24 -> 4, 0.27 -> 4, 0.3 -> 5; [a, b] = [x_3, x_{k_last + 2}] = [0.15625, 0.34375] (couple)
+    # and [0.15625, 0.40625] (three).
+    from mechsim.integrity.beam import COUPLED, CROWDED
+
+    d = 0.02
+    moment_at, start_fy, end_fy = _pinned_field(list(cluster))
+    carried = tuple(((a, d, 0.0), (-c / d, -p, 0.0)) for a, p, c in cluster)
+    member_inputs, bodies = _carried_member(moment_at, start_fy, end_fy, carried)
+    true = _true_peak(moment_at, [a for a, _, _ in cluster])
+    bound = 50.0 * 0.1875 / 4.0 + 8.0
+    cause = COUPLED
+    if kind == "three":
+        bound = 60.0 * 0.25 / 4.0
+        cause = CROWDED
+    measured, result = _strength_moment(member_inputs, bodies)
+    report(f"cluster ({kind}): true peak", true, measured)
     assert measured >= true * (1.0 - EXACT)
+    assert measured <= (true + bound) * (1.0 + EXACT)
     assert dict(result.rows[0].detail)["unresolved_moment"] == pytest.approx(bound, rel=EXACT)
-    assert any("opposite sign" in note for note in result.notes)
+    assert any("conservative" in note and cause in note for note in result.notes)
+    _tiers_agree(member_inputs, bodies)
+
+
+@pytest.mark.req("INT-005", "INT-023")
+def test_strength_a_load_in_a_clamped_roots_stub_is_bounded_with_the_stub_share() -> None:
+    """k = 0 under a clamped root: no clean line left of the load; one read (line B), U = abs(F) (x_2 - 0) / 4 +
+    abs(C) + abs(F) l / 8 + abs(C) (beam.py header)."""
+    from mechsim.integrity.beam import STUB, row_reads
+
+    x = np.concatenate(([0.0], (np.arange(_SPRINGS) + 0.5) * _SEGMENT, [LENGTH]))
+    reads, bound, causes = row_reads(x, np.zeros(x.size), 0.0, 0.0, False, _SEGMENT, [(0.01, -50.0, 1.5)])
+    assert len(reads) == 1
+    assert bound == pytest.approx(50.0 * x[2] / 4.0 + 1.5 + 50.0 * _SEGMENT / 8.0 + 1.5, rel=1e-15)
+    assert causes == {STUB}
+    reads, bound, causes = row_reads(x, np.zeros(x.size), 0.0, 0.0, True, _SEGMENT, [(0.01, -50.0, 1.5)])
+    assert len(reads) == 2
+    assert bound == 0.0
 
 
 @pytest.mark.req("INT-004", "INT-012")

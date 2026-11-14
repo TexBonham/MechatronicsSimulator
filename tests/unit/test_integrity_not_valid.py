@@ -5,8 +5,10 @@ whose only crossings are not valid, unevaluable with the reason; the validity re
 
 End to end: the data-only carried bar (`tests/unit/test_carried_members.py`) through `CoreDriver`, the runner and the
 record archiver. The bar alone, loaded by its resting carriage, is never flagged by the engine (its ratio stays below
-the limit), so the flagged run substitutes the engine's record with a flag at a stated time (`carried_validity`, the
-one function reading `CarriedRecord.values()`); everything downstream of the record is the real path."""
+the limit) only with a heavy carriage; with the 40 mm cube the engine flags it (the release rings the undamped bar),
+which the end-to-end test with an engine-set flag uses (brief M3-I5b item 6). The tests at stated flag times substitute
+the engine's record (`carried_validity`, the one function reading `CarriedRecord.values()`); everything downstream of
+the record is the real path."""
 
 from __future__ import annotations
 
@@ -78,8 +80,23 @@ criteria:
 SINCE = 0.02
 
 
-def _setup(tmp_path: Path, accuracy: str) -> tuple[Path, Services, CoreDriver]:
+def _setup(
+    tmp_path: Path, accuracy: str, cube: str | None = None, integrity: str = "", second: bool = False
+) -> tuple[Path, Services, CoreDriver]:
     data = _design_data(["slide"])
+    if cube is not None:
+        data["bodies"][1]["geometry"]["shapes"][0]["size"] = [cube, cube, cube]
+    if second:
+        post = copy.deepcopy(data["bodies"][0])
+        post["name"] = "post"
+        post["flexible"]["supports"] = ["clamped", "clamped"]
+        post["flexible"]["carries"] = []
+        data["bodies"].append(post)
+        mount = copy.deepcopy(data["joints"][0])
+        mount["name"] = "post_mount"
+        mount["child"] = "post"
+        mount["placement"]["position"] = ["0 m", "0.5 m", "0 m"]
+        data["joints"].append(mount)
     data["structural"] = {
         "design_load": {"rated_load": "1 kg", "allowance": "0 percent"},
         "accuracy_target": accuracy,
@@ -93,7 +110,7 @@ def _setup(tmp_path: Path, accuracy: str) -> tuple[Path, Services, CoreDriver]:
         "schema_version: 1\nchecks:\n  - check: strength\n  - check: deflection\n", encoding="utf-8"
     )
     case = tmp_path / "NV1.yaml"
-    case.write_text(CASE, encoding="utf-8")
+    case.write_text(CASE.replace("criteria:", integrity + "criteria:"), encoding="utf-8")
     driver = CoreDriver(designs_root=designs)
     services = Services(
         lambda: driver, core_builder, RecordArchiver(designs), designs, integrity=IntegrityService(designs)
@@ -112,7 +129,10 @@ def _flag(monkeypatch: pytest.MonkeyPatch, since: float) -> None:
 
 @pytest.mark.req("INT-022", "REC-004", "SCO-029")
 def test_an_unflagged_run_stores_the_record_and_is_unchanged_bit_for_bit(tmp_path: Path) -> None:
-    case, services, driver = _setup(tmp_path, "1 m")
+    # A 150 mm cube: its weight's static deflection (the flag's floor, ENG-052) outweighs the bar's own-weight ringing
+    # from the release, which the engine counts against the carried loads (member_loads.hpp, Definition (b)); the 40 mm
+    # cube's bar is flagged (the engine-set flag of the end-to-end test below).
+    case, services, driver = _setup(tmp_path, "1 m", cube="0.15 m")
     result: Any = run_case(case, services, None, tmp_path / "runs")
     assert result.report is not None, result.score.error
     assert not result.report.errored, result.report.error
@@ -204,6 +224,71 @@ def test_a_criterion_before_the_flag_time_is_scored_and_one_inside_it_is_unevalu
         assert math.isnan(value) == (time > SINCE)
 
 
+# ===== Engine-set flag, two members, halting configured (ruling 75) ==========
+#
+# The 40 mm cube on the undamped bar plus a clamped-clamped second member `post` that carries nothing, evaluation from
+# 5 ms, accuracy 0.26 mm, halt_on_crossing. Measured on this rig (the flag time is the engine's, ENG-052): the bar is
+# flagged from 0.008 s (ratio 4.344); its deflection is 0.244 mm at 0.008 s and 0.273 mm at 0.009 s, so its only
+# counted crossing is in the row stamped 0.009 s, inside the not-valid interval; the post peaks at 0.041 mm, never
+# crossing. So the crossing is recorded as integrity_not_valid by the party itself, the run does not halt, the case is
+# the not-valid error, the bar's rows are not valid from 0.008 s and the post's are untouched.
+
+ENGINE_SINCE = 0.008
+
+
+@pytest.mark.req("INT-022", "INT-026", "SCO-029", "FAC-013")
+def test_an_engine_flagged_member_neither_halts_nor_fails_and_the_other_member_is_unaffected(
+    tmp_path: Path,
+) -> None:
+    from mechsim.facade.service import Facade, FacadeServices
+
+    case, services, driver = _setup(
+        tmp_path, "0.26 mm", integrity="integrity:\n  evaluate_from: 5 ms\n  halt_on_crossing: true\n", second=True
+    )
+    result: Any = run_case(case, services, None, tmp_path / "runs")
+    view = driver.recording()
+    (record,) = view.validity
+    assert record.flagged
+    assert record.since == pytest.approx(ENGINE_SINCE, abs=1e-12)
+    assert result.report.reason == "end_time"
+    events = [event for event in view.events() if event.source == "integrity"]
+    assert [event.kind for event in events] == [NOT_VALID_KIND]
+    assert json.loads(events[0].detail)["member"] == "bar"
+    assert driver.integrity_trace is not None
+    assert len(driver.integrity_trace.crossings) == 0
+    assert len(driver.integrity_trace.not_valid) == 1
+    score = result.score
+    assert score.status == "error"
+    assert score.error == record.reason()
+    report = result.metadata.integrity
+    for check in report.checks:
+        for row in check.rows:
+            if row.subject == "bar":
+                assert NOT_VALID_FLAG in row.flags
+                assert row.time <= ENGINE_SINCE
+            if row.subject == "post":
+                assert NOT_VALID_FLAG not in row.flags
+    stripped = copy.copy(view)
+    stripped.validity = ()
+    build = core_builder(_design(tmp_path), "native")
+    from mechsim.testing.runner import _plain
+    from mechsim.testing.schema import Case
+
+    written = Case.model_validate(_plain(case, "test case"))
+    without = IntegrityService(tmp_path / "designs")(build, written, stripped)  # type: ignore[arg-type]
+    assert without is not None
+    post_rows = [row.to_dict() for check in report.checks for row in check.rows if row.subject == "post"]
+    assert post_rows == [row.to_dict() for check in without.checks for row in check.rows if row.subject == "post"]
+    assert report.deflection_series("post") == without.deflection_series("post")
+    facade = Facade(FacadeServices(reader=RecordArchiveReader()))
+    handle = facade.replay_open(result.archive)
+    table = {entry.member: entry for entry in facade.integrity_results(handle.run_id).members}
+    assert table["bar"].state == "not_valid"
+    assert table["bar"].not_valid_from == pytest.approx(ENGINE_SINCE, abs=1e-12)
+    assert table["post"].state == "valid"
+    assert table["post"].not_valid_from is None
+
+
 # ===== Two members, one flagged (synthetic inputs) ==========================
 
 
@@ -264,6 +349,26 @@ def test_a_flag_before_the_first_sample_leaves_nan_rows_never_zero() -> None:
     assert math.isnan(row.value)
     assert NOT_VALID_FLAG in row.flags
     assert math.isnan(marked.member("carrier").peak_stress)
+
+
+@pytest.mark.req("REC-004")
+def test_the_validity_writer_refuses_what_its_reader_refuses() -> None:
+    for value in (math.nan, math.inf):
+        with pytest.raises(ValueError, match="not finite"):
+            validity_json((CarriedValidity("bar", True, value, 3.0, 1.0),))
+        with pytest.raises(ValueError, match="not finite"):
+            validity_json((CarriedValidity("bar", True, 0.1, value, 1.0),))
+
+
+@pytest.mark.req("REC-004", "SCO-029")
+def test_a_view_without_a_validity_record_is_an_error_not_valid() -> None:
+    from mechsim.scoring.score import score_run
+
+    class Bare:
+        pass
+
+    with pytest.raises(AttributeError):
+        score_run(None, Bare(), None)  # type: ignore[arg-type]
 
 
 @pytest.mark.req("REC-004")

@@ -121,8 +121,18 @@ void IntegrityParty::cross(kernel::SimTime t, const std::string& element, std::s
     }
 }
 
-void IntegrityParty::crossed(kernel::SimTime t, bool counts, bool& counted, bool& early, const std::string& element,
-                             std::string_view quantity, double value, double limit) {
+void IntegrityParty::crossed(kernel::SimTime t, bool counts, bool not_valid, bool& counted, bool& early,
+                             const std::string& element, std::string_view quantity, double value, double limit) {
+    if (counts && not_valid) {
+        if (!counted) {
+            counted = true;
+            Crossing crossing{t, element, std::string(quantity), value, limit};
+            pending_events_.push_back(kernel::RecordedEvent{t, std::string(event_source), std::string(not_valid_kind),
+                                                            crossing_detail(crossing)});
+            trace_->not_valid.push_back(std::move(crossing));
+        }
+        return;
+    }
     if (counts) {
         if (!counted) {
             counted = true;
@@ -199,6 +209,12 @@ void IntegrityParty::step(kernel::SimTime t, kernel::Duration dt) {
                           " bodies, the limits table expects " + std::to_string(limits_.bodies.value()) +
                           " (the run's bodies plus member nodes, INT-006)");
     }
+    std::vector<bool> flagged(limits_.members.size(), false);
+    if (not_valid_) {
+        for (std::size_t m = 0; m < limits_.members.size(); ++m) {
+            flagged[m] = not_valid_(limits_.members[m].index);
+        }
+    }
     for (std::size_t m = 0; m < limits_.members.size(); ++m) {
         const MemberLimits& member = limits_.members[m];
         if (member.index >= outputs_.members.size()) {
@@ -208,12 +224,21 @@ void IntegrityParty::step(kernel::SimTime t, kernel::Duration dt) {
         const kernel::MemberEndLoads& loads = outputs_.members[member.index];
         MemberState& state = members_[m];
         if (limits_.stress) {
-            const double stress = peak_normal_stress(loads, outputs_.bodies, member, state.offsets);
+            std::vector<CarriedAt> current;
+            if (member.nodes.has_value() && member.nodes.value().carries) {
+                current = carried_at(outputs_.bodies, outputs_.joints, member);
+            }
+            if (!state.has_carried) {
+                state.carried = current;
+                state.has_carried = true;
+            }
+            const double stress = peak_normal_stress(loads, outputs_.bodies, member, state.offsets, state.carried);
+            state.carried = std::move(current);
             if (counts) {
                 trace_->peak_stress[m] = std::max(trace_->peak_stress[m], stress);
             }
             if (stress > member.allowable_stress) {
-                crossed(stamp, counts, state.stress, state.early_stress, member.name, stress_quantity, stress,
+                crossed(stamp, counts, flagged[m], state.stress, state.early_stress, member.name, stress_quantity, stress,
                         member.allowable_stress);
             }
         }
@@ -224,7 +249,7 @@ void IntegrityParty::step(kernel::SimTime t, kernel::Duration dt) {
                 trace_->min_buckling_margin[m] = std::min(trace_->min_buckling_margin[m], margin);
             }
             if (limits_.buckling && margin < limits_.minimum_safety_factor) {
-                crossed(stamp, counts, state.buckling, state.early_buckling, member.name, buckling_quantity, margin,
+                crossed(stamp, counts, flagged[m], state.buckling, state.early_buckling, member.name, buckling_quantity, margin,
                         limits_.minimum_safety_factor);
             }
         }
@@ -234,7 +259,7 @@ void IntegrityParty::step(kernel::SimTime t, kernel::Duration dt) {
                 trace_->peak_deflection[m] = std::max(trace_->peak_deflection[m], deflection);
             }
             if (member.deflection_limit.has_value() && deflection > member.deflection_limit.value()) {
-                crossed(stamp, counts, state.deflection, state.early_deflection, member.name, deflection_quantity,
+                crossed(stamp, counts, flagged[m], state.deflection, state.early_deflection, member.name, deflection_quantity,
                         deflection, member.deflection_limit.value());
             }
         }
@@ -254,7 +279,11 @@ void IntegrityParty::step(kernel::SimTime t, kernel::Duration dt) {
             trace_->peak_fastener_load[f] = std::max(trace_->peak_fastener_load[f], magnitude);
         }
         if (limits_.fastener && magnitude > fastening.load_limit) {
-            crossed(stamp, counts, fastenings_[f].counted, fastenings_[f].early, fastening.name, fastener_quantity,
+            bool held = false;
+            if (fastening.member.has_value()) {
+                held = flagged[fastening.member.value()];
+            }
+            crossed(stamp, counts, held, fastenings_[f].counted, fastenings_[f].early, fastening.name, fastener_quantity,
                     magnitude, fastening.load_limit);
         }
     }
@@ -287,6 +316,10 @@ void IntegrityParty::record(kernel::TickRecord& row) const {
 
 const IntegrityTrace& IntegrityParty::trace() const noexcept {
     return *trace_;
+}
+
+void IntegrityParty::watch_validity(std::function<bool(std::size_t)> not_valid) {
+    not_valid_ = std::move(not_valid);
 }
 
 }  // namespace mechsim::integrity

@@ -44,7 +44,11 @@ def flagged(records: Sequence[CarriedValidity]) -> dict[str, CarriedValidity]:
 
 
 def validity_json(records: Sequence[CarriedValidity]) -> str:
-    """Canonical JSON (member order kept, keys sorted)."""
+    """Canonical JSON (member order kept, keys sorted); a non-finite number is a `ValueError`, as its reader refuses
+    it."""
+    for record in records:
+        if not all(math.isfinite(value) for value in (record.since, record.ratio, record.work)):
+            raise ValueError(f"carried validity of {record.member!r}: a value is not finite")
     data = [
         {
             "flagged": record.flagged,

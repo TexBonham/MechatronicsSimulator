@@ -231,17 +231,27 @@ def limits_table(
     if flags["fastener"]:
         ratings = _parameters(config, "fastener").ratings
         order = [str(body.joint.name) for body in model.bodies if body.joint is not None]
+        places = {str(entry["name"]): place for place, entry in enumerate(members)}
+        holders: dict[str, int] = {}
+        for structural in build.members:
+            for mount in getattr(structural, "mounts", ()):
+                if str(structural.name) in places:
+                    holders[str(mount)] = places[str(structural.name)]
         for fastening in model.fastenings:
             limit = rating(str(fastening.name), str(fastening.kind), ratings)
             if limit is None:
                 continue
             if str(fastening.joint) not in order:
                 raise IntegrityError(f"fastening {fastening.name!r}: joint {fastening.joint!r} is not in the model")
+            held: int | None = None
+            if str(fastening.kind) == "mount" and str(fastening.joint) in holders:
+                held = holders[str(fastening.joint)]
             fastenings.append(
                 {
                     "name": str(fastening.name),
                     "joint": order.index(str(fastening.joint)),
                     "load_limit": limit / minimum,
+                    "member": held,
                 }
             )
     return {

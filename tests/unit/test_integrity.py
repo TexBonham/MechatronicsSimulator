@@ -301,6 +301,7 @@ class _View:
         self.recording = recording
         self._times = tuple(float(t) for t in recording.series["time/seconds"].values)
         self._series = series or {}
+        self.validity: tuple[Any, ...] = ()
 
     def times(self) -> tuple[float, ...]:
         return self._times

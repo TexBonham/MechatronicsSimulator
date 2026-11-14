@@ -3,6 +3,8 @@ the gravity direction, scored with the existing statistics, against a rigid pend
 
 from __future__ import annotations
 
+from typing import Any
+
 import math
 from collections.abc import Sequence
 from dataclasses import dataclass
@@ -50,6 +52,7 @@ class _Pendulum:
 
     def __init__(self, pivot: tuple[float, float, float] = (0.0, 0.0, 0.0), bob_offset: float = L) -> None:
         self._times = tuple(index * STEP for index in range(ROWS))
+        self.validity: tuple[Any, ...] = ()
         angles = [THETA_0 * math.cos(2.0 * math.pi * t / PERIOD) for t in self._times]
         hanging = (pivot[0], pivot[1] - bob_offset, pivot[2])
         identity = (1.0, 0.0, 0.0, 0.0)

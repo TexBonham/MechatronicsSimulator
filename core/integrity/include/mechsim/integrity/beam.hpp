@@ -20,29 +20,50 @@ namespace mechsim::integrity {
 [[nodiscard]] std::vector<double> node_moments(std::span<const kernel::BodyState> bodies, const MemberLimits& member,
                                                std::span<const double> offsets = {});
 
-// The moment under a carried load in one segment between two samples (ruling 71): where the moment line of the
-// segment before meets the line of the segment after.
-struct CarriedMoment {
-    double value = 0.0;     // N m, spring sense
-    double position = 0.0;  // m along the member
+// A carried joint's load as the engine applies it in a step (ENG-052): its foot point s along the member (m), the
+// in-plane force F = F . y (N) and the couple about the foot point C = M_p . z (N m), member frame.
+struct CarriedAt {
+    double position = 0.0;
+    double force = 0.0;
+    double couple = 0.0;
 };
 
-// Per segment [s_k, s_{k+1}] of the samples s_0 = 0, the springs (j + 1/2) l, s_{N+1} = L (N + 1 segments): the
-// intersection of line A (through s_{k-1}, s_k; at the start the start wrench's line, value -M_z0, slope F_y0) and
-// line B (through s_{k+1}, s_{k+2}; at the end the end wrench's line, value M_z1, slope -F_y1) when the slopes differ
-// and it lies strictly inside the segment; none otherwise. The derivation and the end conditions are in
-// mechsim/integrity/beam.py, section "Moment under a carried load"; the same formula as its `carried_moments`.
-[[nodiscard]] std::vector<std::optional<CarriedMoment>> carried_moments(const kernel::MemberEndLoads& loads,
-                                                                        std::span<const double> moments,
-                                                                        const MemberLimits& member);
+// (s, F . y, C) of each joint the chain lists in `carried`, from one tick's poses and joint reactions: the load is the
+// negated reaction (parent on child, world-aligned, about the child origin r_c), s = (r_c - o) . x in the root frame
+// (o, x, y, z: the parent's pose times the member placement), C = (-M + (r_c - p) x (-R)) . z, p = o + s x. The engine
+// places the pair at the step's start, so the party passes the previous tick's outputs. Throws LimitsError for a body
+// or joint outside the published ones, or a chain without nodes.
+[[nodiscard]] std::vector<CarriedAt> carried_at(std::span<const kernel::BodyState> bodies,
+                                                std::span<const kernel::JointForce> joints, const MemberLimits& member);
+
+// A moment read at a carried load: value N m (spring sense), position m along the member.
+struct CarriedMoment {
+    double value = 0.0;
+    double position = 0.0;
+};
+
+// The rule of rulings 71 and 75 (derivation and end conditions: mechsim/integrity/beam.py, section "Moment under a
+// carried load"; the same algorithm as its `row_reads`): loads sorted by s and grouped into clusters whose lever
+// segments differ by at most 2; per cluster the moment just left of its first load (line A through the clean samples
+// k - 1 and k, or a pinned root's start line) and just right of its last (line B through k + 2 and k + 3, or the end's
+// line). `bound` the largest U of a cluster the rule does not resolve (a couple among several loads, three or more
+// loads, a clamped root's stub), 0 when every cluster is exact.
+struct CarriedReads {
+    std::vector<CarriedMoment> reads;
+    double bound = 0.0;
+};
+[[nodiscard]] CarriedReads carried_reads(const kernel::MemberEndLoads& loads, std::span<const double> moments,
+                                         const MemberLimits& member, std::span<const CarriedAt> carried);
 
 // abs(N) / A + abs(M_y) c_z / I_y + abs(M_z) c_y / I_z at the start and the end and, for a member with nodes, at each
 // node spring: abs(N) the larger end value, M_z the spring's moment (`node_moments` under `offsets`), M_y
 // interpolated linearly between the end moments (the chain is rigid out of its bending plane, ruling 65); on a member
-// whose chain carries a joint also at each `carried_moments` candidate; the largest of them. The formula of
-// mechsim/integrity/beam.py `member_normal_stress`.
+// whose chain carries a joint also at each `carried_reads` read of the `carried` loads; the largest of them, plus the
+// reads' bound times c_y / I_z (conservative, ruling 75). The formula of mechsim/integrity/beam.py
+// `member_normal_stress` with the strength check's bound.
 [[nodiscard]] double peak_normal_stress(const kernel::MemberEndLoads& loads, std::span<const kernel::BodyState> bodies,
-                                        const MemberLimits& member, std::span<const double> offsets = {});
+                                        const MemberLimits& member, std::span<const double> offsets = {},
+                                        std::span<const CarriedAt> carried = {});
 
 // abs(N) / A + abs(M_y) c_z / I_y + abs(M_z) c_y / I_z at one end.
 [[nodiscard]] double end_stress(const kernel::Wrench& wrench, const MemberLimits& member);

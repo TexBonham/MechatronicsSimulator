@@ -24,6 +24,13 @@ struct Support {
     SupportCondition condition = SupportCondition::clamped;
 };
 
+// A joint the member carries (ENG-052): its child body in PhysicsOutputs::bodies and its reaction in
+// PhysicsOutputs::joints.
+struct CarriedJoint {
+    std::size_t body = 0;
+    std::size_t joint = 0;
+};
+
 // The lumped chain's node bodies in PhysicsOutputs::bodies (after the neutral bodies, root to tip; a pinned root's pin
 // segment is node 0) and the root frame: the parent body (none: world) and the member placement in it.
 struct NodeChain {
@@ -33,7 +40,8 @@ struct NodeChain {
     std::optional<std::size_t> parent_body;
     std::array<double, 3> position{};
     std::array<double, 4> orientation{1.0, 0.0, 0.0, 0.0};  // w first
-    bool carries = false;  // the member carries a joint (ENG-052): strength adds the moment under the load (ruling 71)
+    bool carries = false;  // the member carries a joint (ENG-052): strength reads the moments at its loads (ruling 75)
+    std::vector<CarriedJoint> carried;  // the carried joints, each read at its foot point (rulings 71, 75)
 };
 
 // One structural member, SI, the member frame of ruling 24 (x start to end, y and z the section's principal axes).
@@ -66,6 +74,7 @@ struct FasteningLimits {
     std::string name;
     std::size_t joint = 0;    // in PhysicsOutputs::joints
     double load_limit = 0.0;  // N: the rating over the minimum safety factor
+    std::optional<std::size_t> member;  // a mount: the held member's place in Limits::members (ruling 75)
 };
 
 struct Limits {
