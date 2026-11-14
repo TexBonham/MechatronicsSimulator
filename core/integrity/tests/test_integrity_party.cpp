@@ -1181,8 +1181,13 @@ TEST_CASE("a member index the validity source does not hold is an error, never v
 
 TEST_CASE("a carried couple applied inside a hogging stretch marks the read as possibly low", "[INT-005][INT-023]") {
     integrity::MemberLimits m = span_member(true, integrity::SupportCondition::clamped);
-    m.nodes->hogging_bound = 0.5;
-    m.nodes->hogging = {{0.0, 0.2}, {0.8, 1.0}};
+    integrity::NodeChain chain;
+    chain.root = integrity::SupportCondition::clamped;
+    chain.count = span_segments;
+    chain.carries = true;
+    chain.hogging_bound = 0.5;
+    chain.hogging = {{0.0, 0.2}, {0.8, 1.0}};
+    m.nodes = chain;
     const std::vector<integrity::CarriedAt> inside{{0.1, -10.0, 2.0}};
     const std::vector<integrity::CarriedAt> at_end{{0.8, -10.0, 2.0}};
     const std::vector<integrity::CarriedAt> outside{{0.5, -10.0, 2.0}};
@@ -1197,7 +1202,8 @@ TEST_CASE("a carried couple applied inside a hogging stretch marks the read as p
     CHECK_FALSE(integrity::hogs(m, at_floor));
     CHECK(integrity::hogs(m, pure));
     CHECK_FALSE(integrity::hogs(m, {}));
-    m.nodes->hogging_bound = 0.0;
+    chain.hogging_bound = 0.0;
+    m.nodes = chain;
     CHECK_FALSE(integrity::hogs(m, inside));
     integrity::MemberLimits rigid = cantilever();
     rigid.nodes.reset();
@@ -1217,13 +1223,21 @@ TEST_CASE("the limits table's own-weight record is optional and checked", "[INT-
                R"("orientation": [1, 0, 0, 0], "carries": true, "carried": [])" + hogging + "}}], \"fastenings\": []}";
     };
     const integrity::Limits plain = integrity::parse_limits(doc(""));
-    CHECK(plain.members[0].nodes->hogging_bound == 0.0);
-    CHECK(plain.members[0].nodes->hogging.empty());
+    const std::optional<integrity::NodeChain>& plain_nodes = plain.members[0].nodes;
+    REQUIRE(plain_nodes.has_value());
+    if (plain_nodes.has_value()) {
+        CHECK(plain_nodes.value().hogging_bound == 0.0);
+        CHECK(plain_nodes.value().hogging.empty());
+    }
     const integrity::Limits set =
         integrity::parse_limits(doc(R"(, "hogging": {"bound": 0.25, "intervals": [[0.0, 0.2113], [0.7887, 1.0]]})"));
-    CHECK(set.members[0].nodes->hogging_bound == 0.25);
-    REQUIRE(set.members[0].nodes->hogging.size() == 2);
-    CHECK(set.members[0].nodes->hogging[1][0] == 0.7887);
+    const std::optional<integrity::NodeChain>& set_nodes = set.members[0].nodes;
+    REQUIRE(set_nodes.has_value());
+    if (set_nodes.has_value()) {
+        CHECK(set_nodes.value().hogging_bound == 0.25);
+        REQUIRE(set_nodes.value().hogging.size() == 2);
+        CHECK(set_nodes.value().hogging[1][0] == 0.7887);
+    }
     CHECK_THROWS_AS(integrity::parse_limits(doc(R"(, "hogging": {"bound": -1, "intervals": []})")), integrity::LimitsError);
     CHECK_THROWS_AS(integrity::parse_limits(doc(R"(, "hogging": {"bound": 1, "intervals": [[0.5, 0.2]]})")),
                     integrity::LimitsError);

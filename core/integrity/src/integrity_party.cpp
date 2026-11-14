@@ -332,7 +332,7 @@ void IntegrityParty::watch_validity(std::shared_ptr<const ValiditySource> source
 // floor applied at a foot point inside a hogging stretch records the member's bound and the largest read magnitude.
 void IntegrityParty::hogging(std::size_t m, const kernel::MemberEndLoads& loads, const MemberState& state) {
     const MemberLimits& member = limits_.members[m];
-    if (!hogs(member, state.carried)) {
+    if (!member.nodes.has_value() || !hogs(member, state.carried)) {
         return;
     }
     const std::vector<double> moments = node_moments(outputs_.bodies, member, state.offsets);
