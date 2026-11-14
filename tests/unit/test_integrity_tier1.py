@@ -272,7 +272,7 @@ def test_a_fastening_without_a_rating_is_a_build_error() -> None:
     table = limits_table(build_of(mounted), mounted, both, views(), native_of(mounted))
     assert table["fastenings"] == [
         {"name": "bolts", "joint": 0, "load_limit": 500.0, "member": None},
-        {"name": "base", "joint": 0, "load_limit": 2000.0},
+        {"name": "base", "joint": 0, "load_limit": 2000.0, "member": None},
     ]
 
 

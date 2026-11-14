@@ -13,6 +13,7 @@ from pathlib import Path
 import pytest
 
 from mechsim.cli import default_services, main
+from mechsim.integrity.beam import STUB
 from mechsim.testing.schema import ROOT
 
 G8 = ROOT / "test_cases" / "gantry" / "G8.yaml"
@@ -52,12 +53,11 @@ def test_a_bridge_run_reports_rigid_members_not_evaluated_and_scores_its_criteri
     assert "  error safety_factor_rail_x:" in out
     assert "safety_factor:rail_x: not evaluated by integrity" in out
     report = _report(tmp_path)
-    for member in ("rail_x", "rail_y"):
-        lines = [note for note in report["notes"] if f"member {member!r}" in note]  # type: ignore[attr-defined]
-        assert lines == [
-            f"member {member!r}: strength, deflection, buckling, impact not evaluated, the member is built rigid and "
-            "the run recorded no end-loads or node poses (rulings 29, 34)"
-        ]
+    assert report["notes"] == [
+        f"member {member!r}: strength, deflection, buckling, impact not evaluated, the member is built rigid and "
+        "the run recorded no end-loads or node poses (rulings 29, 34)"
+        for member in ("rail_x", "rail_y")
+    ]
     assert list(tmp_path.glob("*.load_case.json")) == []
 
 
@@ -71,10 +71,13 @@ def test_the_same_case_on_the_native_adapter_evaluates_every_member(tmp_path: Pa
     out = _run(case, tmp_path)
     assert "Case G8: PASS" in out
     report = _report(tmp_path)
-    for note in report["notes"]:  # type: ignore[attr-defined]
-        assert note.startswith("strength of 'rail_")
-        assert ": conservative" in note
-        assert "carried couple" in note
+    notes = report["notes"]
+    assert isinstance(notes, list)
+    assert len(notes) == 1
+    (note,) = notes
+    assert note.startswith("strength of 'rail_x': conservative, ")
+    assert STUB in note
+    assert "not evaluated" not in note
     table = report["table"]["members"]  # type: ignore[index]
     for row in table:
         assert row["flags"] in ([], ["safety_factor_below_minimum"])
