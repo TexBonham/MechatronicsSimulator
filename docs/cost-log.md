@@ -109,3 +109,4 @@ type live in the root `CLAUDE.md` dispatch table once measured.
 | 2026-11-13 | M3-I5c fatigue by damage, test repairs (wip/05-x1a 701f56c) | module-writer (opus) | 156K | 63 calls |
 | 2026-11-13 | M3-I5 re-review after I5b and I5c: accept on condition (stale INT row), 8 open items; ruling 79 | Fable review (general-purpose), resumed | ~70K | 15 cap |
 | 2026-11-13 | M3-D2 structural damping as design data: members, rope-snap wiring (wip/05-x1a f356526); transmission damping in a follow-up (578fcca) | module-writer (opus), resumed once | 226K + follow-up | 113 calls + follow-up |
+| 2026-11-13 | M3 review: D2 (wip/05-x1a 578fcca): one small fix round, 3 medium, 4 low; ruling 80 (review-m3-d2.md) | Fable review (general-purpose) | see notification | cap 20 |
