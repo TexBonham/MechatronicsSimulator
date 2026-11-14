@@ -84,7 +84,7 @@ def test_example_baseline_validates_and_matches_g3() -> None:
     suite = load_suite_file(G3.parent / "suite.yaml")
     cases = [load_test_case(G3.parent / name) for name in suite.cases]
     assert [case.id for case in cases] == [Path(name).stem for name in suite.cases]
-    assert len(cases) == len(set(case.id for case in cases))
+    assert len(cases) == len({case.id for case in cases})
     assert {item.case for item in loaded.entries} == {case.id for case in cases}
     assert check_against_cases(loaded, cases) == []
     assert len(loaded.entries) == sum(len(case.criteria) for case in cases)

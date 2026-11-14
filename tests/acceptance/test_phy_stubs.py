@@ -169,7 +169,8 @@ def differential_misses(bridge: Any, native: Any, cases: dict[str, Any]) -> list
                 continue
             tolerance, axis = found
             if abs(a - b) > tolerance:
-                misses.append(f"{name}: {a:.6g} m on the bridge, {b:.6g} m on native, tolerance {tolerance:.4g} m ({axis})")
+                values = f"{a:.6g} m on the bridge, {b:.6g} m on native"
+                misses.append(f"{name}: {values}, tolerance {tolerance:.4g} m ({axis})")
         elif unit == "[time]":
             if abs(a - b) > TIME_TOLERANCE:
                 misses.append(f"{name}: {a:.6g} s on the bridge, {b:.6g} s on native, tolerance 0.003 s (three ticks)")
