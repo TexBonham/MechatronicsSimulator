@@ -18,13 +18,14 @@ per-step joint drive, zero-stretch coupling fix; ctest debug-sanitize 491, Pytho
 row), N4 (17f3d18: adapter follow-up, run-time mode lines, substep rest interpolation, node pose series; ctest
 debug-sanitize 545, Python 4387 passed and 107 xfail). X1b with its fix round X1c (e83666a: structural acceptance
 on native, node-pose deflection; ctest debug-sanitize 546, Python 4461 passed and 100 xfail). Integration branch `wip/05-x1a` (not merged to the round branch
-yet): X1a and X1d (gantry G12, G15 on native, rope payload, rail frames, carried rails), E6 (ruling 66), I3 and I3b,
-E7 with E7b, E7c, E7d (moving load on a flexible member: load path, stability check, validity flag, carried mass
-on the member; rulings 63, 65, 67 to 70), I4 and I4b (integrity: peak moment from node springs and under a carried
-load, design-load and evaluation-start case fields; rulings 71, 72). With E7d the gantry's rail pumping at the stop
-is gone (rail_x peak 16.8 to 1.32 mm, no flag). In review: E7c with E7d. In flight: I5 (integrity follow-ups,
-not-valid results). Next: X1f (final G12 and G15 numbers, ACC-025 bound, baseline), land the integration branch,
-X2, gate (the MuJoCo removal commit follows the owner's retirement decision). Briefs of record
+yet): the gantry on native (X1a, X1d), E6, I3 and I3b, the moving load on a flexible member (E7, E7b to E7g:
+load path, stability check, carried mass on the member, momentum form, the member-wide validity flag, the
+evaluation start gating rope snap; rulings 63 to 70, 73, 74, 76, 77), integrity (I4, I4b, I5, I5b, I5c: peak
+moment from node springs, the exact moment under a carried force and couple, design-load and evaluation-start
+case fields, not-valid results, fatigue by damage; rulings 71, 72, 75). In review: I5b with I5c. In flight: D2
+(structural damping as design data, ruling 78). Next: X1f (G12 and G15 as results of record at three step
+sizes), land the integration branch, X2, gate (the MuJoCo removal commit follows the owner's retirement
+decision). Briefs of record
 in `docs/briefs/round-05/`; worktrees `../MechatronicsSimulator-05-<letter>`. Round 4's rulings and gate report
 are below for reference; round 4's cost rows are in `docs/cost-log-archive.md`.
 
