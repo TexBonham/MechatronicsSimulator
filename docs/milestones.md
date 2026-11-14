@@ -32,11 +32,11 @@ Spike references: pendulum and loaded beam. Output: the project's measured cost 
 
 ## MuJoCo adapter retirement criteria (ADR 0004)
 
-| Criterion | |
-|---|---|
-| 1 | Own engine passes the analytical reference suite |
-| 2 | Own engine matches the gantry baselines |
-| After retirement | Comparison recordings kept as fixed baselines (YAML scoring summaries in git, D4); MuJoCo no longer a runtime dependency |
+| Criterion | | Status (brief M3-X2b, 2026-11-14) | Evidence |
+|---|---|---|---|
+| 1 | Own engine passes the analytical reference suite | Met | PHY-023, `tests/acceptance/test_phy_stubs.py::test_phy_023`: the reference tier enumerated and run on native in a fresh interpreter, 94 passed, 4 expected failures (other modules' unconverted stubs), the 2 bridge-only variants left out; every bridge-parametrized test has its native variant. PHY-021 differential (`tests/reference/test_phy_stubs.py::test_phy_021`) passes |
+| 2 | Own engine matches the gantry baselines | Not met; the owner decides at the gate whether the explained model differences satisfy it (ruling 83) | PHY-024, `tests/acceptance/test_phy_stubs.py::test_phy_024`, a strict expected failure naming the misses: G5 and G6 error on native (a mass change on the rope-hung payload, brief N5); G7 `hook_held` and G9 `load_held` differ by 1.03 mm against the 0.783 mm differential tolerance (rope payload and compliant lift belt against the bridge's fixed payload and rigid drive); G10's stall, re-home and slip events 8 to 20 ms earlier against 3 ms (compliant belts). G1 to G4, G8, G11, G13, G14 and P1, P2 within tolerance. Native baseline `test_cases/gantry/baseline.yaml` against `test_cases/gantry/bridge_baselines/` |
+| After retirement | Comparison recordings kept as fixed baselines (YAML scoring summaries in git, D4); MuJoCo no longer a runtime dependency | Baselines in place; MuJoCo still a dependency (removal is a separate commit after the owner's decision, `docs/briefs/round-05/mujoco-removal.md`) | PHY-025, `tests/unit/test_phy_stubs.py::test_phy_025`: 13 gantry and 2 pendulum fixed bridge baselines, generated once. PHY-026, `tests/invariant/test_phy_stubs.py` (two tests): no runtime module imports MuJoCo at module level and a native run loads no bridge module; both pass |
 
 Gated on the criteria, not a date.
 
