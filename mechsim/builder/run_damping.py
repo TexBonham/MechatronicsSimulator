@@ -1,14 +1,20 @@
-"""The per-run damping lines (BLD-040, BLD-041, PHY-037, ruling 80): the ratio a design states is anchored at a
+"""The per-run damping lines (BLD-040, BLD-041, PHY-037, rulings 80, 82): the ratio a design states is anchored at a
 member's unloaded first mode and at a transmission's driven subtree's build-time mass; what a run realises is lower
 when it carries more. Each line prints three figures: the ratio stated in the data, exactly as stated; the ratio
 realised at build time (the build's model); the ratio realised in this run (the run's model, which adds run-time bodies
-such as a rope payload's end fitting `<payload>_shackle` fixed to its carrier, plus the case payload when its carrier
-is in the subtree: a payload hung on a rope or welded is parented to the world, so its carrier tells where it hangs).
+such as a rope payload's end fitting `<payload>_shackle` fixed to its carrier).
+
+The mass counted is what the engine counts (ENG-052's m_c): the bodies of the joint tree below the root and every
+lumped member chain rooted on one of them (its segment bodies, density x area x length, and for a roller end the
+roller body, roller_mass_fraction of that), all carried rigidly. A case payload hung on a rope or welded is parented to
+the world, not in the tree: it reaches a member or a belt through the rope's tension or the weld's reaction only, a
+pendulum or a separate body to the member's or the belt's mode, never a rigid mass on it, so it is never counted.
 
 Per damped member (node damping c, node stiffness k = E I / l): realised zeta = c omega_c / (2 k), omega_c the chain's
 first mode with the carried mass at its worst foot point (`structure.lowest_carried_frequency`; omega_1 unloaded, which
 returns the stated ratio). Per damped compliant transmission (output damper D, stiffness k): realised zeta = D / (2
-sqrt(k m)), m the driven subtree's mass (the build-time m returns the stated ratio)."""
+sqrt(k m)), m the driven subtree's mass (the builder's anchor counts the subtree's bodies without member chains, so a
+driven subtree that carries a member realises less than stated already at build time)."""
 
 from __future__ import annotations
 
@@ -23,32 +29,47 @@ from mechsim.physics.neutral import BeltPulley, LeadScrew, LumpedMember, Physics
 CasePayload = tuple[str, str, float, bool]
 
 
-def _subtree(model: PhysicsModel, root: str) -> tuple[set[str], float]:
-    """The bodies of `root`'s subtree and their mass; the model lists every parent before its children."""
+def _chain_mass(member: LumpedMember) -> float:
+    section = member.section
+    mass = float(section.density) * float(section.area) * float(section.length)
+    if member.end == "roller":
+        return mass * (1.0 + float(member.roller_mass_fraction))
+    return mass
+
+
+def _subtree(model: PhysicsModel, root: str) -> tuple[set[str], float, float]:
+    """The bodies of `root`'s subtree (the model lists every parent before its children), their mass, and the mass of
+    the lumped member chains rooted on them."""
     names = {root}
     total = 0.0
     for body in model.bodies:
         if body.name in names or body.parent in names:
             names.add(body.name)
             total += float(body.mass)
-    return names, total
+    chains = 0.0
+    for member in model.lumped_members:
+        if member.parent in names:
+            chains += _chain_mass(member)
+    return names, total, chains
 
 
 class _Carried:
-    """What a set of subtrees carries at build time and in the run."""
+    """What a set of subtrees carries at build time and in the run, as the engine counts it."""
 
     def __init__(self, built: PhysicsModel, run: PhysicsModel, roots: tuple[str, ...], payload: CasePayload | None):
         self.built = 0.0
         self.run = 0.0
+        self.chains = 0.0
         built_names: set[str] = set()
         run_names: set[str] = set()
         for root in roots:
-            names, mass = _subtree(built, root)
+            names, mass, chains = _subtree(built, root)
             built_names |= names
-            self.built += mass
-            names, mass = _subtree(run, root)
+            self.built += mass + chains
+            names, mass, chains = _subtree(run, root)
             run_names |= names
-            self.run += mass
+            self.run += mass + chains
+            self.chains += chains
         self.added = sorted(run_names - built_names)
         self.payload = "this run has no case payload"
         if payload is not None:
@@ -59,14 +80,16 @@ class _Carried:
             if name in run_names:
                 self.payload = f"with the {label} as a body of the subtree"
             elif carrier in run_names:
-                self.run += float(mass)
-                self.payload = f"with the {label} attached"
+                self.payload = (
+                    f"the {label} not counted: it hangs from the carrier outside the joint tree and reaches it "
+                    "through the rope's tension or the weld's reaction only"
+                )
 
     def describe(self) -> str:
         bodies = "no run-time bodies"
         if len(self.added) > 0:
             bodies = "run-time bodies " + ", ".join(f"'{name}'" for name in self.added)
-        return f"{bodies}; {self.payload}"
+        return f"tree-carried bodies only, member chains on them {self.chains:.6g} kg; {bodies}; {self.payload}"
 
 
 def _member_ratio(member: LumpedMember, carried: float) -> float:

@@ -159,32 +159,56 @@ def _figure(line: str, label: str) -> float:
     return float(line.split(label)[1].split(" ")[0].rstrip(";,"))
 
 
+def _mass(line: str, label: str) -> float:
+    return float(line.split(label)[1].split(" kg")[0])
+
+
+SHACKLE = 0.001
+RAIL_Y_CHAIN = 2.025991  # rail_y_beam: rho A L = 26986.275 x 1.5e-4 x 0.5 = 2.023967, times 1.001 for its roller body
+
+
 @pytest.mark.req("BLD-040", "BLD-041", "PHY-037")
 def test_every_damped_member_and_belt_prints_stated_built_and_loaded_ratios(gantry_lines: tuple[str, ...]) -> None:
-    """Ruling 80: each line prints the data's ratio exactly as stated (0.01), the ratio realised at build time and the
-    ratio realised with the run's bodies and payload. The design load hangs on payload_rope below the hook, parented to
-    the world; the rope's end fitting 'payload_shackle' (the rope part's end_fitting_mass) is a run-time body fixed to
-    the hook, inside the hoist and trolley belts' driven subtrees.
+    """Rulings 80, 82: each line prints the data's ratio exactly as stated (0.01), the ratio realised at build time and
+    the ratio realised with the run's bodies. The mass is what the engine carries (ENG-052's m_c): the joint tree below
+    the root and the member chains rooted in it. The design load hangs on payload_rope below the hook, parented to the
+    world: not in any tree, never counted (a pendulum to the member's and the belt's mode). The rope's end fitting
+    'payload_shackle' (1 g) is a run-time body fixed to the hook, inside every subtree here, so each run mass is the
+    build mass plus 1 g exactly (to the line's six figures).
 
-    A belt's build-time figure is its anchor: D = 2 zeta sqrt(k m) with m the build-time subtree mass, so D / (2 sqrt(k
-    m)) returns zeta to rounding (1e-12 relative). A member's build-time figure is c omega_c / (2 k) with omega_c the
-    first mode with its build-time carried mass, below omega_1 because a mass only lowers it (Rayleigh), so below 0.01.
-    The run adds positive mass to each belt's and member's carried subtree, so each run figure is lower again."""
+    A belt's build-time figure: the builder anchors D = 2 zeta sqrt(k m_b), m_b the subtree's bodies without member
+    chains; the line divides by sqrt(k m) with m = m_b + chains, so it prints 0.01 sqrt(m_b / m): 0.01 to rounding for
+    the belts that carry no member, below it for x_belt, whose carriage carries rail_y_beam. A member's build-time
+    figure is c omega_c / (2 k) with omega_c the first mode with its build-time carried mass, below omega_1 because a
+    mass only lowers it (Rayleigh), so below 0.01. The shackle adds positive mass, so each run figure is lower again."""
     members = [line for line in gantry_lines if "damping ratio stated" in line and line.startswith("flexible body")]
     belts = [line for line in gantry_lines if "damping ratio stated" in line and line.startswith("transmission")]
     assert len(members) == 2
     assert len(belts) >= 3
     for line in (*members, *belts):
         assert "damping ratio stated 0.01 " in line
-        assert "case payload 'payload' 5.2164 kg on 'hook'" in line
+        assert "case payload 'payload' 5.2164 kg on 'hook' not counted" in line
     for line in members:
         built = _figure(line, "realised at build time ")
         loaded = _figure(line, "realised in this run ")
         assert loaded < built < 0.01
+        assert _mass(line, "(carried mass ") + SHACKLE == pytest.approx(
+            _mass(line.split("realised in this run")[1], "(carried mass "), abs=2e-5
+        )
     for line in belts:
         built = _figure(line, "realised at build time ")
         loaded = _figure(line, "realised in this run ")
-        assert built == pytest.approx(0.01, rel=1e-12)
+        mass = _mass(line, "(m = ")
+        chains = _mass(line, "member chains on them ")
+        assert built == pytest.approx(0.01 * math.sqrt((mass - chains) / mass), rel=1e-5)
         assert loaded < built
+        assert _mass(line.split("realised in this run")[1], "(m = ") == pytest.approx(mass + SHACKLE, abs=2e-5)
     x_belt = next(line for line in belts if line.startswith("transmission 'x_belt'"))
     assert "run-time bodies 'payload_shackle'" in x_belt
+    assert _mass(x_belt, "member chains on them ") == pytest.approx(RAIL_Y_CHAIN, rel=1e-5)
+    rail_x = next(line for line in members if line.startswith("flexible body 'rail_x'"))
+    assert _mass(rail_x, "member chains on them ") == pytest.approx(RAIL_Y_CHAIN, rel=1e-5)
+    for line in belts:
+        if not line.startswith("transmission 'x_belt'"):
+            assert _mass(line, "member chains on them ") == 0.0
+            assert _figure(line, "realised at build time ") == pytest.approx(0.01, rel=1e-12)

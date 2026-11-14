@@ -19,7 +19,9 @@
 #
 # Damping and the evaluation start. The rails carry a stated modal damping ratio of 0.01 and the belts 0.01 (ruling
 # 78, placeholders fixed in advance), anchored at the unloaded mode and the build-time mass (ruling 80); every run
-# prints stated, build-time and run ratios (rail_x 0.01 / 0.00541 / 0.00341, rail_y 0.01 / 0.00724 / 0.00375). The run
+# prints stated, build-time and run ratios on the masses the engine carries (brief M3-X1g item 6: tree-carried bodies
+# and the member chains on them, the payload on its rope never; rail_x 0.01 / 0.00429 / 0.00429, rail_y 0.01 /
+# 0.00724 / 0.00724; M3-X1f printed 0.00341 and 0.00375 counting the payload). The run
 # starts with the rails straight (no static start); integrity, the engine's validity flag and the deflection criteria
 # count from 8 s (`integrity.evaluate_from`, TST-044), after homing ends at 5.25 s.
 #
@@ -38,7 +40,8 @@
 # 60.287 N, the hand P_t + P 60.286 N); net of half the own weight each, a = L F_1 / (F_0 + F_1) = 0.25025 m against
 # the trolley's 0.25002 m; the y_axis reaction moment about the bending axis is 0.06 N m (a carried couple worth
 # C b / L = 0.03 N m, 0.4 percent); the spring moments each side of the load lie on lines through the ends (left
-# samples 3.571 and 5.757 N m at 0.094 and 0.156 m extrapolate to 8.81 N m at the foot, right samples to 8.82 N m;
+# samples at 0.156 and 0.219 m, the last two clean samples left of the foot, extrapolate to 8.81 N m at the foot,
+# right samples to 8.82 N m; the samples 3.571 and 5.757 N m at 0.094 and 0.156 m quoted before extrapolate to 9.04;
 # statics M(a) = F_0 a - w a^2 / 2 = 8.77 N m). So the settled rail_y stress is 8.77 MPa, the hand oracle above; a
 # figure of 11.24 MPa is the end-shear sum taken as the point load, 80.14 N x L / 4 + w L^2 / 8 = 11.26 N m, which
 # counts the own weight twice. The 9.91 MPa reading is not reproduced: rail_y is flagged from 8.31 s, so its table
@@ -56,12 +59,21 @@
 # the step is refined, damped as they now are (ruling 77). Fastenings: frame_mount 462 / 479 / 490 N, rail_x_mount
 # 163 / 180 / 191 N at 8.98 s against the 2 kN placeholder: pass, also scaled. The rail_x_mount strength row
 # (53.6 MPa, 0.37) puts the whole rail's reaction moment about the mount on the rail's section: not a verdict (no mount
-# section, INT-005). Loaded first frequency (ruling 73 (c)), the peak of the response of the mid-span node to the
-# rerouted foot force: rail_y 36.25 Hz against sqrt(k / (m_c + f m_beam)) = 18.72 Hz (k = 48 E I / L^3, m_c 6.135 kg,
-# f = 17 / 35, m_beam 2.024 kg) and 36.22 Hz with only the joint subtree's 0.917 kg; rail_x 22.7 Hz against 16.99 Hz
-# (k = 192 E I / L^3, m_c 7.662 kg, f = 13 / 35, m_beam 2.632 kg) and 26.99 Hz with 2.445 kg: the engine's carried mass
-# is the carried joint's tree subtree, without the rope's end fitting and the case payload that hang on the rope
-# (finding against ENG-052 and the run-damping line, which counts them). G15 is not a result of record.
+# section, INT-005). Loaded first frequency (ruling 73 (c), brief M3-X1g items 2 and 3). The one-way oracle is the
+# member's chain with the carried mass the engine carries (ENG-052's m_c): the carried joint's tree subtree with the
+# member chains rooted in it, rigid; a body hung on a rope from a carried body is not in it (the rope's own bounce is
+# near 21 Hz: with it the rail and the payload form a coupled pair near 14.5 and 52 Hz, beyond one-way coupling; it
+# reaches the member through the rope's tension only, milestone 4). rail_y: m_c 0.918 kg (trolley, lift, hook,
+# shackle), chain eigenfrequency 36.27 Hz at mid-travel against the measured 36.25 Hz (M3-X1f; the one-mode
+# estimate 36.22). rail_x: m_c 4.472 kg, the x carriage's tree (2.446 kg) and rail_y's beam chain riding it (2.026
+# kg with its roller body); the chain's eigenfrequency from the prepared model's own mass and stiffness (16 segments,
+# E I 64.087 N m^2, 5.264 kg/m, the carried mass at the foot): 21.54 Hz at the foot 0.25 m, 23.29 Hz at 0.1898 m.
+# Measured (10 substeps, the free ring of rail_x's mid-span pair of nodes after the stop, 17.6 s to 22 s, foot at
+# 0.1898 m): 23.285 Hz, 0.02 percent from the chain's 23.289 Hz. M3-X1f's 22.7 Hz (window and foot not recorded) is
+# 2.6 percent from the chain at 0.19 m and 5 percent at 0.25 m; at 0.25 m in the hold (12.75 s to 15 s) the ring is
+# 1e-6 m and its peak (20.8 Hz) sits on the rope's bounce, not a measurement of the mode. The one-mode estimates
+# (16.99 and 26.99 Hz) counted the payload, then left out rail_y's beam: neither is the engine's mass. G15 is not a
+# result of record (ACC-029, ACC-030).
 id: G15
 title: Structural worst cases with the design load
 design:
