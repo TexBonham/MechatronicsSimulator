@@ -108,3 +108,4 @@ type live in the root `CLAUDE.md` dispatch table once measured.
 | 2026-11-13 | M3 review: E7g (wip/05-e7 92793ba): accept, 3 minor open; remedy for the gantry's undamped rails; ruling 78 | Fable review (general-purpose), resumed | ~55K | 7 calls |
 | 2026-11-13 | M3-I5c fatigue by damage, test repairs (wip/05-x1a 701f56c) | module-writer (opus) | 156K | 63 calls |
 | 2026-11-13 | M3-I5 re-review after I5b and I5c: accept on condition (stale INT row), 8 open items; ruling 79 | Fable review (general-purpose), resumed | ~70K | 15 cap |
+| 2026-11-13 | M3-D2 structural damping as design data: members, rope-snap wiring (wip/05-x1a f356526); transmission damping in a follow-up | module-writer (opus), resumed once | see notification | cap 100 + 40 |
