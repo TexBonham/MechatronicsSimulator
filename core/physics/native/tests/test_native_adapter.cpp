@@ -1031,6 +1031,132 @@ TEST_CASE("native adapter: payload mass change, release and a second release", "
     CHECK_THROWS_AS(adapter.release_load(7), AdapterError);
 }
 
+namespace {
+
+// A load hung on a 4-segment rope from a fitting fixed to the world (no weld, no payloads entry): the rope starts
+// straight at its rest length. Body 0 the fitting, body 1 the load.
+constexpr double kFittingMass = 0.25;
+constexpr double kRopeMu = 0.01;
+constexpr double kRopeLength = 1.0;
+constexpr double kRopeSegments = 4.0;
+constexpr double kRopeEA = 1e5;
+
+Doc hung_load(double mass) {
+    Doc doc;
+    doc.elements = R"(["body", "joint.free", "joint.fixed", "rope"])";
+    doc.bodies.push_back(body("fitting", -1, "fixed", "[0, 0, 1]", kFittingMass));
+    doc.bodies.push_back(body("load", -1, "free", "[0, 0, 1]", mass, "[]", "[]", {}, "[0, 0, -1]"));
+    doc.ropes = R"([{"from_body": 0, "from_point": [0, 0, 0], "to_body": 1, "to_point": [0, 0, 0], )"
+                R"("segments": 4, "axial_rigidity": 1e5, "damping": 200.0, "mass_per_length": 0.01, )"
+                R"("rest_length": 1.0, "breaking_tension": null, "attachment_damping": 0.0, )"
+                R"("attachment_friction": 0.0}])";
+    return doc;
+}
+
+struct HungReading {
+    double load_end_tension = 0.0;
+    double load_z = 0.0;
+    double fitting_reaction = 0.0;
+};
+
+HungReading hung_reading(const NativeAdapter& adapter) {
+    return HungReading{adapter.rope_load_end_tensions()[0], adapter.outputs().bodies[1].position[2],
+                       adapter.outputs().joints[0].reaction.force[2]};
+}
+
+}  // namespace
+
+TEST_CASE("native adapter: a rope-hung payload takes a mass change mid-run", "[PHY-008][BLD-032][ENG-047]") {
+    // Statics of the chain at rest (ADR 0016): the load end carries the load plus its end half-mass
+    // s = mu L / (2 N), which the engine keeps on a mass change (the end fitting's share stays), so the load-end
+    // tension goes from (m1 + s) g to (m2 + s) g. Every segment's tension rises by (m2 - m1) g, so the summed
+    // stretch sum T_i (L / N) / EA rises by (m2 - m1) g L / EA and the load drops by that much. The fitting's joint
+    // reaction (parent on child, +z up) carries the fitting, the whole rope and the load: (m_f + mu L + m) g.
+    // Settling: the load's axial mode omega = sqrt(EA / (L m)) >= 223 rad/s with strain-rate damping 200 N s, a
+    // damping rate (D / L) / (2 m) >= 50 1/s, so the 1e-4 m step transient falls below 1e-13 m (1e-9 relative of
+    // the tension) in ln(1e9) / 50 = 0.42 s; 3 s is used (backward Euler damps further).
+    constexpr double m1 = 1.0;
+    constexpr double m2 = 2.0;
+    constexpr int settle = 3000;
+    const double share = kRopeMu * kRopeLength / (2.0 * kRopeSegments);
+    std::array<std::vector<double>, 2> runs;
+    for (std::vector<double>& out : runs) {
+        NativeAdapter adapter;
+        load(adapter, hung_load(m1));
+        for (int n = 0; n < settle; ++n) {
+            adapter.step();
+        }
+        const HungReading before = hung_reading(adapter);
+        std::printf("hung load m1: tension %.12g target %.12g; fitting reaction %.12g target %.12g\n",
+                    before.load_end_tension, (m1 + share) * g, before.fitting_reaction,
+                    (kFittingMass + kRopeMu * kRopeLength + m1) * g);
+        CHECK_THAT(before.load_end_tension, WithinRel((m1 + share) * g, 1e-9));
+        CHECK_THAT(before.fitting_reaction, WithinRel((kFittingMass + kRopeMu * kRopeLength + m1) * g, 1e-9));
+
+        CHECK_THROWS_AS(adapter.set_payload_mass(0, m2), AdapterError);
+        adapter.set_payload_mass(1, m2);
+        std::vector<mechsim::kernel::ModelChangeEvent> listed;
+        std::int64_t listed_tick = -1;
+        const std::int64_t change_tick = adapter.outputs().steps + 1;
+        for (int n = 0; n < settle; ++n) {
+            adapter.step();
+            for (const mechsim::kernel::ModelChangeEvent& change : adapter.outputs().model_changes) {
+                listed.push_back(change);
+                listed_tick = adapter.outputs().steps;
+            }
+        }
+        REQUIRE(listed.size() == 1);
+        CHECK(listed[0].kind == mechsim::kernel::ModelChangeKind::PayloadMass);
+        CHECK(listed[0].index == 1);
+        CHECK(listed[0].value == m2);
+        CHECK(listed_tick == change_tick);
+
+        const HungReading after = hung_reading(adapter);
+        const double stretch = (m2 - m1) * g * kRopeLength / kRopeEA;
+        std::printf("hung load m2: tension %.12g target %.12g; extra stretch %.12g target %.12g; fitting reaction "
+                    "%.12g target %.12g\n",
+                    after.load_end_tension, (m2 + share) * g, before.load_z - after.load_z, stretch,
+                    after.fitting_reaction, (kFittingMass + kRopeMu * kRopeLength + m2) * g);
+        CHECK_THAT(after.load_end_tension, WithinRel((m2 + share) * g, 1e-9));
+        CHECK_THAT(before.load_z - after.load_z, WithinRel(stretch, 1e-9));
+        CHECK_THAT(after.fitting_reaction, WithinRel((kFittingMass + kRopeMu * kRopeLength + m2) * g, 1e-9));
+        out = {before.load_end_tension, before.load_z, after.load_end_tension, after.load_z, after.fitting_reaction};
+    }
+    CHECK(runs[0] == runs[1]);
+}
+
+TEST_CASE("native adapter: a rope-hung payload releases with its rope and takes no carrier", "[PHY-008][BLD-032]") {
+    SECTION("release through release_load: the rope's load end, once") {
+        NativeAdapter adapter;
+        load(adapter, hung_load(1.0));
+        adapter.step();
+        CHECK_THROWS_AS(adapter.set_payload_attachment(1, 0), AdapterError);
+        CHECK_THROWS_AS(adapter.release_load(0), AdapterError);
+        adapter.release_load(1);
+        adapter.step();
+        REQUIRE(adapter.events().size() == 1);
+        CHECK(adapter.events()[0].kind == "load_released");
+        CHECK(adapter.events()[0].source == "rope");
+        CHECK_THROWS_AS(adapter.release_load(1), AdapterError);
+        CHECK_THROWS_AS(adapter.release_load(2), AdapterError);
+    }
+    SECTION("release through an attachment to the world") {
+        NativeAdapter adapter;
+        load(adapter, hung_load(1.0));
+        adapter.step();
+        adapter.set_payload_attachment(1, mechsim::kernel::kWorldBody);
+        adapter.step();
+        REQUIRE(adapter.events().size() == 1);
+        CHECK(adapter.events()[0].source == "rope");
+        CHECK_THROWS_AS(adapter.set_payload_attachment(1, mechsim::kernel::kWorldBody), AdapterError);
+    }
+    SECTION("the payload list stays the welded payloads") {
+        NativeAdapter adapter;
+        load(adapter, hung_load(1.0));
+        CHECK(adapter.outputs().payloads.empty());
+    }
+}
+
 TEST_CASE("native adapter: a joint spring offset and stiffness change move the rest", "[PHY-008]") {
     // A revolute spring K0 = 10 with rest 0, heavy damping, no gravity: after set_spring_stiffness(0, 40) and
     // set_spring_offset(0, 0.2) the static rest is 0.2 (the force -K1 (q - 0.2) vanishes there).
