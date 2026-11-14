@@ -44,6 +44,13 @@ at 5.5 kg), `lift 0.4` is accepted and the lift ends at 0.4001 m (M3-X2c; that w
 Windows derive from the gantry team's values of 2026-11-11 (0.05 m/s^2, 0.1 m/s, 0.02 m/s homing, 10 cm homing travel,
 0.5 m workspace); each case header carries its derivation.
 
+## What runs where (INV-020, brief M3-X2d)
+
+The acceptance checks of G2 to G16 read whole native runs of 30 to 130 s each and carry the `long_run` marker: CI
+runs them, the G16 sweep and the G1 to G16 batch (ACC-036) in the Linux `python-long` job only. The main Linux and
+Windows jobs run G1 (ACC-001, 002), G3 (run-twice determinism) and G8 (FW-025) end to end on native, G7 on the
+bridge (BLD-039) and the pendulum. A case several test modules read runs once per session (`tests/conftest.py`).
+
 ## Native against the bridge (PHY-024, brief M3-X2d)
 
 Each criterion is compared at its own axis's tolerance (`docs/spec/phy.md`, the differential tolerance row): one full

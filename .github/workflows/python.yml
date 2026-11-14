@@ -26,12 +26,15 @@ jobs:
       - name: Types
         run: uv run mypy
       - name: Tests
-        # The long-run tests (whole gantry runs at 10 substeps, the G16 sweep, PHY-016 on the bridge, ACC-037, the
-        # G1 to G16 batch) run in python-long only; this job is expected to take about 20 minutes.
+        # The long-run tests (the acceptance checks of G2 to G16, the G16 sweep, PHY-016 on the bridge, ACC-037, the
+        # G1 to G16 batch) run in python-long only. Measured on the WSL runner 2026-11-14 (brief M3-X2d): 1299 s for
+        # this set (2259 s before the move); it still runs G1, G3 and G8 end to end on native, G7 on the bridge and
+        # the pendulum.
         run: uv run pytest -m "not long_run"
 
   python-long:
-    # The long-run marker (pyproject.toml): about 70 minutes, the G1 to G16 batch (ACC-036) about 35 of them.
+    # The long-run marker (pyproject.toml): measured 3705 s on the WSL runner 2026-11-14 (brief M3-X2d), the G1 to G16
+    # batch (ACC-036) 1289 s of it.
     runs-on: ubuntu-24.04
     timeout-minutes: 120
     steps:
@@ -71,5 +74,6 @@ jobs:
       - name: Types
         run: uv run mypy
       - name: Tests
-        # Long-run tests excluded (python-long runs them); keeps this job under 30 minutes.
+        # Long-run tests excluded (python-long runs them); the same set as the python job (1299 s measured on Linux,
+        # brief M3-X2d): G1, G3 and G8 end to end on native, G7 on the bridge, the pendulum.
         run: uv run pytest -m "not long_run"
