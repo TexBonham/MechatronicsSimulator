@@ -3,13 +3,18 @@
 import re
 import subprocess
 import sys
+from functools import cache
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
 import pytest
 
+from mechsim.library.registry import default_registry
+from mechsim.physics.driven import driven_mass
 from mechsim.testing.baseline import load_baseline
+from mechsim.testing.core_driver import core_builder
+from mechsim.testing.runner import prepare
 from mechsim.testing.schema import OpenValue, load_suite_file, load_test_case
 from mechsim.units import parse_quantity
 
@@ -68,9 +73,12 @@ def test_phy_023() -> None:
 #   load the belt carries at rest in THAT case, F / k with k = 1e5 N/m (gt2_20t_6mm_generic). The bridge's
 #   transmission is rigid, so the stretch is the whole static difference the compliant belt adds.
 #   - lift: F = (m_payload + m_carried) g, m_carried = 0.4064 kg (lift carriage, hook and load cell: the lift belt's
-#     driven mass at build time, printed by every run, BLD-041), m_payload the largest payload the case hangs on the
-#     hook (initial or by payload_change; the load on the belt while the lift stands): no payload 0.2 + 0.040 =
-#     0.240 mm, 2 kg (G7, G9) 0.436 mm, 5.5 kg (G5, G6) 0.779 mm.
+#     driven mass at build time, printed by every run, BLD-041; read from the gantry build by `lift_masses`, not
+#     written here), m_payload the largest payload the case hangs on the hook (initial or by payload_change; the load
+#     on the belt while the lift stands): no payload 0.2 + 0.040 = 0.240 mm, 2 kg (G7, G9) 0.436 mm, 5.5 kg (G5, G6)
+#     0.779 mm. A native run that hangs a payload adds the rope's end fitting under the hook (1 g, the run-time
+#     payload_shackle, so the run's damping line reads 0.4074 kg); the row takes the build's driven mass and leaves
+#     the fitting's 0.1 um of stretch out.
 #   - x and y: F = 0. The rails are level, so at rest no external force acts along the axis; the carriage is not
 #     accelerating, so the belt's force on it, m a, is zero, and the stopped stepper exerts holding torque only in
 #     proportion to a displacement off its detent, which no load produces: x and y are 0.2 mm.
@@ -84,11 +92,26 @@ def test_phy_023() -> None:
 #   and G16, which have no bridge baseline): exact, and reported with "no derived tolerance".
 FULL_STEP_TRAVEL = 0.04 / 200.0
 BELT_STIFFNESS = 1.0e5
-LIFT_CARRIED_MASS = 0.4064
 GRAVITY = 9.81
 TIME_TOLERANCE = 3.0e-3
 AXIS_OF_JOINT = {"x_axis": "x", "y_axis": "y", "lift_axis": "lift"}
 AXIS_OF_POSE = {"hook.x": "x", "hook.y": "y", "hook.z": "lift"}
+
+
+@cache
+def lift_masses() -> tuple[float, float]:
+    """The lift belt's driven mass at build time (BLD-041: the subtree of the belt's driven joint, lift carriage, hook
+    and load cell, as the build's damping line states it) and the payload rope's end fitting (LIB-020
+    `end_fitting_mass`, the run-time `<payload>_shackle` body on the hook whenever a native run hangs a payload), kg,
+    from the gantry build and its rope part: no literal."""
+    prepared = prepare(ROOT / "test_cases" / "gantry" / "G7.yaml")
+    model = core_builder(prepared.design, "native").physics
+    assert model is not None
+    belt = next(item for item in model.transmissions if item.name == "lift_belt")
+    driven = next(body for body in model.bodies if body.joint is not None and body.joint.name == belt.driven_joint)
+    rope = next(item for item in prepared.design.ropes if item.name == "payload_rope")
+    fitting = float(default_registry().resolve_part(rope.part, {}).values["end_fitting_mass"])
+    return driven_mass(model, driven.name), fitting
 
 
 def _case_payload(case: Any) -> float:
@@ -113,7 +136,7 @@ def _case_payload(case: Any) -> float:
 def axis_tolerance(axis: str, case: Any) -> float:
     """The position tolerance of one driven axis in one case (header derivation)."""
     if axis == "lift":
-        load = (_case_payload(case) + LIFT_CARRIED_MASS) * GRAVITY
+        load = (_case_payload(case) + lift_masses()[0]) * GRAVITY
         return FULL_STEP_TRAVEL + load / BELT_STIFFNESS
     return FULL_STEP_TRAVEL
 
@@ -201,19 +224,37 @@ def gantry_misses() -> list[str]:
     return sorted(misses)
 
 
-# ===== Misses of record (brief M3-X2d item 3; archives of both adapters, 2026-11-14) ==========================
-# G7 hook_held and G9 load_held, EXPLAINED (prediction within 1 percent of the observed 1.031 mm difference). Worst
-#   deviation of lift_axis: bridge 2.177 mm at 12.050 s, native 1.146 mm at 12.044 s (G7; G9 the same 20 ms earlier
-#   in its own window). Power leaves the lift stepper at 12.021 s and the brake (0.5 N m, 20 ms engage delay) holds
-#   from 20 ms later. Moving inertia at the belt: payload 2 kg + driven mass 0.4074 kg + rotor J / c^2 = 2.8e-5 /
-#   (0.04 / 2 pi)^2 = 0.691 kg, M = 3.098 kg. Bridge (rigid drive, the fall undamped: recorded 7.6 m/s^2):
-#   a = m g / M = 7.62 m/s^2, 20 ms: 1.524 mm at 0.152 m/s; brake 0.5 / c - m g = 54.9 N on M, 17.7 m/s^2, stop
-#   0.656 mm; predicted 2.180 mm. Native: the stepper's viscous damping 8e-3 N m s/rad acts on the unpowered rotor,
-#   b = 8e-3 / c^2 = 197 N s/m (the bridge's fall shows none), efficiency 0.95 backdriving: v_t = 0.95 m g / b =
-#   0.114 m/s, tau = M / b = 15.7 ms, 20 ms: 0.988 mm at 0.082 m/s; the brake stops the rotor alone within a tick and
-#   the 0.4074 kg carriage, hook and cell run on into the belt (the payload hangs on its rope): 0.082 sqrt(0.4074 /
-#   1e5) = 0.165 mm; predicted 1.153 mm. Predicted difference 1.027 mm. The cause is the rotor's damping applied on
-#   native and absent from the bridge's unpowered fall, not the belt's compliance (which adds 0.165 mm on native).
+# ===== Misses of record (brief M3-X2d item 3; mechanism of G7 and G9 brief M3-X2g item 1, 2026-11-14) ==========
+# G7 hook_held and G9 load_held, EXPLAINED as a modelling difference, but the native value of record is stale.
+#   Bridge 2.177 mm at 12.050 s, native of record 1.146 mm at 12.044 s (G9 the same in its own window). The lift
+#   stepper is disabled from 12.022 s (SIG-033: a disabled drive, K = D = 0, cleared by the native adapter), the
+#   brake (0.5 N m, 20 ms engage delay) acts from 12.042 s. Masses at the belt (n = 0.04 / 2 pi m/rad): rotor
+#   J / n^2 = 2.8e-5 / 4.053e-5 = 0.691 kg; carriage, hook and load cell 0.4064 kg (the build's driven mass, BLD-041)
+#   plus the rope's end fitting 1 g (`end_fitting_mass`, the run's payload_shackle): 0.4074 kg; payload 2 kg.
+#   Bridge (rigid drive, payload welded to the hook): a = 2.4074 g / 3.098 = 7.62 m/s^2 (recorded 7.60) for 20 ms,
+#   1.524 mm at 0.152 m/s; the brake, 0.5 / n - 2.4074 g = 54.9 N on 3.098 kg, stops it in 0.656 mm: 2.180 mm.
+#   Native: three bodies, rotor - belt (k 1e5 N/m, D 4.03 N s/m) - carriage - rope (E A / L = 1.667e6 N/m, 167 N s/m,
+#   unilateral) - payload, backward Euler at 1 ms. Two engine mechanisms, no rotor damping (the drive is cleared):
+#   (a) the belt's efficiency loss (ruling 47, brief M3-E6) is an implicit shaft damping c = alpha L / max(omega,
+#       omega_s) frozen at the step's START rate; released from rest, omega_s = 1e-4 rad/s gives c = 0.0526 x 0.151 /
+#       1e-4 = 79 N m s/rad, and while omega grows twentyfold a step the loss is most of L, not 5 percent: the
+#       recorded rotor rate 0.002, 0.038, 0.655, 3.86 rad/s in the first four steps, where the 0.95 efficiency gives
+#       0.95 L / J = 5100 rad/s^2, 5 rad/s after one step. The release is held back about 2 ms.
+#   (b) the rope: the belt unloads first, the light carriage is pulled down past the payload and the rope goes slack
+#       at 12.030 s; before brief M3-E8 a rope segment's slack state was decided at the step's start and a segment at
+#       its rest length counted slack, so the rope did not take up again inside the window: the brake stopped the
+#       rotor and the 0.4074 kg carriage alone ran 0.15 mm into the belt while the payload fell free.
+#   A reduced model of exactly these terms (three masses, the springs and dampers above, backward Euler at 1 ms, c
+#   frozen per step as in (a), the brake as a Coulomb torque then held) gives native 1.140 mm against the recorded
+#   1.146 mm, and the bridge's 2.180 mm against 2.177 mm: difference 1.040 mm predicted against 1.031 mm observed.
+#   Its steps: compliant belt and rope, lossless 2.418 mm (+0.238); with (a) 1.811 mm (-0.607); with (b) 1.140 mm
+#   (-0.670). The engine at the head (E8 merged, 8803705: the rope takes up within the step) records 1.821 mm
+#   (model 1.811 mm), so G7 now differs from the bridge by 0.357 mm, inside its 0.436 mm tolerance: the miss lives
+#   on in `baseline.yaml` (regenerated at X2c, before E8), which this brief may not regenerate. With the engine of
+#   3c06a8e built in place, G7 on native records 1.14623 mm, the baseline's value to 2 nm (brief M3-X2g run).
+#   Ruled out: the stepper's viscous damping (SIG-033 publishes a disabled drive with D = 0; the reduced model needs
+#   none), the belt's modal damping (4.03 N s/m on the stretch rate, 0.01 of critical), the brake's engagement (the
+#   same 20 ms on both adapters; it only ends the fall).
 # G10 stall_fault (8 ms) and slip_fault (20 ms), FINDING (prediction under 70 percent of the observed). The x belt's
 #   stretch under the drive torque at the fault, 0.0316 N m / c = 4.96 N on 1e5 N/m = 0.0496 mm (recorded rotor
 #   to carriage 0.048 mm), starts the mismatch that much ahead; at the threshold it grows at the commanded speed
@@ -239,10 +280,11 @@ MISSES_OF_RECORD: dict[str, str] = {
         "the re-home follows the stall stop 8 ms earlier and a homing 2 ms shorter; consequence of a finding"
     ),
     "G7 hook_held: 0.00217742 m on the bridge, 0.00114624 m on native, tolerance 0.0004361 m (lift axis)": (
-        "explained: unpowered rotor damping on native, none on the bridge; 2.180 against 1.153 mm predicted"
+        "explained: frozen-rate efficiency damping on release (ruling 47) and the pre-E8 rope slack rule; 2.180 "
+        "against 1.140 mm predicted; at the head native records 1.821 mm, inside 0.436 mm: baseline stale"
     ),
     "G9 load_held: 0.00217752 m on the bridge, 0.00114618 m on native, tolerance 0.0004361 m (lift axis)": (
-        "explained: as G7 hook_held, the same brake hold after the power loss"
+        "explained: as G7 hook_held, the same brake hold after the power loss; baseline stale since E8"
     ),
 }
 
@@ -252,7 +294,7 @@ MISSES_OF_RECORD: dict[str, str] = {
     strict=True,
     reason=(
         "not met (ruling 83, owner decision at the gate): the six misses of record, MISSES_OF_RECORD; G7 and G9 "
-        "explained (unpowered rotor damping on native only), G10's stall and slip events a finding"
+        "explained (frozen-rate efficiency damping, pre-E8 rope slack rule; stale baseline), G10 a finding"
     ),
 )
 def test_phy_024() -> None:
@@ -280,8 +322,12 @@ def test_phy_024_misses_of_record() -> None:
 def test_tolerance_per_axis_and_case() -> None:
     """The per-axis tolerances of the header derivation, case by case (PHY-024 row)."""
     folder = ROOT / "test_cases" / "gantry"
-    expected = {"G3": 0.2e-3 + 0.4064 * 9.81 / 1e5, "G7": 0.2e-3 + 2.4064 * 9.81 / 1e5}
-    expected["G6"] = 0.2e-3 + 5.9064 * 9.81 / 1e5
+    carried, fitting = lift_masses()
+    print(f"lift belt driven mass at build time {carried!r} kg, rope end fitting {fitting!r} kg")
+    assert carried > 0.0
+    assert fitting > 0.0
+    expected = {"G3": 0.2e-3 + carried * 9.81 / 1e5, "G7": 0.2e-3 + (2.0 + carried) * 9.81 / 1e5}
+    expected["G6"] = 0.2e-3 + (5.5 + carried) * 9.81 / 1e5
     expected["G5"] = expected["G6"]
     for case_id, lift in expected.items():
         case = load_test_case(folder / f"{case_id}.yaml")
