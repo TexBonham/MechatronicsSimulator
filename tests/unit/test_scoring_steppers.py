@@ -222,7 +222,8 @@ def _windowed_case(start: str) -> Any:
 @pytest.mark.req("SCO-031")
 @pytest.mark.req("SCO-032")
 def test_the_stepper_quantities_judge_the_evaluation_window() -> None:
-    # Whole-run missed steps 0, -0.5, 1, -1 (rotor travel 1 step at 1 s with a half-step lead) and margins 0.30, 0.05, 0.15, 0 (the two tests above). From the case's
+    # Whole-run missed steps 0, -0.5, 1, -1 (rotor travel 1 step at 1 s, half-step lead) and margins 0.30, 0.05,
+    # 0.15, 0 (the two tests above). From the case's
     # evaluation start 1.5 s the window's first sample is 2 s: missed steps counted from its value 1 are 0, -2
     # (final -2 at 3 s), the least margin over 2 s and 3 s is 0 at 3 s. Before it: the missed steps at the start
     # sample are 1, first at or beyond half a step at 1 s (-0.5); the least margin over 0 s and 1 s is 0.05 at 1 s.
