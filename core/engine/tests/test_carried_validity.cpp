@@ -543,8 +543,8 @@ TEST_CASE("carried validity: a settled loaded member under gravity reads one at 
         double h;
     };
     for (const Case c : {Case{8, 1e-3}, Case{8, 1e-4}, Case{16, 1e-3}, Case{16, 1e-4}}) {
-        CarriedRig rig = carried_rig(BeamEnds::SimplySupported, c.segments, 1.0, 0.0, true,
-                                     mechsim::engine::test::ParentKind::World, 0.1);
+        const CarriedRig rig = carried_rig(BeamEnds::SimplySupported, c.segments, 1.0, 0.0, true,
+                                           mechsim::engine::test::ParentKind::World, 0.1);
         const double omega_rig = 2.0 / rig.beta;
         const double ei = flexural_rigidity(rig.spec);
         const double length = rig.spec.length;
