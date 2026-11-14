@@ -93,6 +93,9 @@ struct MultibodyOutputs {
     std::vector<CarriedLoadOutput> carried;  // per carried joint, member order, the pair applied this step (ENG-052)
     std::vector<ModelChangeEvent> events;  // changes applied in this step and snaps detected at its end
     double time = 0.0;  // end of the step, s
+    // Solves the step took until every rope segment's taut state matched its end-of-step length (rope.hpp, Taut set):
+    // 1 when the start set held (always without ropes).
+    int rope_passes = 0;
 };
 
 struct ConstraintError {
@@ -211,6 +214,11 @@ private:
                                                          Eigen::Index rope) const;
     void add_rope_wrenches(const Kinematics& kin, std::vector<spatial::Vector6d>& wrenches) const;
     void add_rope_terms(const Kinematics& kin, DynamicsTerms& terms) const;
+    // Per rope, per segment (from end first): 1 when the segment's length at (q, v) is at or above its rest length.
+    [[nodiscard]] std::vector<std::vector<std::uint8_t>> rope_length_set(const Eigen::VectorXd& q,
+                                                                         const Eigen::VectorXd& v) const;
+    // Whether segment s of rope r is taut in the step: the step's set while step() settles it, else seg's length.
+    [[nodiscard]] bool rope_segment_in_set(Eigen::Index rope, Eigen::Index segment, const RopeSegment& seg) const;
     void setup_members_and_ropes();
     [[nodiscard]] std::vector<CarriedPair> carried_pairs(const Kinematics& kin,
                                                          const std::vector<spatial::Vector6d>& loads) const;
@@ -295,6 +303,9 @@ private:
     std::vector<double> rope_rest_;                 // per rope, current rest length, m
     std::vector<std::uint8_t> rope_attached_;       // per rope, to_body attachment held
     std::vector<double> rope_held_tension_;         // per rope, RopeOutput::held_tension
+    // The taut set of the step in progress (rope.hpp, Taut set), read by the rope terms only while rope_set_active_.
+    std::vector<std::vector<std::uint8_t>> rope_set_;
+    bool rope_set_active_ = false;
     std::vector<ModelChangeEvent> pending_events_;  // listed in the next step's outputs
     struct CarriedJoint {
         Eigen::Index member = 0;
