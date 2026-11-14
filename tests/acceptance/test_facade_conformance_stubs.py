@@ -547,6 +547,9 @@ def _integrity_through_the_protocol(ws: ClientConnection, session: Session) -> N
             "safety_factor_evaluated": True,
             "safety_factor_time": entry.safety_factor_time,
             "flags": list(entry.flags),
+            # No member is flagged in this run (ruling 69): the state is valid and carries no flag time.
+            "state": "valid",
+            "not_valid_from": None,
         }
         for entry in direct.members
     ]
