@@ -53,6 +53,8 @@ commands:
 end:
   at: ${homing_time}
   max_duration: ${homing_time}
+integrity:
+  evaluate_from: 9 s
 criteria:
   - name: origin_x
     check: value

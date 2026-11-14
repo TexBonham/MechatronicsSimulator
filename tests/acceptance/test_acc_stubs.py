@@ -17,24 +17,43 @@ PENDULUM_CASE = ROOT / "test_cases" / "pendulum" / "P1_period.yaml"
 GANTRY_CASES = ROOT / "test_cases" / "gantry"
 _VIEWS: dict[str, CoreDriver] = {}
 GANTRY_RUNS = ("G1", "G2", "G3", "G4", "G5", "G6", "G7", "G8", "G9", "G10", "G11", "G13", "G14")
+BRIDGE = {"physics.adapter": "mujoco"}
+# G5 and G6 change the payload's mass mid-run; on the native adapter the payload hangs on its rope and the adapter
+# refuses a mass change on a body it does not hold as a welded payload ("set_payload_mass: body 10 is not a payload",
+# a core finding of brief M3-X2), so their acceptance runs stay on the bridge until core takes the change.
+BRIDGE_RUNS = ("G5", "G6")
 
 
 # ===== Fixtures and helpers =================================================
 @pytest.fixture(scope="module")
 def gantry() -> dict[str, RunResult]:
-    """G1 to G14 (G12 not yet shipped) once each through the real stack (gantry design, builder, MuJoCo bridge,
-    kernel, signal layer, native gantry firmware, recorder, scoring); placeholder defaults for every open parameter
-    (DES-044). A case whose run errors fails its own tests (`_passes`), not every case's."""
+    """G1 to G14 (G12 is `native_gantry`'s) once each through the real stack (gantry design, builder, the default
+    native adapter, kernel, signal layer, native gantry firmware, recorder, scoring); placeholder defaults for every
+    open parameter (DES-044); `BRIDGE_RUNS` on the bridge. A case whose run errors fails its own tests (`_passes`),
+    not every case's."""
     results: dict[str, RunResult] = {}
     services = core_services()
     for case in GANTRY_RUNS:
         driver = CoreDriver()
         _VIEWS[case] = driver
+        bindings = None
+        if case in BRIDGE_RUNS:
+            bindings = BRIDGE
         results[case] = run_case(
-            GANTRY_CASES / f"{case}.yaml", Services(lambda d=driver: d, services.builder), None, None
+            GANTRY_CASES / f"{case}.yaml", Services(lambda d=driver: d, services.builder), bindings, None
         )
         assert results[case].report is not None, results[case].score
     return results
+
+
+@pytest.fixture(scope="module")
+def bridge_g7() -> RunResult:
+    """G7 on the bridge, for the bridge's own rope stand-in (BLD-039)."""
+    services = core_services()
+    driver = CoreDriver()
+    result = run_case(GANTRY_CASES / "G7.yaml", Services(lambda: driver, services.builder), BRIDGE, None)
+    assert result.report is not None, result.score
+    return result
 
 
 def _criterion(result: RunResult, name: str) -> Any:
@@ -465,12 +484,12 @@ def test_acc_024(gantry: dict[str, RunResult]) -> None:
 
 
 @pytest.mark.req("BLD-039")
-def test_bridge_keeps_the_rope_payload_on_its_carrier_with_one_line(gantry: dict[str, RunResult]) -> None:
+def test_bridge_keeps_the_rope_payload_on_its_carrier_with_one_line(bridge_g7: RunResult) -> None:
     """G7 on the bridge (milestone 2, a 2 kg payload attached to the hook from the start, the design's integrity file
     present): the line is emitted only for a case payload (G3 has none), so G7's payload on payload_rope stays fixed
     to the hook with one stand-in line naming the rope and the carrier, tier 1 is reported not evaluated, and the
-    case still passes (G12 and G15 hang the payload on the rope on native: `native_gantry`)."""
-    result = gantry["G7"]
+    case still passes (on the default native adapter the payload hangs on the rope)."""
+    result = bridge_g7
     assert result.report is not None
     lines = result.report.approximations
     stand_in = [line for line in lines if line.startswith("payload rope 'payload_rope': not modeled")]

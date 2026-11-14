@@ -184,12 +184,12 @@ def test_run_id_of_follows_the_adapter_identity_rule(tmp_path: Path) -> None:
     facade = Facade(fake_services(tmp_path))
     case = write_case(tmp_path / "cases", MACHINE_CASE)
     assert facade.run_id_of(case) == "M1-seed7"
-    assert facade.run_id_of(case, sets={"physics.adapter": "mujoco"}) == "M1-seed7"
-    assert facade.run_id_of(case, sets={"physics.adapter": "native"}) == "M1-seed7-native"
+    assert facade.run_id_of(case, sets={"physics.adapter": "native"}) == "M1-seed7"
+    assert facade.run_id_of(case, sets={"physics.adapter": "mujoco"}) == "M1-seed7-mujoco"
     assert facade.run_id_of(case, sets={"other": "1"}) == "M1-seed7"
-    native = write_case(tmp_path / "native", MACHINE_CASE + "physics:\n  adapter: native\n")
-    assert facade.run_id_of(native) == "M1-seed7-native"
-    assert facade.run_id_of(native, sets={"physics.adapter": "mujoco"}) == "M1-seed7"
+    bridge = write_case(tmp_path / "bridge", MACHINE_CASE + "physics:\n  adapter: mujoco\n")
+    assert facade.run_id_of(bridge) == "M1-seed7-mujoco"
+    assert facade.run_id_of(bridge, sets={"physics.adapter": "native"}) == "M1-seed7"
     with pytest.raises(FacadeError) as raised:
         facade.run_id_of(case, sets={"physics.adapter": "bullet"})
     assert raised.value.code == "validation_failed"
@@ -242,9 +242,9 @@ def _server_run(tmp_path: Path, payload: dict[str, Any]) -> _RecordingFacade:
 
 @pytest.mark.req("TST-040", "FAC-005")
 def test_the_run_request_sets_reach_the_run_id_through_the_server(tmp_path: Path) -> None:
-    native = _server_run(tmp_path / "native", {"sets": {"physics.adapter": "native"}})
-    assert native.ids == ["M1-seed7-native"]
-    assert native.sets == [{"physics.adapter": "native"}]
+    bridge = _server_run(tmp_path / "bridge", {"sets": {"physics.adapter": "mujoco"}})
+    assert bridge.ids == ["M1-seed7-mujoco"]
+    assert bridge.sets == [{"physics.adapter": "mujoco"}]
     default = _server_run(tmp_path / "default", {})
     assert default.ids == ["M1-seed7"]
     assert default.sets == [None]

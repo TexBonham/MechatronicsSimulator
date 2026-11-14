@@ -38,10 +38,10 @@ def _config(adapter: str) -> RunConfig:
 
 
 @pytest.mark.req("TST-040")
-def test_the_default_adapter_is_the_bridge() -> None:
+def test_the_default_adapter_is_native() -> None:
     prepared = prepare(P1)
-    assert prepared.case.physics.adapter == "mujoco"
-    assert CoreDriver().adapter == "mujoco"
+    assert prepared.case.physics.adapter == "native"
+    assert CoreDriver().adapter == "native"
 
 
 @pytest.mark.req("TST-040")
@@ -74,8 +74,8 @@ def test_an_unknown_adapter_is_a_validation_error_naming_the_field(tmp_path: Pat
 
 @pytest.mark.req("TST-040")
 def test_the_environment_does_not_select_the_adapter(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("MECHSIM_PHYSICS_ADAPTER", "native")
-    assert prepare(P1).case.physics.adapter == "mujoco"
+    monkeypatch.setenv("MECHSIM_PHYSICS_ADAPTER", "mujoco")
+    assert prepare(P1).case.physics.adapter == "native"
     assert not hasattr(core_driver, "ADAPTER_VARIABLE")
     assert not hasattr(core_driver, "physics_adapter_name")
 
@@ -87,11 +87,11 @@ def test_the_run_id_carries_a_non_default_adapter_only() -> None:
     case: Case = load_test_case(P1, DESIGNS_ROOT)
     plain = run_id(case, None)
     assert plain == f"{case.id}-seed{case.seed}"
-    assert run_id(case, None, None, "mujoco") == plain
-    assert run_id(case, None, None, "native") == f"{plain}-native"
-    assert run_id(case, (0, 1), "2", "native") == f"{case.id}-seed{case.seed}-sweep0-1-2-native"
+    assert run_id(case, None, None, "native") == plain
+    assert run_id(case, None, None, "mujoco") == f"{plain}-mujoco"
+    assert run_id(case, (0, 1), "2", "mujoco") == f"{case.id}-seed{case.seed}-sweep0-1-2-mujoco"
     assert variation_run_id(case.id, 9) == f"{case.id}-variation-seed9"
-    assert variation_run_id(case.id, 9, "native") == f"{case.id}-variation-seed9-native"
+    assert variation_run_id(case.id, 9, "mujoco") == f"{case.id}-variation-seed9-mujoco"
 
 
 @pytest.mark.req("TST-040", "REC-013")
@@ -106,7 +106,7 @@ def test_the_adapter_round_trips_through_the_archive(tmp_path: Path, adapter: st
     assert result.metadata is not None
     assert result.metadata.physics_adapter == adapter
     assert result.archive is not None
-    assert result.archive.name.endswith("-native.h5") == (adapter == "native")
+    assert result.archive.name.endswith("-mujoco.h5") == (adapter == "mujoco")
     with RunArchive(result.archive) as archive:
         assert archive.identity.physics_adapter == adapter
     read, _ = RecordArchiveReader().open(result.archive)

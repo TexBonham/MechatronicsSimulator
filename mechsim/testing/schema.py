@@ -239,14 +239,15 @@ class Rates(StrictModel):
 PhysicsAdapterName = Literal["mujoco", "native"]
 MUJOCO_ADAPTER: PhysicsAdapterName = "mujoco"
 NATIVE_ADAPTER: PhysicsAdapterName = "native"
-DEFAULT_PHYSICS_ADAPTER: PhysicsAdapterName = MUJOCO_ADAPTER
+DEFAULT_PHYSICS_ADAPTER: PhysicsAdapterName = NATIVE_ADAPTER
 PHYSICS_ADAPTERS: tuple[PhysicsAdapterName, ...] = (MUJOCO_ADAPTER, NATIVE_ADAPTER)
 ADAPTER_SETTING = "physics.adapter"
 
 
 class PhysicsSettings(StrictModel):
-    """The run configuration's physics section (TST-040): `adapter` selects the physics adapter, `mujoco` by default
-    until X2 (ruling 41); `--set physics.adapter=<name>` overrides it. `substeps` (TST-042, rulings 21, 49): engine
+    """The run configuration's physics section (TST-040): `adapter` selects the physics adapter, `native` by default
+    (round 5 ruling 1, M3-X2; the bridge `mujoco` is the non-default, ruling 41); `--set physics.adapter=<name>`
+    overrides it. `substeps` (TST-042, rulings 21, 49): engine
     steps per physics step on the native adapter, each h / substeps, the control tick unchanged; above one on the
     bridge the run fails."""
 

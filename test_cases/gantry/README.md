@@ -1,5 +1,23 @@
-Gantry test suite: G1 to G16. Milestone 2 ships G1 to G11, G13 and G14 on the bridge; M3-X1a adds G12 and G15 on the native adapter; `suite.yaml` runs all of them; every open parameter has a placeholder default (DES-044)
-until the gantry team rules.
+Gantry test suite: G1 to G16. Every case runs on the native adapter, the default since M3-X2 (round 5 ruling 1);
+milestone 2 shipped G1 to G11, G13 and G14 on the bridge, whose values of record are the fixed baselines in
+`bridge_baselines/` (PHY-025); `suite.yaml` runs all of them; every open parameter has a placeholder default
+(DES-044) until the gantry team rules.
+
+## Evaluation start (TST-044, brief M3-X2)
+
+One start for every case, derived once and not adjusted to any result: a native run starts from straight rails and
+the release rings for a few loaded time constants of the slowest rail, so integrity results (peaks, safety factors,
+tier 1 crossings, the validity flag, rope snap) count from five of them, rounded up to a whole second. From the
+figures every run prints: rail_x stated ratio zeta_0 = 0.01 at its unloaded first mode f_0 = 49.6973 Hz
+(omega_0 = 312.26 rad/s), realised zeta_r = 0.0042905 on its loaded mode (the lowest any case prints). Stiffness-
+proportional damping gives zeta = beta omega / 2 for every mode, so the loaded mode is omega_c = omega_0 zeta_r /
+zeta_0 = 133.97 rad/s and its time constant tau = 1 / (zeta_r omega_c) = zeta_0 / (zeta_r^2 omega_0) = 1.740 s
+(rail_y: zeta_r = 0.0072418, 0.607 s). Five tau = 8.70 s: `integrity.evaluate_from: 9 s` in G2 to G15. G1 ends at
+2 s and cannot carry it (a start past the last sample is an error, TST-044); its run on native records no tier 1
+crossing. What a case loses: integrity during its first 9 s is not judged (homing ends by 5.25 s; G12 and G15 move
+from 8 s, so their first second of the 2 s acceleration ramp is not judged, the second second at the same
+acceleration is). Motion criteria keep their own windows. Before it, G5 and G6 cross tier 1 on the release at 0.011 to
+0.022 s (rail_x and rail_y), recorded as `integrity_before_evaluation` events.
 
 | Case | Requirements doc test | Criteria (spec rows) |
 |---|---|---|
@@ -22,4 +40,6 @@ until the gantry team rules.
 Windows derive from the gantry team's values of 2026-11-11 (0.05 m/s^2, 0.1 m/s, 0.02 m/s homing, 10 cm homing travel,
 0.5 m workspace); each case header carries its derivation.
 
-`baseline.yaml`: placeholder-geometry baselines for G1 to G11, G13 and G14 (statuses of record on the draft gantry), until CAD.
+`baseline.yaml`: placeholder-geometry baselines for G1 to G15 on the native adapter (statuses of record on the draft
+gantry), until CAD. `bridge_baselines/<case>.yaml`: the bridge's values of record for G1 to G11, G13 and G14,
+generated once on 2026-11-14 and never regenerated (PHY-025; the native baseline is compared with them, PHY-024).

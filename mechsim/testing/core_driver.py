@@ -47,8 +47,6 @@ from mechsim.integrity.tier1 import (
 )
 from mechsim.library.registry import default_registry
 from mechsim.materials.schema import MaterialError
-from mechsim.physics.mujoco.prepare import StartStateError, prepare_model
-from mechsim.physics.mujoco.translate import UnmappableElementError
 from mechsim.physics.native.prepare import prepare_model as prepare_native_model
 from mechsim.physics.native.translate import StartStateError as NativeStartStateError
 from mechsim.physics.native.translate import UnmappableElementError as NativeUnmappableElementError
@@ -458,7 +456,7 @@ class CoreDriver:
             return self._run(end, config, self._model)
         except DriverError:
             raise
-        except (StartStateError, UnmappableElementError, NativeStartStateError, NativeUnmappableElementError) as error:
+        except (NativeStartStateError, NativeUnmappableElementError) as error:
             raise DriverError(str(error)) from error
         except WiringError as error:
             raise DriverError(str(error)) from error
@@ -510,7 +508,7 @@ class CoreDriver:
             tier1 = self._tier1_setup(model, document)
             springs = self._first_springs(document)
         else:
-            artifacts = prepare_model(model, self._starts, step, payloads)
+            artifacts = _prepare_bridge(model, self._starts, step, payloads)
             self.approximations = (*artifacts.report, *stand_in)
             prepared = core.PreparedModel(artifacts.neutral_json, artifacts.mjcf, artifacts.version)
             if integrity is not None and tier1_enabled(integrity):
@@ -905,6 +903,18 @@ def carried_validity(model: PhysicsModel, values: Sequence[tuple[Any, ...]]) -> 
         name = member.structural_member or member.name
         out.append(CarriedValidity(str(name), bool(value[8]), float(value[9]), float(value[7]), float(value[4])))
     return tuple(out)
+
+
+def _prepare_bridge(model: PhysicsModel, starts: Mapping[str, float], step: float, payloads: Mapping[str, str]) -> Any:
+    """The bridge's translation, imported only by a run on the bridge so that a run on the default native adapter
+    never loads it (PHY-026); its start-state and unmappable-element errors become `DriverError` as before."""
+    from mechsim.physics.mujoco.prepare import StartStateError, prepare_model
+    from mechsim.physics.mujoco.translate import UnmappableElementError
+
+    try:
+        return prepare_model(model, starts, step, payloads)
+    except (StartStateError, UnmappableElementError) as error:
+        raise DriverError(str(error)) from error
 
 
 def model_columns(model: PhysicsModel, payloads: Sequence[str] = ()) -> dict[str, Columns]:

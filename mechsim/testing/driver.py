@@ -45,7 +45,7 @@ class RunConfig:
     module_seeds: tuple[tuple[str, int], ...]
     controller_mode: Literal["native", "emulated"] | None
     dry: bool = False
-    physics_adapter: str = "mujoco"
+    physics_adapter: str = "native"
     physics_substeps: int = 1
 
 
@@ -159,7 +159,7 @@ class Builder(Protocol):
     """Builds the design for the run's physics adapter (`physics.adapter`, TST-040): the bridge builds lumped
     members rigid until X2 (ruling 29), the native adapter as the design states them."""
 
-    def __call__(self, design: Design, adapter: str = "mujoco") -> BuildResult: ...
+    def __call__(self, design: Design, adapter: str = "native") -> BuildResult: ...
 
 
 class SimulationDriver(Protocol):
@@ -203,7 +203,7 @@ class RunMetadata:
     material_overrides: MaterialOverridesRecord | None = None
     variation: tuple[tuple[str, str], ...] | None = None
     integrity: IntegrityResults | None = None
-    physics_adapter: str = "mujoco"
+    physics_adapter: str = "native"
 
 
 class Archiver(Protocol):
