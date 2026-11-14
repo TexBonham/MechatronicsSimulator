@@ -551,6 +551,10 @@ class LumpedMember(_Model):
 
 
 class _Transmission(_Model):
+    """A compliant transmission: `stiffness` and `damping` act at the output (N/m and N s/m along a prismatic output,
+    N m/rad and N m s/rad about a revolute one), a spring-damper on the stretch from n theta to the driven joint
+    (ENG-043 to ENG-046); damping 0 is undamped (PHY-037)."""
+
     name: Name
     shaft_joint: Name
     driven_joint: Name
@@ -565,6 +569,7 @@ class BeltPulley(_Transmission):
     pulley_radius: PositiveLength
     stiffness: PositiveStiffness
     backlash: NonNegativeLength = 0.0
+    damping: NonNegativeLinearDamping = 0.0
 
 
 class LeadScrew(_Transmission):
@@ -574,6 +579,7 @@ class LeadScrew(_Transmission):
     lead: PositiveLength
     stiffness: PositiveStiffness
     backlash: NonNegativeLength = 0.0
+    damping: NonNegativeLinearDamping = 0.0
     self_locking: Flag = False
 
 
@@ -584,6 +590,7 @@ class GearPair(_Transmission):
     ratio: Annotated[Number, AfterValidator(_nonzero)]
     stiffness: PositiveRotationalStiffness
     backlash: NonNegativeAngle = 0.0
+    damping: NonNegativeRotationalDamping = 0.0
 
 
 Transmission = Annotated[BeltPulley | LeadScrew | GearPair, Field(discriminator="type")]

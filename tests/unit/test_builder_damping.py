@@ -9,10 +9,15 @@ import math
 import pytest
 from pydantic import ValidationError
 
-from mechsim.builder import structure
+from mechsim.builder import BuildResult, structure
 from mechsim.design.schema import FlexibleMember, OpenValue
+from mechsim.library.registry import default_registry
+from mechsim.physics.mujoco.prepare import prepare_model as prepare_bridge
+from mechsim.physics.native.translate import _subtree_mass, translate
+from mechsim.physics.neutral import PhysicsModel
+from tests.reference.test_transmission_damping import belt_model
 from tests.unit.test_builder_structure import CALIBRATION, EI, RHO_A, _bar, _build
-from tests.unit.test_builder_support import gantry
+from tests.unit.test_builder_support import filled_gantry, gantry, gantry_data
 
 UNDAMPED = (
     "flexible body 'bar': undamped (damping_ratio absent); its ringing is removed only by the integration scheme's "
@@ -128,3 +133,78 @@ def test_the_gantry_rails_state_the_placeholder_ratio_fixed_in_advance() -> None
     design = gantry()
     ratios = {body.name: body.flexible.damping_ratio for body in design.bodies if body.flexible is not None}
     assert ratios == {"rail_x": 0.01, "rail_y": 0.01}
+
+
+# ===== Transmissions (LIB-035, BLD-041, PHY-037) ========================
+
+
+def _belt_build(ratio: str | None) -> BuildResult:
+    data = gantry_data()
+    for component in data["components"]:
+        if component["type"] == "belt_pulley":
+            overrides = {key: value for key, value in component.get("overrides", {}).items() if key != "damping_ratio"}
+            if ratio is not None:
+                overrides["damping_ratio"] = ratio
+            component["overrides"] = overrides
+    return _build(filled_gantry(data))
+
+
+def _build_physics(result: BuildResult) -> PhysicsModel:
+    assert result.physics is not None
+    return result.physics
+
+
+@pytest.mark.req("LIB-035")
+@pytest.mark.parametrize("kind", ["belt_pulley", "lead_screw"])
+def test_compliant_transmission_types_take_a_damping_ratio_defaulting_to_zero(kind: str) -> None:
+    parameter = default_registry().component_type(kind).parameter("damping_ratio")
+    assert parameter.default == 0.0
+
+
+@pytest.mark.req("BLD-041", "LIB-035")
+def test_a_stated_transmission_ratio_becomes_two_zeta_sqrt_k_m_on_the_driven_subtree() -> None:
+    result = _build_physics(_belt_build("0.02"))
+    assert len(result.transmissions) == 3
+    for transmission in result.transmissions:
+        driven = next(
+            body for body in result.bodies if body.joint is not None and body.joint.name == transmission.driven_joint
+        )
+        expected = 2.0 * 0.02 * math.sqrt(float(transmission.stiffness) * _subtree_mass(result, driven.name))
+        assert float(transmission.damping) == pytest.approx(expected, rel=1e-12)
+
+
+@pytest.mark.req("BLD-041", "PHY-037")
+def test_an_absent_transmission_ratio_stays_undamped() -> None:
+    result = _build_physics(_belt_build(None))
+    assert all(float(transmission.damping) == 0.0 for transmission in result.transmissions)
+
+
+@pytest.mark.req("PHY-037")
+def test_the_native_line_prints_zeta_d_and_the_time_constant_of_a_damped_belt() -> None:
+    """The reference belt: m = 2 kg, k = 1e5 N/m; D = 2 (0.02) sqrt(k m), time constant 2 m / D."""
+    damping = 2.0 * 0.02 * math.sqrt(1e5 * 2.0)
+    translation = translate(belt_model(damping), 1e-3)
+    line = next(item for item in translation.report if item.startswith("transmission 'belt': compliant"))
+    assert f"damping {damping:.6g} at the output (ruling 78), zeta = D / (2 sqrt(k m)) = 0.02 on the driven" in line
+    assert f"time constant 2 m / D = {4.0 / damping:.6g} s" in line
+    assert translation.document["transmissions"][0]["damping"] == damping
+    undamped = translate(belt_model(0.0), 1e-3)
+    assert "no damping (ruling 10)" in next(
+        item for item in undamped.report if item.startswith("transmission 'belt': compliant")
+    )
+    assert undamped.document["transmissions"][0]["damping"] == 0.0
+
+
+@pytest.mark.req("PHY-037")
+def test_the_bridge_keeps_its_rigid_belt_line_and_names_an_ignored_damping() -> None:
+    damped = prepare_bridge(belt_model(17.0), None, 1e-3).report
+    plain = prepare_bridge(belt_model(0.0), None, 1e-3).report
+    assert any("treated as rigid (milestone 1); its damping " in line for line in damped)
+    assert any(line.endswith("treated as rigid (milestone 1)") for line in plain)
+    assert not any("its damping" in line for line in plain)
+
+
+@pytest.mark.req("BLD-041")
+def test_the_gantry_belts_state_the_placeholder_ratio_fixed_in_advance() -> None:
+    belts = {item.name: item.overrides for item in gantry().components if item.type == "belt_pulley"}
+    assert belts == {name: {"damping_ratio": "0.01"} for name in ("x_belt", "y_belt", "lift_belt")}

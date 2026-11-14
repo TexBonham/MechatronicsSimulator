@@ -17,7 +17,7 @@ Names `^[a-z][a-z0-9_]*$` (catalog pattern); "world" reserved.
 | `ContactModel` | default stiffness, damping, friction; material-pair overrides; body-pair exclusions |
 | Constraints (`type`) | point, hinge; extend the `Constraint` union |
 | `LumpedMember` | `Section` (E, I, rho, A, L), clamped/pinned root, free/roller end, segments 8 (ruling 17), roller 1e-3, node_damping |
-| Transmissions (`type`) | belt_pulley, lead_screw, gear_pair; shaft revolute, driven per `DRIVEN_JOINT_TYPES`; slip 0 |
+| Transmissions (`type`) | belt_pulley, lead_screw, gear_pair; shaft revolute, driven per `DRIVEN_JOINT_TYPES`; slip 0; `damping` at the output, default 0 (N s/m prismatic, N m s/rad revolute; PHY-037) |
 | `SignalInterface` | load_torque_joints, pose_bodies, drive_joints (revolute/prismatic joints the signal layer may drive besides shaft joints, PHY-034) |
 | `StructuralMember` | section, material, supports (min 1, within L), fasteners (opaque), `mounts` (fixed joints on the member, BLD-008) |
 | `Rope` | ADR 0016 lumped chain (BLD-032): name, from_body/from_point, to_body/to_point ("world" allowed, not the same body), segments >= 1, axial_stiffness EA (N), damping (strain-rate, N s), mass_per_length (kg/m), rest_length, optional breaking_tension (absent: never snaps, ruling 19); shares the element namespace; element kind `rope` |

@@ -616,17 +616,27 @@ def _transmission(
         raise UnmappableElementError(f"transmission {transmission!r}", "unknown transmission type")
     driven = model.bodies[joints[transmission.driven_joint]]
     stiffness = float(transmission.stiffness)
+    damping = float(transmission.damping)
+    loss = "no damping (ruling 10)"
+    if damping > 0.0:
+        loss = f"damping {damping:.6g} at the output (ruling 78)"
     if isinstance(transmission, GearPair):
         mode = (
             "the output inertia: x = omega h from the engine's scheme decay pi x at run time, amplitude kept per "
             "period (1 + x^2)^(-pi / atan x), frequency ratio atan(x) / x, unresolved above x = 0.2"
         )
     else:
-        omega = math.sqrt(stiffness / _subtree_mass(model, driven.name))
+        driven_mass = _subtree_mass(model, driven.name)
+        omega = math.sqrt(stiffness / driven_mass)
         mode = f"omega = sqrt(k / m) = {omega:.6g} rad/s on the driven mass: {mode_text(omega * h)}"
+        if damping > 0.0:
+            loss += (
+                f", zeta = D / (2 sqrt(k m)) = {damping / (2.0 * math.sqrt(stiffness * driven_mass)):.6g} on the "
+                f"driven mass m = {driven_mass:.6g} kg, time constant 2 m / D = {2.0 * driven_mass / damping:.6g} s"
+            )
     report.append(
-        f"transmission '{transmission.name}': compliant, stiffness {stiffness:.6g} at the output, no damping (ruling "
-        f"10); efficiency {float(transmission.efficiency):.6g} both directions; mode on {mode} (backward Euler, "
+        f"transmission '{transmission.name}': compliant, stiffness {stiffness:.6g} at the output, {loss}; "
+        f"efficiency {float(transmission.efficiency):.6g} both directions; mode on {mode} (backward Euler, "
         "rulings 21, 45)"
     )
     creep = _creep_line(transmission, model, driven)
@@ -642,7 +652,7 @@ def _transmission(
         "back_efficiency": float(transmission.efficiency),
         "self_locking": self_locking,
         "stiffness": stiffness,
-        "damping": 0.0,
+        "damping": damping,
         "backlash": float(transmission.backlash),
         "slip": float(transmission.slip),
     }

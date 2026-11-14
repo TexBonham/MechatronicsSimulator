@@ -57,6 +57,8 @@ Neutral quantities are written `repr(value) unit` in SI, validated once. Element
   omega_1, 1 / (zeta omega_1); a carrying member adds `structure.lowest_carried_frequency` over the span and the realised
   zeta omega_c / omega_1); no ratio or 0: an undamped note. `LumpedRecord` carries `first_frequency`, `damping_ratio`,
   `node_damping`.
+- Transmission damping (BLD-041): `physics.transmission_damping(zeta, k, m)` = 2 zeta sqrt(k m), m the driven body's
+  subtree mass at build time; written as the neutral transmission's `damping` when the part's `damping_ratio` is above 0.
 - Carried joints (BLD-037, ENG-052): `flexible.carries` joints become `LumpedMember.carries` (their child bodies);
   `_check_carried_travel` (not rigid) fails a joint whose origin over its travel leaves [0, L] along the member frame x
   (prismatic between limits, an open limit unbounded; fixed, revolute, spherical at the placement; planar, free never),

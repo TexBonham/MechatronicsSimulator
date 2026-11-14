@@ -541,6 +541,10 @@ components:
   - name: x_belt
     type: belt_pulley
     part: gt2_20t_6mm_generic
+    # PLACEHOLDER owed by the gantry team (ruling 78, docs/gantry-team-inputs.md): damping ratio of the driven mode on
+    # the belt, fixed in advance at the low end for fibre-reinforced timing belts, not adjusted to any result.
+    overrides:
+      damping_ratio: "0.01"
     mechanical:
       - mount: pulley_bore
         joint: x_motor_spin
@@ -570,6 +574,10 @@ components:
   - name: y_belt
     type: belt_pulley
     part: gt2_20t_6mm_generic
+    # PLACEHOLDER owed by the gantry team (ruling 78, docs/gantry-team-inputs.md): damping ratio of the driven mode on
+    # the belt, fixed in advance at the low end for fibre-reinforced timing belts, not adjusted to any result.
+    overrides:
+      damping_ratio: "0.01"
     mechanical:
       - mount: pulley_bore
         joint: y_motor_spin
@@ -602,6 +610,10 @@ components:
   - name: lift_belt
     type: belt_pulley
     part: gt2_20t_6mm_generic
+    # PLACEHOLDER owed by the gantry team (ruling 78, docs/gantry-team-inputs.md): damping ratio of the driven mode on
+    # the belt, fixed in advance at the low end for fibre-reinforced timing belts, not adjusted to any result.
+    overrides:
+      damping_ratio: "0.01"
     mechanical:
       - mount: pulley_bore
         joint: lift_motor_spin

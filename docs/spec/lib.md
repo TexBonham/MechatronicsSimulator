@@ -60,6 +60,7 @@ proposed <value>)".
 | LIB-032 | The flexible beam type shall reproduce cantilever and simply supported beam deflection and first natural frequency against their closed-form results. | Architecture doc, Technology recommendation, Validation paragraph; Requirements doc, Dynamics | M3 | reference | not set (owed by owner) |
 | LIB-033 | No pint quantity or unit string shall be reachable from a loaded component type's parameter values. | Ruling L5; ADR 0012, Consequences | phase 1 | unit | n/a |
 | LIB-034 | A part of a type whose ratings require a torque-speed curve shall carry one that starts at speed 0 with the part's holding torque, speeds strictly increasing; above the last speed no torque is available. | Queue, rulings during milestone 1 wave 1 (catalog alignment: holding torque alone stalls any motion above zero speed) | M1 | unit | n/a |
+| LIB-035 | A compliant transmission type (belt_pulley, lead_screw) shall take `damping_ratio`, the damping ratio of its driven mode on its own stiffness (dimensionless in [0, 1], tier compliant, default 0: undamped), overridable per instance like its other parameters. | Ruling 78 (round 5); brief M3-D2 item 2 | M3 | unit | n/a |
 
 ## Open parameters
 

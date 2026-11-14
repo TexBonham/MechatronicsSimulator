@@ -792,13 +792,31 @@ def _member_damping(
 # ===== Transmissions and signals ========================================
 
 
+def transmission_damping(ratio: float, stiffness: float, driven_mass: float) -> float:
+    """The output damper D that gives a compliant transmission's driven mode the damping ratio `ratio` (BLD-041,
+    ruling 78).
+
+    Derivation: with the shaft held, the driven subtree (mass m along a prismatic output, inertia about a revolute
+    one) on the coupling's spring k and damper D at the output obeys m x'' + D x' + k x = 0, omega = sqrt(k / m) and
+    D = 2 zeta m omega, so D = 2 zeta sqrt(k m); its free decay has the logarithmic decrement 2 pi zeta /
+    sqrt(1 - zeta^2) and the time constant 1 / (zeta omega) = 2 m / D. m is the driven subtree's mass the native
+    translation's mode line uses (ruling 45); a case payload added at run time raises it, so the realised ratio is
+    D / (2 sqrt(k m_run)), which that line prints."""
+    return 2.0 * ratio * math.sqrt(stiffness * driven_mass)
+
+
 def _transmission(
-    component: ComponentInstance, registry: Registry, child_joints: dict[str, Joint], collector: Collector
+    component: ComponentInstance,
+    registry: Registry,
+    child_joints: dict[str, Joint],
+    bodies: Sequence[Mapping[str, Any]],
+    collector: Collector,
 ) -> dict[str, Any] | None:
     kind = registry.component_type(component.type)
     shaft_mounts = {mount.name for mount in kind.mechanical.mounts if mount.kind == "shaft"}
     shaft: str | None = None
     driven: str | None = None
+    driven_body = ""
     for binding in component.mechanical:
         if binding.mount in shaft_mounts and isinstance(binding.joint, str):
             shaft = binding.joint
@@ -806,6 +824,7 @@ def _transmission(
             joint = child_joints.get(binding.body)
             if joint is not None:
                 driven = joint.name
+                driven_body = joint.child
     label = f"transmission '{component.name}'"
     if shaft is None or driven is None:
         collector.failures.append(f"{label}: needs a shaft joint and a driven body on a joint (BLD-005)")
@@ -830,6 +849,10 @@ def _transmission(
         "stiffness": _q(float(values["stiffness"]), "N/m"),
         "backlash": _q(float(values.get("backlash", 0.0)), "m"),
     }
+    ratio_value = float(values.get("damping_ratio", 0.0))
+    if ratio_value > 0.0:
+        driven_mass = _subtree_mass(bodies, driven_body)
+        entry["damping"] = _q(transmission_damping(ratio_value, float(values["stiffness"]), driven_mass), "N*s/m")
     if component.type == "belt_pulley":
         entry["pulley_radius"] = _q(ratio, "m")
     else:
@@ -1075,7 +1098,7 @@ def build_physics(
                     f"transmission '{component.name}': type '{component.type}' has no neutral transmission model"
                 )
                 continue
-            transmission = _transmission(component, registry, child_joints, collector)
+            transmission = _transmission(component, registry, child_joints, bodies, collector)
             if transmission is not None:
                 data["transmissions"].append(transmission)
     _check_overlap(ordered, shapes, exclusions, collector)

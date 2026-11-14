@@ -75,6 +75,13 @@
           "title": "Backlash",
           "type": "string"
         },
+        "damping": {
+          "default": "0.0 N*s/m",
+          "description": "Quantity with an explicit unit of dimension [mass]/[time]; SI unit N*s/m",
+          "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s|$)",
+          "title": "Damping",
+          "type": "string"
+        },
         "driven_joint": {
           "pattern": "^[a-z][a-z0-9_]*$",
           "title": "Driven Joint",
@@ -798,6 +805,13 @@
           "title": "Backlash",
           "type": "string"
         },
+        "damping": {
+          "default": "0.0 N*m*s/rad",
+          "description": "Quantity with an explicit unit of dimension torque*time/angle; SI unit N*m*s/rad",
+          "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s|$)",
+          "title": "Damping",
+          "type": "string"
+        },
         "driven_joint": {
           "pattern": "^[a-z][a-z0-9_]*$",
           "title": "Driven Joint",
@@ -1147,6 +1161,13 @@
           "description": "Quantity with an explicit unit of dimension [length]; SI unit m",
           "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s|$)",
           "title": "Backlash",
+          "type": "string"
+        },
+        "damping": {
+          "default": "0.0 N*s/m",
+          "description": "Quantity with an explicit unit of dimension [mass]/[time]; SI unit N*s/m",
+          "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s|$)",
+          "title": "Damping",
           "type": "string"
         },
         "driven_joint": {
