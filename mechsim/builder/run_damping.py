@@ -4,7 +4,7 @@ when it carries more. Each line prints three figures: the ratio stated in the da
 realised at build time (the build's model); the ratio realised in this run (the run's model, which adds run-time bodies
 such as a rope payload's end fitting `<payload>_shackle` fixed to its carrier).
 
-The mass counted is what the engine counts (ENG-052's m_c), through the one count `translate.driven_subtree`: the
+The mass counted is what the engine counts (ENG-052's m_c), through the one count `driven.driven_subtree`: the
 bodies of the joint tree below the root and every lumped member chain rooted on one of them (its segment bodies as the
 engine builds them, rho A (L - l / 2) on a clamped root and rho A L on a pinned one, and for a roller or clamped far end
 the roller body, roller_mass_fraction x rho A L), all carried rigidly. A case payload hung on a rope or welded is
@@ -26,7 +26,7 @@ from mechsim.builder import structure
 from mechsim.builder.physics import transmission_values
 from mechsim.builder.result import BuildResult
 from mechsim.library.registry import Registry
-from mechsim.physics.native.translate import driven_subtree
+from mechsim.physics.driven import driven_subtree
 from mechsim.physics.neutral import BeltPulley, LeadScrew, LumpedMember, PhysicsModel
 
 CasePayload = tuple[str, str, float, bool]

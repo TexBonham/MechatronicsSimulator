@@ -689,7 +689,7 @@ def test_acc_025_first_ramp_allowance(native_gantry: dict[str, tuple[RunResult, 
     acceleration amplitude q omega^2. y: m = 0.918 kg (trolley, lift, hook, shackle; the payload hangs on the rope, a
     pendulum to this mode), k = 1e5 N/m, omega^2 = 1.089e5 s^-2 (52.5 Hz), q omega^2 = 1.36 m/s^2; x: the carriage
     carries rail_y's beam chain (4.47 kg, the measured ring 22.6 Hz with the drive's own compliance in series),
-    q omega^2 = 0.25 m/s^2 (0.51 on the 2.445 kg the adapter's belt line counts). Both exceed a p(zeta) = 0.098 m/s^2
+    q omega^2 = 0.25 m/s^2. Both exceed a p(zeta) = 0.098 m/s^2
     by far. Measured: x 0.56 m/s^2 (rings of successive steps in phase), y 3.32 m/s^2 at 8.777 s: at v = a (t - 8 s)
     the step rate is f_s = 80 000 v, 3000 steps/s at 8.75 s, and the per-tick step count beats at abs(f_s - 3000 Hz),
     which crosses 52.5 Hz at 8.737 s and 8.763 s, driving the belt mode at resonance. No gantry value in the data

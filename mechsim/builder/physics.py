@@ -38,7 +38,7 @@ from mechsim.design.schema import (
 )
 from mechsim.library.registry import Registry, RegistryError
 from mechsim.materials.schema import Material
-from mechsim.physics.native.translate import driven_mass
+from mechsim.physics.driven import driven_mass
 from mechsim.physics.neutral import LumpedMember, PhysicsModel, Rope, StructuralMember
 from mechsim.schema_base import format_errors
 
@@ -775,7 +775,7 @@ def transmission_damping(ratio: float, stiffness: float, driven_mass: float) -> 
     one) on the coupling's spring k and damper D at the output obeys m x'' + D x' + k x = 0, omega = sqrt(k / m) and
     D = 2 zeta m omega, so D = 2 zeta sqrt(k m); its free decay has the logarithmic decrement 2 pi zeta /
     sqrt(1 - zeta^2) and the time constant 1 / (zeta omega) = 2 m / D. m is the driven mass the native translation's
-    mode line uses (ruling 45; its subtree's bodies and member chains, `translate.driven_mass`); a body added at run
+    mode line uses (ruling 45; its subtree's bodies and member chains, `driven.driven_mass`); a body added at run
     time raises it, so the realised ratio is D / (2 sqrt(k m_run)), which the run's damping line prints."""
     return 2.0 * ratio * math.sqrt(stiffness * driven_mass)
 
@@ -847,7 +847,7 @@ def _transmission(
 
 def _damped(model: PhysicsModel, data: dict[str, Any], stated: Sequence[tuple[float, str]]) -> PhysicsModel:
     """The model with each damped transmission's D = 2 zeta sqrt(k m) (BLD-041), m the driven mass the native
-    translation's mode line uses (`translate.driven_mass`: the driven subtree's bodies and the member chains rooted in
+    translation's mode line uses (`driven.driven_mass`: the driven subtree's bodies and the member chains rooted in
     it, the mass the engine moves with the driven joint); unchanged when no ratio is above 0."""
     if all(ratio == 0.0 for ratio, _ in stated):
         return model

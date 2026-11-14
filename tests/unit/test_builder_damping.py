@@ -12,8 +12,9 @@ from pydantic import ValidationError
 from mechsim.builder import BuildError, BuildResult, structure
 from mechsim.design.schema import Design, FlexibleMember, OpenValue
 from mechsim.library.registry import default_registry
+from mechsim.physics.driven import driven_mass
 from mechsim.physics.mujoco.prepare import prepare_model as prepare_bridge
-from mechsim.physics.native.translate import driven_mass, translate
+from mechsim.physics.native.translate import translate
 from mechsim.physics.neutral import PhysicsModel
 from tests.reference.test_transmission_damping import (
     ARM_BODY,
