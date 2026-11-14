@@ -22,10 +22,9 @@ PENDULUM_CASE = ROOT / "test_cases" / "pendulum" / "P1_period.yaml"
 GANTRY_CASES = ROOT / "test_cases" / "gantry"
 _VIEWS: dict[str, CoreDriver] = {}
 BRIDGE = {"physics.adapter": "mujoco"}
-# G5 and G6 change the payload's mass mid-run; on the native adapter the payload hangs on its rope and the adapter
-# refuses a mass change on a body it does not hold as a welded payload ("set_payload_mass: body 10 is not a payload",
-# a core finding of brief M3-X2), so their acceptance runs stay on the bridge until core takes the change.
-BRIDGE_RUNS = ("G5", "G6")
+# Cases whose acceptance runs stay on the bridge, each with its reason; empty since brief M3-X2c (G5 and G6 run on
+# native once brief M3-N5 let the adapter change the mass of a rope-hung payload).
+BRIDGE_RUNS: tuple[str, ...] = ()
 
 
 # ===== Fixtures and helpers =================================================
@@ -58,8 +57,8 @@ def _gantry_run(case: str) -> RunResult:
 def gantry() -> dict[str, RunResult]:
     """G1 to G14 (G12 is `native_gantry`'s), each once and on first use, through the real stack (gantry design,
     builder, the default native adapter, kernel, signal layer, native gantry firmware, recorder, scoring); placeholder
-    defaults for every open parameter (DES-044); `BRIDGE_RUNS` on the bridge. A case whose run errors fails its own
-    tests (`_passes`), not every case's."""
+    defaults for every open parameter (DES-044); `BRIDGE_RUNS` (now none) on the bridge. A case whose run errors
+    fails its own tests (`_passes`), not every case's."""
     return _Runs(_gantry_run)
 
 
@@ -276,6 +275,12 @@ def test_acc_009(gantry: dict[str, RunResult]) -> None:
     Tolerance not set (owed by gantry team): the behavior is asserted. With 5.5 kg on the hook (over the 5.216 kg
     limit, rated 10 lb + 15 percent, gantry team 2026-11-11) `lift 0.4` at 18 s is refused with fault overload, and the
     lift stays within the 1 cm hold band (the position accuracy) until the next command at 20 s.
+
+    On native the payload hangs on its rope; the load cell reads the shackle's reaction, 3308 counts at 5.5 kg
+    against the bridge's 3301 on its fixed payload, so the firmware's overload decision is the bridge's (the lift
+    held within 2.2e-7 m). The refusal's reason is asserted, not only its presence: without the suite's 9 s
+    evaluation start the release transient snaps the rope at 0.012 s (6011 N against 5000 N), the cell reads empty,
+    `lift 0.4` is accepted and a `busy` refusal of the 20 s command would satisfy `lift_up_refused` alone (M3-X2c).
     """
     result = gantry["G5"]
     _passes(result, "lift_up_refused", "lift_up_ignored")
@@ -288,7 +293,7 @@ def test_acc_010(gantry: dict[str, RunResult]) -> None:
     """Reference design (gantry), G5: with a load over the limit attached, a lower command shall work.
 
     `lift 0.1` at 20 s from 0.3 m with 5.5 kg: no refusal to the end at 26 s, and the lift ends within 1 cm (the
-    position accuracy) of 0.1 m.
+    position accuracy) of 0.1 m. On native it ends at 0.09961 m (the bridge 0.10003 m).
     """
     result = gantry["G5"]
     _passes(result, "lowered")
@@ -304,7 +309,8 @@ def test_acc_011(gantry: dict[str, RunResult]) -> None:
     The payload becomes 5.5 kg 2 s into the lift (TST-020 routes the change to physics). Bound from the gantry team's
     limits of 2026-11-11 and ruling 35 (G6 header): 0.1 m risen at the change, at most 1.12 cm more during detection
     (12.5 ms cell sample, 97.3 ms for the 2 Hz amplifier to cross 5.216 kg, 2 ms filter, at 0.1 m/s), v^2 / 2a = 0.1 m
-    to stop at 0.05 m/s^2: the lift stays under 21.1 cm, short of the 45 cm commanded.
+    to stop at 0.05 m/s^2: the lift stays under 21.1 cm, short of the 45 cm commanded. On native it peaks at
+    0.20885 m (the bridge 0.20825 m).
     """
     _passes(gantry["G6"], "lift_stopped")
 
@@ -314,7 +320,8 @@ def test_acc_011(gantry: dict[str, RunResult]) -> None:
 def test_acc_012(gantry: dict[str, RunResult]) -> None:
     """Reference design (gantry), G6: after an overweight stop, the load shall be able to be set down.
 
-    `lift 0.05` after the stop, still at 5.5 kg: the lift ends within 1 cm of 5 cm.
+    `lift 0.05` after the stop, still at 5.5 kg: the lift ends within 1 cm of 5 cm. On native it ends at 0.04996 m
+    (the bridge 0.05005 m).
     """
     _passes(gantry["G6"], "set_down")
 

@@ -17,7 +17,10 @@ zeta_0 = 133.97 rad/s and its time constant tau = 1 / (zeta_r omega_c) = zeta_0 
 crossing. What a case loses: integrity during its first 9 s is not judged (homing ends by 5.25 s; G12 and G15 move
 from 8 s, so their first second of the 2 s acceleration ramp is not judged, the second second at the same
 acceleration is). Motion criteria keep their own windows. Before it, G5 and G6 cross tier 1 on the release at 0.011 to
-0.022 s (rail_x and rail_y), recorded as `integrity_before_evaluation` events.
+0.022 s (rail_x and rail_y), recorded as `integrity_before_evaluation` events. On native the same transient
+carries the payload rope above its 5000 N breaking tension (6011 N at 0.012 s, 26229 N at its peak before 9 s); the
+start holds the snap back. Without it G5's rope snaps at 0.012 s, the load cell reads empty (7 counts against 3308
+at 5.5 kg), `lift 0.4` is accepted and the lift ends at 0.4001 m (M3-X2c; that was N5's first G5 result).
 
 | Case | Requirements doc test | Criteria (spec rows) |
 |---|---|---|
