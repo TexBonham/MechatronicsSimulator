@@ -125,4 +125,4 @@ type live in the root `CLAUDE.md` dispatch table once measured.
 | 2026-11-14 | M3-X2b suite on native finished through G16, the batch, the retirement table and the removal plan (wip/05-x2 62d5ca0); ruling 85 | module-writer (opus) | 248K | 160 calls, over the 150 cap |
 | 2026-11-14 | M3-X2c X2 closed: G5 and G6 on native, ACC-032 converted, baseline with G16 (wip/05-x2 550bf40) | module-writer (opus) | 202K | 126 calls |
 | 2026-11-14 | M3 review: X2, X2b, X2c (wip/05-x2): accept after a fix round, 3 major, 5 medium, 4 low; ruling 86 (review-m3-x2.md) | Fable review (general-purpose) | 175K | 20 calls |
-| 2026-11-14 | M3-B3 rope payload start at static stretch; cause traced to the engine's slack rule (wip/05-b3 a28619a); ruling 87 | module-writer (opus) | see notification | cap 90 |
+| 2026-11-14 | M3-B3 rope payload start at static stretch; cause traced to the engine's slack rule (wip/05-b3 a28619a); ruling 87 | module-writer (opus) | 178K | 89 calls |
