@@ -36,10 +36,11 @@ acceleration is). Motion criteria keep their own windows. Before it, G5 and G6 c
 | `G13.yaml` | Lift command while moving | `lift 0.3` mid-move refused with `fault:busy` and a `refused` event, no lift steps, lift held, move arrives (ACC-027; reject policy is the firmware placeholder) |
 | `G14.yaml` | Fifty rapid-fire and conflicting commands | `no_overlap` on each driver's `motion_start`/`motion_end` (ACC-028, SCO-025); first move's interval within its cruise and slow-zone bounds (SCO-021); malformed refused |
 | `G15.yaml` | Maximum acceleration to mid-travel with the design load, then an E-stop with a swinging load (native, tier 1, no halt) | every member's safety factor at least `minimum_safety_factor` (ACC-029); node-pose deflection under 1 cm (ACC-030); no tier 1 crossing; load case exported |
+| `G16.yaml` | Motor sizing: NEMA 17 against NEMA 23 at the rated load | sweeps of `instance:<motor>.part` (LIB-017), one motor substituted per run, the nominal run all NEMA 23; ready, no `fault:encoder_mismatch`, lifted and arrived within 1 cm; torque margin per motor computed and checked by the acceptance test from the recorded drive torque (ACC-031; on native 2026-11-14 every margin is positive: lift NEMA 17 +0.053 N m, NEMA 23 +0.877, x and y NEMA 17 +0.344, no lost step shown); the stepper's missed-step count is not recorded (ACC-032 open) |
 
 Windows derive from the gantry team's values of 2026-11-11 (0.05 m/s^2, 0.1 m/s, 0.02 m/s homing, 10 cm homing travel,
 0.5 m workspace); each case header carries its derivation.
 
-`baseline.yaml`: placeholder-geometry baselines for G1 to G15 on the native adapter (statuses of record on the draft
+`baseline.yaml`: placeholder-geometry baselines for G1 to G16 on the native adapter (statuses of record on the draft
 gantry), until CAD. `bridge_baselines/<case>.yaml`: the bridge's values of record for G1 to G11, G13 and G14,
 generated once on 2026-11-14 and never regenerated (PHY-025; the native baseline is compared with them, PHY-024).

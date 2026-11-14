@@ -11,7 +11,7 @@ import numpy as np
 import pytest
 
 from mechsim.testing.core_driver import CoreDriver, core_services
-from mechsim.testing.runner import RunResult, Services, prepare, run_case
+from mechsim.testing.runner import RunResult, Services, prepare, run_case, sweep_runs
 from mechsim.testing.schema import ROOT
 
 PENDULUM_CASE = ROOT / "test_cases" / "pendulum" / "P1_period.yaml"
@@ -1049,17 +1049,155 @@ def test_native_gantry_cases_repeat_bit_identically(
     assert first.report == second.report
 
 
+# ===== G16, motor sizing (ACC-031, ACC-032, LIB-017) ========================
+G16_CASE = GANTRY_CASES / "G16.yaml"
+G16_MOTORS = ("lift_motor", "x_motor", "y_motor")
+# The gantry's belts (catalog gt2_20t_6mm_generic): 40 mm per turn, c = 0.04 / 2 pi; efficiency 0.95, the steady gain
+# n / eta on the native adapter (ruling 66), lossless while the shaft is held (the lock row). Limits (G16 header):
+# a = 0.05 m/s^2, v = 0.1 m/s, so omega_c = v / c = 150 rpm and alpha = a / c. Axis friction 5 N Coulomb on x and y,
+# none on the lift (design). The rated load 4.536 kg (G16 `payload_mass`), the rope 0.035 kg/m over 0.3 m and its end
+# fitting 0.001 kg (rope_3mm_steel_generic) hang below the hook.
+G16_C = 0.04 / (2.0 * math.pi)
+G16_ETA = 0.95
+G16_A = 0.05
+G16_G = 9.81
+G16_FRICTION = 5.0
+G16_HANGING = 4.536 + 0.035 * 0.3 + 0.001
+# Torque-speed curves (catalog stepper_behavioral.yaml) at 150 rpm, linear between the 0 and 300 rpm points, and
+# each part's rotor inertia J.
+G16_AVAILABLE = {"nema17_class_generic": (0.40 + 0.36) / 2.0, "nema23_class_generic": (1.26 + 1.15) / 2.0}
+G16_ROTOR = {"nema17_class_generic": 54e-7, "nema23_class_generic": 280e-7}
+# Windows (G16 header timeline): the lift ramps from 6.05 s (after the 50 ms brake release) to 0.1 m/s by 8.05 s
+# having moved 0.1 m and cruises until its slow-zone deceleration 0.3 - 0.05 - 0.075 = 0.175 m from home, 8.8 s;
+# x ramps from 15 s to 17 s and cruises until 0.4 - 0.125 = 0.275 m, 18.75 s. Each cruise window keeps 0.15 s off
+# both ends.
+G16_LIFT_CRUISE = (8.2, 8.65)
+G16_X_CRUISE = (17.15, 18.6)
+G16_WINDOWS = {"lift_motor": (6.0, 15.0), "x_motor": (15.0, 26.0), "y_motor": (15.0, 26.0)}
+
+
+@pytest.fixture(scope="module")
+def g16() -> list[tuple[RunResult, CoreDriver]]:
+    """G16 through the CLI's path: the nominal run (NEMA 23 on every axis) and its sweep runs, each substituting the
+    NEMA 17 into one motor instance (LIB-017)."""
+    services = core_services()
+    drivers: list[CoreDriver] = []
+
+    def driver() -> CoreDriver:
+        made = CoreDriver()
+        drivers.append(made)
+        return made
+
+    chosen = Services(driver, services.builder)
+    results = [run_case(G16_CASE, chosen, None, None)]
+    results.extend(sweep_runs(G16_CASE, chosen, None, None))
+    assert len(results) == len(drivers) == 4
+    for result in results:
+        assert result.report is not None, result.score
+        assert not result.report.errored, result.report.error
+    return list(zip(results, drivers, strict=True))
+
+
+def _g16_parts(result: RunResult) -> dict[str, str]:
+    parts = dict.fromkeys(G16_MOTORS, "nema23_class_generic")
+    if result.score.sweep is not None:
+        parameter, value = result.score.sweep
+        parts[parameter.removeprefix("instance:").removesuffix(".part")] = value
+    return parts
+
+
+def _g16_masses(parts: dict[str, str]) -> dict[str, float]:
+    """The mass each motor's belt moves, from the built model with the run's parts (a motor's mass sits on its mount
+    body): the lift raises the lift carriage, the hook and what hangs below it; y moves the trolley and the lift; x
+    moves rail_y with all of that."""
+    bindings = {f"instance:{motor}.part": part for motor, part in parts.items()}
+    built = core_services().builder(prepare(G16_CASE, bindings).design)
+    assert built.physics is not None
+    body = {item.name: item.mass for item in built.physics.bodies}
+    lift = body["lift_carriage"] + body["hook"] + G16_HANGING
+    y = lift + body["trolley"]
+    return {"lift_motor": lift, "y_motor": y, "x_motor": y + body["rail_y"]}
+
+
+def _g16_torque(driver: CoreDriver, motor: str) -> tuple[Any, Any]:
+    recording = driver.recording()
+    times = np.asarray(recording.series("joint:lift_axis.position").times, dtype=np.float64)
+    values = np.asarray(recording.recording.series[f"signals/actuator_efforts/{motor}.torque"].values)
+    return times, values
+
+
 @pytest.mark.req("ACC-031")
-@pytest.mark.xfail(strict=True, reason="stub")
-def test_acc_031() -> None:
+@pytest.mark.req("LIB-017")
+def test_acc_031(g16: list[tuple[RunResult, CoreDriver]]) -> None:
     """Reference design (gantry), G16: a sweep of NEMA 17 against NEMA 23 with the rated load shall report
     the torque margin per motor.
-    """
-    raise NotImplementedError
+
+    Demand at the commanded speed (G16 header): lift T = m_L (g + a) c / eta + J alpha, x and y T = (m a + F_f) c / eta
+    + J alpha, m from the built model with the run's parts; margin = the part's curve at 150 rpm less T, printed per
+    motor and run. Assertions, each from the drive's steady state (the drive torque read back is the spring torque
+    that carries the load; the stepper's damping acts about the moving rest, so it adds nothing in steady motion):
+    - lift cruise: the mean drive torque is m_L g c / eta, within m_L a c / eta (the ramp's step of the load, which an
+      undamped spring-mass carries on as a ring of at most that amplitude; a mean over the window only shrinks it);
+    - x cruise: the mean is F_f c / eta within m_x a c / eta, the same argument;
+    - every motor's peak over its window reaches its cruise demand (the drive carries at least the steady load).
+    A motor whose margin is negative by the derivation must show lost steps: the firmware's encoder mismatch fault
+    or a final position off by more than the 1 cm accuracy. The peak above the demand (the brake hand-over on the lift
+    and the step train ringing the lightly damped belts on x and y, ruling 81) is printed, not bounded."""
+    seen: set[tuple[str, str]] = set()
+    for result, driver in g16:
+        parts = _g16_parts(result)
+        masses = _g16_masses(parts)
+        lost = any(event == "fault:encoder_mismatch" for event in _g16_faults(driver)) or any(
+            criterion.status != "pass" for criterion in result.score.criteria
+        )
+        for motor in G16_MOTORS:
+            part = parts[motor]
+            mass = masses[motor]
+            alpha_term = G16_ROTOR[part] * G16_A / G16_C
+            if motor == "lift_motor":
+                cruise = mass * G16_G * G16_C / G16_ETA
+                demand = mass * (G16_G + G16_A) * G16_C / G16_ETA + alpha_term
+            else:
+                cruise = G16_FRICTION * G16_C / G16_ETA
+                demand = (mass * G16_A + G16_FRICTION) * G16_C / G16_ETA + alpha_term
+            margin = G16_AVAILABLE[part] - demand
+            times, torque = _g16_torque(driver, motor)
+            start, end = G16_WINDOWS[motor]
+            inside = (times >= start) & (times <= end)
+            peak = float(np.max(np.abs(torque[inside])))
+            print(
+                f"G16 sweep {result.score.sweep}: {motor} {part}: moved mass {mass:.4f} kg, demand {demand:.5f} N m, "
+                f"available {G16_AVAILABLE[part]:.4f} N m at 150 rpm, margin {margin:+.5f} N m; measured peak "
+                f"{peak:.5f} N m ({peak / demand:.3f} of the demand); lost steps shown: {lost}"
+            )
+            assert peak >= cruise
+            if margin < 0.0:
+                assert lost, f"{motor} {part}: margin {margin} N m and no lost step shown"
+            if motor == "lift_motor":
+                window = (times >= G16_LIFT_CRUISE[0]) & (times <= G16_LIFT_CRUISE[1])
+                mean = float(np.mean(torque[window]))
+                print(f"  lift cruise mean {mean:.6f} N m against m_L g c / eta = {cruise:.6f}")
+                assert abs(mean - cruise) <= mass * G16_A * G16_C / G16_ETA
+            if motor == "x_motor":
+                window = (times >= G16_X_CRUISE[0]) & (times <= G16_X_CRUISE[1])
+                mean = float(np.mean(torque[window]))
+                print(f"  x cruise mean {mean:.6f} N m against F_f c / eta = {cruise:.6f}")
+                assert abs(mean - cruise) <= mass * G16_A * G16_C / G16_ETA
+            seen.add((motor, part))
+    assert seen == {(motor, part) for motor in G16_MOTORS for part in G16_AVAILABLE}
+
+
+def _g16_faults(driver: CoreDriver) -> list[str]:
+    return [f"fault:{event.detail}" for event in driver.recording().events() if event.kind == "controller_fault"]
 
 
 @pytest.mark.req("ACC-032")
-@pytest.mark.xfail(strict=True, reason="stub")
+@pytest.mark.xfail(
+    strict=True,
+    reason="the behavioral stepper's missed_steps output is not recorded (core: only its torque reaches the record, "
+    "as signals/actuator_efforts) and no scoring ref reads it; G16 shows lost steps only through the firmware's "
+    "encoder mismatch fault and the final positions (brief M3-X2b)",
+)
 def test_acc_032() -> None:
     """Reference design (gantry), G16: the same sweep shall report any missed steps per motor."""
     raise NotImplementedError
