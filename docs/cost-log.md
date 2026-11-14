@@ -111,3 +111,4 @@ type live in the root `CLAUDE.md` dispatch table once measured.
 | 2026-11-13 | M3-D2 structural damping as design data: members, rope-snap wiring (wip/05-x1a f356526); transmission damping in a follow-up (578fcca) | module-writer (opus), resumed once | 226K + follow-up | 113 calls + follow-up |
 | 2026-11-13 | M3 review: D2 (wip/05-x1a 578fcca): one small fix round, 3 medium, 4 low; ruling 80 (review-m3-d2.md) | Fable review (general-purpose) | 130K | 12 calls |
 | 2026-11-13 | M3-I5d integrity rows rewritten to the code, neutral validity source for the party (wip/05-x1a 86e59fd) | module-writer (opus) | 246K | 104 calls |
+| 2026-11-13 | M3-D2b damping fix round, stopped at its cap part done (wip/05-x1a aba358c) | module-writer (opus) | 146K | 65 calls |
