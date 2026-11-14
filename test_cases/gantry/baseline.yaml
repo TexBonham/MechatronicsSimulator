@@ -970,36 +970,69 @@ entries:
   - case: G16
     criterion: arrived_x
     status: pass
-    measured: 0.400025808335 m
+    measured: 0.400025808338 m
     limit: final within 1 cm of 40 cm
     worst_time: 26.0 s
     run:
       run_id: G16-seed16
-      archive_sha256: 8ce9a596f0d2dbea0e873558cbff7ef25790c0d6959098b7acd5b20fb006dfe7
+      archive_sha256: 72adf6c63582f493a89fd8a6fedb0346f13b1036043937b14e39d2d442a09196
       design_hash: b3572b707552f318ff675ee2f6fcc3b9ff322f54
-      case_hash: 43b89c225fc01e2dac9ad1fb9ad482fe36ee8502
+      case_hash: 751fd043b6371e74c7c521ac6621286b41ddb494
   - case: G16
     criterion: arrived_y
     status: pass
-    measured: 0.250025262714 m
+    measured: 0.250025262726 m
     limit: final within 1 cm of 25 cm
     worst_time: 26.0 s
     run:
       run_id: G16-seed16
-      archive_sha256: 8ce9a596f0d2dbea0e873558cbff7ef25790c0d6959098b7acd5b20fb006dfe7
+      archive_sha256: 72adf6c63582f493a89fd8a6fedb0346f13b1036043937b14e39d2d442a09196
       design_hash: b3572b707552f318ff675ee2f6fcc3b9ff322f54
-      case_hash: 43b89c225fc01e2dac9ad1fb9ad482fe36ee8502
+      case_hash: 751fd043b6371e74c7c521ac6621286b41ddb494
   - case: G16
     criterion: lifted
     status: pass
-    measured: 0.300056450218 m
+    measured: 0.30005398395 m
     limit: final within 1 cm of 30 cm
     worst_time: 26.0 s
     run:
       run_id: G16-seed16
-      archive_sha256: 8ce9a596f0d2dbea0e873558cbff7ef25790c0d6959098b7acd5b20fb006dfe7
+      archive_sha256: 72adf6c63582f493a89fd8a6fedb0346f13b1036043937b14e39d2d442a09196
       design_hash: b3572b707552f318ff675ee2f6fcc3b9ff322f54
-      case_hash: 43b89c225fc01e2dac9ad1fb9ad482fe36ee8502
+      case_hash: 751fd043b6371e74c7c521ac6621286b41ddb494
+  - case: G16
+    criterion: missed_steps_lift_motor
+    status: pass
+    measured: '1.3189449255e-09'
+    limit: final within 0.25 of 0
+    worst_time: 26.0 s
+    run:
+      run_id: G16-seed16
+      archive_sha256: 72adf6c63582f493a89fd8a6fedb0346f13b1036043937b14e39d2d442a09196
+      design_hash: b3572b707552f318ff675ee2f6fcc3b9ff322f54
+      case_hash: 751fd043b6371e74c7c521ac6621286b41ddb494
+  - case: G16
+    criterion: missed_steps_x_motor
+    status: pass
+    measured: '3.44489638865e-07'
+    limit: final within 0.25 of 0
+    worst_time: 26.0 s
+    run:
+      run_id: G16-seed16
+      archive_sha256: 72adf6c63582f493a89fd8a6fedb0346f13b1036043937b14e39d2d442a09196
+      design_hash: b3572b707552f318ff675ee2f6fcc3b9ff322f54
+      case_hash: 751fd043b6371e74c7c521ac6621286b41ddb494
+  - case: G16
+    criterion: missed_steps_y_motor
+    status: pass
+    measured: '2.63229536508e-08'
+    limit: final within 0.25 of 0
+    worst_time: 26.0 s
+    run:
+      run_id: G16-seed16
+      archive_sha256: 72adf6c63582f493a89fd8a6fedb0346f13b1036043937b14e39d2d442a09196
+      design_hash: b3572b707552f318ff675ee2f6fcc3b9ff322f54
+      case_hash: 751fd043b6371e74c7c521ac6621286b41ddb494
   - case: G16
     criterion: no_lost_steps_detected
     status: pass
@@ -1007,9 +1040,9 @@ entries:
     limit: fault:encoder_mismatch absent
     run:
       run_id: G16-seed16
-      archive_sha256: 8ce9a596f0d2dbea0e873558cbff7ef25790c0d6959098b7acd5b20fb006dfe7
+      archive_sha256: 72adf6c63582f493a89fd8a6fedb0346f13b1036043937b14e39d2d442a09196
       design_hash: b3572b707552f318ff675ee2f6fcc3b9ff322f54
-      case_hash: 43b89c225fc01e2dac9ad1fb9ad482fe36ee8502
+      case_hash: 751fd043b6371e74c7c521ac6621286b41ddb494
   - case: G16
     criterion: ready_after_homing
     status: pass
@@ -1018,6 +1051,39 @@ entries:
     worst_time: 5.222 s
     run:
       run_id: G16-seed16
-      archive_sha256: 8ce9a596f0d2dbea0e873558cbff7ef25790c0d6959098b7acd5b20fb006dfe7
+      archive_sha256: 72adf6c63582f493a89fd8a6fedb0346f13b1036043937b14e39d2d442a09196
       design_hash: b3572b707552f318ff675ee2f6fcc3b9ff322f54
-      case_hash: 43b89c225fc01e2dac9ad1fb9ad482fe36ee8502
+      case_hash: 751fd043b6371e74c7c521ac6621286b41ddb494
+  - case: G16
+    criterion: torque_margin_lift_motor
+    status: pass
+    measured: 0.740955468789 N m
+    limit: minimum above 0 N*m
+    worst_time: 0.022 s
+    run:
+      run_id: G16-seed16
+      archive_sha256: 72adf6c63582f493a89fd8a6fedb0346f13b1036043937b14e39d2d442a09196
+      design_hash: b3572b707552f318ff675ee2f6fcc3b9ff322f54
+      case_hash: 751fd043b6371e74c7c521ac6621286b41ddb494
+  - case: G16
+    criterion: torque_margin_x_motor
+    status: pass
+    measured: 1.16274674122 N m
+    limit: minimum above 0 N*m
+    worst_time: 16.962 s
+    run:
+      run_id: G16-seed16
+      archive_sha256: 72adf6c63582f493a89fd8a6fedb0346f13b1036043937b14e39d2d442a09196
+      design_hash: b3572b707552f318ff675ee2f6fcc3b9ff322f54
+      case_hash: 751fd043b6371e74c7c521ac6621286b41ddb494
+  - case: G16
+    criterion: torque_margin_y_motor
+    status: pass
+    measured: 1.16283370855 N m
+    limit: minimum above 0 N*m
+    worst_time: 16.947 s
+    run:
+      run_id: G16-seed16
+      archive_sha256: 72adf6c63582f493a89fd8a6fedb0346f13b1036043937b14e39d2d442a09196
+      design_hash: b3572b707552f318ff675ee2f6fcc3b9ff322f54
+      case_hash: 751fd043b6371e74c7c521ac6621286b41ddb494

@@ -14,6 +14,8 @@ import numpy as np
 import pytest
 
 from mechsim.cli import default_services, main
+from mechsim.library.registry import default_registry
+from mechsim.scoring.score import CriterionResult, available_torque
 from mechsim.testing.core_driver import CoreDriver, core_services
 from mechsim.testing.runner import RunResult, Services, prepare, run_case, sweep_runs
 from mechsim.testing.schema import ROOT, load_suite_file
@@ -1185,8 +1187,18 @@ def test_acc_031(g16: list[tuple[RunResult, CoreDriver]]) -> None:
     - x cruise: the mean is F_f c / eta within m_x a c / eta, the same argument;
     - every motor's peak over its window reaches its cruise demand (the drive carries at least the steady load).
     A motor whose margin is negative by the derivation must show lost steps: the firmware's encoder mismatch fault
-    or a final position off by more than the 1 cm accuracy. The peak above the demand (the brake hand-over on the lift
-    and the step train ringing the lightly damped belts on x and y, ruling 81) is printed, not bounded."""
+    or a failing criterion (the report's missed steps among them). The peak above the demand (the brake hand-over on
+    the lift and the step train ringing the lightly damped belts on x and y, ruling 81) is printed, not bounded.
+
+    The report's own margin (`torque_margin_<motor>`, SCO-032: the part's curve at the recorded shaft speed less the
+    recorded shaft load torque, its minimum over the run) is asserted against this derivation: it names the run's part,
+    passes exactly when positive, is negative when the derivation's margin is, and (lift and x, which have a cruise
+    window) is at most T(w_min) - (cruise - m a c / eta), T(w_min) the curve at the least shaft speed in the cruise
+    window. That bound is one-sided and derived, not fitted: the run's minimum is at most the margin at the cruise
+    sample of largest load; that load is at least the window mean, which lies within m a c / eta of the cruise load
+    (the assertion above), and the curve there is at most T(w_min) since it falls with speed. Within the window the
+    shaft load torque (PHY-033) and the drive torque differ only by the stepper's damping about the moving rest, which
+    the mean does not see."""
     seen: set[tuple[str, str]] = set()
     for result, driver in g16:
         parts = _g16_parts(result)
@@ -1197,6 +1209,7 @@ def test_acc_031(g16: list[tuple[RunResult, CoreDriver]]) -> None:
         for motor in G16_MOTORS:
             part = parts[motor]
             mass = masses[motor]
+            reported, measured = _g16_reported(result, f"torque_margin_{motor}", part)
             alpha_term = G16_ROTOR[part] * G16_A / G16_C
             if motor == "lift_motor":
                 cruise = mass * G16_G * G16_C / G16_ETA
@@ -1212,23 +1225,57 @@ def test_acc_031(g16: list[tuple[RunResult, CoreDriver]]) -> None:
             print(
                 f"G16 sweep {result.score.sweep}: {motor} {part}: moved mass {mass:.4f} kg, demand {demand:.5f} N m, "
                 f"available {G16_AVAILABLE[part]:.4f} N m at 150 rpm, margin {margin:+.5f} N m; measured peak "
-                f"{peak:.5f} N m ({peak / demand:.3f} of the demand); lost steps shown: {lost}"
+                f"{peak:.5f} N m ({peak / demand:.3f} of the demand); lost steps shown: {lost}; report: margin "
+                f"{measured:+.5f} N m at {reported.worst_time} s ({reported.status})"
             )
             assert peak >= cruise
+            assert (reported.status == "pass") == (measured > 0.0)
             if margin < 0.0:
                 assert lost, f"{motor} {part}: margin {margin} N m and no lost step shown"
+                assert measured < 0.0
             if motor == "lift_motor":
                 window = (times >= G16_LIFT_CRUISE[0]) & (times <= G16_LIFT_CRUISE[1])
                 mean = float(np.mean(torque[window]))
                 print(f"  lift cruise mean {mean:.6f} N m against m_L g c / eta = {cruise:.6f}")
                 assert abs(mean - cruise) <= mass * G16_A * G16_C / G16_ETA
+                _g16_margin_bound(
+                    driver, motor, part, G16_LIFT_CRUISE, cruise - mass * G16_A * G16_C / G16_ETA, measured
+                )
             if motor == "x_motor":
                 window = (times >= G16_X_CRUISE[0]) & (times <= G16_X_CRUISE[1])
                 mean = float(np.mean(torque[window]))
                 print(f"  x cruise mean {mean:.6f} N m against F_f c / eta = {cruise:.6f}")
                 assert abs(mean - cruise) <= mass * G16_A * G16_C / G16_ETA
+                _g16_margin_bound(driver, motor, part, G16_X_CRUISE, cruise - mass * G16_A * G16_C / G16_ETA, measured)
             seen.add((motor, part))
     assert seen == {(motor, part) for motor in G16_MOTORS for part in G16_AVAILABLE}
+
+
+G16_SHAFTS = {"lift_motor": "lift_motor_spin", "x_motor": "x_motor_spin", "y_motor": "y_motor_spin"}
+
+
+def _g16_reported(result: RunResult, name: str, part: str) -> tuple[CriterionResult, float]:
+    """The report's criterion `name`, which must carry a measured value and name the run's part (SCO-031, SCO-032)."""
+    found = [criterion for criterion in result.score.criteria if criterion.name == name]
+    assert len(found) == 1, name
+    assert found[0].measured is not None, found[0].note
+    assert found[0].note == f"part {part}"
+    return found[0], found[0].measured
+
+
+def _g16_margin_bound(
+    driver: CoreDriver, motor: str, part: str, window: tuple[float, float], least_load: float, measured: float
+) -> None:
+    view = driver.recording()
+    times = np.asarray(view.times(), dtype=np.float64)
+    speed = np.asarray(view.series(f"joint:{G16_SHAFTS[motor]}.velocity").values, dtype=np.float64)
+    inside = (times >= window[0]) & (times <= window[1])
+    curve = default_registry().part(part).torque_speed_curve
+    assert curve is not None
+    points = tuple((float(point.speed), float(point.torque)) for point in curve)
+    bound = available_torque(points, float(np.min(np.abs(speed[inside])))) - least_load
+    print(f"  report margin {measured:+.6f} N m against the cruise bound {bound:+.6f} N m")
+    assert measured <= bound
 
 
 def _g16_faults(driver: CoreDriver) -> list[str]:
@@ -1280,7 +1327,13 @@ def test_acc_032(g16: list[tuple[RunResult, CoreDriver]]) -> None:
     margin there and must lose steps. Every other motor and part has a positive margin by that bound (the x and y
     belts carry no part of a vertical snatch) and by the cruise margins of ACC-031 (all positive), so it loses none,
     and no motor loses a step from the first move to the end. The tolerance on the count is not set (ACC-032 row): the
-    counts are printed with the recorded stall events of each motor."""
+    counts are printed with the recorded stall events of each motor.
+
+    The report's own count (`missed_steps_<motor>`, SCO-031, final) is asserted against this derivation: it names the
+    run's part, rounds to the same whole count, and equals the test's final value within 1e-6 steps. Both are the same
+    quantity from the same samples with the same constants (the catalog's 1.8 degree step, 16 microsteps, holding
+    torque); they differ only in summation order over at most 26 000 samples of commanded steps, whose rounding is
+    below 26 000 x 2.2e-16 relative of a few thousand steps, about 1e-8 steps."""
     seen: set[tuple[str, str]] = set()
     for result, driver in g16:
         parts = _g16_parts(result)
@@ -1301,7 +1354,12 @@ def test_acc_032(g16: list[tuple[RunResult, CoreDriver]]) -> None:
                 f"move, {after:.4f} at the end; stall events at {stalls}; release snatch {snatch:.3f} N, lift demand "
                 f"bound {bound:.4f} N m against holding {G16_HOLDING[part]} N m"
             )
+            reported, measured = _g16_reported(result, f"missed_steps_{motor}", part)
+            print(f"  report: missed steps {measured:.6f} at {reported.worst_time} s ({reported.status})")
+            assert abs(measured - after) <= 1e-6
             count = round(after)
+            assert round(measured) == count
+            assert (reported.status == "pass") == (count == 0)
             assert abs(before - round(before)) <= 0.25
             assert abs(after - count) <= 0.25
             assert round(before) == count

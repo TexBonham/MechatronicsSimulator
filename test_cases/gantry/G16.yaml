@@ -2,10 +2,13 @@
 # workspace with each axis motor in turn substituted by the NEMA 17 class part (sweeps of `instance:<motor>.part`,
 # LIB-017; the nominal run is the design's NEMA 23 on every axis). The case scores what the record can score: the
 # firmware's lost-step detection (`fault:encoder_mismatch`, FW-020: the axis encoder against the step count) stays
-# absent and every axis arrives within the 1 cm position accuracy (a lost full step moves the axis 0.2 mm). The torque
-# margin per motor (ACC-031) and the peak drive torque are computed by the acceptance test from the recorded
-# actuator efforts; the missed steps per motor (ACC-032) likewise, from the driver's step and dir pins against the
-# shaft's rotation (brief M3-X2c): scoring has no statistic that sums a pin's counts, so no criterion here reads them.
+# absent and every axis arrives within the 1 cm position accuracy (a lost full step moves the axis 0.2 mm). The report
+# carries per motor and part the missed steps (`missed_steps:<motor>`, SCO-031: the driver's step and dir pins against
+# the shaft's rotation, less the drive's lead) and the torque margin (`torque_margin:<motor>`, SCO-032: the part's curve
+# at the recorded shaft speed less the recorded shaft load torque, minimum and its time; brief M3-X2e). Their limits
+# are the physics, not tuning: a sizing case passes when no motor loses a step (the final count is 0 within a quarter
+# step, half a step identifying a whole count uniquely) and every margin stays positive. The acceptance test keeps the
+# a-priori demand below as its cross-check (ACC-031).
 #
 # Timeline (gantry team limits 2026-11-11: 0.05 m/s^2 ramps, 0.1 m/s cruise, 50 mm slow zones at 0.05 m/s; homing
 # 0.02 m/s): homing from 0.1 m on each axis is done by 5.25 s. Part (a), the lift: `lift` to 30 cm at 6 s, from the
@@ -108,3 +111,42 @@ criteria:
     comparison: within
     target: 25 cm
     limit: 1 cm
+  - name: missed_steps_lift_motor
+    check: value
+    quantity: missed_steps:lift_motor
+    statistic: final
+    comparison: within
+    target: "0"
+    limit: "0.25"
+  - name: torque_margin_lift_motor
+    check: value
+    quantity: torque_margin:lift_motor
+    statistic: minimum
+    comparison: above
+    limit: 0 N*m
+  - name: missed_steps_x_motor
+    check: value
+    quantity: missed_steps:x_motor
+    statistic: final
+    comparison: within
+    target: "0"
+    limit: "0.25"
+  - name: torque_margin_x_motor
+    check: value
+    quantity: torque_margin:x_motor
+    statistic: minimum
+    comparison: above
+    limit: 0 N*m
+  - name: missed_steps_y_motor
+    check: value
+    quantity: missed_steps:y_motor
+    statistic: final
+    comparison: within
+    target: "0"
+    limit: "0.25"
+  - name: torque_margin_y_motor
+    check: value
+    quantity: torque_margin:y_motor
+    statistic: minimum
+    comparison: above
+    limit: 0 N*m
