@@ -584,18 +584,17 @@ def carried_validity_lines(model: PhysicsModel, values: Sequence[tuple[float, ..
 
 
 def steps_before(start: float, rate: Fraction, substeps: int) -> int:
-    """How many adapter steps the engine counts as begun before `start` (s) (PHY-036, ruling 75): the engine compares
-    its own time, accumulated as t + h per engine step with h = den / (num substeps) as the native adapter forms it,
-    against the start; this repeats that sum in the same double arithmetic, so the driver's line and the engine's gate
-    agree step for step. An adapter step counts when its first engine step began before the start."""
+    """How many adapter steps lie wholly before `start` (s) (PHY-036, ruling 75), by the engine's own step rule
+    (ENG-047, ENG-052): with h = den / (num substeps) the engine step as the native adapter forms it and t_0 = 0, the
+    first engine step the engine judges is n = max(0, ceil(start / h - 1e-9)), exact for a start that is a whole number
+    of engine steps and rounding up between steps. Adapter step j (recorded row j + 1) holds engine steps j s to
+    j s + s - 1 at s substeps, so the rows whose every engine step is held are the first floor(n / s); a row holding
+    engine step n or later may carry the snap and is not counted. At one substep this is n."""
     h = float(rate.denominator) / (float(rate.numerator) * float(substeps))
-    time = 0.0
-    count = 0
-    while time < start:
-        count += 1
-        for _ in range(substeps):
-            time = time + h
-    return count
+    steps = math.ceil(start / h - 1e-9)
+    if steps <= 0:
+        return 0
+    return steps // substeps
 
 
 def driven_mode_lines(model: PhysicsModel, decays: Sequence[tuple[int, float]]) -> tuple[str, ...]:

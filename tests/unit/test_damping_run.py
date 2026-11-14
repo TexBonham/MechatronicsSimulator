@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from fractions import Fraction
 from pathlib import Path
 
@@ -25,12 +26,45 @@ def _old_rule(start: float) -> int:
 @pytest.mark.req("PHY-036")
 @pytest.mark.parametrize(("start", "expected"), [(0.01, 10), (8.0, 8000)])
 def test_the_driver_counts_the_engines_steps_before_the_start(start: float, expected: int) -> None:
-    """At one substep the engine's accumulated time after ten sums of 0.001 is 0.010000000000000002 and after 8000 is
-    8.000000000001005, so the step begun at the start is not before it; `steps_before` repeats that sum. D2's row-time
-    test t - step < start counted one more."""
+    """At one substep a whole-step start is start / h steps (ENG-047: n = ceil(start / h - 1e-9)), so the step begun at
+    the start is not before it. D2's row-time test t - step < start counted one more."""
     assert steps_before(start, Fraction(1000), 1) == expected
     assert _old_rule(start) == expected + 1
     assert steps_before(0.0, Fraction(1000), 1) == 0
+
+
+@pytest.mark.req("PHY-036", "ENG-047", "ENG-052")
+@pytest.mark.parametrize(
+    ("start", "rate", "substeps", "expected"),
+    [
+        (0.01, 1000, 10, 10),
+        (8.0, 1000, 10, 8000),
+        (0.0105, 1000, 1, 11),
+        (0.0105, 1000, 10, 10),
+        (0.01005, 1000, 10, 10),
+        (0.0109999, 1000, 10, 11),
+        (0.0100999, 1000, 10, 10),
+        (0.011, 1000, 10, 11),
+        (0.00015, 10000, 1, 2),
+        (0.00015, 1000, 10, 0),
+        (0.0, 1000, 10, 0),
+        (-0.5, 1000, 1, 0),
+    ],
+)
+def test_steps_before_is_the_engines_step_rule_in_whole_adapter_steps(
+    start: float, rate: int, substeps: int, expected: int
+) -> None:
+    """The engine's first judged step is n = max(0, ceil(start / h - 1e-9)) with h = 1 / (rate substeps) (ENG-047,
+    ENG-052); adapter step j holds engine steps j s to j s + s - 1, so floor(n / s) adapter steps are wholly before.
+    Whole-step starts: 0.01 / 1e-4 and 8 / 1e-4 divide to 100 and 80000 within 1e-14 of a step, far inside the 1e-9
+    slack, so n = 100, 80000 and the counts 10, 8000 (the old summed time counted 11 and 8001). Between steps n rounds
+    up: 0.0105 s is 10.5 steps at 1 ms (n = 11) and 105 at 0.1 ms (n = 105, 10 whole adapter steps); 0.01005 s is
+    100.5 engine steps (n = 101: the row of adapter step 10 holds judged engine steps, so 10); 0.0100999 s is 100.999
+    (n = 101 again, 10); 0.0109999 s is 109.999 (n = 110: adapter step 10's last engine step begins at 0.0109 s,
+    before the start, so all 11 are held); 0.011 s is 110 (11). 0.15 ms is 1.5 steps at 0.1 ms
+    (n = 2, the engine's own case) and inside the first 1 ms adapter step at ten substeps (0). A start at or below 0
+    judges from the first step (0)."""
+    assert steps_before(start, Fraction(rate), substeps) == expected
 
 
 HEAVY_BOB = 1.0e6
@@ -48,7 +82,8 @@ def _boundary_run(tmp_path: Path, start: float, substeps: int) -> tuple[list[flo
     case = tmp_path / "S9.yaml"
     body = SNAP_CASE.replace("physics:\n", f"integrity:\n  evaluate_from: {start} s\nphysics:\n")
     body = body.replace("  adapter: native\n", f"  adapter: native\n  substeps: {substeps}\n")
-    body = body.replace("  at: 0.02 s\n  max_duration: 1 s", f"  at: {start + 0.005} s\n  max_duration: 10 s")
+    end_ms = math.ceil(Fraction(repr(start)) * 1000) + 5
+    body = body.replace("  at: 0.02 s\n  max_duration: 1 s", f"  at: {end_ms} ms\n  max_duration: 10 s")
     case.write_text(body, encoding="utf-8")
     drivers: list[CoreDriver] = []
 
@@ -65,20 +100,21 @@ def _boundary_run(tmp_path: Path, start: float, substeps: int) -> tuple[list[flo
     return snaps, held
 
 
-BOUNDARY_FOLLOW_UP = "engine evaluation start by step count, brief E7g follow-up"
-
-
-@pytest.mark.req("PHY-036", "INT-031")
+@pytest.mark.req("PHY-036", "INT-031", "ENG-047")
 @pytest.mark.parametrize(
-    ("start", "substeps"),
+    ("start", "substeps", "held_rows"),
     [
-        (0.01, 1),
-        (8.0, 1),
-        pytest.param(0.01, 10, marks=pytest.mark.xfail(strict=True, reason=BOUNDARY_FOLLOW_UP)),
-        pytest.param(8.0, 10, marks=pytest.mark.xfail(strict=True, reason=BOUNDARY_FOLLOW_UP)),
+        (0.01, 1, 10),
+        (8.0, 1, 8000),
+        (0.01, 10, 10),
+        (8.0, 10, 8000),
+        (0.0105, 1, 11),
+        (0.01005, 10, 10),
     ],
 )
-def test_the_step_begun_at_the_start_is_not_before_it(tmp_path: Path, start: float, substeps: int) -> None:
+def test_the_step_begun_at_the_start_is_not_before_it(
+    tmp_path: Path, start: float, substeps: int, held_rows: int
+) -> None:
     """Fixture: one rope segment k = 500 kN/m from the world to a 1e6 kg bob 0.1 m past the rest length, so it starts
     at T0 = 50 kN against the 5 kN breaking tension. omega = sqrt(k / M) = 0.707 rad/s, a period of 8.9 s: the
     tension starts at its lowest (released at rest, gravity adds M g = 9.8 MN of pull towards a 19.6 m stretch) and
@@ -87,15 +123,16 @@ def test_the_step_begun_at_the_start_is_not_before_it(tmp_path: Path, start: flo
     stamped start + 1 ms. The held line is printed because the earlier steps exceeded, and the driver's count of
     steps before the start (whose rows the held line reads) must be the start's step count, start x 1 kHz.
 
-    At ten substeps the engine already snaps in the step begun at the start (its gate tests each engine step, and the
-    second engine step of that step begins at 0.0101 s), but the driver's `steps_before` repeats the engine's summed
-    time per adapter step and counts that step as before (11 at 0.01 s, 8001 at 8 s), so its held line would read a
-    row in which the rope snapped: the cases fail until the driver and the engine count steps the same way."""
+    At ten substeps the engine snaps in its first judged engine step n = ceil(start / 0.1 ms - 1e-9) (ENG-047), inside
+    adapter step floor(n / 10), whose row is stamped one step later; the rows before it are the held rows the line
+    reads, and `steps_before` counts exactly those. Between steps: 0.0105 s at one substep judges from step 11 (snap
+    row 12 ms, 11 held rows); 0.01005 s at ten judges from engine step 101, inside adapter step 10 (snap row 11 ms, 10
+    held rows)."""
     snaps, held = _boundary_run(tmp_path, start, substeps)
     assert len(snaps) == 1
-    assert round(snaps[0] * 1000) == round(start * 1000) + 1
+    assert round(snaps[0] * 1000) == held_rows + 1
     assert len(held) == 1
-    assert steps_before(start, Fraction(1000), substeps) == round(start * 1000)
+    assert steps_before(start, Fraction(1000), substeps) == held_rows
 
 
 @pytest.fixture(scope="module")
