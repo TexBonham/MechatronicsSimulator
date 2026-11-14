@@ -104,3 +104,4 @@ type live in the root `CLAUDE.md` dispatch table once measured.
 | 2026-11-13 | M3-E7f validity flag relative to the static shape, physical-time window, evaluation start; G15 diagnosis (wip/05-e7 707ec10, with the ruling 76 follow-up) | module-writer (opus), resumed once | 229K + follow-up | about 140 calls |
 | 2026-11-13 | M3 review: E7f (wip/05-e7 707ec10): accepted as implementing rulings 74 and 76, 3 major, 7 minor; ruling 77 (review-m3-e7f.md) | Fable review (general-purpose) | 111K | 13 calls |
 | 2026-11-13 | M3-I5b exact carried moment in both tiers, not-valid neither halts nor fails, engine-set flag end to end (wip/05-x1a f4977ea); fatigue and two tests left to I5c | module-writer (opus) | 333K | 137 calls |
+| 2026-11-13 | M3-E7g member-wide validity flag (wip/05-e7 92793ba); follow-up: evaluation start gates rope snap | module-writer (opus), resumed once | 213K + follow-up | 85 calls + follow-up |
