@@ -119,3 +119,4 @@ type live in the root `CLAUDE.md` dispatch table once measured.
 | 2026-11-14 | M3-X1g gantry results fix round (wip/05-x1a f8f4836): rail_x frequency settled against the model (23.285 against 23.289 Hz), G6's one tick traced to the rail height | module-writer (opus) | 206K | 95 calls |
 | 2026-11-14 | Integration branch invariant audit before landing: minor only | invariant-auditor (sonnet) | 26K | 6 calls |
 | 2026-11-14 | M3-X1h driven mass with member chains, G12 and G15 baseline entries (wip/05-x1a 1e941bc); helper moved to a neutral module inline | module-writer (opus) | 190K | 106 calls |
+| 2026-11-14 | M3-X2 suite on native by default, bridge baselines, retirement tests (wip/05-x2 2e40042): stopped at its cap, items 1 and 2 not green; ruling 83 | module-writer (opus) | 245K | 195 calls, over the 150 cap |
