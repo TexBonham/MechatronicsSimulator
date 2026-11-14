@@ -539,7 +539,18 @@ def lumped_record(
         "spans": tuple(spans),
         "masses": tuple(section.density * section.area * span for span in spans),
         "calibrated": scales is not None,
+        "first_frequency": structure.loaded_first_frequency(
+            member.root,
+            member.end,
+            count,
+            section.length,
+            section.elastic_modulus * section.second_moment_of_area,
+            section.density * section.area,
+        ),
+        "node_damping": member.node_damping,
     }
+    if flexible.damping_ratio is not None:
+        record["damping_ratio"] = _f(flexible.damping_ratio)
     if calibration is not None and scales is not None:
         record["calibration_source"] = calibration.source
         record["calibration_load"] = _f(calibration.load)
@@ -706,6 +717,76 @@ def _flexible(
         "mounts": structure.member_mounts(body, design),
     }
     return member, structural, scales
+
+
+def _number(text: str) -> float:
+    return float(text.split()[0])
+
+
+def _subtree_mass(bodies: Sequence[Mapping[str, Any]], root: str) -> float:
+    """Mass of `root` and its descendants; `bodies` lists every parent before its children."""
+    names = {root}
+    total = 0.0
+    for entry in bodies:
+        if entry["name"] in names or entry["parent"] in names:
+            names.add(entry["name"])
+            total += _number(entry["mass"])
+    return total
+
+
+def _member_damping(
+    lumped: list[dict[str, Any]],
+    flexible_bodies: Mapping[str, tuple[Body, CalibrationScales | None]],
+    bodies: Sequence[Mapping[str, Any]],
+    collector: Collector,
+) -> None:
+    """Each lumped member's node damping from its design damping ratio (BLD-040, DES-047, ruling 78), c = 2 zeta k /
+    omega_1 (`structure.node_damping`, derived there) on the calibrated chain, with a note stating it, its time
+    constant and, for a carrying member, the realised ratio at the lowest loaded first mode over the span; an
+    undamped member gets a note that its ringing is set by the scheme."""
+    for member in lumped:
+        body = flexible_bodies[member["name"]][0]
+        flexible = body.flexible
+        if flexible is None:
+            raise TypeError("rigid body in the lumped members")
+        ratio = 0.0
+        stated = "absent"
+        if flexible.damping_ratio is not None:
+            ratio = _f(flexible.damping_ratio)
+            stated = "0"
+        if ratio == 0.0:
+            collector.notes.append(
+                f"flexible body '{body.name}': undamped (damping_ratio {stated}); its ringing is removed only by the "
+                "integration scheme's own decay, which depends on the step, so its dynamic response does not "
+                "converge as the step is refined (DES-047, BLD-040, ruling 78)"
+            )
+            continue
+        section = member["section"]
+        flexural = _number(section["elastic_modulus"]) * _number(section["second_moment_of_area"])
+        per_length = _number(section["density"]) * _number(section["area"])
+        length = _number(section["length"])
+        segments = int(member["segments"])
+        root, end = member["root"], member["end"]
+        omega = structure.loaded_first_frequency(root, end, segments, length, flexural, per_length)
+        stiffness = flexural * segments / length
+        damping = structure.node_damping(ratio, omega, stiffness)
+        member["node_damping"] = _q(damping, "N*m*s/rad")
+        text = (
+            f"flexible body '{body.name}': damping ratio {ratio!r} of the first bending mode as stiffness-proportional "
+            f"node damping c = 2 zeta k / omega_1 = {damping:.6g} N m s/rad (k = E I / l = {stiffness:.6g} N m/rad, "
+            f"omega_1 = {omega:.6g} rad/s the unloaded chain's first mode), time constant 1 / (zeta omega_1) = "
+            f"{1.0 / (ratio * omega):.6g} s; higher modes n get zeta omega_n / omega_1"
+        )
+        carried = sum(_subtree_mass(bodies, name) for name in member.get("carries", []))
+        if carried > 0.0:
+            lowest, at = structure.lowest_carried_frequency(root, end, segments, length, flexural, per_length, carried)
+            realised = ratio * lowest / omega
+            text += (
+                f"; its carried mass {carried:.6g} kg lowers the first mode to {lowest:.6g} rad/s at worst (foot at "
+                f"{at:.6g} m), so the realised ratio there is zeta omega_c / omega_1 = {realised:.6g}, time constant "
+                f"{1.0 / (realised * lowest):.6g} s"
+            )
+        collector.notes.append(text + " (DES-047, BLD-040, ruling 78)")
 
 
 # ===== Transmissions and signals ========================================
@@ -943,6 +1024,7 @@ def build_physics(
             if not rigid_members:
                 lumped.append(member)
                 flexible_bodies[member["name"]] = (body, scales)
+    _member_damping(lumped, flexible_bodies, bodies, collector)
     contact = design.environment.contact
     exclusions: set[tuple[str, str]] = set()
     data: dict[str, Any] = {

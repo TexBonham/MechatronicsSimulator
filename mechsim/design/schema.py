@@ -703,6 +703,18 @@ class FlexibleMember(_Strict):
         description="joints the member carries (DES-033, ENG-052, ruling 63): each joint's parent is this body, "
         "the lumped chain's parent; its in-plane load reaches the body through the chain",
     )
+    damping_ratio: Fraction | None = Field(
+        default=None,
+        description="modal damping ratio of the first bending mode, dimensionless in [0, 1) (DES-047, ruling 78); "
+        "absent: undamped, the member's ringing set by the integration scheme",
+    )
+
+    @model_validator(mode="after")
+    def _damping_ratio(self) -> FlexibleMember:
+        ratio = self.damping_ratio
+        if isinstance(ratio, float) and not (0.0 <= ratio < 1.0):
+            raise ValueError(f"damping_ratio {ratio!r}: a modal damping ratio in [0, 1) (DES-047)")
+        return self
 
 
 class Fastener(_Strict):

@@ -295,6 +295,10 @@ bodies:
       supports: [clamped, clamped]
       segments: 16
       carries: [x_axis]
+      # PLACEHOLDER owed by the gantry team (ruling 78, docs/gantry-team-inputs.md): modal damping ratio of the first
+      # bending mode, fixed in advance at the low end of the published range for printed PETG and similar
+      # thermoplastics (loss factor about 0.02 to 0.05, ratio half of it), not adjusted to any result.
+      damping_ratio: "0.01"
   - name: rail_y
     material: petg_printed
     process:
@@ -325,6 +329,8 @@ bodies:
       supports: [pinned, roller]
       segments: 8
       carries: [y_axis]
+      # PLACEHOLDER owed by the gantry team, as rail_x (ruling 78): loss factor 0.02, the low end for printed PETG.
+      damping_ratio: "0.01"
   - name: trolley
     material: petg_printed
     process:

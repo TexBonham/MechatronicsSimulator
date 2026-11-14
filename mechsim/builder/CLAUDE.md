@@ -33,7 +33,7 @@ to source_hash, zeros when unset; `rigid_members` builds flexible bodies rigid, 
 
 `build.py` (`build`, `module_order`); `payload.py` (`with_payload(model, name, carrier, mass, fixed=False, rope=None, starts=None, fitting_mass=None)` (a rope payload needs `fitting_mass`, the rope part's `end_fitting_mass`, LIB-020), BLD-036: box body below the carrier, a fixed child `<name>_fixed` of it when `fixed` (attached at t = 0, never released, ruling 24), else free under world and welded by the adapter; with `rope` (BLD-032) a shackle `<name>_shackle` (`SHACKLE_MASS` 1 g, no shapes) on `<name>_fixed` at the rope's from point, the payload free on `<name>_free` with its top face centre the rest length below it at the `starts` pose, the rope from the shackle to that point, never welded); `physics.py` (`build_physics`, `primitive_mass`, `lumped_record`,
 `element_kinds`, `member_constants`); `mass.py` (closed forms, frames, `z_to`); `structure.py` (`chain_layout`,
-`chain_deflection`, `chain_first_frequency`, `calibrate` -> `CalibrationScales`, `load_point`, `fastenings`,
+`chain_deflection`, `chain_first_frequency`, `loaded_first_frequency`, `node_damping`, `lowest_carried_frequency`, `calibrate` -> `CalibrationScales`, `load_point`, `fastenings`,
 `member_mounts`, `rope_element`, `lumped_section`; the linearized engine chain in hinge angles, numpy/scipy);
 `wiring.py`; `result.py`.
 
@@ -51,6 +51,12 @@ Neutral quantities are written `repr(value) unit` in SI, validated once. Element
   Clamped-clamped with calibration: a note, calibration chain layout owed (ruling 16). Segments: the design's, else
   `structure.default_segments` (8; 16 clamped-clamped, BLD-018), always written to the neutral member. Supports:
   root clamped or pinned, end free, roller or clamped (a clamped end needs a clamped root). Rigid builds calibrate nothing.
+- Structural damping (BLD-040, ruling 78): `physics._member_damping` after the bodies sets each lumped member's
+  `node_damping` = `structure.node_damping(zeta, omega_1, k)` = 2 zeta k / omega_1 (k = E I / l, omega_1 =
+  `structure.loaded_first_frequency` of the calibrated chain, unloaded; derivation in its docstring) with a note (c, k,
+  omega_1, 1 / (zeta omega_1); a carrying member adds `structure.lowest_carried_frequency` over the span and the realised
+  zeta omega_c / omega_1); no ratio or 0: an undamped note. `LumpedRecord` carries `first_frequency`, `damping_ratio`,
+  `node_damping`.
 - Carried joints (BLD-037, ENG-052): `flexible.carries` joints become `LumpedMember.carries` (their child bodies);
   `_check_carried_travel` (not rigid) fails a joint whose origin over its travel leaves [0, L] along the member frame x
   (prismatic between limits, an open limit unbounded; fixed, revolute, spherical at the placement; planar, free never),

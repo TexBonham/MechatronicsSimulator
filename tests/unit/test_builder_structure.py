@@ -164,6 +164,13 @@ def test_recorded_chain_values_give_unit_scales() -> None:
 
 
 # Near the 1 m steel bar's own values (tip deflection 19.9 mm under 10 N, first mode 8.15 Hz): scales near 1.
+UNDAMPED = (
+    "flexible body 'bar': undamped (damping_ratio absent); its ringing is removed only by the integration scheme's "
+    "own decay, which depends on the step, so its dynamic response does not converge as the step is refined (DES-047, "
+    "BLD-040, ruling 78)"
+)
+
+
 CALIBRATION = {"source": "hand", "load": "10 N", "deflection": "19 mm", "first_natural_frequency": "8 Hz"}
 
 
@@ -188,7 +195,7 @@ def test_build_reports_scales_and_applies_them_to_the_lumped_section_only() -> N
     member = result.members[0].section
     assert (member.elastic_modulus, member.density) == (2.0e11, 7850.0)
     assert record.node_stiffness == pytest.approx(2.0e11 * record.stiffness_scale * EI / 2.0e11 / 0.125, rel=1e-12)
-    assert result.notes == ()
+    assert result.notes == (UNDAMPED,)
 
 
 @pytest.mark.req("BLD-019")
@@ -204,6 +211,7 @@ def test_member_without_calibration_is_built_as_is_and_flagged() -> None:
     assert (section.elastic_modulus, section.density) == (2.0e11, 7850.0)
     assert result.notes == (
         "flexible body 'bar': no calibration data; the lumped beam uses its section and material as is (BLD-019)",
+        UNDAMPED,
     )
 
 
@@ -589,9 +597,11 @@ def test_scale_outside_half_to_double_is_noted(deflection: str, frequency: str, 
     record = result.lumped[0]
     assert record.stiffness_scale is not None
     assert record.mass_scale is not None
-    named = [note.split(" ")[4] for note in result.notes]
+    assert result.notes[-1] == UNDAMPED
+    calibration_notes = result.notes[:-1]
+    named = [note.split(" ")[4] for note in calibration_notes]
     assert named == flagged
-    for note in result.notes:
+    for note in calibration_notes:
         assert note.startswith("flexible body 'bar': calibration ")
         assert note.endswith("lies outside [0.5, 2.0]; the lumped beam is an approximation (BLD-019)")
 

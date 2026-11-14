@@ -486,8 +486,12 @@ def test_step_body_cross_checks_and_takes_the_hulls() -> None:
         "(BLD-032)"
     )
     plane = "gravity entirely outside its bending plane"
-    others = [note for note in result.notes if "is an approximation" not in note and plane not in note]
+    damping = "(DES-047, BLD-040, ruling 78)"
+    others = [
+        note for note in result.notes if "is an approximation" not in note and plane not in note and damping not in note
+    ]
     assert others == [rope_note]
+    assert [note.split("'")[1] for note in result.notes if damping in note] == ["rail_x", "rail_y"]
     approximations = [note for note in result.notes if "is an approximation" in note]
     assert [note.split("'")[1] for note in approximations] == ["rail_x", "rail_y"]
     # The fixture's placements carry no rotation, so both rails' frames are the world's, z along gravity (BLD-038).

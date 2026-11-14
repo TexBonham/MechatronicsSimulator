@@ -6,6 +6,8 @@ spring E I / l at each segment midpoint x_j = (j + 1/2) l, rigid spans node to n
 on the parent, a pinned root adding a free pin at x = 0 and a body [0, l/2], a roller end holding the transverse
 displacement at x = L. Linearized in the hinge angles theta: y(x) = sum over x_j < x of theta_j (x - x_j); each
 span is a thin rod of mass rho A s and inertia rho A s^3 / 12 about its centre, as the engine builds it.
+Structural damping (BLD-040, ruling 78): a modal damping ratio of the first bending mode becomes stiffness-proportional
+node damping, `node_damping`.
 """
 
 from __future__ import annotations
@@ -101,6 +103,79 @@ def chain_first_frequency(chain: Chain, flexural_rigidity: float, mass_per_lengt
     stiffness, mass, basis = _matrices(chain, flexural_rigidity, mass_per_length)
     values = linalg.eigh(basis.T @ stiffness @ basis, basis.T @ mass @ basis, eigvals_only=True)
     return math.sqrt(max(float(values[0]), 0.0))
+
+
+# ===== Structural damping ===============================================
+
+
+def _member_chain(root: str, end: str, segments: int, length: float) -> Chain:
+    """The chain of any lumped support pair; a clamped far end uses the roller layout, its rotation held separately."""
+    if end == "clamped":
+        return chain_layout(root, "roller", segments, length)
+    return chain_layout(root, end, segments, length)
+
+
+def loaded_first_frequency(
+    root: str,
+    end: str,
+    segments: int,
+    length: float,
+    flexural_rigidity: float,
+    mass_per_length: float,
+    carried_mass: float = 0.0,
+    at: float = 0.0,
+) -> float:
+    """Lowest eigenfrequency (rad/s) of the member's chain for its supports, with a point mass `carried_mass` moving
+    with the deflection at `at` (the engine's carried mass, ENG-052: inertia at the foot point for the deflection
+    motion, no weight, no rotary inertia): M + m a a^T, a the deflection influence of the hinge angles at `at`. A
+    clamped far end holds both the end deflection and the end slope (ENG-022, ruling 16)."""
+    chain = _member_chain(root, end, segments, length)
+    stiffness, mass, basis = _matrices(chain, flexural_rigidity, mass_per_length)
+    if end == "clamped":
+        basis = linalg.null_space(np.vstack([_influence(chain, length), np.ones(len(chain.hinges))]))
+    influence = _influence(chain, at)
+    mass = mass + carried_mass * np.outer(influence, influence)
+    values = linalg.eigh(basis.T @ stiffness @ basis, basis.T @ mass @ basis, eigvals_only=True)
+    return math.sqrt(max(float(values[0]), 0.0))
+
+
+def node_damping(ratio: float, omega: float, node_stiffness: float) -> float:
+    """The node damper c (N m s/rad) that gives the chain's first bending mode the modal damping ratio `ratio`.
+
+    Derivation (stiffness-proportional damping, ruling 78). The chain in its hinge angles theta is
+    M theta'' + C theta' + K theta = 0 with K = k diag(spring nodes), k = E I / l, and the engine puts the damper c on
+    the same nodes (a pinned root's pin has neither), so C = beta K with beta = c / k; a clamped far end or a roller
+    restricts theta to a basis B, and B^T C B = beta B^T K B still. Then the undamped modes phi_n of (K, M) diagonalise
+    C: phi_n^T C phi_n = beta omega_n^2 m_n = 2 zeta_n omega_n m_n, so zeta_n = beta omega_n / 2 exactly. Choosing
+    beta = 2 zeta / omega_1, omega_1 the chain's own first mode for its supports and section (unloaded), gives
+    zeta_1 = zeta and zeta_n = zeta omega_n / omega_1 above it; c = beta k = 2 zeta k / omega_1. A carried mass adds to
+    M only, so C = beta K holds and the loaded first mode omega_c < omega_1 gets zeta omega_c / omega_1."""
+    return 2.0 * ratio * node_stiffness / omega
+
+
+def lowest_carried_frequency(
+    root: str,
+    end: str,
+    segments: int,
+    length: float,
+    flexural_rigidity: float,
+    mass_per_length: float,
+    carried_mass: float,
+) -> tuple[float, float]:
+    """The lowest loaded first frequency (rad/s) over the span and the foot position (m) giving it, with the carried
+    mass at 4 N + 1 evenly spaced points of [0, L]."""
+    count = 4 * segments
+    lowest = math.inf
+    where = 0.0
+    for index in range(count + 1):
+        at = length * index / count
+        omega = loaded_first_frequency(
+            root, end, segments, length, flexural_rigidity, mass_per_length, carried_mass, at
+        )
+        if omega < lowest:
+            lowest = omega
+            where = at
+    return lowest, where
 
 
 CALIBRATION_MIN_SEGMENTS = 8

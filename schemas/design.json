@@ -1060,6 +1060,24 @@
           "title": "Carries",
           "type": "array"
         },
+        "damping_ratio": {
+          "anyOf": [
+            {
+              "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s+\\S.*)?$",
+              "type": "string"
+            },
+            {
+              "pattern": "^\\$\\{[a-z][a-z0-9_]*\\}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "modal damping ratio of the first bending mode, dimensionless in [0, 1) (DES-047, ruling 78); absent: undamped, the member's ringing set by the integration scheme",
+          "title": "Damping Ratio"
+        },
         "section": {
           "anyOf": [
             {
