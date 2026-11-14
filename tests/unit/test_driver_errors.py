@@ -27,6 +27,7 @@ from mechsim.testing.schema import DESIGNS_ROOT, ROOT
 G3 = ROOT / "test_cases" / "gantry" / "G3.yaml"
 P1 = ROOT / "test_cases" / "pendulum" / "P1_period.yaml"
 TICKS = 5
+BRIDGE = {"physics.adapter": "mujoco"}
 
 
 class ShortDriver(CoreDriver):
@@ -73,16 +74,16 @@ def _self_locking_lift(transmissions: tuple[Any, ...]) -> tuple[Any, ...]:
     return tuple(swapped)
 
 
-def _lashed(design: Design, adapter: str = "mujoco") -> BuildResult:
-    built = core_builder(design)
+def _lashed(design: Design, adapter: str = "native") -> BuildResult:
+    built = core_builder(design, adapter)
     assert built.physics is not None
     locked = _self_locking_lift(built.physics.transmissions)
     return built.model_copy(update={"physics": built.physics.model_copy(update={"transmissions": locked})})
 
 
-def _off_inertia(design: Design, adapter: str = "mujoco") -> BuildResult:
+def _off_inertia(design: Design, adapter: str = "native") -> BuildResult:
     """The x shaft body's axial inertia 1e-6 relative off the motor's rotor inertia, over the 1e-9 tolerance."""
-    built = core_builder(design)
+    built = core_builder(design, adapter)
     assert built.physics is not None
     bodies = []
     for body in built.physics.bodies:
@@ -93,12 +94,12 @@ def _off_inertia(design: Design, adapter: str = "mujoco") -> BuildResult:
     return built.model_copy(update={"physics": built.physics.model_copy(update={"bodies": tuple(bodies)})})
 
 
-def _prepared_driver(case: Path, builder: Any = core_builder) -> CoreDriver:
+def _prepared_driver(case: Path, builder: Any = core_builder, bindings: dict[str, str] | None = None) -> CoreDriver:
     prepared = prepare(case)
-    result = run_case(case, _services(builder), dry=True)
+    result = run_case(case, _services(builder), bindings, dry=True)
     assert result.config is not None
     driver = CoreDriver()
-    driver.load(builder(prepared.design), prepared.case)
+    driver.load(builder(prepared.design, result.config.physics_adapter), prepared.case)
     driver.configure(result.config)
     driver.set_initial_state(prepared.case.initial_state)
     for command in result.commands:
@@ -114,11 +115,13 @@ def _prepared_driver(case: Path, builder: Any = core_builder) -> CoreDriver:
 @pytest.mark.req("TST-023")
 @pytest.mark.req("PHY-019")
 def test_an_unmappable_design_is_a_driver_error_and_a_run_error_score() -> None:
-    driver = _prepared_driver(G3, _lashed)
+    """A bridge test (PHY-019): the self-locking screw is the element only the bridge cannot map, so the run is
+    on the bridge by `physics.adapter` (TST-040)."""
+    driver = _prepared_driver(G3, _lashed, BRIDGE)
     with pytest.raises(DriverError, match="self-locking") as raised:
         driver.run(EndSpec(max_tick=TICKS, at_tick=TICKS))
     assert isinstance(raised.value.__cause__, UnmappableElementError)
-    _run_failed(run_case(G3, _services(_lashed)), "self-locking")
+    _run_failed(run_case(G3, _services(_lashed), BRIDGE), "self-locking")
 
 
 @pytest.mark.req("TST-023")
@@ -211,9 +214,10 @@ def test_every_stepper_gets_its_shaft_body_and_axial_inertia() -> None:
 @pytest.mark.req("SCO-013")
 def test_bridge_approximations_reach_the_report_the_score_and_the_suite_text(tmp_path: Path) -> None:
     """ADR 0003: the gantry's belts and screw are finite-stiffness transmissions the bridge maps rigid, so its
-    translation report holds lines; each reaches the run report, the score and the printed text."""
+    translation report holds lines; each reaches the run report, the score and the printed text. A bridge test: both
+    runs are on the bridge by `physics.adapter` (TST-040)."""
     services = Services(ShortDriver, core_builder, RecordArchiver(DESIGNS_ROOT))
-    result = run_case(G3, services, out_dir=tmp_path)
+    result = run_case(G3, services, BRIDGE, out_dir=tmp_path)
     assert result.report is not None
     assert not result.report.errored, result.report.error
     lines = result.report.approximations
@@ -226,7 +230,7 @@ def test_bridge_approximations_reach_the_report_the_score_and_the_suite_text(tmp
     assert result.archive is not None
     read, _ = RecordArchiveReader().open(result.archive)
     assert read.report.approximations == lines
-    pendulum = run_case(P1, _services())
+    pendulum = run_case(P1, _services(), BRIDGE)
     assert pendulum.score.approximations == ()
     assert "approximation:" not in report_text(SuiteScore("P1", pendulum.score.design, (pendulum.score,)))
 

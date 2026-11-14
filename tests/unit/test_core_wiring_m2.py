@@ -101,8 +101,9 @@ def test_payload_body_refusals(built: object, name: str, carrier: str, mass: flo
 
 
 @pytest.mark.req("BLD-036")
-def test_payload_follows_its_carrier_to_the_start_configuration(built: object) -> None:
-    model = with_payload(built.physics, "payload", "hook", 1.0)  # type: ignore[attr-defined]
+def test_payload_follows_its_carrier_to_the_start_configuration() -> None:
+    bridge = core_builder(prepare(G3).design, "mujoco")
+    model = with_payload(bridge.physics, "payload", "hook", 1.0)  # type: ignore[arg-type]
     plain = prepare_model(model, {}, 0.001, {"payload": "hook"}).mjcf
     lifted = prepare_model(model, {"lift_axis": 0.1}, 0.001, {"payload": "hook"}).mjcf
     import xml.etree.ElementTree as ET

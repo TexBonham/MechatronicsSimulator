@@ -2,6 +2,7 @@
 
 import itertools
 import math
+from collections.abc import Callable
 from dataclasses import replace
 from pathlib import Path
 from typing import Any
@@ -16,7 +17,6 @@ from mechsim.testing.schema import ROOT
 PENDULUM_CASE = ROOT / "test_cases" / "pendulum" / "P1_period.yaml"
 GANTRY_CASES = ROOT / "test_cases" / "gantry"
 _VIEWS: dict[str, CoreDriver] = {}
-GANTRY_RUNS = ("G1", "G2", "G3", "G4", "G5", "G6", "G7", "G8", "G9", "G10", "G11", "G13", "G14")
 BRIDGE = {"physics.adapter": "mujoco"}
 # G5 and G6 change the payload's mass mid-run; on the native adapter the payload hangs on its rope and the adapter
 # refuses a mass change on a body it does not hold as a welded payload ("set_payload_mass: body 10 is not a payload",
@@ -25,25 +25,53 @@ BRIDGE_RUNS = ("G5", "G6")
 
 
 # ===== Fixtures and helpers =================================================
+class _Runs(dict[str, Any]):
+    """Runs a case on first access and keeps it for the module, so a filtered run (`-k`) runs only the cases its
+    tests read."""
+
+    def __init__(self, run: Callable[[str], Any]) -> None:
+        super().__init__()
+        self._run = run
+
+    def __missing__(self, case: str) -> Any:
+        self[case] = self._run(case)
+        return self[case]
+
+
+def _gantry_run(case: str) -> RunResult:
+    services = core_services()
+    driver = CoreDriver()
+    _VIEWS[case] = driver
+    bindings = None
+    if case in BRIDGE_RUNS:
+        bindings = BRIDGE
+    result = run_case(GANTRY_CASES / f"{case}.yaml", Services(lambda: driver, services.builder), bindings, None)
+    assert result.report is not None, result.score
+    return result
+
+
 @pytest.fixture(scope="module")
 def gantry() -> dict[str, RunResult]:
-    """G1 to G14 (G12 is `native_gantry`'s) once each through the real stack (gantry design, builder, the default
-    native adapter, kernel, signal layer, native gantry firmware, recorder, scoring); placeholder defaults for every
-    open parameter (DES-044); `BRIDGE_RUNS` on the bridge. A case whose run errors fails its own tests (`_passes`),
-    not every case's."""
-    results: dict[str, RunResult] = {}
+    """G1 to G14 (G12 is `native_gantry`'s), each once and on first use, through the real stack (gantry design,
+    builder, the default native adapter, kernel, signal layer, native gantry firmware, recorder, scoring); placeholder
+    defaults for every open parameter (DES-044); `BRIDGE_RUNS` on the bridge. A case whose run errors fails its own
+    tests (`_passes`), not every case's."""
+    return _Runs(_gantry_run)
+
+
+def _bridge_run(case: str) -> RunResult:
     services = core_services()
-    for case in GANTRY_RUNS:
-        driver = CoreDriver()
-        _VIEWS[case] = driver
-        bindings = None
-        if case in BRIDGE_RUNS:
-            bindings = BRIDGE
-        results[case] = run_case(
-            GANTRY_CASES / f"{case}.yaml", Services(lambda d=driver: d, services.builder), bindings, None
-        )
-        assert results[case].report is not None, results[case].score
-    return results
+    driver = CoreDriver()
+    result = run_case(GANTRY_CASES / f"{case}.yaml", Services(lambda: driver, services.builder), BRIDGE, None)
+    assert result.report is not None, result.score
+    return result
+
+
+@pytest.fixture(scope="module")
+def bridge_gantry() -> dict[str, RunResult]:
+    """The milestone 2 cases on the MuJoCo bridge (`physics.adapter: mujoco`, TST-040), each once and on first use,
+    for the bridge's own requirement (PHY-016) while the bridge stays (ADR 0004)."""
+    return _Runs(_bridge_run)
 
 
 @pytest.fixture(scope="module")
@@ -512,7 +540,7 @@ HOOK_ON_LIMIT = 0.54
 @pytest.fixture(scope="module")
 def native_gantry(tmp_path_factory: pytest.TempPathFactory) -> dict[str, tuple[RunResult, CoreDriver]]:
     out = tmp_path_factory.mktemp("native_gantry")
-    return {case: _native_run(case, out) for case in ("G12", "G15")}
+    return _Runs(lambda case: _native_run(case, out))
 
 
 def _native_run(case: str, out: Path) -> tuple[RunResult, CoreDriver]:
@@ -1300,14 +1328,15 @@ def test_acc_045() -> None:
 
 # ===== PHY-016 ==============================================================
 @pytest.mark.req("PHY-016")
-def test_phy_016(gantry: dict[str, RunResult]) -> None:
+def test_phy_016(bridge_gantry: dict[str, RunResult]) -> None:
     """The MuJoCo adapter shall carry the milestone 2 acceptance cases, G5 to G11, G13 and G14.
 
-    Each case runs on the MuJoCo bridge through the whole stack without a run error and every criterion of it passes
-    (the per-requirement tests above assert what each criterion means).
+    Each case runs on the MuJoCo bridge (`physics.adapter: mujoco`; the native adapter is the default since M3-X2)
+    through the whole stack without a run error and every criterion of it passes (the per-requirement tests above
+    assert what each criterion means, on the default adapter).
     """
     for case in ("G5", "G6", "G7", "G8", "G9", "G10", "G11", "G13", "G14"):
-        result = gantry[case]
+        result = bridge_gantry[case]
         report = result.report
         assert report is not None, result.score
         assert not report.errored, f"{case}: {report.error}"

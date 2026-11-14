@@ -151,8 +151,11 @@ def test_archive_round_trip_without_the_engine(tmp_path: Path) -> None:
     assert read == metadata
     assert view.times() == driver.recording().times()
     assert view.series("joint:pivot.position") == driver.recording().series("joint:pivot.position")
-    # The pendulum maps exactly, so the bridge reports no approximation; the list still rides in the archive.
-    assert view.approximations == driver.recording().approximations == ()
+    # The pendulum runs on the default native adapter, whose report names the adapter and its scheme (TST-040); the
+    # list rides in the archive unchanged.
+    assert view.approximations == driver.recording().approximations
+    assert view.approximations[0] == "physics adapter: native"
+    assert len(view.approximations) == 2
     with RunArchive(path) as archive:
         assert archive.identity.controller_mode == "none"
         assert archive.identity.design_file == (DESIGNS_ROOT / "pendulum" / "design.yaml").read_bytes()
@@ -288,7 +291,7 @@ def test_prepared_model_keeps_the_report_and_places_starts_exactly() -> None:
     """ADR 0003: the gantry's belts are finite-stiffness transmissions the bridge maps rigid, so the report
     is not empty. A slide start shifts the child body along its axis by the start and sets `ref`; the shift is
     exact (one product of SI floats)."""
-    built = core_builder(gantry()).physics
+    built = core_builder(gantry(), "mujoco").physics
     assert built is not None
     assert [item.backlash for item in built.transmissions] == [0.0, 0.0, 0.0]
     locked = _self_locking_lift(built.transmissions)

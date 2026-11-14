@@ -1,5 +1,6 @@
 """Acceptance tier stubs for the physics adapter spec (PHY), strict xfail until converted."""
 
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -49,9 +50,9 @@ def test_phy_023() -> None:
     summary = run.stdout.strip().splitlines()[-1]
     print(f"reference tier on native: {summary}")
     assert run.returncode == 0, run.stdout[-4000:]
-    assert " passed" in summary
-    assert "failed" not in summary
-    assert "error" not in summary
+    assert re.search(r"\b\d+ passed\b", summary) is not None
+    assert re.search(r"\b\d+ failed\b", summary) is None
+    assert re.search(r"\b\d+ errors?\b", summary) is None
 
 
 FULL_STEP_TRAVEL = 0.04 / 200.0

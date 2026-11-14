@@ -30,6 +30,7 @@ CRITERION = """  - name: safety_factor_rail_x
     comparison: at_least
     limit: "1.5"
 """
+BRIDGE = "physics:\n  adapter: mujoco\n"
 ORIGINAL = ("motor_power_off", "x_no_steps", "y_no_steps", "lift_no_steps")
 
 
@@ -47,10 +48,9 @@ def _report(out: Path) -> dict[str, object]:
 
 @pytest.mark.req("INT-005", "INT-006", "SCO-029")
 def test_a_bridge_run_reports_rigid_members_not_evaluated_and_scores_its_criteria(tmp_path: Path) -> None:
+    text = G8.read_text(encoding="utf-8").replace("\ncriteria:\n", "\ncriteria:\n" + CRITERION)
     case = tmp_path / "G8.yaml"
-    case.write_text(
-        G8.read_text(encoding="utf-8").replace("\ncriteria:\n", "\ncriteria:\n" + CRITERION), encoding="utf-8"
-    )
+    case.write_text(text.replace("controller_mode: native\n", "controller_mode: native\n" + BRIDGE), encoding="utf-8")
     out = _run(case, tmp_path)
     assert "run error" not in out
     for name in ORIGINAL:
@@ -58,7 +58,10 @@ def test_a_bridge_run_reports_rigid_members_not_evaluated_and_scores_its_criteri
     assert "  error safety_factor_rail_x:" in out
     assert "safety_factor:rail_x: not evaluated by integrity" in out
     report = _report(tmp_path)
-    assert report["notes"] == [
+    notes = report["notes"]
+    assert isinstance(notes, list)
+    assert notes[0].startswith("integrity evaluation from 9 s (integrity.evaluate_from)")
+    assert notes[1:] == [
         f"member {member!r}: strength, deflection, buckling, impact not evaluated, the member is built rigid and "
         "the run recorded no end-loads or node poses (rulings 29, 34)"
         for member in ("rail_x", "rail_y")
@@ -87,9 +90,11 @@ def _stub_bound(inputs: RunInputs, member: str) -> float:
 def test_the_same_case_on_the_native_adapter_evaluates_every_member(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    text = G8.read_text(encoding="utf-8").replace(
-        "controller_mode: native\n", "controller_mode: native\nphysics:\n  adapter: native\n"
-    )
+    # The stub note needs a carried load inside rail_x's clamped root half segment, which G8 reaches only while
+    # homing; the suite's evaluation start (9 s, `test_cases/gantry/README.md`) would exclude it, so this copy judges
+    # from the release as the case did before the start was derived.
+    text = G8.read_text(encoding="utf-8").replace("integrity:\n  evaluate_from: 9 s\n", "")
+    assert "evaluate_from" not in text
     case = tmp_path / "G8.yaml"
     case.write_text(text, encoding="utf-8")
     seen: list[RunInputs] = []
