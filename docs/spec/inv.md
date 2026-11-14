@@ -50,7 +50,7 @@ proposed <value>)".
 | INV-017 | A stub that passes without being converted shall fail the test run. | Ruling T3; ADR 0008, Consequences | M1 | invariant | n/a |
 | INV-018 | Every test tolerance shall be stated in a spec, and a tolerance shall change only by a reviewed spec edit. | Ruling T4; ADR 0008, Decision, Tolerances | M1 | invariant | n/a |
 | INV-019 | CI shall run lint, type checks and every test tier headless on Ubuntu. | Ruling R1; ADR 0012 (R1); ADR 0006, Consequences | M1 | invariant | n/a |
-| INV-020 | The cpp, python and firmware CI workflows shall each run on both `ubuntu-24.04` and `windows-2022`, with the python job's lint, type and test steps identical on both. | Ruling R1; open ruling 5 (Windows only, macOS out); brief M2-W | M2 | invariant | n/a |
+| INV-020 | The cpp, python and firmware CI workflows shall each run on both `ubuntu-24.04` and `windows-2022`, with the python job's lint, type and test steps identical on both; the long-run test tier (the `long_run` marker: whole gantry runs, the G16 sweep, the G1 to G16 batch) runs in one further Linux job, so the two main jobs run every other test (brief M3-X2b). | Ruling R1; open ruling 5 (Windows only, macOS out); brief M2-W | M2 | invariant | n/a |
 
 ## Open parameters
 
