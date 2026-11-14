@@ -42,6 +42,7 @@ from mechsim.schema_base import format_errors
 from mechsim.scoring.score import (
     CaseScore,
     ScoringError,
+    StepperDrive,
     SuiteScore,
     not_run,
     regression_diff,
@@ -748,7 +749,15 @@ def run_case(
         if integrity is not None:
             write_beside(archive, integrity, recording, metadata)
     score = score_run(
-        case, recording, report, prepared.limits, variant.sweep, identity, integrity, design_gravity(build.design)
+        case,
+        recording,
+        report,
+        prepared.limits,
+        variant.sweep,
+        identity,
+        integrity,
+        design_gravity(build.design),
+        stepper_drives(build),
     )
     return RunResult(_scored(score, variant), report, metadata, archive, config, tuple(commands), tuple(faults))
 
@@ -760,6 +769,60 @@ def design_gravity(design: Design) -> tuple[float, float, float] | None:
     if len(values) != 3:
         return None
     return (values[0], values[1], values[2])
+
+
+STEPPER = "stepper_behavioral"
+STEP_DIR_DRIVER = "step_dir_driver"
+
+
+def stepper_drives(build: BuildResult) -> tuple[StepperDrive, ...]:
+    """Each stepper motor instance of the build as scoring reads it (SCO-031, SCO-032): its part's catalog data
+    after the run's overrides and part substitution (LIB-016, LIB-017), its shaft joint, the step and direction driver
+    wired to its coils with that driver's microsteps, and the transmission on its shaft; empty for a build without a
+    wiring table."""
+    wiring = getattr(build, "wiring", None)
+    if wiring is None:
+        return ()
+    instances = {item.name: item for item in wiring.instances}
+    drivers: dict[str, str] = {}
+    for wire in build.design.wiring:
+        source = wire.source.split(".")[0]
+        destination = wire.destination.split(".")[0]
+        if source not in instances or destination not in instances:
+            continue
+        if instances[source].type == STEP_DIR_DRIVER and instances[destination].type == STEPPER:
+            drivers.setdefault(destination, source)
+    out: list[StepperDrive] = []
+    for instance in wiring.instances:
+        if instance.type != STEPPER:
+            continue
+        shafts = [mount.joint for mount in instance.mounts if mount.kind == "shaft" and mount.joint is not None]
+        if len(shafts) == 0:
+            continue
+        shaft = shafts[0]
+        transmission: str | None = None
+        for other in wiring.instances:
+            if other.category == "transmission" and any(mount.joint == shaft for mount in other.mounts):
+                transmission = other.name
+                break
+        driver = drivers.get(instance.name)
+        microsteps = 1
+        if driver is not None:
+            microsteps = int(instances[driver].parameters["microsteps"])
+        out.append(
+            StepperDrive(
+                motor=instance.name,
+                part=instance.part,
+                shaft_joint=shaft,
+                step_angle=float(instance.parameters["step_angle"]),
+                holding_torque=float(instance.parameters["holding_torque"]),
+                torque_speed=tuple(instance.torque_speed),
+                driver=driver,
+                microsteps=microsteps,
+                transmission=transmission,
+            )
+        )
+    return tuple(out)
 
 
 def _sweep_value(variant: Variant) -> str | None:
