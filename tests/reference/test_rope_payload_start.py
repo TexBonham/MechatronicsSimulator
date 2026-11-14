@@ -2,11 +2,11 @@
 on a rope from a fixed hook, built through the driver's path (`with_payload`, then `prepare_model` and the native
 adapter).
 
-Why the start is the static stretch and not the unstretched rope: the engine decides each segment slack or taut at
-the step start and a segment at exactly its rest length is slack, so an unstretched chain carries nothing in its
-first step; the taut front then walks down one segment per step while the load free-falls for N - 1 steps, and the
-load-end segment (stiffness N EA / L) meets the accumulated drop. On this rope that read 3750 N for 1 kg. At the
-static stretch every segment starts taut and the release is the static load from the first step.
+Why the start is the static stretch and not the unstretched rope: a hanging payload at rest is a statically
+consistent start, and an unstretched release is not a load case: under ENG-047's taut-set rule (brief M3-E8) it gives
+the scheme's step response, a peak of at most 2 M g; under the retired start-of-step rule it read 3750 N for 1 kg on
+this rope (the defect brief M3-B3 traced, ruling 87). At the static stretch every segment starts taut and the release
+is the static load from the first step.
 
 Closed forms. Segment k of N (from the top, l = L / N) carries T_k = (m + mu l / 2 + (N - k) mu l) g: the load, the
 load end's half-segment share and the N - k nodes below it. The stretches T_k l / EA sum to the payload's drop

@@ -50,11 +50,15 @@ using mechsim::engine::test::mechanical_energy;
 // scheme, asserted step by step below). A drop d onto a slack rope: (1/2) k e^2 <= M g (d + e) at any later time, so
 // T = k e <= M g (1 + sqrt(1 + 2 d k / (M g))); d = 0 gives 2 M g. A load at static stretch given an upward speed u:
 // (1/2) k e^2 - M g e <= (1/2) M u^2 - (1/2) k e_s^2, so T <= M g + u sqrt(M k), however long the rope is slack.
-// Eight segments: the interior node masses mu L / 8 on segment stiffness 8 k have x = sqrt(16 k / (mu L / 8)) h >= 5.6
-// at 0.1 ms, so the scheme removes at least 1 - rho^2 > 0.96 of their energy per step; the chain acts as the series
-// spring k carrying the load and the node weights. Its modes other than the load's carry at most the rope's own
-// weight mu L g statically, and a step response at most doubles a static share, so the bounds hold with M = m + mu L
-// plus 2 mu L g, and the scheme value with M = m less 2 mu L g is a floor.
+// Eight segments (scheme-dependent brackets, not bounds): the interior node masses mu L / 8 on segment stiffness 8 k
+// have x = sqrt(16 k / (mu L / 8)) h >= 5.6 at 0.1 ms for a single node between fixed neighbours, and the chain's
+// lowest internal mode still has x about 2.2 (rho^2 about 0.17), so backward Euler removes most of the node modes'
+// energy every step and the chain acts as the series spring k carrying the load and the node weights. Those modes
+// carry at most the rope's own weight mu L g statically; the brackets below take twice that share as their margin
+// (M = m + mu L plus 2 mu L g above, the scheme value with M = m less 2 mu L g as a floor). Twice a static share is
+// what a one-degree-of-freedom step response gives, not a bound for a chain (modal superposition could exceed it by
+// up to sqrt(N) under an undamped scheme); the brackets hold because the scheme damps the node modes, and are
+// re-derived if the integrator changes (ADR 0013's second-order tier).
 // Speed at going taut: v_{N-1} = (N - 1) g h < sqrt(2 g d) (step N - 1 had not reached the rest length) and
 // v_N = N g h >= sqrt(2 g d + (g h / 2)^2) - g h / 2 (step N reached it), so abs(v_{N-1} - sqrt(2 g d)) <= 1.5 g h.
 

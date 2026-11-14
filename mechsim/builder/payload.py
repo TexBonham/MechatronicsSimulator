@@ -16,9 +16,9 @@ payload's joint reaction reads the rope's top; the payload a free body on `<name
 plus the rope's `to_point` below the shackle along gravity by the rope's rest length plus its static stretch
 (`static_stretch`: (m + mu L / 2) g L / EA) with the carrier at the run's start coordinates (`starts`, joint name to
 coordinate: the engine builds the rope between its end points at the start configuration), so the rope starts straight
-and taut at its static load (brief M3-B3: an unstretched start is slack in the engine's first step, the taut front walks
-down one segment per step and the falling load meets the rope with kilonewtons); the rope from the shackle to that
-point. The run never welds a rope payload.
+and taut at its static load (brief M3-B3: a statically consistent start; an unstretched release is not a load case and
+would give the ENG-047 step response, at most 2 M g, under the taut-set rule of brief M3-E8); the rope from the shackle
+to that point. The run never welds a rope payload.
 """
 
 from __future__ import annotations
