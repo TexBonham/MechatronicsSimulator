@@ -24,6 +24,7 @@ def test_phy_015() -> None:
 
 
 @pytest.mark.req("PHY-023")
+@pytest.mark.long_run
 def test_phy_023() -> None:
     """The MuJoCo retirement check shall pass only when the native adapter passes the whole analytical suite.
 
