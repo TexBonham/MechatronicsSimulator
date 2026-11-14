@@ -1425,7 +1425,16 @@ def test_acc_037() -> None:
 
 
 @pytest.mark.req("ACC-038")
-@pytest.mark.xfail(strict=True, reason="stub")
+@pytest.mark.xfail(
+    strict=True,
+    reason="not convertible (brief M3-X2c): the shipped parts' torque_speed_curve points are placeholders with no "
+    "datasheet assigned (stepper_behavioral.yaml: nema17_class_generic, nema23_class_generic), so there is no "
+    "published curve to match; and the behavioral stepper takes that table as its pull-out limit (SIG-033: pull-out "
+    "when the drive torque exceeds table(abs(omega)) or the lead exceeds two step angles), so a measured pull-out "
+    "torque reads the input table back and cannot test it against an independent curve; the only design with a "
+    "stepper is the gantry, which has no case that loads a shaft at constant speed to pull-out. Owed: a datasheet "
+    "curve (owner) and a measurement independent of the table (the electrical tier, phase current against back EMF)",
+)
 def test_acc_038() -> None:
     """Acceptance criterion 3, rewritten: the stepper's pull-out torque shall match its published curve
     within tolerance.
