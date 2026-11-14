@@ -455,9 +455,10 @@ class _Columns(Protocol):
 class _StepperView:
     """The record view plus two stepper quantities per motor (SCO-031, SCO-032), from the run's `StepperDrive`s:
     `missed_steps:<motor>` (full steps) at every sample, the commanded angle (the signed sum of the driver's step pin
-    microsteps, sense from its dir pin, times step_angle / microsteps) less the rotor's travel from its first sample,
-    over the step angle, less the drive's own lead (2 / pi) asin(tau / T_hold), tau the drive torque read back
-    (`signal:<motor>.torque`), clipped to the holding torque; `torque_margin:<motor>` (N m) at every sample, the part's
+    microsteps, sense from its dir pin, times step_angle / microsteps) less the rotor's travel, over the step angle,
+    less the drive's own lead (2 / pi) asin(tau / T_hold), tau the drive torque read back (`signal:<motor>.torque`),
+    clipped to the holding torque, each relative to its value at the first sample (a motor holding a load at t = 0
+    reads 0 there); `torque_margin:<motor>` (N m) at every sample, the part's
     curve at the shaft joint's recorded speed less abs(the transmission's recorded shaft load torque). A motor the run
     does not describe, without a step and direction driver, without a rotor series or without a load torque column is
     unevaluable, naming the motor (invariant 7). Other refs go to the recording.
@@ -573,7 +574,8 @@ class _StepperView:
             ratio = max(-1.0, min(1.0, drive / stepper.holding_torque))
             lead = 2.0 / math.pi * math.asin(ratio)
             values.append((commanded - (angle - start)) / stepper.step_angle - lead)
-        return Series(tuple(rotor.times), tuple(values), "")
+        first = values[0]
+        return Series(tuple(rotor.times), tuple(value - first for value in values), "")
 
     def _margin(self, reference: str, stepper: StepperDrive) -> Series:
         speed = self._read(reference, f"joint:{stepper.shaft_joint}.velocity", "shaft speed")

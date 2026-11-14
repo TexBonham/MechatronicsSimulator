@@ -285,3 +285,21 @@ def test_an_evaluation_start_past_the_last_sample_is_unevaluable() -> None:
         assert result.note is not None
         assert "no sample at or after the evaluation start 3.5 s" in result.note
     assert score.notes == ()
+
+
+@pytest.mark.req("SCO-031")
+def test_missed_steps_count_from_the_first_sample_of_a_motor_holding_a_load() -> None:
+    # A static start: the first sample already carries 4 microsteps (1 full step commanded) and a drive torque of
+    # HOLD sin(pi / 4) (lead 0.5 step) with the rotor at rest. Raw values: 1 - 0 - 0.5 = 0.5, then (1 more step
+    # commanded, rotor 1 step on, same torque) 2 - 1 - 0.5 = 0.5, (torque 0) 2 - 1 - 0 = 1, (rotor 2 steps on, torque
+    # HOLD sin(pi / 4)) 2 - 2 - 0.5 = -0.5. Relative to the first sample: 0, 0, 0.5, -1.
+    rotor = [0.0, STEP, STEP, 2.0 * STEP]
+    held = HOLD * math.sin(math.pi / 4.0)
+    recording = _recording([4.0, 4.0, 0.0, 0.0], [1.0] * 4, rotor, [held, held, 0.0, held])
+    for statistic, measured, worst in (("final", -1.0, 3.0), ("maximum", 0.5, 2.0)):
+        result = _score("missed_steps:m", statistic, "at_most", "5", recording)
+        print(f"held start missed steps {statistic}: expected {measured}, measured {result.measured}")
+        assert result.measured == pytest.approx(measured, abs=1e-12)
+        assert result.worst_time == worst
+    first = _score("missed_steps:m", "final", "at_most", "5", recording, window={"end": "0.5 s"})
+    assert first.measured == 0.0

@@ -31,7 +31,10 @@ nothing.
   pins less rotor travel, over the step angle, less the lead (2 / pi) asin(tau / T_hold)) and `torque_margin:<motor>`
   (N m: `available_torque(curve, omega)` less abs(shaft load torque column of the motor's transmission)) through
   `_StepperView`, from `score_run(..., stepper_drives=)` (`StepperDrive`, built by `runner.stepper_drives(build)`);
-  a value criterion on one gets note `part <part>`; no description, driver, rotor or load column is unevaluable.
+  each count relative to the first sample; a value criterion on one gets note `part <part>`; no description, driver,
+  rotor or load column is unevaluable. Window (ruling 91): both start at the first sample at or after the case's
+  `integrity.evaluate_from` (TST-044), missed steps differenced there; with a start above 0 a `note:` line per motor
+  a criterion reads gives the missed steps at the start and the least margin before it (`_StepperView.before_line`).
 - Not valid (SCO-029, rulings 69, 72): `RecordingView.validity` flagged members: `safety_factor:` and a history-less `deflection:` unevaluable with `CarriedValidity.reason()`; a deflection history NaN after the flag time (`read_not_valid` names the reason); `integrity_not_valid` events are crossing lines with the reason and make an otherwise passing or errored case errored (`CaseScore.error` the reason).
 - Crossings (SCO-015): each `integrity` event whose detail states tier 1 (ruling 26) is a `crossings` line (report `integrity crossing:`); a passing case
   with one fails; not baselined.
