@@ -47,14 +47,20 @@ class _WithColumns(FakeRecording):
         return super().series(reference)
 
 
-def _recording(steps: list[float], dirs: list[float], rotor: list[float], torque: list[float]) -> FakeRecording:
+def _recording(
+    steps: list[float],
+    dirs: list[float],
+    rotor: list[float],
+    torque: list[float],
+    speeds: tuple[float, ...] = (0.0, 5.0, -15.0, 25.0),
+) -> FakeRecording:
     return recording_from(
         TIMES,
         {
             "signal:drv.step": steps,
             "signal:drv.dir": dirs,
             "joint:spin.position": rotor,
-            "joint:spin.velocity": [0.0, 5.0, -15.0, 25.0],
+            "joint:spin.velocity": list(speeds),
             "signal:m.torque": torque,
         },
     )
@@ -67,20 +73,23 @@ def _score(quantity: str, statistic: str, comparison: str, limit: str, recording
 
 @pytest.mark.req("SCO-031")
 def test_missed_steps_is_the_commanded_angle_less_the_rotor_travel_less_the_lead() -> None:
-    # Microstep STEP / 4. Commanded: +4, +4 (dir high), then 2 back (dir low): 0, 1, 2, 1.5 full steps. Rotor from
-    # its first sample 0.5 rad: travel 0, 1, 1, 1.5 steps. Drive torque 0, HOLD sin(pi / 4) (lead (2 / pi)(pi / 4)
-    # = 0.5 step), 0, then 2 HOLD clipped to HOLD (lead 1 step). Missed: 0, 1 - 0 - 0.5, 2 - 1 - 0, 1.5 - 1.5 - 1.
-    rotor = [0.5, 0.5 + STEP, 0.5 + STEP, 0.5 + 1.5 * STEP]
-    torque = [0.0, HOLD * math.sin(math.pi / 4.0), 0.0, 2.0 * HOLD]
-    recording = _recording([0.0, 4.0, 4.0, 2.0], [1.0, 1.0, 1.0, 0.0], rotor, torque)
-    for statistic, measured, worst in (("final", -1.0, 3.0), ("maximum", 1.0, 2.0), ("minimum", -1.0, 3.0)):
+    # Microstep STEP / 4. Commanded: +4, +4 (dir high), then none: 0, 1, 2, 2 full steps. Rotor from its first sample
+    # 0.5 rad: travel 0, 1, 1, 2 steps. Drive torque 0, HOLD sin(pi / 4) (lead (2 / pi)(pi / 4) = 0.5 step), 0, 0.
+    # Missed: 0, 1 - 1 - 0.5, 2 - 1 - 0, 2 - 2 - 0. The first and last samples are at rest (no microstep, speed 0).
+    rotor = [0.5, 0.5 + STEP, 0.5 + STEP, 0.5 + 2.0 * STEP]
+    torque = [0.0, HOLD * math.sin(math.pi / 4.0), 0.0, 0.0]
+    recording = _recording([0.0, 4.0, 4.0, 0.0], [1.0, 1.0, 1.0, 0.0], rotor, torque, (0.0, 5.0, -15.0, 0.0))
+    for statistic, measured, worst in (("final", 0.0, 3.0), ("maximum", 1.0, 2.0), ("minimum", -0.5, 1.0)):
         result = _score("missed_steps:m", statistic, "at_most", "5", recording)
         print(f"missed steps {statistic}: expected {measured}, measured {result.measured}")
         assert result.measured == pytest.approx(measured, abs=1e-12)
         assert result.worst_time == worst
         assert result.note == "part small_part"
-    whole = _score("missed_steps:m", "final", "within", "0.25", recording, target="-1")
+    whole = _score("missed_steps:m", "final", "within", "0.25", recording, target="0")
     assert whole.status == "pass"
+    moving = _recording([0.0, 4.0, 4.0, 2.0], [1.0] * 4, rotor, torque)
+    stopped = _score("missed_steps:m", "final", "at_most", "5", moving)
+    assert (stopped.status, stopped.note) == ("error", "missed_steps:m: motor 'm' is not at rest at the final sample 3 s")
 
 
 @pytest.mark.req("SCO-031")
@@ -204,10 +213,11 @@ def test_a_stepper_quantity_must_name_a_component_of_the_design() -> None:
     assert "unknown component 'nothing'" in problems[1]
 
 
-def _windowed_recording() -> _WithColumns:
-    rotor = [0.5, 0.5 + STEP, 0.5 + STEP, 0.5 + 1.5 * STEP]
-    torque = [0.0, HOLD * math.sin(math.pi / 4.0), 0.0, 2.0 * HOLD]
-    base = _recording([0.0, 4.0, 4.0, 2.0], [1.0, 1.0, 1.0, 0.0], rotor, torque)
+def _windowed_recording(final_speed: float = 0.0, first_speed: float = 0.0) -> _WithColumns:
+    rotor = [0.0, STEP, STEP, 0.0]
+    torque = [0.0, HOLD, 0.0, 0.0]
+    speeds = (first_speed, 5.0, 0.0, final_speed)
+    base = _recording([0.0, 4.0, 0.0, 0.0], [1.0] * 4, rotor, torque, speeds)
     return _WithColumns(base, [0.1, -0.3, 0.05, 0.0])
 
 
@@ -219,44 +229,64 @@ def _windowed_case(start: str) -> Any:
     )
 
 
+# The window recording: 4 microsteps (1 step) commanded at 1 s, the rotor follows, then slips back a step at 3 s.
+# Missed steps 0, 1 - 1 - 1 = -1 (lead 1 step at HOLD), 1 - 1 - 0 = 0, 1 - 0 - 0 = 1. Rest (no microstep and speed 0; threshold a tenth
+# of a microstep per 1 s interval): 0 s, 2 s, 3 s; 1 s moves. Margins at speeds 0, 5, 0, 0 (available 0.40, 0.35,
+# 0.40, 0.40) less loads 0.1, 0.3, 0.05, 0: 0.30, 0.05, 0.35, 0.40.
+
+
 @pytest.mark.req("SCO-031")
 @pytest.mark.req("SCO-032")
-def test_the_stepper_quantities_judge_the_evaluation_window() -> None:
-    # Whole-run missed steps 0, -0.5, 1, -1 (rotor travel 1 step at 1 s, half-step lead) and margins 0.30, 0.05,
-    # 0.15, 0 (the two tests above). From the case's
-    # evaluation start 1.5 s the window's first sample is 2 s: missed steps counted from its value 1 are 0, -2
-    # (final -2 at 3 s), the least margin over 2 s and 3 s is 0 at 3 s. Before it: the missed steps at the start
-    # sample are 1, first at or beyond half a step at 1 s (-0.5); the least margin over 0 s and 1 s is 0.05 at 1 s.
-    # A start exactly on a sample (2 s) gives the same window.
-    for start in ("1.5 s", "2 s"):
+def test_the_stepper_quantities_judge_the_span_from_the_rest_before_the_evaluation_start() -> None:
+    # Start 2.5 s or 2 s: the last rest at or before it is 2 s. Missed steps from it: 0, 1 (final 1 at 3 s, the step
+    # lost in the span); least margin over 2 s and 3 s 0.35 at 2 s. Before the rest: count 0 at it, first at or
+    # beyond half a step at 1 s (-1); least margin over 0 s and 1 s 0.05 at 1 s.
+    for start in ("2.5 s", "2 s"):
         score = score_run(_windowed_case(start), _windowed_recording(), ENDED, stepper_drives=(MOTOR,))
         missed, margin = score.criteria
-        print(f"windowed from {start}: missed {missed.measured} (expected -2), margin {margin.measured} (expected 0)")
-        assert missed.measured == pytest.approx(-2.0, abs=1e-12)
-        assert missed.worst_time == 3.0
-        assert missed.status == "fail"
-        assert margin.measured == pytest.approx(0.0, abs=1e-12)
-        assert margin.worst_time == 3.0
+        print(f"span from the rest before {start}: missed {missed.measured} (expected 1), margin {margin.measured}")
+        assert missed.measured == pytest.approx(1.0, abs=1e-12)
+        assert (missed.worst_time, missed.status) == (3.0, "fail")
+        assert margin.measured == pytest.approx(0.35, abs=1e-12)
+        assert margin.worst_time == 2.0
         start_text = start.split(" ")[0]
         assert score.notes == (
-            f"motor 'm' (part small_part): before the evaluation start {start_text} s, missed steps 1 (first beyond "
-            "half a step at 1 s), least torque margin 0.05 N m at 1 s; the sizing criteria judge from the start "
-            "(SCO-031, SCO-032, ruling 91)",
+            f"motor 'm' (part small_part): before the rest at 2 s (evaluation start {start_text} s), missed steps 0 "
+            "(first beyond half a step at 1 s), least torque margin 0.05 N m at 1 s; the sizing criteria judge from "
+            "that rest (SCO-031, SCO-032, rulings 91, 93)",
         )
 
 
 @pytest.mark.req("SCO-031")
 @pytest.mark.req("SCO-032")
-def test_a_window_starting_after_a_clean_start_names_no_lost_step_time() -> None:
-    # Start 0.5 s: the window opens at 1 s; before it only the 0 s sample (missed 0, margin 0.30). The start sample's
-    # missed steps -0.5 are the value before the window (final -1 less it: -0.5); no sample before it reaches half a
-    # step.
-    score = score_run(_windowed_case("0.5 s"), _windowed_recording(), ENDED, stepper_drives=(MOTOR,))
-    assert score.criteria[0].measured == pytest.approx(-0.5, abs=1e-12)
-    assert score.notes == (
-        "motor 'm' (part small_part): before the evaluation start 0.5 s, missed steps -0.5, least torque margin "
-        "0.3 N m at 0 s; the sizing criteria judge from the start (SCO-031, SCO-032, ruling 91)",
-    )
+def test_a_start_inside_a_move_judges_the_move_whole_from_the_rest_before_it() -> None:
+    # Start 1.5 s falls in the move at 1 s: the span starts at the rest at 0 s, the whole run; nothing precedes it, so
+    # no before line. Missed final 1, least margin 0.05 at 1 s.
+    score = score_run(_windowed_case("1.5 s"), _windowed_recording(), ENDED, stepper_drives=(MOTOR,))
+    assert score.criteria[0].measured == pytest.approx(1.0, abs=1e-12)
+    assert score.criteria[1].measured == pytest.approx(0.05, abs=1e-12)
+    assert score.criteria[1].worst_time == 1.0
+    assert score.notes == ()
+
+
+@pytest.mark.req("SCO-031")
+@pytest.mark.req("SCO-032")
+def test_rest_needs_an_idle_step_pin_a_slow_shaft_and_a_final_rest() -> None:
+    # Final speed 3 rad/s (above STEP / 4 / 10 per second): the count is unevaluable, the margin still judged from
+    # the rest at 2 s. First sample moving at 5 rad/s and a start at 0.5 s: no rest at or before it, both unevaluable.
+    moving_end = score_run(_windowed_case("2 s"), _windowed_recording(final_speed=3.0), ENDED, stepper_drives=(MOTOR,))
+    assert moving_end.criteria[0].status == "error"
+    assert moving_end.criteria[0].note == "missed_steps:m: motor 'm' is not at rest at the final sample 3 s"
+    assert moving_end.criteria[1].measured == pytest.approx(0.35, abs=1e-12)
+    slow = 0.09 * STEP / 4.0
+    creeping = score_run(_windowed_case("2 s"), _windowed_recording(final_speed=slow), ENDED, stepper_drives=(MOTOR,))
+    assert creeping.criteria[0].measured == pytest.approx(1.0, abs=1e-12)
+    early = score_run(_windowed_case("0.5 s"), _windowed_recording(first_speed=5.0), ENDED, stepper_drives=(MOTOR,))
+    for result in early.criteria:
+        assert result.status == "error"
+        assert result.note is not None
+        assert "no rest sample at or before the evaluation start 0.5 s" in result.note
+    assert early.notes == ()
 
 
 @pytest.mark.req("SCO-031")
@@ -264,43 +294,29 @@ def test_a_window_starting_after_a_clean_start_names_no_lost_step_time() -> None
 def test_no_before_line_without_a_start_an_evaluable_motor_or_a_run() -> None:
     zero = score_run(_windowed_case("0 s"), _windowed_recording(), ENDED, stepper_drives=(MOTOR,))
     assert zero.notes == ()
-    assert zero.criteria[0].measured == pytest.approx(-1.0, abs=1e-12)
-    undescribed = score_run(_windowed_case("1.5 s"), _windowed_recording(), ENDED)
+    assert zero.criteria[0].measured == pytest.approx(1.0, abs=1e-12)
+    undescribed = score_run(_windowed_case("2 s"), _windowed_recording(), ENDED)
     assert undescribed.notes == ()
     assert undescribed.criteria[0].status == "error"
-    plain = _recording([0.0] * 4, [1.0] * 4, [0.0] * 4, [0.0] * 4)
-    no_load = score_run(_windowed_case("1.5 s"), plain, ENDED, stepper_drives=(MOTOR,))
+    plain = _recording([0.0] * 4, [1.0] * 4, [0.0] * 4, [0.0] * 4, (0.0,) * 4)
+    no_load = score_run(_windowed_case("2 s"), plain, ENDED, stepper_drives=(MOTOR,))
     assert no_load.notes == ()
     assert no_load.criteria[1].status == "error"
     failed = RunReport("run_error", 2, Fraction(1), "boom")
-    errored = score_run(_windowed_case("1.5 s"), _windowed_recording(), failed, stepper_drives=(MOTOR,))
+    errored = score_run(_windowed_case("2 s"), _windowed_recording(), failed, stepper_drives=(MOTOR,))
     assert errored.notes == ()
 
 
 @pytest.mark.req("SCO-031")
-@pytest.mark.req("SCO-032")
-def test_an_evaluation_start_past_the_last_sample_is_unevaluable() -> None:
-    score = score_run(_windowed_case("3.5 s"), _windowed_recording(), ENDED, stepper_drives=(MOTOR,))
-    for result in score.criteria:
-        assert result.status == "error"
-        assert result.note is not None
-        assert "no sample at or after the evaluation start 3.5 s" in result.note
-    assert score.notes == ()
-
-
-@pytest.mark.req("SCO-031")
 def test_missed_steps_count_from_the_first_sample_of_a_motor_holding_a_load() -> None:
-    # A static start: the first sample already carries 4 microsteps (1 full step commanded) and a drive torque of
-    # HOLD sin(pi / 4) (lead 0.5 step) with the rotor at rest. Raw values: 1 - 0 - 0.5 = 0.5, then (1 more step
-    # commanded, rotor 1 step on, same torque) 2 - 1 - 0.5 = 0.5, (torque 0) 2 - 1 - 0 = 1, (rotor 2 steps on, torque
-    # HOLD sin(pi / 4)) 2 - 2 - 0.5 = -0.5. Relative to the first sample: 0, 0, 0.5, -1.
-    rotor = [0.0, STEP, STEP, 2.0 * STEP]
+    # A static start: at rest at 0 s with a drive torque HOLD sin(pi / 4) (lead 0.5 step). Then 4 microsteps (1 step)
+    # and the rotor follows; torque 0 at 2 s; held again at 3 s. Raw: 0 - 0 - 0.5, 1 - 1 - 0.5, 1 - 1 - 0, 1 - 1 - 0.5
+    # = -0.5, -0.5, 0, -0.5; relative to the first sample 0, 0, 0.5, 0 (unreferenced, a held motor would read -0.5).
     held = HOLD * math.sin(math.pi / 4.0)
-    recording = _recording([4.0, 4.0, 0.0, 0.0], [1.0] * 4, rotor, [held, held, 0.0, held])
-    for statistic, measured, worst in (("final", -1.0, 3.0), ("maximum", 0.5, 2.0)):
+    rotor = [0.0, STEP, STEP, STEP]
+    recording = _recording([0.0, 4.0, 0.0, 0.0], [1.0] * 4, rotor, [held, held, 0.0, held], (0.0, 5.0, 0.0, 0.0))
+    for statistic, measured, worst in (("final", 0.0, 3.0), ("maximum", 0.5, 2.0)):
         result = _score("missed_steps:m", statistic, "at_most", "5", recording)
         print(f"held start missed steps {statistic}: expected {measured}, measured {result.measured}")
         assert result.measured == pytest.approx(measured, abs=1e-12)
         assert result.worst_time == worst
-    first = _score("missed_steps:m", "final", "at_most", "5", recording, window={"end": "0.5 s"})
-    assert first.measured == 0.0

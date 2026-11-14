@@ -45,7 +45,7 @@ from mechsim.integrity.tier1 import (
     tier1_enabled,
     trace_notes,
 )
-from mechsim.library.registry import default_registry
+from mechsim.library.registry import Registry, default_registry
 from mechsim.materials.schema import MaterialError
 from mechsim.physics.native.prepare import prepare_model as prepare_native_model
 from mechsim.physics.native.translate import StartStateError as NativeStartStateError
@@ -103,6 +103,7 @@ from mechsim.testing.core_wiring import (
 from mechsim.testing.driver import (
     INTEGRITY_KIND,
     MATERIAL_OVERRIDES_KEY,
+    Builder,
     BuildResult,
     EndReason,
     EndSpec,
@@ -1149,22 +1150,32 @@ def _rope_snap_gate(model: PhysicsModel, integrity: IntegrityConfig | None) -> t
 # ===== Services =========================================================
 
 
-def core_builder(design: Design, adapter: str = DEFAULT_PHYSICS_ADAPTER) -> CoreBuild:
-    """The shipped catalog and chips, the shipped materials with the design's overrides (MAT-020); lumped members
-    rigid on the bridge until X2 (BLD-033, ruling 29), flexible as the design states them on the native adapter."""
+def core_builder(
+    design: Design, adapter: str = DEFAULT_PHYSICS_ADAPTER, registry: Registry | None = None
+) -> CoreBuild:
+    """The run's catalog (`registry`, default the shipped one; LIB-016) and the shipped chips, the shipped materials
+    with the design's overrides (MAT-020); lumped members rigid on the bridge until X2 (BLD-033, ruling 29), flexible
+    as the design states them on the native adapter."""
     rigid = adapter != NATIVE_ADAPTER
+    if registry is None:
+        registry = default_registry()
     try:
-        return build(design, default_registry(), design_materials(design), rigid_members=rigid)
+        return build(design, registry, design_materials(design), rigid_members=rigid)
     except (BuildError, DesignError, MaterialError) as error:
         raise DriverError(str(error)) from error
 
 
-def core_services(designs_root: Path = DESIGNS_ROOT) -> Services:
+def core_services(designs_root: Path = DESIGNS_ROOT, registry: Registry | None = None) -> Services:
     """The runner's real services: a fresh `CoreDriver` per run, the builder, the record archiver, and integrity
-    over the recording when the design has an `integrity.yaml` beside its design file (INT-022)."""
+    over the recording when the design has an `integrity.yaml` beside its design file (INT-022). `registry` (default
+    the shipped catalog) is the run's: overrides are checked and the design is built against it (LIB-016)."""
+    builder: Builder = core_builder
+    if registry is not None:
+        builder = partial(core_builder, registry=registry)
     return Services(
         driver=partial(CoreDriver, designs_root=designs_root),
-        builder=core_builder,
+        builder=builder,
+        registry=registry,
         archiver=RecordArchiver(designs_root),
         designs_root=designs_root,
         integrity=IntegrityService(designs_root),

@@ -133,8 +133,8 @@ def score_run(
     gives the down direction `swing:` quantities are measured from (SCO-030); without it they are unevaluable.
     `stepper_drives` describe the run's stepper motors for `missed_steps:` and `torque_margin:` (SCO-031, SCO-032);
     a value criterion reading one names the motor's part in its report line. Those quantities judge the case's
-    evaluation window (its `integrity.evaluate_from`, TST-044; ruling 91), and the steps lost and the least margin
-    before it are one note line per motor a criterion reads."""
+    span from the last rest sample at or before the case's evaluation start (its `integrity.evaluate_from`, TST-044;
+    rulings 91, 93), and the steps lost and the least margin before it are one note line per motor a criterion reads."""
     not_valid = flagged(tuple(recording.validity))
     start = 0.0
     if case.integrity is not None:
@@ -463,8 +463,9 @@ class _StepperView:
     does not describe, without a step and direction driver, without a rotor series or without a load torque column is
     unevaluable, naming the motor (invariant 7). Other refs go to the recording.
 
-    Both judge the evaluation window (ruling 91): from the first sample at or after `start` (the case's evaluation
-    start), missed steps counted from their value at that sample. `before_line` reports what came before it."""
+    Both judge a span (rulings 91, 93): from the last rest sample at or before `start` (the case's evaluation start),
+    missed steps counted from their value there and unevaluable unless the final sample rests. `before_line` reports
+    what came before the span."""
 
     def __init__(
         self, recording: RecordView, steppers: Sequence[StepperDrive], raw: RecordView, start: float = 0.0
@@ -501,22 +502,29 @@ class _StepperView:
         if motor not in self._steppers:
             raise _UnevaluableError(f"{reference}: {motor!r} is not a stepper motor of the run")
         whole = self._whole(kind, motor, reference)
-        first = self._first(whole.times, reference)
+        rest = self._rest(motor, reference)
+        first = self._span_start(whole.times, rest, reference)
         values = whole.values[first:]
         if kind == "missed_steps":
+            if not rest[-1]:
+                raise _UnevaluableError(
+                    f"{reference}: motor {motor!r} is not at rest at the final sample {whole.times[-1]:.6g} s"
+                )
             base = whole.values[first]
             values = tuple(item - base for item in values)
         return Series(tuple(whole.times[first:]), tuple(values), whole.unit)
 
     def before_line(self, motor: str) -> str | None:
-        """Steps lost and the least torque margin before the evaluation start, per motor (ruling 91): None when the
-        start is 0, the motor is not described, or a quantity is unevaluable (its criterion reports why)."""
+        """Steps lost and the least torque margin before the span's first rest sample, per motor (rulings 91, 93):
+        None when the start is 0, the motor is not described, nothing precedes the rest sample, or a quantity is
+        unevaluable (its criterion reports why)."""
         if self._start <= 0.0 or motor not in self._steppers:
             return None
+        reference = f"missed_steps:{motor}"
         try:
-            missed = self._whole("missed_steps", motor, f"missed_steps:{motor}")
+            missed = self._whole("missed_steps", motor, reference)
             margin = self._whole("torque_margin", motor, f"torque_margin:{motor}")
-            first = self._first(missed.times, f"missed_steps:{motor}")
+            first = self._span_start(missed.times, self._rest(motor, reference), reference)
         except _UnevaluableError:
             return None
         if first == 0:
@@ -524,8 +532,8 @@ class _StepperView:
         lost = missed.values[first]
         least = min(range(first), key=lambda index: margin.values[index])
         line = (
-            f"motor '{motor}' (part {self._steppers[motor].part}): before the evaluation start {self._start:.6g} s, "
-            f"missed steps {lost:.6g}"
+            f"motor '{motor}' (part {self._steppers[motor].part}): before the rest at {missed.times[first]:.6g} s "
+            f"(evaluation start {self._start:.6g} s), missed steps {lost:.6g}"
         )
         for time, count in zip(missed.times[:first], missed.values[:first], strict=True):
             if abs(count) >= 0.5:
@@ -533,7 +541,7 @@ class _StepperView:
                 break
         return (
             f"{line}, least torque margin {margin.values[least]:.6g} N m at {margin.times[least]:.6g} s; the sizing "
-            "criteria judge from the start (SCO-031, SCO-032, ruling 91)"
+            "criteria judge from that rest (SCO-031, SCO-032, rulings 91, 93)"
         )
 
     def _whole(self, kind: str, motor: str, reference: str) -> Series:
@@ -543,11 +551,38 @@ class _StepperView:
             return self._missed(reference, stepper, rotor)
         return self._margin(reference, stepper)
 
-    def _first(self, times: Sequence[float], reference: str) -> int:
-        for index, time in enumerate(times):
-            if time >= self._start:
-                return index
-        raise _UnevaluableError(f"{reference}: no sample at or after the evaluation start {self._start:.6g} s")
+    def _rest(self, motor: str, reference: str) -> list[bool]:
+        """Rest at each sample (ruling 93): the step pin idle over the tick ending there (no microstep applied) and
+        the shaft speed below a tenth of a microstep per sample interval."""
+        stepper = self._steppers[motor]
+        if stepper.driver is None:
+            raise _UnevaluableError(f"{reference}: motor {motor!r} has no step and direction driver")
+        steps = self._read(reference, f"signal:{stepper.driver}.step", "step pin").values
+        speed = self._read(reference, f"joint:{stepper.shaft_joint}.velocity", "shaft speed")
+        microstep = stepper.step_angle / stepper.microsteps
+        times = speed.times
+        flags: list[bool] = []
+        for index, (count, omega) in enumerate(zip(steps, speed.values, strict=True)):
+            interval = 0.0
+            if index > 0:
+                interval = times[index] - times[index - 1]
+            elif len(times) > 1:
+                interval = times[1] - times[0]
+            slow = interval > 0.0 and abs(omega) * interval < 0.1 * microstep
+            flags.append(count == 0.0 and slow)
+        return flags
+
+    def _span_start(self, times: Sequence[float], rest: Sequence[bool], reference: str) -> int:
+        """The last rest sample at or before the evaluation start (ruling 93)."""
+        found = -1
+        for index, (time, still) in enumerate(zip(times, rest, strict=True)):
+            if time > self._start:
+                break
+            if still:
+                found = index
+        if found < 0:
+            raise _UnevaluableError(f"{reference}: no rest sample at or before the evaluation start {self._start:.6g} s")
+        return found
 
     def _read(self, reference: str, source: str, what: str) -> Series:
         try:
