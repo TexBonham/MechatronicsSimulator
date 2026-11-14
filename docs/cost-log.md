@@ -129,3 +129,5 @@ type live in the root `CLAUDE.md` dispatch table once measured.
 | 2026-11-14 | M3-E8 rope segments taut within the step: rule, active set, seven oracles, rows committed (wip/05-e8 471e2dd); run killed by an API outage at its final build, no report; finished by a handoff run | module-writer (opus) | 231K | 102 calls |
 | 2026-11-14 | Resume after the machine restarted: E8 handoff dispatched, X2 fix round split into briefs X2d and X2e, ruling 88, queue | inline | ~60K | 20 calls |
 | 2026-11-14 | M3-E8 handoff: sanitize and debug rope and energy tests green (44, 23, 28), lints clean, G16 rope peak 78.9 N against the 333.6 N drop bound, no snap; G5 and G7 unchanged (wip/05-e8 7951896); lost-step count left to X2e | module-writer (opus) | 84K | 32 calls |
+| 2026-11-14 | M3 review: B3 with E8 (wip/05-e8 7951896): accept both after a wording-only fix round, 4 minor; convergence argument and brackets checked; ruling 89 (review-m3-b3-e8.md) | Fable review (general-purpose) | 135K | 19 calls |
+| 2026-11-14 | M3-B3 and E8 wording fix round applied inline (wip/05-e8) | inline | ~15K | 6 calls |
