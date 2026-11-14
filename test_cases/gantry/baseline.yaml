@@ -2,9 +2,9 @@ design:
   name: gantry
   version: 0.1.0
 suite: gantry
-note: 'placeholder-geometry: G1 to G11, G13, G14 on the bridge and G12, G15 on the native adapter (M3-X1f: rails and belts
-  damped 0.01, ruling 78), with the gantry team values of 2026-11-11, the NEMA 23 motor placeholder (M2-X7) and the 2 Hz amplifier
-  placeholder (ruling 35, M2-X8)'
+note: "placeholder-geometry: G1 to G11, G13, G14 on the bridge and G12, G15 on the native adapter (M3-X1f: rails and belts
+  damped 0.01, ruling 78; M3-X1h: the belts' driven mass counts the member chains riding them), with the gantry team values
+  of 2026-11-11, the NEMA 23 motor placeholder (M2-X7) and the 2 Hz amplifier placeholder (ruling 35, M2-X8)"
 entries:
   - case: G1
     criterion: hold_band
@@ -696,20 +696,20 @@ entries:
     worst_time: 30.0 s
     run:
       run_id: G12-seed12-native
-      archive_sha256: 240683242639589cbc3319fab94fe4f72a1725bac9677c00f6a22629f4b79a6e
+      archive_sha256: 72f7355470601bf73b7246d5a42ce5d6b912b80a0f890b6fa5bd9b5807ad3264
       design_hash: b3572b707552f318ff675ee2f6fcc3b9ff322f54
-      case_hash: 66550a535f043357371b42fc02f5fa6fbc4a996e
+      case_hash: a21240cad1227460c575175ec6f57d755cf0c5fa
   - case: G12
     criterion: estop_swing_x
     status: pass
-    measured: 0.0449992601034 rad
+    measured: 0.0449998900911 rad
     limit: peak_absolute at_most ${swing_limit_angle}
     worst_time: 23.502 s
     run:
       run_id: G12-seed12-native
-      archive_sha256: 240683242639589cbc3319fab94fe4f72a1725bac9677c00f6a22629f4b79a6e
+      archive_sha256: 72f7355470601bf73b7246d5a42ce5d6b912b80a0f890b6fa5bd9b5807ad3264
       design_hash: b3572b707552f318ff675ee2f6fcc3b9ff322f54
-      case_hash: 66550a535f043357371b42fc02f5fa6fbc4a996e
+      case_hash: a21240cad1227460c575175ec6f57d755cf0c5fa
   - case: G12
     criterion: move_settle_x
     status: fail
@@ -718,9 +718,9 @@ entries:
     worst_time: 19.707 s
     run:
       run_id: G12-seed12-native
-      archive_sha256: 240683242639589cbc3319fab94fe4f72a1725bac9677c00f6a22629f4b79a6e
+      archive_sha256: 72f7355470601bf73b7246d5a42ce5d6b912b80a0f890b6fa5bd9b5807ad3264
       design_hash: b3572b707552f318ff675ee2f6fcc3b9ff322f54
-      case_hash: 66550a535f043357371b42fc02f5fa6fbc4a996e
+      case_hash: a21240cad1227460c575175ec6f57d755cf0c5fa
   - case: G12
     criterion: move_settle_y
     status: pass
@@ -729,31 +729,31 @@ entries:
     worst_time: 14.5 s
     run:
       run_id: G12-seed12-native
-      archive_sha256: 240683242639589cbc3319fab94fe4f72a1725bac9677c00f6a22629f4b79a6e
+      archive_sha256: 72f7355470601bf73b7246d5a42ce5d6b912b80a0f890b6fa5bd9b5807ad3264
       design_hash: b3572b707552f318ff675ee2f6fcc3b9ff322f54
-      case_hash: 66550a535f043357371b42fc02f5fa6fbc4a996e
+      case_hash: a21240cad1227460c575175ec6f57d755cf0c5fa
   - case: G12
     criterion: move_swing_x
     status: pass
-    measured: 0.0131165023255 rad
+    measured: 0.0131140468457 rad
     limit: peak_absolute at_most ${swing_limit_angle}
     worst_time: 12.855 s
     run:
       run_id: G12-seed12-native
-      archive_sha256: 240683242639589cbc3319fab94fe4f72a1725bac9677c00f6a22629f4b79a6e
+      archive_sha256: 72f7355470601bf73b7246d5a42ce5d6b912b80a0f890b6fa5bd9b5807ad3264
       design_hash: b3572b707552f318ff675ee2f6fcc3b9ff322f54
-      case_hash: 66550a535f043357371b42fc02f5fa6fbc4a996e
+      case_hash: a21240cad1227460c575175ec6f57d755cf0c5fa
   - case: G12
     criterion: move_swing_y
     status: pass
-    measured: 0.0105620977468 rad
+    measured: 0.0105619633661 rad
     limit: peak_absolute at_most ${swing_limit_angle}
     worst_time: 8.623 s
     run:
       run_id: G12-seed12-native
-      archive_sha256: 240683242639589cbc3319fab94fe4f72a1725bac9677c00f6a22629f4b79a6e
+      archive_sha256: 72f7355470601bf73b7246d5a42ce5d6b912b80a0f890b6fa5bd9b5807ad3264
       design_hash: b3572b707552f318ff675ee2f6fcc3b9ff322f54
-      case_hash: 66550a535f043357371b42fc02f5fa6fbc4a996e
+      case_hash: a21240cad1227460c575175ec6f57d755cf0c5fa
   - case: G12
     criterion: ready_after_homing
     status: pass
@@ -762,9 +762,9 @@ entries:
     worst_time: 5.222 s
     run:
       run_id: G12-seed12-native
-      archive_sha256: 240683242639589cbc3319fab94fe4f72a1725bac9677c00f6a22629f4b79a6e
+      archive_sha256: 72f7355470601bf73b7246d5a42ce5d6b912b80a0f890b6fa5bd9b5807ad3264
       design_hash: b3572b707552f318ff675ee2f6fcc3b9ff322f54
-      case_hash: 66550a535f043357371b42fc02f5fa6fbc4a996e
+      case_hash: a21240cad1227460c575175ec6f57d755cf0c5fa
   - case: G13
     criterion: arrived_x
     status: pass
@@ -897,23 +897,23 @@ entries:
   - case: G15
     criterion: deflection_rail_x
     status: pass
-    measured: 0.00113395324381 m
+    measured: 0.00113383895252 m
     limit: maximum below 1 cm
     worst_time: 16.548 s
     run:
       run_id: G15-seed15-native
-      archive_sha256: 6af21682a78b97822c4ebe89bb43cb8abe8b06703439b3369bdecaeafb30493e
+      archive_sha256: b0896b5bf39d4e0696117ed43bfcafb56dda76f517164bcb69a8aaf7fafc082b
       design_hash: b3572b707552f318ff675ee2f6fcc3b9ff322f54
-      case_hash: 81bc4dc89891a1ce8d8871ab64102d4d92552456
+      case_hash: 602e963cf548e1e4bd413cc10223c55944448b40
   - case: G15
     criterion: deflection_rail_y
     status: error
     limit: maximum below 1 cm
     run:
       run_id: G15-seed15-native
-      archive_sha256: 6af21682a78b97822c4ebe89bb43cb8abe8b06703439b3369bdecaeafb30493e
+      archive_sha256: b0896b5bf39d4e0696117ed43bfcafb56dda76f517164bcb69a8aaf7fafc082b
       design_hash: b3572b707552f318ff675ee2f6fcc3b9ff322f54
-      case_hash: 81bc4dc89891a1ce8d8871ab64102d4d92552456
+      case_hash: 602e963cf548e1e4bd413cc10223c55944448b40
   - case: G15
     criterion: ready_after_homing
     status: pass
@@ -922,46 +922,46 @@ entries:
     worst_time: 5.218 s
     run:
       run_id: G15-seed15-native
-      archive_sha256: 6af21682a78b97822c4ebe89bb43cb8abe8b06703439b3369bdecaeafb30493e
+      archive_sha256: b0896b5bf39d4e0696117ed43bfcafb56dda76f517164bcb69a8aaf7fafc082b
       design_hash: b3572b707552f318ff675ee2f6fcc3b9ff322f54
-      case_hash: 81bc4dc89891a1ce8d8871ab64102d4d92552456
+      case_hash: 602e963cf548e1e4bd413cc10223c55944448b40
   - case: G15
     criterion: safety_factor_rail_x
     status: fail
-    measured: '1.42411601413'
+    measured: '1.4243543122'
     limit: minimum at_least ${minimum_safety_factor}
     worst_time: 16.549 s
     run:
       run_id: G15-seed15-native
-      archive_sha256: 6af21682a78b97822c4ebe89bb43cb8abe8b06703439b3369bdecaeafb30493e
+      archive_sha256: b0896b5bf39d4e0696117ed43bfcafb56dda76f517164bcb69a8aaf7fafc082b
       design_hash: b3572b707552f318ff675ee2f6fcc3b9ff322f54
-      case_hash: 81bc4dc89891a1ce8d8871ab64102d4d92552456
+      case_hash: 602e963cf548e1e4bd413cc10223c55944448b40
   - case: G15
     criterion: safety_factor_rail_y
     status: error
     limit: minimum at_least ${minimum_safety_factor}
     run:
       run_id: G15-seed15-native
-      archive_sha256: 6af21682a78b97822c4ebe89bb43cb8abe8b06703439b3369bdecaeafb30493e
+      archive_sha256: b0896b5bf39d4e0696117ed43bfcafb56dda76f517164bcb69a8aaf7fafc082b
       design_hash: b3572b707552f318ff675ee2f6fcc3b9ff322f54
-      case_hash: 81bc4dc89891a1ce8d8871ab64102d4d92552456
+      case_hash: 602e963cf548e1e4bd413cc10223c55944448b40
   - case: G15
     criterion: settled_deflection_rail_x
     status: pass
-    measured: 0.00108056416617 m
+    measured: 0.00108056432275 m
     limit: mean within 2 percent of 1.0976722e-3 m
     worst_time: 15.0 s
     run:
       run_id: G15-seed15-native
-      archive_sha256: 6af21682a78b97822c4ebe89bb43cb8abe8b06703439b3369bdecaeafb30493e
+      archive_sha256: b0896b5bf39d4e0696117ed43bfcafb56dda76f517164bcb69a8aaf7fafc082b
       design_hash: b3572b707552f318ff675ee2f6fcc3b9ff322f54
-      case_hash: 81bc4dc89891a1ce8d8871ab64102d4d92552456
+      case_hash: 602e963cf548e1e4bd413cc10223c55944448b40
   - case: G15
     criterion: settled_deflection_rail_y
     status: error
     limit: mean within 2 percent of 7.384859e-4 m
     run:
       run_id: G15-seed15-native
-      archive_sha256: 6af21682a78b97822c4ebe89bb43cb8abe8b06703439b3369bdecaeafb30493e
+      archive_sha256: b0896b5bf39d4e0696117ed43bfcafb56dda76f517164bcb69a8aaf7fafc082b
       design_hash: b3572b707552f318ff675ee2f6fcc3b9ff322f54
-      case_hash: 81bc4dc89891a1ce8d8871ab64102d4d92552456
+      case_hash: 602e963cf548e1e4bd413cc10223c55944448b40
