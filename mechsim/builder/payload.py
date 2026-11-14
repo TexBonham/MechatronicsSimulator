@@ -13,10 +13,12 @@ welds it to its carrier (`prepare_model(..., payloads=)`), for a mid-run attach 
 shackle body `<name>_shackle` (mass `fitting_mass`, the rope part's `end_fitting_mass`, LIB-020; no shapes) on the fixed
 joint `<name>_fixed` at the rope's `from_point` of its carrier (the rope's `from_body`), so a load cell reading the
 payload's joint reaction reads the rope's top; the payload a free body on `<name>_free` under world, its top face centre
-plus the rope's `to_point` the rope's rest length below the shackle along gravity with the carrier at the run's start
-coordinates (`starts`, joint name to coordinate: the engine builds the rope between its end points at the start
-configuration), so the rope starts straight at rest length; the rope from the shackle to that point. The run never welds
-a rope payload.
+plus the rope's `to_point` below the shackle along gravity by the rope's rest length plus its static stretch
+(`static_stretch`: (m + mu L / 2) g L / EA) with the carrier at the run's start coordinates (`starts`, joint name to
+coordinate: the engine builds the rope between its end points at the start configuration), so the rope starts straight
+and taut at its static load (brief M3-B3: an unstretched start is slack in the engine's first step, the taut front walks
+down one segment per step and the falling load meets the rope with kilonewtons); the rope from the shackle to that
+point. The run never welds a rope payload.
 """
 
 from __future__ import annotations
@@ -143,6 +145,19 @@ def with_payload(
     return PhysicsModel.model_validate(data)
 
 
+def _gravity(model: PhysicsModel) -> float:
+    return math.sqrt(sum(float(value) ** 2 for value in model.gravity))
+
+
+def static_stretch(rope: Rope, mass: float, gravity: float) -> float:
+    """The rope's static stretch with `mass` hanging still on it (m): (m + mu L / 2) g L / EA.
+
+    Segment k of N (from the top) carries the load, the load end's half-segment mass mu l / 2 and the N - k nodes
+    of mu l below it, T_k = (m + mu l / 2 + (N - k) mu l) g; the stretches T_k l / EA sum to (m + mu L / 2) g L / EA."""
+    load = mass + rope.mass_per_length * rope.rest_length / 2.0
+    return load * gravity * rope.rest_length / rope.axial_stiffness
+
+
 def _down(model: PhysicsModel) -> tuple[float, float, float]:
     gravity = [float(value) for value in model.gravity]
     norm = math.sqrt(sum(value * value for value in gravity))
@@ -174,7 +189,8 @@ def _on_rope(
     origin, orientation = _pose(model, carrier, starts)
     anchor = _q_rot(orientation, rope.from_point)
     top = tuple(-PAYLOAD_EDGE / 2.0 * down[index] + float(rope.to_point[index]) for index in range(3))
-    centre = [origin[index] + anchor[index] + rope.rest_length * down[index] - top[index] for index in range(3)]
+    drop = rope.rest_length + static_stretch(rope, mass, _gravity(model))
+    centre = [origin[index] + anchor[index] + drop * down[index] - top[index] for index in range(3)]
     inertia = fitting_mass * SHACKLE_EDGE * SHACKLE_EDGE / 6.0
     fitting = {
         "name": shackle,

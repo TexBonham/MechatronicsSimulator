@@ -425,7 +425,7 @@ def _world(
 @pytest.mark.req("BLD-032")
 @pytest.mark.req("BLD-036")
 @pytest.mark.parametrize("starts", [None, {"x_axis": 0.1, "y_axis": 0.2, "lift_axis": 0.3}])
-def test_payload_hangs_on_its_rope_straight_at_rest_length_from_the_start_pose(
+def test_payload_hangs_on_its_rope_straight_at_its_static_stretch_from_the_start_pose(
     starts: dict[str, float] | None,
 ) -> None:
     model = _hung(starts)
@@ -450,7 +450,9 @@ def test_payload_hangs_on_its_rope_straight_at_rest_length_from_the_start_pose(
     base = _world(_hung(None), "hook", (0.0, 0.0, -0.02))
     assert hook_point == pytest.approx(tuple(base[i] + moved[i] for i in range(3)), abs=1e-12)
     assert (hook_point[0] - top[0], hook_point[1] - top[1]) == pytest.approx((0.0, 0.0), abs=1e-12)
-    assert hook_point[2] - top[2] == pytest.approx(0.3, abs=1e-12)
+    # Below the hook point by the rest length plus the static stretch (m + mu L / 2) g L / EA of the 4.5 kg payload.
+    stretch = (4.5 + rope.mass_per_length * 0.3 / 2.0) * 9.81 * 0.3 / rope.axial_stiffness
+    assert hook_point[2] - top[2] == pytest.approx(0.3 + stretch, abs=1e-12)
 
 
 @pytest.mark.req("BLD-032")
