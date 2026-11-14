@@ -1210,16 +1210,82 @@ def _g16_faults(driver: CoreDriver) -> list[str]:
     return [f"fault:{event.detail}" for event in driver.recording().events() if event.kind == "controller_fault"]
 
 
+# Missed steps from the record (brief M3-X2c): the driver's step pin carries the microsteps applied each tick and its
+# dir pin their sense (step_dir_driver_generic, 16 microsteps per 1.8 degree full step), the shaft joint the rotor.
+G16_MICROSTEP = 2.0 * math.pi / 3200.0
+G16_FULL_STEP = 2.0 * math.pi / 200.0
+G16_HOLDING = {"nema17_class_generic": 0.40, "nema23_class_generic": 1.26}
+G16_DRIVERS = {"lift_motor": "lift_driver", "x_motor": "x_driver", "y_motor": "y_driver"}
+G16_FIRST_MOVE = 6.0
+
+
+def _g16_missed(driver: CoreDriver, motor: str, holding: float) -> tuple[Any, Any]:
+    """Missed full steps of `motor` at every sample: commanded angle (the signed sum of the step pin's microsteps)
+    less the rotor's travel, in full steps, less the drive's own lead. A pull-out re-syncs the commanded angle to the
+    step nearest the rotor (SIG-033), so what is left after the lead is a whole number of steps; the lead is the sine
+    law's inverse at the drive torque read back, (2 / pi) asin(tau / T_hold) full steps."""
+    view = driver.recording()
+    pin = G16_DRIVERS[motor]
+    steps = np.asarray(view.series(f"signal:{pin}.step").values, dtype=np.float64)
+    sense = np.where(np.asarray(view.series(f"signal:{pin}.dir").values) > 0.5, 1.0, -1.0)
+    rotor = np.asarray(view.series(f"actuator:{motor}.position").values, dtype=np.float64)
+    commanded = np.cumsum(steps * sense) * G16_MICROSTEP
+    times, torque = _g16_torque(driver, motor)
+    lead = 2.0 / math.pi * np.arcsin(np.clip(torque / holding, -1.0, 1.0))
+    return times, (commanded - (rotor - rotor[0])) / G16_FULL_STEP - lead
+
+
+def _g16_stalls(driver: CoreDriver, motor: str) -> list[float]:
+    return [event.time for event in driver.recording().events() if event.source == f"{motor}.stalled"]
+
+
 @pytest.mark.req("ACC-032")
-@pytest.mark.xfail(
-    strict=True,
-    reason="the behavioral stepper's missed_steps output is not recorded (core: only its torque reaches the record, "
-    "as signals/actuator_efforts) and no scoring ref reads it; G16 shows lost steps only through the firmware's "
-    "encoder mismatch fault and the final positions (brief M3-X2b)",
-)
-def test_acc_032() -> None:
-    """Reference design (gantry), G16: the same sweep shall report any missed steps per motor."""
-    raise NotImplementedError
+@pytest.mark.req("SIG-033")
+@pytest.mark.long_run
+def test_acc_032(g16: list[tuple[RunResult, CoreDriver]]) -> None:
+    """Reference design (gantry), G16: the same sweep shall report any missed steps per motor.
+
+    Per motor and run, from the record (`_g16_missed`), at rest before the first move (6 s) and at the end (26 s).
+    Each count must be a whole number of steps to within a quarter step (a half step is what identifies it uniquely;
+    at rest the remainder is only the drive's predicted lead, which the sine law gives from the recorded torque).
+    Derivation of which motor must lose steps: the payload is released at t = 0 on its unstretched rope and snatches;
+    the recorded end tension F peaks in the first tens of milliseconds, before the lift has moved. Holding the hook
+    against it needs at least (F eta + m_c g) c on the lift shaft (back-driven through the 0.95 belt, the lower of the
+    two efficiencies; m_c the lift carriage and hook); a lift motor whose holding torque is below that has a negative
+    margin there and must lose steps. Every other motor and part has a positive margin by that bound (the x and y
+    belts carry no part of a vertical snatch) and by the cruise margins of ACC-031 (all positive), so it loses none,
+    and no motor loses a step from the first move to the end. The tolerance on the count is not set (ACC-032 row): the
+    counts are printed with the recorded stall events of each motor."""
+    seen: set[tuple[str, str]] = set()
+    for result, driver in g16:
+        parts = _g16_parts(result)
+        masses = _g16_masses(parts)
+        recording = driver.recording().recording
+        tension = np.asarray(recording.series["physics/ropes/tension"].values, dtype=np.float64)
+        snatch = float(np.max(tension.reshape(len(tension), -1)[:, 0]))
+        carriage = masses["lift_motor"] - G16_HANGING
+        bound = (snatch * G16_ETA + carriage * G16_G) * G16_C
+        for motor in G16_MOTORS:
+            part = parts[motor]
+            times, missed = _g16_missed(driver, motor, G16_HOLDING[part])
+            before = float(missed[int(np.searchsorted(times, G16_FIRST_MOVE)) - 1])
+            after = float(missed[-1])
+            stalls = _g16_stalls(driver, motor)
+            print(
+                f"G16 sweep {result.score.sweep}: {motor} {part}: missed full steps {before:.4f} before the first "
+                f"move, {after:.4f} at the end; stall events at {stalls}; release snatch {snatch:.3f} N, lift demand "
+                f"bound {bound:.4f} N m against holding {G16_HOLDING[part]} N m"
+            )
+            count = round(after)
+            assert abs(before - round(before)) <= 0.25
+            assert abs(after - count) <= 0.25
+            assert round(before) == count
+            if motor == "lift_motor" and bound > G16_HOLDING[part]:
+                assert abs(count) >= 1, f"{motor} {part}: demand bound {bound} N m and no missed step"
+            else:
+                assert count == 0
+            seen.add((motor, part))
+    assert seen == {(motor, part) for motor in G16_MOTORS for part in G16_AVAILABLE}
 
 
 # ===== ACC-033 to ACC-034 ===================================================

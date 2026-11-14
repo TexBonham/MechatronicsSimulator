@@ -4,7 +4,8 @@
 # firmware's lost-step detection (`fault:encoder_mismatch`, FW-020: the axis encoder against the step count) stays
 # absent and every axis arrives within the 1 cm position accuracy (a lost full step moves the axis 0.2 mm). The torque
 # margin per motor (ACC-031) and the peak drive torque are computed by the acceptance test from the recorded
-# actuator efforts; the stepper's own missed-step count is not recorded (ACC-032 stays open, brief M3-X2b).
+# actuator efforts; the missed steps per motor (ACC-032) likewise, from the driver's step and dir pins against the
+# shaft's rotation (brief M3-X2c): scoring has no statistic that sums a pin's counts, so no criterion here reads them.
 #
 # Timeline (gantry team limits 2026-11-11: 0.05 m/s^2 ramps, 0.1 m/s cruise, 50 mm slow zones at 0.05 m/s; homing
 # 0.02 m/s): homing from 0.1 m on each axis is done by 5.25 s. Part (a), the lift: `lift` to 30 cm at 6 s, from the
