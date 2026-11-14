@@ -7,7 +7,7 @@ Sources: requirements doc "Instructions for the planning session" (milestone pla
 | | M1 | M2 | M3 | M4 | M5 |
 |---|---|---|---|---|---|
 | Goal | Rigid gantry model, controller runtime, tests G1-G4 | Sensors, fault injection, safety hardware | Rope swing, flexible members, structural checks | CAD import, FEA load export, Simscape and Fusion cross-checks | A second, different design proves the app is general |
-| Test cases | G1-G4; pendulum references (R-03) | G5-G11, G13, G14 | G12, G15, G16 | Acceptance criteria 3 and 4 (G3, G12, G15 cross-checks) | Acceptance criterion 5 (two-joint arm, R-03) |
+| Test cases | G1-G4; pendulum references (R-03) | G5-G11, G13, G14 | G12, G15, G16 (torque margin and missed steps per motor and part carried by the report, SCO-031, SCO-032) | Acceptance criteria 3 and 4 (G3, G12, G15 cross-checks) | Acceptance criterion 5 (two-joint arm, R-03) |
 | Engine | MuJoCo adapter (ADR 0004) | MuJoCo adapter (ADR 0004) | MuJoCo adapter until retirement criteria met, then own engine (ADR 0004 open item) | Same rule | Same rule |
 | Library components | Limit switches, encoders, step/dir drivers, UART operator link, power rail with E-stop relay | not set | not set | not set | Library as shipped, no new code (acceptance criterion 5) |
 | Integrity checks | None | None | Strength, deflection, buckling, fatigue, fastener, impact, resonance screening (ADR 0009); in-loop tier 1 and multi-segment beams; part of tier 2 (ADR 0010) | Bearing life; build-time rules: support spacing, cantilever ratio, clearance, misalignment binding, tip-over (ADR 0009); rest of tier 2 (ADR 0010) | None |

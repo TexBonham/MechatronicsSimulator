@@ -27,6 +27,11 @@ nothing.
   `runner.design_gravity(build.design)`); body origins are the view's `kinematics.reference` origin plus the `pose:`
   displacement (TST-038); no gravity input or no reference poses is unevaluable. Payload names:
   `testing.schema.case_payload_body(senses, joints)`.
+- Steppers (SCO-031, SCO-032): `missed_steps:<motor>` (full steps: commanded microsteps from the driver's step and dir
+  pins less rotor travel, over the step angle, less the lead (2 / pi) asin(tau / T_hold)) and `torque_margin:<motor>`
+  (N m: `available_torque(curve, omega)` less abs(shaft load torque column of the motor's transmission)) through
+  `_StepperView`, from `score_run(..., stepper_drives=)` (`StepperDrive`, built by `runner.stepper_drives(build)`);
+  a value criterion on one gets note `part <part>`; no description, driver, rotor or load column is unevaluable.
 - Not valid (SCO-029, rulings 69, 72): `RecordingView.validity` flagged members: `safety_factor:` and a history-less `deflection:` unevaluable with `CarriedValidity.reason()`; a deflection history NaN after the flag time (`read_not_valid` names the reason); `integrity_not_valid` events are crossing lines with the reason and make an otherwise passing or errored case errored (`CaseScore.error` the reason).
 - Crossings (SCO-015): each `integrity` event whose detail states tier 1 (ruling 26) is a `crossings` line (report `integrity crossing:`); a passing case
   with one fails; not baselined.
