@@ -558,16 +558,19 @@ def carried_validity_lines(model: PhysicsModel, values: Sequence[tuple[float, ..
             f"lumped member '{member.name}': the carried load-path pair did {work:.6g} J of net work on the member "
             f"over the run (energy the carried bodies never lose: they do not ride the deflection); largest rerouted "
             f"force {force:.6g} N, largest quasi-static deflection {quasi_static:.6g} m, largest dynamic ratio "
-            f"(carried deflection over the largest quasi-static deflection within the window of the member's "
-            f"first loaded mode) {ratio:.6g} against the limit {CARRIED_RATIO_LIMIT:.6g}; no flag bounds only this: "
-            f"the deflection stayed within {CARRIED_RATIO_LIMIT:.6g} times the windowed peak quasi-static value "
-            f"(ENG-052, PHY-035)"
+            f"from the evaluation start (the carried deflection relative to the member's own-weight shape, over "
+            f"the larger of the carried loads' largest quasi-static deflection within the window of the member's "
+            f"first loaded mode and the carried weight's static deflection at the foot) {ratio:.6g} against the "
+            f"limit {CARRIED_RATIO_LIMIT:.6g}; no flag bounds only this: from the evaluation start the deflection "
+            f"relative to the own-weight shape stayed within {CARRIED_RATIO_LIMIT:.6g} times that base (ENG-052, "
+            f"PHY-035, ruling 74)"
         )
         if unresolved:
             lines.append(
                 f"lumped member '{member.name}': the one-way carried-load result is not valid from t = {since:.6g} s: "
-                f"the member deflects more than {CARRIED_RATIO_LIMIT:.6g} times the largest quasi-static deflection "
-                f"of its carried loads within the window, more than any load applied no faster than suddenly can "
+                f"relative to its own-weight shape the member deflects more than {CARRIED_RATIO_LIMIT:.6g} times the "
+                f"larger of the largest quasi-static deflection of its carried loads within the window and the "
+                f"carried weight's static deflection, more than any load applied no faster than suddenly can "
                 f"cause, so the carried system drives it near its own frequency, where the missing back-reaction of "
                 f"the one-way coupling matters; full coupling is milestone 4 (ruling 69, ENG-052)"
             )
@@ -667,12 +670,17 @@ def translate(
     payloads: Mapping[str, str] | None = None,
     starts: Mapping[str, float] | None = None,
     substeps: int = 1,
+    evaluation_start: float = 0.0,
 ) -> Translation:
     """The engine model document and the approximation report (SCO-013); `step` (s) is the run's physics step when
     it is not the model's, `payloads` maps payload bodies to carriers, `starts` single-DOF joints to coordinates,
-    `substeps` the engine steps per adapter step (written when above one; every line then uses h / substeps)."""
+    `substeps` the engine steps per adapter step (written when above one; every line then uses h / substeps),
+    `evaluation_start` (s) the time from which the carried-load validity flag is evaluated (written when above zero;
+    ENG-052, PHY-035, ruling 74)."""
     if substeps < 1:
         raise UnmappableElementError(f"substeps {substeps}", "at least one engine step per adapter step")
+    if not (math.isfinite(evaluation_start) and evaluation_start >= 0.0):
+        raise UnmappableElementError(f"evaluation start {evaluation_start}", "a finite time in seconds, at least 0")
     h = float(model.run.step)
     if step is not None:
         h = float(step)
@@ -783,6 +791,8 @@ def translate(
     }
     if substeps > 1:
         document["substeps"] = substeps
+    if evaluation_start > 0.0:
+        document["carried_evaluation_start"] = float(evaluation_start)
     for kind in document["elements"]:
         if kind not in SUPPORTED_ELEMENTS:
             raise UnmappableElementError(kind, "not mapped by the native adapter (PHY-019)")

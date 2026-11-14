@@ -1792,7 +1792,7 @@ void MultibodyProvider::compute_member_compliance(const Kinematics& kin, const E
         if (g_modal.cols() > 0) {
             const double omega = std::sqrt(omega_squared[first]);
             const double zeta = modal_damping(first, first) / (2.0 * omega);
-            periods = carried_window_periods(omega * h, zeta);
+            periods = carried_window_periods(zeta);
             bucket = carried_window_bucket(omega * h);
         }
         out.window_periods = periods;
@@ -1810,8 +1810,11 @@ void MultibodyProvider::record_carried_validity(const Kinematics& kin, const std
         MemberOutput& running = at(member_validity_, pair.output.member);
         running.carried_force = 0.0;
         running.quasi_static_deflection = 0.0;
+        running.relative_deflection = 0.0;
+        running.static_floor = 0.0;
         at(carrying, pair.output.member) = 1;
     }
+    std::vector<double> carried_base(model_.members.size(), 0.0);
     const auto weighted = [](const Eigen::MatrixXd& matrix, const CarriedPair& i, const CarriedPair& j) {
         const Eigen::Index ki = i.output.node;
         const Eigen::Index kj = j.output.node;
@@ -1820,7 +1823,8 @@ void MultibodyProvider::record_carried_validity(const Kinematics& kin, const std
         return (wi * wj * matrix(ki, kj)) + (wi * (1.0 - wj) * matrix(ki, kj + 1)) +
                ((1.0 - wi) * wj * matrix(ki + 1, kj)) + ((1.0 - wi) * (1.0 - wj) * matrix(ki + 1, kj + 1));
     };
-    for (const CarriedPair& pair : pairs) {
+    for (Eigen::Index i = 0; i < count(pairs.size()); ++i) {
+        const CarriedPair& pair = at(pairs, i);
         const Eigen::Index m = pair.output.member;
         const LumpedBeam& beam = at(model_.members, m);
         MemberOutput& running = at(member_validity_, m);
@@ -1842,16 +1846,24 @@ void MultibodyProvider::record_carried_validity(const Kinematics& kin, const std
 
         const MemberCompliance& compliance = at(member_compliance_, m);
         const Eigen::Index k = pair.output.node;
-        double quasi_static = (w * compliance.gravity[k]) + ((1.0 - w) * compliance.gravity[k + 1]);
+        const double own_weight = (w * compliance.gravity[k]) + ((1.0 - w) * compliance.gravity[k + 1]);
+        double carried = 0.0;
         for (const CarriedPair& other : pairs) {
             if (other.output.member != m) {
                 continue;
             }
-            quasi_static += (weighted(compliance.force, pair, other) * other.output.force) +
-                            (weighted(compliance.moment, pair, other) * other.output.moment);
+            carried += (weighted(compliance.force, pair, other) * other.output.force) +
+                       (weighted(compliance.moment, pair, other) * other.output.moment);
         }
-        running.quasi_static_deflection = std::max(running.quasi_static_deflection, std::abs(quasi_static));
+        const double weight = carried_mass(i) * model_.gravity.dot(pair.axis_y);
+        running.quasi_static_deflection = std::max(running.quasi_static_deflection, std::abs(own_weight + carried));
+        running.relative_deflection =
+            std::max(running.relative_deflection, std::abs(pair.output.deflection - own_weight));
+        running.static_floor =
+            std::max(running.static_floor, std::abs(weighted(compliance.force, pair, pair) * weight));
+        at(carried_base, m) = std::max(at(carried_base, m), std::abs(carried));
     }
+    const bool evaluating = !(before.t < config_.carried_evaluation_start);
     for (Eigen::Index m = 0; m < count(model_.members.size()); ++m) {
         if (at(carrying, m) == 0) {
             continue;
@@ -1861,32 +1873,36 @@ void MultibodyProvider::record_carried_validity(const Kinematics& kin, const std
         running.peak_carried_force = std::max(running.peak_carried_force, running.carried_force);
         running.peak_quasi_static = std::max(running.peak_quasi_static, running.quasi_static_deflection);
         const MemberCompliance& compliance = at(member_compliance_, m);
-        MemberWindow& window = at(member_window_, m);
-        window.current = std::max(window.current, running.quasi_static_deflection);
-        running.window_quasi_static = std::max(window.stored, window.current);
         running.window_periods = compliance.window_periods;
+        MemberWindow& window = at(member_window_, m);
         running.window_steps = count(window.buckets.size()) * compliance.bucket_steps;
-        window.filled += 1;
-        if (window.filled >= compliance.bucket_steps && !window.buckets.empty()) {
-            window.buckets[window.next] = window.current;
-            window.next = (window.next + 1) % window.buckets.size();
-            window.current = 0.0;
-            window.filled = 0;
-            window.stored = *std::max_element(window.buckets.begin(), window.buckets.end());
-        }
         running.dynamic_ratio = 0.0;
-        if (running.window_quasi_static > 0.0) {
-            running.dynamic_ratio = published.carried_deflection / running.window_quasi_static;
-        }
-        running.peak_ratio = std::max(running.peak_ratio, running.dynamic_ratio);
-        if (!running.unresolved && running.dynamic_ratio > carried_ratio_limit) {
-            running.unresolved = true;
-            running.unresolved_time = before.t;
+        if (evaluating) {
+            window.current = std::max(window.current, at(carried_base, m));
+            running.window_quasi_static = std::max({window.stored, window.current, running.static_floor});
+            window.filled += 1;
+            if (window.filled >= compliance.bucket_steps && !window.buckets.empty()) {
+                window.buckets[window.next] = window.current;
+                window.next = (window.next + 1) % window.buckets.size();
+                window.current = 0.0;
+                window.filled = 0;
+                window.stored = *std::max_element(window.buckets.begin(), window.buckets.end());
+            }
+            if (running.window_quasi_static > 0.0) {
+                running.dynamic_ratio = running.relative_deflection / running.window_quasi_static;
+            }
+            running.peak_ratio = std::max(running.peak_ratio, running.dynamic_ratio);
+            if (!running.unresolved && running.dynamic_ratio > carried_ratio_limit) {
+                running.unresolved = true;
+                running.unresolved_time = before.t;
+            }
         }
         published.carried_work = running.carried_work;
         published.carried_force = running.carried_force;
         published.peak_carried_force = running.peak_carried_force;
         published.quasi_static_deflection = running.quasi_static_deflection;
+        published.relative_deflection = running.relative_deflection;
+        published.static_floor = running.static_floor;
         published.peak_quasi_static = running.peak_quasi_static;
         published.window_quasi_static = running.window_quasi_static;
         published.window_periods = running.window_periods;

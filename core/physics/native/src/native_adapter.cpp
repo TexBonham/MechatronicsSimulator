@@ -484,6 +484,12 @@ void NativeAdapter::load(const kernel::PreparedModel& prepared, const kernel::Ra
         config.drift_threshold_m = run.at("drift_threshold_m").number("drift_threshold_m");
         config.drift_threshold_rad = run.at("drift_threshold_rad").number("drift_threshold_rad");
         config.unit_tolerance = run.at("unit_tolerance").number("unit_tolerance");
+        if (doc.has("carried_evaluation_start")) {
+            config.carried_evaluation_start = doc.at("carried_evaluation_start").number("carried_evaluation_start");
+            if (!(config.carried_evaluation_start >= 0.0) || !std::isfinite(config.carried_evaluation_start)) {
+                throw json::ParseError("carried_evaluation_start: a finite time in seconds, at least 0");
+            }
+        }
         eng::StepConfig step_config;
         step_config.h = e->h;
         step_config.symmetry_tolerance = run.at("symmetry_tolerance").number("symmetry_tolerance");

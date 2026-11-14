@@ -224,19 +224,19 @@ TEST_CASE("carried validity: the same force at half the first frequency is not f
     CHECK_FALSE(run.last.unresolved);
 }
 
-TEST_CASE("carried validity: the window is ln(1 / delta) / (pi x + 2 pi zeta) periods, capped, in quarter-period "
-          "buckets",
+TEST_CASE("carried validity: the window is ln(1 / delta) / (2 pi zeta) periods of physical time, capped, in "
+          "quarter-period buckets",
           "[ENG-052]") {
-    // member_loads.hpp, Validity (brief M3-E7e): N = ln 50 / (pi x + 2 pi zeta), at most 100; b = floor(pi / (2 x)).
+    // member_loads.hpp, Definition (a) (brief M3-E7f, ruling 74): N = ln 50 / (2 pi zeta) from the node damping
+    // alone, the cap of 100 for an undamped member and below zeta = ln 50 / (200 pi); b = floor(pi / (2 x)).
     const double ln50 = std::log(1.0 / carried_validity_margin);
-    CHECK(std::abs(carried_window_periods(0.028, 0.01) - (ln50 / (std::numbers::pi * 0.048))) <= 1e-12);
-    CHECK(std::abs(carried_window_periods(0.5, 0.0) - (ln50 / (std::numbers::pi * 0.5))) <= 1e-12);
-    CHECK(carried_window_periods(1e-4, 0.0) == carried_window_periods_max);
-    CHECK(carried_window_periods(0.0, 0.0) == carried_window_periods_max);
-    CHECK(carried_window_periods(0.028, -1.0) == carried_window_periods(0.028, 0.0));
-    const double bound = ln50 / (100.0 * std::numbers::pi);
-    CHECK(carried_window_periods(bound * 1.001, 0.0) < carried_window_periods_max);
-    CHECK(carried_window_periods(bound * 0.999, 0.0) == carried_window_periods_max);
+    CHECK(std::abs(carried_window_periods(0.01) - (ln50 / (2.0 * std::numbers::pi * 0.01))) <= 1e-12);
+    CHECK(std::abs(carried_window_periods(0.5) - (ln50 / std::numbers::pi)) <= 1e-12);
+    CHECK(carried_window_periods(0.0) == carried_window_periods_max);
+    CHECK(carried_window_periods(-1.0) == carried_window_periods_max);
+    const double bound = ln50 / (200.0 * std::numbers::pi);
+    CHECK(carried_window_periods(bound * 1.001) < carried_window_periods_max);
+    CHECK(carried_window_periods(bound * 0.999) == carried_window_periods_max);
     CHECK(carried_window_bucket(0.028) == 56);
     CHECK(carried_window_bucket(std::numbers::pi / 2.0) == 1);
     CHECK(carried_window_bucket(10.0) == 1);
@@ -251,8 +251,9 @@ TEST_CASE("carried validity: an impulse-like load is forgotten, and a matched re
     // half a first period (the worst case for what it leaves: the member at 2 u_s at rest when it is removed, a free
     // ringing of 2 u_s = 40 c), then nothing for 70 periods, then F0 sin(omega_1 t'), F0 = 1 N, t' from the start of
     // the drive. A running peak base would sit at 20 c for the rest of the run and never flag the drive (the largest
-    // deflection is below 2.04 x 20 c: asserted). The window forgets: N = ln 50 / (pi x + 2 pi zeta) periods (x =
-    // omega_1 h = 0.028), 26 here, so at the drive's start the base is the drive's own u_qs and the old ringing is
+    // deflection is below 2.04 x 20 c: asserted). The window forgets: N = ln 50 / (2 pi zeta) periods (ruling 74:
+    // node damping only), 63 here, under the 69.5 periods between the pulse and the drive (x = omega_1 h = 0.028), so
+    // at the drive's start the base is the drive's own u_qs and the old ringing is
     // below r = 40 c e^(-(pi x + 2 pi zeta) 69.5) (the decay per period of member_loads.hpp, Validity). The flag's
     // time: the bounds of the resonant test above with the old ringing r on either side and the node damping in the
     // lower bound's factor (1 - (x / 2 + zeta) th) (the envelope (1 - e^(-zeta th)) / (2 zeta) >= th (1 - zeta th / 2)
@@ -310,7 +311,8 @@ TEST_CASE("carried validity: an impulse-like load is forgotten, and a matched re
         }
     }
     const double flagged = omega * (run.flagged_at - drive_start);
-    const double expected_periods = carried_window_periods(x, damping_ratio);
+    const double expected_periods = carried_window_periods(damping_ratio);
+    REQUIRE(std::ceil(expected_periods) < 69.5);
     std::printf("window: x %.4f, zeta %.5f, N %.4f periods (engine %.4f, %ld steps); old ringing at the drive below "
                 "%.3e c; peak ratio before the drive %.4f; flagged at omega t' %.4f in [%.4f, %.4f]; largest "
                 "deflection over the since-load base %.4f (a running peak would not flag)\n",
@@ -508,6 +510,112 @@ TEST_CASE("carried validity: a member driven through another carried member at i
     CHECK(matched.carrying.unresolved);
     CHECK(matched.carrying.carried_work > 0.0);
     CHECK_FALSE(apart.carrying.unresolved);
+}
+
+// The gate of the flag's definition (brief M3-E7f, ruling 74; member_loads.hpp, Definition). The pinned-pinned bar
+// under gravity (-y, 9.81) carries a 1 kg carriage standing at s0 = L / 4, released from straight, node damping at
+// 0.1 of carried_helpers' critical setting (D = 0.1 beta K, beta = 2 / omega_rig: zeta_p omega_p = 0.1 omega_p^2 /
+// omega_rig, smallest for the first mode), at h = 1 ms and 0.1 ms and at 8 and 16 segments.
+//   Settled. Every mode's release transient (start: the member straight, at most 1 + g / (C W) of the base at the
+// foot in each mode's share, below 2 (1 + g / (C W)) in all) decays at least as e^(-r t), r = 0.1 omega_1^2 /
+// omega_rig (backward Euler only adds loss); the evaluation start T_s = ln(1e6) / r leaves below 2 (1 + g / (C W))
+// 1e-6 of it. At rest d - g = C W exactly in the linear chain (Definition (b): the own-weight shape and the carried
+// weight's deflection are the chain's own), so the ratio reads 1 to the transient left plus the geometric
+// nonlinearity, relative at most 4 theta^2 with theta <= 4 u / L the largest segment rotation (u the midspan
+// deflection under own weight and the carried weight: 5 w L^4 / (384 E I) + W L^3 / (48 E I)). Checked at every step
+// over two windows (the window turns over twice) and never flagged; before T_s the ratio is 0 and nothing is flagged.
+//   Moving. Then the carriage coasts at c = 0.25 m/s from L / 4 to 3 L / 4 (frictionless prismatic across gravity: c
+// is constant). For mode p, q_s = W phi_p(s) / k_p, and the error e = q - q_s obeys e'' + 2 zeta w e' + w^2 e =
+// -(q_s'' + 2 zeta w q_s'): the velocity jump at the start leaves a free ringing of at most q_s' / w, and for a slowly
+// varying right side the forced part is to leading order -(q_s'' + 2 zeta w q_s') / w^2. With alpha = pi c / (L
+// omega_1), omega_1 the loaded frequency at mid-span (the lowest on the path), q_s' / q_s = (pi c / L) cot(pi s / L)
+// <= pi c / L on [L / 4, L / 2] and abs(q_s'' / q_s) <= (pi c / L)^2, so relative to q_s the error is at most
+// alpha (1 + 2 zeta) + alpha^2 (zeta_1 near 0.13 here); the higher modes' alpha_p <= alpha / p and their shares sum
+// to at most 1, so the sum over modes is below the same figure. Taken as 5 alpha: the factor covers the next order of
+// the slow-variation expansion and the carriage's changing modal mass (an adiabatic change, brief M3-E7e). While the carriage rises toward mid-span the base is the
+// current C W (it grows), so there |ratio - 1| <= 5 alpha + the settled tolerance; past mid-span the window holds the
+// larger mid-span value and the ratio only falls: there ratio <= 1 + 5 alpha + tolerance. Never flagged.
+TEST_CASE("carried validity: a settled loaded member under gravity reads one at two steps and two meshes, and a slow "
+          "move stays within its dynamic term",
+          "[ENG-052]") {
+    struct Case {
+        int segments;
+        double h;
+    };
+    for (const Case c : {Case{8, 1e-3}, Case{8, 1e-4}, Case{16, 1e-3}, Case{16, 1e-4}}) {
+        CarriedRig rig = carried_rig(BeamEnds::SimplySupported, c.segments, 1.0, 0.0, true,
+                                     mechsim::engine::test::ParentKind::World, 0.1);
+        const double omega_rig = 2.0 / rig.beta;
+        const double ei = flexural_rigidity(rig.spec);
+        const double length = rig.spec.length;
+        const double w = rig.spec.density * rig.spec.area * 9.81;
+        const double weight = 9.81;
+        const double midspan = (5.0 * w * std::pow(length, 4) / (384.0 * ei)) + (weight * std::pow(length, 3) / (48.0 * ei));
+        const double theta = 4.0 * midspan / length;
+        double omega_start = 0.0;
+        double omega_mid = 0.0;
+        {
+            const MultibodyProvider probe(rig.model);
+            omega_start = lumped_first_frequency(probe, start_state(probe, rig.carriage, 0.25).q);
+            omega_mid = lumped_first_frequency(probe, start_state(probe, rig.carriage, 0.5).q);
+        }
+        const double rate = 0.1 * omega_start * omega_start / omega_rig;
+        const double settle = std::log(1e6) / rate;
+        mechsim::engine::MultibodyConfig config;
+        config.carried_evaluation_start = settle;
+        MultibodyProvider provider(rig.model, config);
+        State state = start_state(provider, rig.carriage, 0.25);
+        SemiImplicitEuler integrator(StepConfig{c.h});
+        bool early_zero = true;
+        while (state.t + c.h < settle) {
+            static_cast<void>(provider.step(integrator, state));
+            const MemberOutput& out = provider.outputs().members.front();
+            early_zero = early_zero && out.dynamic_ratio == 0.0 && !out.unresolved;
+        }
+        static_cast<void>(provider.step(integrator, state));
+        const MemberOutput first = provider.outputs().members.front();
+        const double g_over_cw = (first.quasi_static_deflection - first.static_floor) / first.static_floor;
+        const double tolerance = (2.0 * (2.0 + g_over_cw) * 1e-6) + (4.0 * theta * theta);
+        const auto window = static_cast<int>(first.window_steps);
+        double settled_error = 0.0;
+        bool flagged = false;
+        for (int n = 0; n < 2 * window; ++n) {
+            static_cast<void>(provider.step(integrator, state));
+            const MemberOutput& out = provider.outputs().members.front();
+            settled_error = std::max(settled_error, std::abs(out.dynamic_ratio - 1.0));
+            flagged = flagged || out.unresolved;
+        }
+        const double speed = 0.25;
+        const double alpha = std::numbers::pi * speed / (length * omega_mid);
+        const double dynamic = 5.0 * alpha;
+        const Eigen::Index slot = provider.position_offset(rig.carriage);
+        state.v[provider.velocity_offset(rig.carriage)] = speed;
+        double rising_error = 0.0;
+        double largest = 0.0;
+        while (state.q[slot] < 0.75 * length) {
+            const bool rising = state.q[slot] < 0.5 * length;
+            static_cast<void>(provider.step(integrator, state));
+            const MemberOutput& out = provider.outputs().members.front();
+            if (rising) {
+                rising_error = std::max(rising_error, std::abs(out.dynamic_ratio - 1.0));
+            }
+            largest = std::max(largest, out.dynamic_ratio);
+            flagged = flagged || out.unresolved;
+        }
+        std::printf("gravity gate: %d segments, h %.0e: settle %.3f s, window %d steps (%.3f s, %.2f periods), "
+                    "g / (C W) %.4f; settled abs(ratio - 1) %.3e within %.3e; moving at %.2f m/s: alpha %.5f, rising "
+                    "abs(ratio - 1) %.3e within %.3e, largest ratio %.6f within %.6f; flagged %d\n",
+                    c.segments, c.h, settle, window, window * c.h, first.window_periods, g_over_cw, settled_error,
+                    tolerance, speed, alpha, rising_error, dynamic + tolerance, largest, 1.0 + dynamic + tolerance,
+                    static_cast<int>(flagged));
+        std::fflush(stdout);
+        CHECK(early_zero);
+        CHECK(first.static_floor > 0.0);
+        CHECK(settled_error <= tolerance);
+        CHECK(rising_error <= dynamic + tolerance);
+        CHECK(largest <= 1.0 + dynamic + tolerance);
+        CHECK_FALSE(flagged);
+    }
 }
 
 TEST_CASE("carried validity: the work and the flag are deterministic", "[ENG-052]") {

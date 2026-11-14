@@ -204,9 +204,11 @@ double lag_spectral_radius(const Eigen::MatrixXd& lag, const Eigen::VectorXd& om
 
 double lag_stability_boundary(double x) { return 0.5 * (1.0 + (x * x)); }
 
-double carried_window_periods(double x, double zeta) {
-    const double decay = std::numbers::pi * (x + (2.0 * std::max(zeta, 0.0)));
-    const double periods = std::log(1.0 / carried_validity_margin) / decay;
+double carried_window_periods(double zeta) {
+    if (!(zeta > 0.0)) {
+        return carried_window_periods_max;
+    }
+    const double periods = std::log(1.0 / carried_validity_margin) / (2.0 * std::numbers::pi * zeta);
     if (!(periods < carried_window_periods_max)) {
         return carried_window_periods_max;
     }

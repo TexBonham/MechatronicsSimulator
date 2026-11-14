@@ -110,6 +110,10 @@ struct MultibodyConfig {
     // carried across the carriage's travel), so a test can show a standing carriage steps bit-identically either way
     // and a moving one differently. Never set by an adapter.
     bool carried_momentum = true;
+    // The carried-load validity flag's evaluation start, s (ENG-052, member_loads.hpp, Definition (d)): the ratio and
+    // the flag are evaluated, and the window filled, from the first step starting at or after it. The adapter sets
+    // it from the model document's carried_evaluation_start (PHY-035).
+    double carried_evaluation_start = 0.0;
 };
 
 }  // namespace mechsim::engine

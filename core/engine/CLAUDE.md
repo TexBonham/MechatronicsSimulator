@@ -95,9 +95,12 @@ Work and validity (brief M3-E7c, ruling 69, header Work and validity): per carry
 (cumulative h Q_n . v_{n+1}), `carried_force`/`peak_carried_force`, `quasi_static_deflection`/`peak_quasi_static`
 (node compliances and gravity deflection from the elastic modes at load, `member_compliance_`), `dynamic_ratio`,
 `peak_ratio`, `unresolved` + `unresolved_time` above `carried_ratio_limit` = 2 (1 + `carried_validity_margin` 0.02);
-information only, nothing clamped. The ratio's base (brief M3-E7e) is `window_quasi_static`, the largest abs(u_qs)
-over N = ln 50 / (pi x + 2 pi zeta) periods of the member's first loaded mode (cap 100), a fixed ring of 4 ceil(N)
-quarter-period buckets (`member_window_`); `window_periods`, `window_steps` published; `peak_quasi_static` stays since load.
+information only, nothing clamped. Definition (brief M3-E7f, ruling 74, header Definition): ratio =
+`relative_deflection` (max abs(d - g), g the own-weight deflection at the foot) / `window_quasi_static` = max(window
+peak of abs(u_qs - g), `static_floor` = max abs(C_ii W)); window N = ln 50 / (2 pi zeta) periods of the first loaded
+mode (node damping only; cap 100, undamped gets the cap), a fixed ring of 4 ceil(N) quarter-period buckets
+(`member_window_`); evaluated, and the window fed, from `MultibodyConfig::carried_evaluation_start` (s, default 0);
+`window_periods`, `window_steps` published; `peak_quasi_static` stays the largest abs(u_qs) since load.
 Carried mass (brief M3-E7d, ruling 70 b, header Carried mass): `mass_matrix` adds m_c G^T G per carried joint (G v the
 lever-weighted deflection rate at the foot point along member y relative to the parent, `carried_rate_row`; m_c the
 carried body's tree subtree, `carried_mass`), at the start-of-step configuration; no added weight, zero along the
