@@ -53,8 +53,15 @@ struct MemberOutput {
     double carried_force = 0.0;              // largest |F_y| of the member's carried joints this step, N
     double peak_carried_force = 0.0;         // the largest carried_force since load, N
     double quasi_static_deflection = 0.0;    // largest |u_qs| of the member's carried joints this step, m
-    double peak_quasi_static = 0.0;          // the largest quasi_static_deflection since load (the ratio's base), m
-    double dynamic_ratio = 0.0;              // carried_deflection / peak_quasi_static (0 while that is 0)
+    double peak_quasi_static = 0.0;          // the largest quasi_static_deflection since load, m
+    double relative_deflection = 0.0;        // largest abs(d - g) of the carried joints this step (Definition), m
+    double static_floor = 0.0;               // the base's floor: max over joints of max over travel C(s) W, m
+    double window_peak = 0.0;                // the window's peak of abs(u_qs - g), before the floor, m
+    double window_quasi_static = 0.0;        // the ratio's base: max(window_peak, static_floor), m
+    double window_periods = 0.0;             // N, the window in periods of the member's first loaded mode
+    Eigen::Index window_steps = 0;           // the window in steps, 4 ceil(N) b (Definition)
+    double dynamic_ratio = 0.0;              // relative_deflection / window_quasi_static (0 before the evaluation
+                                             // start and while the base is 0)
     double peak_ratio = 0.0;                 // the largest dynamic_ratio since load
     bool unresolved = false;                 // dynamic_ratio has exceeded carried_ratio_limit at some step
     double unresolved_time = 0.0;            // start time of the first such step, s (0 while resolved)
@@ -89,7 +96,8 @@ struct MemberOutput {
 // joint i over the nodes (w_i on k_i, 1 - w_i on k_i + 1) and F_j, M_j the loads applied this step, joint i's
 //   u_qs,i = e_i . d_g + sum_j (e_i^T C_f e_j F_j + e_i^T C_m e_j M_j),
 // the deflection the member would settle to under this step's loads held constant; quasi_static_deflection is the
-// largest |u_qs,i| of the member, peak_quasi_static the largest since load. Linear at the load configuration: the
+// largest |u_qs,i| of the member, peak_quasi_static the largest since load, window_quasi_static the base of
+// Definition below. Linear at the load configuration: the
 // compliance is in the member frame, so a parent's rigid motion does not change it. With the carried mass (Carried
 // mass, brief M3-E7d) the modes are those of K and H + B and both sums are unchanged in value, not only in form: for
 // a self-equilibrated load sum_p phi_p phi_p^T f / omega_p^2 solves K u = f up to a rigid motion, which no g_a
@@ -106,7 +114,7 @@ struct MemberOutput {
 // deflection above twice the largest quasi-static deflection so far therefore means the carried system drives the
 // member near one of its own frequencies (resonant growth, u ~ F_0 omega t / (2 k), passes 2 F_0 / k at
 // omega t ~ 4): exactly where the pair's missing back-reaction would detune or absorb it, so the one-way result is
-// not valid. dynamic_ratio = carried_deflection / peak_quasi_static; the member is unresolved from the first step
+// not valid. dynamic_ratio = sample / base of Definition below; the member is unresolved from the first step
 // whose ratio exceeds carried_ratio_limit = 2 (1 + carried_validity_margin). The margin, 2 percent, is the chain's
 // discretisation tolerance (ENG-022): the linear chain under the scheme stays below 2 exactly, so the margin covers
 // what the linear chain at the load configuration does not, the geometric nonlinearity (relative O(theta^2), below 2
@@ -114,8 +122,60 @@ struct MemberOutput {
 // round-off at a ratio of exactly 2. Not covered by the bound (the rule applies, the theorem does not): a moment and
 // a force at the same joint with modal shares of opposite sign, and several carried joints on one member (a joint's
 // deflection under another joint's load). The flag is information: nothing is clamped and the dynamics do not change.
+// Definition (brief M3-E7f, ruling 74; replaces the E7e base, whose window used the scheme's own decay and whose ratio
+// was formed on absolute deflections). With g_i = e_i . d_g the member's own-weight deflection at joint i's foot, C_ii
+// = e_i^T C_f e_i its collocated compliance there and W_i = m_i (gravity . y) the carried weight across the member
+// (m_i the joint's subtree mass), each step from the evaluation start:
+//   sample  = max_i abs(d_i - g_i)                       (d_i the published deflection at the foot)
+//   base    = max(max over the window of max_i abs(u_qs,i - g_i), floor),   floor = max_i F_i, (c)
+//   ratio   = sample / base,   flagged from the first step whose ratio exceeds carried_ratio_limit.
+// (a) The window is physical time. A load older than the window can legitimately leave free ringing of at most 2
+// u_qs of its own (the step response above); the member's node damping takes e^(-2 pi zeta) of it per period, so
+// after N = ln(1 / delta) / (2 pi zeta) periods of the first loaded mode it is below delta of its size and may be
+// forgotten. The scheme's own loss pi x per period is left out: it only shortens what the window must hold (so
+// leaving it out is conservative) and it made the memory depend on the step (E7e: 46 periods of rail_y at 10
+// substeps, 92 at 20). The window is 4 ceil(N) quarter-period buckets of b = max(1, floor(pi / (2 x))) steps each,
+// b h within one step of a quarter period: the same physical time at any step to one step per bucket. An undamped
+// member (zeta = 0: its ringing never decays physically) and any with N above the cap get carried_window_periods_max
+// = 100 periods, a choice: past it an undamped member's old ringing counts against its current loads (a
+// conservative false flag), and the cap binds for zeta < ln 50 / (200 pi) = 0.0062.
+// (b) Relative to the member's static shape. The own weight is a load the member carries whether or not anything
+// rides it; its static shape g is the member's equilibrium, not a carried load's effect. Subtracting g from both the
+// sample and u_qs leaves u_qs,i - g_i = sum_j (C_f F + C_m M)_ij, the carried loads' own quasi-static deflection, and
+// the step-response bound above applies to it alone; it removes the old case of gravity sag opposite to the load
+// (ratio 3). What the subtraction does not remove: own-weight ringing still in the member at the evaluation start
+// (the release from straight on an undamped member decays only by the scheme) is counted against the carried loads.
+// (c) The base has a floor (ruling 76, replacing the floor at the current foot point of ruling 74): the static
+// deflection of the carried weight at the worst foot position over the carried joint's travel, F_i = max over s in
+// the joint's limits of C(s) abs(W_i) (the whole span for a joint without finite limits), computed once at load from
+// the chain's static compliance; the member's floor is the largest over its joints. Why: the floor at the current
+// foot fell as s^2 toward a pinned support while a small ring there (a mode's shape, a moment's collocated term) falls
+// as s, so the ratio grew as 1 / s with nothing material happening (G15's rail_y near its support, a 15 micrometre
+// ring from the y belt's undamped drive mode). Against F_i the ratio is the dynamic deflection's excess over the
+// scale of the member's legitimate carried deflection, wherever the carriage stands. What it keeps: a member pumped
+// to several times its largest static carried deflection is still flagged, once its deflection passes 2.04 F. The
+// flag time moves only while 2.04 F exceeds 2.04 times the windowed peak: for a force F_0 sin(omega_1 t) the resonant
+// growth u ~ s1 c F_0 omega_1 t / 2 is flagged where the larger base is first passed, so the flag moves from omega t
+// near the E7c bound th_1 (g(th) = 2.04) to th_F with g(th_F) = 2.04 F / (c F_0), later by (th_F - th_1) / omega_1
+// when F > c F_0 and not at all otherwise. Gravity off (W = 0, F = 0), as in the E7c resonant test and two-member rig,
+// it does not move. It only raises the base, so it can only remove flags.
+// (d) Evaluation starts at MultibodyConfig::carried_evaluation_start (s, default 0): before it the work and the peaks
+// accumulate but the window is not fed and the ratio is 0 and never flagged; the window starts empty at the first
+// step whose start time is at or after it. A release from straight (the loads applied suddenly at t = 0, and the
+// own weight with them) is then not judged when the start is after the settle time.
+// What no flag bounds: from the evaluation start, at every step the largest carried deflection relative to the
+// member's own-weight shape stayed within carried_ratio_limit = 2.04 times the larger of the largest quasi-static
+// deflection of the carried loads over the window and the worst-case static carried deflection over the travel. Still
+// flagged without resonance (conservative, not special-cased): a single load reversal at half a period (ratio 4).
+// Not covered by the bound: a moment and a force at the same joint with modal shares of opposite sign, and several
+// carried joints on one member. A resonance whose amplitude stays below 2.04 F is not flagged anywhere on the span.
 inline constexpr double carried_validity_margin = 0.02;
 inline constexpr double carried_ratio_limit = 2.0 * (1.0 + carried_validity_margin);
+inline constexpr double carried_window_periods_max = 100.0;
+// N for a mode with damping ratio zeta: ln(1 / delta) / (2 pi zeta), at most the cap (the cap for zeta <= 0).
+[[nodiscard]] double carried_window_periods(double zeta);
+// b, the steps per bucket: max(1, floor(pi / (2 x))).
+[[nodiscard]] Eigen::Index carried_window_bucket(double x);
 
 // poses at the configuration the reactions were computed at (the step's start state, as record_outputs uses).
 [[nodiscard]] MemberOutput member_end_loads(const LumpedBeam& beam, const std::vector<BodyOutput>& poses,
@@ -175,14 +235,38 @@ inline constexpr double carried_ratio_limit = 2.0 * (1.0 + carried_validity_marg
 // added to the recorded reactions so the end loads include it. With the unlagged pair, a lumped node of mass mu on a
 // parent fixed across the member then rings at sqrt(k / (mu + m_c)), the loaded member's frequency.
 // Within a step. B is evaluated with H at the start-of-step configuration (weights w at the start-of-step s, the
-// Jacobians at q_n) and held through the step like H. What freezing costs: B's dependence on q has no Coriolis or
-// centripetal companion in the bias (those are the moving-mass terms 2 c u'_x and c^2 u_xx of a mass crossing a beam
-// at speed c, and the slope terms of G's rotation with the member), so the energy (1/2) v^T B v is not conserved
-// to O(dB/dt) per unit time: from the moving weights about m_c u'(p)^2 c / l (zero for a standing carriage), and from
-// the member's own rotation a relative O(theta theta' h) per step. The energy oracle (standing carriages, no node
-// damping) measures the second against the scheme's own loss. The lever weights are piecewise linear in s, so a
-// carriage crossing a node meets a kink in B, not a jump.
-// Rotary inertia. Not included: the moment channel stays without mass. The relative rotation at the foot point is
+// Jacobians at q_n) and held through the step like H.
+// The momentum form (brief M3-E7e, ruling 73). A carriage travelling along the member changes B. Holding B and
+// advancing B_n (v_{n+1} - v_n) carries the added mass's velocity across the change: for one modal coordinate u with
+// modal mass m(t) = mu + m_c phi(s(t))^2 that is m u'' + k u = 0, whose adiabatic invariant makes the amplitude grow
+// as m^(+1/4) as the carriage moves toward mid-span. The physics is Lagrange's equation of L = (1/2) m(t) u'^2 -
+// (1/2) k u^2 with s(t) prescribed by the carriage: d/dt(m u') + k u = 0, whose action E / omega is the adiabatic
+// invariant (dJ/dtheta = (m' / (2 m omega)) J cos 2 theta, J = E / omega: a relative oscillation of amplitude
+// eps = abs(m') / (4 m omega) and no secular drift at first order), so the amplitude goes as m^(-1/4). The step
+// therefore carries the momentum: with B'_{n-1} the block at the previous step's lever position s_{n-1} and today's
+// Jacobians (B'_{n-1} = m_c G'^T G', G' the row of Carried mass at s_{n-1}),
+//   (H_n + B_n) v_{n+1} = H_n v_n + B'_{n-1} v_n + h (forces at n, with D v_{n+1} and K q_{n+1} implicit),
+// that is the unchanged solve with the force -(B_n - B'_{n-1}) v_n / h added: the momentum B'_{n-1} v_n the added
+// mass carried out of the previous step is what it carries into this one. Only the travel is carried as momentum:
+// the change of G with the member's own configuration (the nodes' Jacobians rotating with the segments) keeps the
+// velocity form, like H's (its Lagrangian companion -(1/2) v^T dB/dq v is not in the bias either), so a standing
+// carriage (s_n = s_{n-1} exactly: the term is skipped) steps bit-identically to the block of brief M3-E7d. The step
+// before which no previous position exists (the first step after load) carries nothing. The energy: with E =
+// (1/2) v^T (H + B) v + V the added mass's part changes at -(1/2) v^T (dB/dt) v, the work done on the member's
+// motion by the force the prescribed travel exerts on the carriage, -(1/2) v^T (dB/ds) v along the member (it would
+// load the carriage's drive; one-way, it is not applied to the carriage); per step W_n = -(1/2) v_n^T (B_n -
+// B'_{n-1}) v_n, to O(h) relative. The force -(B_n - B'_{n-1}) v_n / h acts on the member through G_n^T and G'^T,
+// internal like the pair, and the recorded reactions carry the momentum rate -(m_c G_n v_{n+1} - m_c G' v_n) / h
+// at the two lever positions. Still dropped: the convective terms of the moving point. A body at the foot point
+// moving at c along the member has transverse velocity u_t + c u_x; the momentum form keeps m_c u_t and drops m_c c
+// u_x, which for a mode of wavenumber kappa is relative 2 c kappa / omega in the added mass's kinetic energy (the
+// cross term) plus (c kappa / omega)^2: for the pinned first mode kappa = pi / L, so 2 pi c / (L omega): 1 m/s on a
+// 4 m rail at 15 Hz is 1.7 percent, at 0.05 m/s on the 1 m test bar near 31 rad/s, 1 percent. The lever weights are
+// piecewise linear in s, so a carriage crossing a node meets a kink in B (a jump in m'), not a jump in B.
+// Rotary inertia. Not included: the moment channel stays without mass. For a rigid carriage at offset d from the
+// axis, riding a mode sin(kappa x), the omitted part is the slope's share: relative (kappa d)^2 cot^2(kappa s) of the
+// translational block at s (zero at mid-span of the pinned first mode, large near a support where the deflection
+// vanishes and the slope does not). Bodies below C with their own compliance are counted rigid in m_c. The relative rotation at the foot point is
 // the member's slope theta(p), and C's share of it would be the rotary inertia of the carried subtree about the
 // foot point, I_zz + m_c |d|^2. That is not a rigid property of a carried system with its own joints (a hook on a
 // rope does not follow the rail's slope; its m |d|^2 about the rail would be a large, wrong inertia), and for a
@@ -293,6 +377,10 @@ struct CarriedPair {
     Eigen::Vector3d axis_z = Eigen::Vector3d::UnitZ();       // member frame z, world
     double excursion = 0.0;  // distance of s outside [0, L], m (0 on the span)
 };
+// The lever rule and member frame at s (clamped to [0, L]) without a load: the nodes and weight of a carried joint
+// at a given position (the momentum form's previous position).
+[[nodiscard]] CarriedPair carried_pair_at(const LumpedBeam& beam, double s, const std::vector<Eigen::Matrix3d>& rotation,
+                                          const std::vector<Eigen::Vector3d>& origin);
 [[nodiscard]] CarriedPair carried_pair(const LumpedBeam& beam, Eigen::Index carried,
                                        const std::vector<Eigen::Matrix3d>& rotation,
                                        const std::vector<Eigen::Vector3d>& origin,

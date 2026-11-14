@@ -106,6 +106,14 @@ struct MultibodyConfig {
     // pair), so a test can compare the loaded member with the unloaded one and still reach the lag's refusal, which
     // the carried mass puts out of reach of a single mode (member_loads.hpp, Carried mass). Never set by an adapter.
     bool carried_added_mass = true;
+    // Test seam only (brief M3-E7e): false holds the carried block in the velocity form of brief M3-E7d (no momentum
+    // carried across the carriage's travel), so a test can show a standing carriage steps bit-identically either way
+    // and a moving one differently. Never set by an adapter.
+    bool carried_momentum = true;
+    // The carried-load validity flag's evaluation start, s (ENG-052, member_loads.hpp, Definition (d)): the ratio and
+    // the flag are evaluated, and the window filled, from the first step starting at or after it. The adapter sets
+    // it from the model document's carried_evaluation_start (PHY-035).
+    double carried_evaluation_start = 0.0;
 };
 
 }  // namespace mechsim::engine

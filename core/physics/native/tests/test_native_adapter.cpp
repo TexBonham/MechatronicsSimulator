@@ -68,6 +68,7 @@ struct Doc {
     std::string payloads = "[]";
     std::string starts = "[]";
     int substeps = 0;  // 0: the key is left out (one engine step per adapter step)
+    std::string evaluation_start;  // empty: the key is left out (the carried-load flag evaluated from 0)
 
     [[nodiscard]] std::string text() const {
         std::string list;
@@ -88,7 +89,7 @@ struct Doc {
                list + R"(], "neutral_bodies": )" + std::to_string(neutral) + R"(, "constraints": )" + constraints +
                R"(, "members": )" + members + R"(, "transmissions": )" + transmissions + R"(, "ropes": )" + ropes +
                R"(, "contact": )" + contact + R"(, "payloads": )" + payloads + R"(, "starts": )" + starts +
-               substeps_key() + "}";
+               substeps_key() + evaluation_key() + "}";
     }
 
     [[nodiscard]] std::string substeps_key() const {
@@ -96,6 +97,13 @@ struct Doc {
             return "";
         }
         return R"(, "substeps": )" + std::to_string(substeps);
+    }
+
+    [[nodiscard]] std::string evaluation_key() const {
+        if (evaluation_start.empty()) {
+            return "";
+        }
+        return R"(, "carried_evaluation_start": )" + evaluation_start;
     }
 };
 
@@ -1364,6 +1372,20 @@ TEST_CASE("native adapter: substeps below one are refused", "[PHY-031]") {
     NativeAdapter adapter;
     Doc doc = slider(1.0);
     doc.substeps = -1;
+    CHECK_THROWS_AS(load(adapter, doc), AdapterError);
+}
+
+TEST_CASE("native adapter: a carried evaluation start is read in seconds and refused below zero", "[PHY-035]") {
+    // Ruling 74, member_loads.hpp Definition (d): the key is optional, a finite time at least 0.
+    for (const char* good : {"0", "8.0"}) {
+        NativeAdapter adapter;
+        Doc doc = slider(1.0);
+        doc.evaluation_start = good;
+        CHECK_NOTHROW(load(adapter, doc));
+    }
+    NativeAdapter adapter;
+    Doc doc = slider(1.0);
+    doc.evaluation_start = "-0.5";
     CHECK_THROWS_AS(load(adapter, doc), AdapterError);
 }
 

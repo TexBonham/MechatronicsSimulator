@@ -340,6 +340,28 @@ def test_friction_lines_publish_the_creep_bound_and_planar_limits_are_refused() 
         translate(unvalidated)
 
 
+@pytest.mark.req("PHY-035")
+@pytest.mark.req("ENG-052")
+def test_the_carried_evaluation_start_is_written_when_set_and_refused_when_negative() -> None:
+    """The carried-load validity flag's evaluation start (ruling 74, member_loads.hpp Definition (d)): left out at
+    its default 0 (documents of earlier runs unchanged), written in seconds when set, refused below 0 or not finite;
+    the adapter loads a document carrying it."""
+    from mechsim import _core as core
+
+    model = model_of(pendulum_data())
+    assert "carried_evaluation_start" not in translate(model, step=1e-3).document
+    assert translate(model, step=1e-3, evaluation_start=8.0).document["carried_evaluation_start"] == 8.0
+    with pytest.raises(UnmappableElementError, match="evaluation start -1"):
+        translate(model, step=1e-3, evaluation_start=-1.0)
+    with pytest.raises(UnmappableElementError, match="evaluation start nan"):
+        translate(model, step=1e-3, evaluation_start=math.nan)
+    prepared = prepare_model(model, None, 1e-3, None, 1, 8.0)
+    physics = core.make_physics_adapter("native")
+    physics.load(core.PreparedModel(prepared.model_json, "", prepared.version), core.Rate(1000))
+    physics.step()
+    assert physics.health().steps == 1
+
+
 @pytest.mark.req("PHY-031")
 def test_substeps_are_written_and_run_at_h_over_substeps() -> None:
     """A translation with substeps writes the key (left out at one), refuses fewer than one, and its report states the

@@ -61,7 +61,12 @@ inline void apply_point_force(MultibodyProvider& provider, const State& state, c
 // null space of the loop-constraint Jacobian (central differences of the residuals, which are smooth in q).
 // The lowest elastic frequency at q0 (default the neutral positions); rigid modes (a carriage's free joint, omega^2
 // at round-off) are skipped. rad/s.
-inline double lumped_first_frequency(const MultibodyProvider& provider, const Eigen::VectorXd& at = Eigen::VectorXd()) {
+struct FirstMode {
+    double omega = 0.0;     // rad/s
+    Eigen::VectorXd shape;  // generalized velocities, normalised to phi^T H phi = 1 (H with the carried block)
+};
+
+inline FirstMode lumped_first_mode(const MultibodyProvider& provider, const Eigen::VectorXd& at = Eigen::VectorXd()) {
     Eigen::VectorXd q0 = provider.neutral_positions();
     if (at.size() == q0.size()) {
         q0 = at;
@@ -105,10 +110,14 @@ inline double lumped_first_frequency(const MultibodyProvider& provider, const Ei
     const Eigen::VectorXd& omega_squared = solver.eigenvalues();
     for (Eigen::Index k = 0; k < omega_squared.size(); ++k) {
         if (omega_squared[k] > 1e-12 * omega_squared.maxCoeff()) {
-            return std::sqrt(omega_squared[k]);
+            return FirstMode{std::sqrt(omega_squared[k]), basis * solver.eigenvectors().col(k)};
         }
     }
-    return 0.0;
+    return FirstMode{};
+}
+
+inline double lumped_first_frequency(const MultibodyProvider& provider, const Eigen::VectorXd& at = Eigen::VectorXd()) {
+    return lumped_first_mode(provider, at).omega;
 }
 
 // Times of upward zero crossings of the world y of a point, linear interpolation between steps.
