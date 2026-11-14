@@ -113,3 +113,4 @@ type live in the root `CLAUDE.md` dispatch table once measured.
 | 2026-11-13 | M3-I5d integrity rows rewritten to the code, neutral validity source for the party (wip/05-x1a 86e59fd) | module-writer (opus) | 246K | 104 calls |
 | 2026-11-13 | M3-D2b damping fix round, stopped at its cap part done (wip/05-x1a aba358c) | module-writer (opus) | 146K | 65 calls |
 | 2026-11-13 | M3-D2c damping fix round finished except the tier 1 note wiring (wip/05-x1a c15e219) | module-writer (opus) | 164K | 102 calls |
+| 2026-11-13 | M3-D2d step count rule in the driver, tier 1 notes into the run notes (wip/05-x1a e65c083) | module-writer (opus) | see notification | cap 45 |

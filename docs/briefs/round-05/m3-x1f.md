@@ -71,7 +71,10 @@ change.
    the bridge with the current design hash: give the count of entries, and for every entry whose measured value
    changed the old value, the new value and the cause (the design changed: rail height, frames, section fields).
    The tests that enumerate shipped cases pass. G12 and G15 each run twice with identical recordings.
-6. `docs/gantry-team-inputs.md`: every placeholder this round added, with its file, and a short list of the
+6. `docs/gantry-team-inputs.md`: the rail damping row must say, like the belt row, that the range quoted for
+   printed PETG (a loss factor of about 0.02 to 0.05) is the coordinator's recollection with no source cited in
+   this repository, and that the value and its source are owed by the gantry team (do not add a citation). Then:
+   every placeholder this round added, with its file, and a short list of the
    findings the gantry team must answer (swing damping and settle limit, rail sections and damping, fastening
    ratings, the safety factor result).
 
