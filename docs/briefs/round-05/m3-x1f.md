@@ -13,6 +13,24 @@ mypy, `python3 tools/check_imports.py`; no full pytest run of your own. Commit a
 M3-X1f: G12 and G15 results of record", no attribution trailer, no push. Do not edit `docs/queue.md` or
 `docs/cost-log.md`. In spec table cells write abs(x), never bare pipe characters.
 
+## State since this brief was drafted (read rulings 73 to 80 first)
+
+- The carried-load validity flag is member-wide and judged from the case's evaluation start (the driver passes
+  `integrity.evaluate_from` to the engine): the largest nodal deflection relative to the member's static shape
+  against the larger of the windowed quasi-static peak and the worst-case static carried deflection; flagged
+  above 2.04. A flagged member's results are recorded not valid (the case result is the not-valid error), never
+  pass or fail.
+- The rails and the three belts now carry a placeholder damping ratio of 0.01 (ruling 78; anchored at the
+  unloaded mode and the build-time mass, ruling 80, so the loaded gantry realises about 0.0054 and 0.0072 on the
+  rails): each run prints stated, build-time and run ratios. These values are fixed: do not change them.
+- Rope snap waits for the evaluation start.
+- Strength reads the exact moment under a carried force and couple in both tiers; fatigue governs by damage.
+- Ruling 77's reproduction condition replaces "20 substeps" below: run G15 at 10, 20 and 40 substeps (a
+  40-substep run takes over ten minutes: run it in the foreground with the 600000 ms timeout, in parts if the
+  CLI allows, or say that it could not be completed and give 10 and 20); a result of record needs every verdict
+  to reproduce at the step sizes run, and the report states whether the dynamic ratio converges now that the
+  rails and belts are damped; no agreement tolerance goes into a row.
+
 ## Ownership
 
 `designs/gantry/**`, `test_cases/gantry/**`, `docs/gantry-team-inputs.md`, `tests/acceptance/test_acc_stubs.py`,
