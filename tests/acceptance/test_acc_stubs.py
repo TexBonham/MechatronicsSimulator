@@ -17,6 +17,7 @@ from mechsim.cli import default_services, main
 from mechsim.testing.core_driver import CoreDriver, core_services
 from mechsim.testing.runner import RunResult, Services, prepare, run_case, sweep_runs
 from mechsim.testing.schema import ROOT, load_suite_file
+from tests.conftest import CaseRuns
 
 PENDULUM_CASE = ROOT / "test_cases" / "pendulum" / "P1_period.yaml"
 GANTRY_CASES = ROOT / "test_cases" / "gantry"
@@ -41,48 +42,48 @@ class _Runs(dict[str, Any]):
         return self[case]
 
 
-def _gantry_run(case: str) -> RunResult:
-    services = core_services()
-    driver = CoreDriver()
+def _cached(case_runs: CaseRuns, case: str, bindings: dict[str, str] | None) -> RunResult:
+    result, driver = case_runs.get(GANTRY_CASES / f"{case}.yaml", bindings)
     _VIEWS[case] = driver
-    bindings = None
-    if case in BRIDGE_RUNS:
-        bindings = BRIDGE
-    result = run_case(GANTRY_CASES / f"{case}.yaml", Services(lambda: driver, services.builder), bindings, None)
     assert result.report is not None, result.score
     return result
 
 
 @pytest.fixture(scope="module")
-def gantry() -> dict[str, RunResult]:
+def gantry(case_runs: CaseRuns) -> dict[str, RunResult]:
     """G1 to G14 (G12 is `native_gantry`'s), each once and on first use, through the real stack (gantry design,
     builder, the default native adapter, kernel, signal layer, native gantry firmware, recorder, scoring); placeholder
-    defaults for every open parameter (DES-044); `BRIDGE_RUNS` (now none) on the bridge. A case whose run errors
-    fails its own tests (`_passes`), not every case's."""
-    return _Runs(_gantry_run)
+    defaults for every open parameter (DES-044); `BRIDGE_RUNS` (now none) on the bridge. Runs come from the session
+    cache (`tests/conftest.py`), so a case another module also reads runs once. A case whose run errors fails its own
+    tests (`_passes`), not every case's. The fast tier reads only G1 here; the acceptance checks of G2 to G11, G13 and
+    G14 are full native runs of 40 to 130 s each and carry the long-run marker (brief M3-X2d)."""
 
+    def run(case: str) -> RunResult:
+        bindings = None
+        if case in BRIDGE_RUNS:
+            bindings = BRIDGE
+        return _cached(case_runs, case, bindings)
 
-def _bridge_run(case: str) -> RunResult:
-    services = core_services()
-    driver = CoreDriver()
-    result = run_case(GANTRY_CASES / f"{case}.yaml", Services(lambda: driver, services.builder), BRIDGE, None)
-    assert result.report is not None, result.score
-    return result
+    return _Runs(run)
 
 
 @pytest.fixture(scope="module")
-def bridge_gantry() -> dict[str, RunResult]:
+def bridge_gantry(case_runs: CaseRuns) -> dict[str, RunResult]:
     """The milestone 2 cases on the MuJoCo bridge (`physics.adapter: mujoco`, TST-040), each once and on first use,
-    for the bridge's own requirement (PHY-016) while the bridge stays (ADR 0004)."""
-    return _Runs(_bridge_run)
+    for the bridge's own requirement (PHY-016) while the bridge stays (ADR 0004); session-cached like `gantry`."""
+
+    def run(case: str) -> RunResult:
+        result, _ = case_runs.get(GANTRY_CASES / f"{case}.yaml", BRIDGE)
+        assert result.report is not None, result.score
+        return result
+
+    return _Runs(run)
 
 
 @pytest.fixture(scope="module")
-def bridge_g7() -> RunResult:
-    """G7 on the bridge, for the bridge's own rope stand-in (BLD-039)."""
-    services = core_services()
-    driver = CoreDriver()
-    result = run_case(GANTRY_CASES / "G7.yaml", Services(lambda: driver, services.builder), BRIDGE, None)
+def bridge_g7(case_runs: CaseRuns) -> RunResult:
+    """G7 on the bridge, for the bridge's own rope stand-in (BLD-039); session-cached."""
+    result, _ = case_runs.get(GANTRY_CASES / "G7.yaml", BRIDGE)
     assert result.report is not None, result.score
     return result
 
@@ -150,6 +151,7 @@ def test_acc_002(gantry: dict[str, RunResult]) -> None:
 
 
 @pytest.mark.req("ACC-003")
+@pytest.mark.long_run
 def test_acc_003(gantry: dict[str, RunResult]) -> None:
     """Reference design (gantry), G2: after homing, each axis's origin shall lie within the tolerance of
     its true origin.
@@ -165,6 +167,7 @@ def test_acc_003(gantry: dict[str, RunResult]) -> None:
 
 
 @pytest.mark.req("ACC-004")
+@pytest.mark.long_run
 def test_acc_004(gantry: dict[str, RunResult]) -> None:
     """Reference design (gantry), G2: after homing, the status shall be "ready".
 
@@ -178,6 +181,7 @@ def test_acc_004(gantry: dict[str, RunResult]) -> None:
 
 
 @pytest.mark.req("ACC-005")
+@pytest.mark.long_run
 def test_acc_005(gantry: dict[str, RunResult]) -> None:
     """Reference design (gantry), G3: after target (40, 25) is sent following homing, the hook's final
     position shall lie within the tolerance of the target.
@@ -193,6 +197,7 @@ def test_acc_005(gantry: dict[str, RunResult]) -> None:
 
 
 @pytest.mark.req("ACC-006")
+@pytest.mark.long_run
 def test_acc_006(gantry: dict[str, RunResult]) -> None:
     """Reference design (gantry), G3: no travel limit shall be exceeded during the move.
 
@@ -208,6 +213,7 @@ def test_acc_006(gantry: dict[str, RunResult]) -> None:
 
 
 @pytest.mark.req("ACC-007")
+@pytest.mark.long_run
 def test_acc_007(gantry: dict[str, RunResult]) -> None:
     """Reference design (gantry), G4: for a target outside the workspace, no actuator shall move.
 
@@ -225,6 +231,7 @@ def test_acc_007(gantry: dict[str, RunResult]) -> None:
 
 
 @pytest.mark.req("ACC-008")
+@pytest.mark.long_run
 def test_acc_008(gantry: dict[str, RunResult]) -> None:
     """Reference design (gantry), G4: the target shall be rejected with a reported fault, not clipped.
 
@@ -268,6 +275,7 @@ def _refused_with(result: RunResult, start: float, end: float, fault: str) -> No
 # ===== ACC-009 to ACC-024 ===================================================
 @pytest.mark.req("ACC-009")
 @pytest.mark.req("FW-018")
+@pytest.mark.long_run
 def test_acc_009(gantry: dict[str, RunResult]) -> None:
     """Reference design (gantry), G5: with a load over the limit attached before a move, a lift command
     shall be ignored.
@@ -289,6 +297,7 @@ def test_acc_009(gantry: dict[str, RunResult]) -> None:
 
 @pytest.mark.req("ACC-010")
 @pytest.mark.req("FW-018")
+@pytest.mark.long_run
 def test_acc_010(gantry: dict[str, RunResult]) -> None:
     """Reference design (gantry), G5: with a load over the limit attached, a lower command shall work.
 
@@ -303,6 +312,7 @@ def test_acc_010(gantry: dict[str, RunResult]) -> None:
 @pytest.mark.req("ACC-011")
 @pytest.mark.req("FW-019")
 @pytest.mark.req("TST-020")
+@pytest.mark.long_run
 def test_acc_011(gantry: dict[str, RunResult]) -> None:
     """Reference design (gantry), G6: when the load becomes overweight mid-lift, the lift shall stop.
 
@@ -317,6 +327,7 @@ def test_acc_011(gantry: dict[str, RunResult]) -> None:
 
 @pytest.mark.req("ACC-012")
 @pytest.mark.req("FW-019")
+@pytest.mark.long_run
 def test_acc_012(gantry: dict[str, RunResult]) -> None:
     """Reference design (gantry), G6: after an overweight stop, the load shall be able to be set down.
 
@@ -328,6 +339,7 @@ def test_acc_012(gantry: dict[str, RunResult]) -> None:
 
 @pytest.mark.req("ACC-013")
 @pytest.mark.req("FW-024")
+@pytest.mark.long_run
 def test_acc_013(gantry: dict[str, RunResult]) -> None:
     """Reference design (gantry), G7: when the E-stop is pressed mid-move with a load, motor power shall be
     cut within the relay delay.
@@ -345,6 +357,7 @@ def test_acc_013(gantry: dict[str, RunResult]) -> None:
 
 
 @pytest.mark.req("ACC-014")
+@pytest.mark.long_run
 def test_acc_014(gantry: dict[str, RunResult]) -> None:
     """Reference design (gantry), G7: after the E-stop, the hook shall not drop.
 
@@ -357,6 +370,7 @@ def test_acc_014(gantry: dict[str, RunResult]) -> None:
 
 @pytest.mark.req("ACC-015")
 @pytest.mark.req("FW-024")
+@pytest.mark.long_run
 def test_acc_015(gantry: dict[str, RunResult]) -> None:
     """Reference design (gantry), G7: after the E-stop, motion shall resume only after a reset and a new
     command.
@@ -370,6 +384,7 @@ def test_acc_015(gantry: dict[str, RunResult]) -> None:
 @pytest.mark.req("ACC-016")
 @pytest.mark.req("FW-025")
 @pytest.mark.req("TST-018")
+@pytest.mark.long_run
 def test_acc_016(gantry: dict[str, RunResult]) -> None:
     """Reference design (gantry), G8: when the controller freezes mid-move, the motors shall stop within
     the heartbeat timeout.
@@ -384,6 +399,7 @@ def test_acc_016(gantry: dict[str, RunResult]) -> None:
 @pytest.mark.req("ACC-017")
 @pytest.mark.req("FW-017")
 @pytest.mark.req("TST-017")
+@pytest.mark.long_run
 def test_acc_017(gantry: dict[str, RunResult]) -> None:
     """Reference design (gantry), G9: after power is lost and restored, no motion shall occur until the
     gantry is homed.
@@ -406,6 +422,7 @@ def test_acc_017(gantry: dict[str, RunResult]) -> None:
 
 
 @pytest.mark.req("ACC-018")
+@pytest.mark.long_run
 def test_acc_018(gantry: dict[str, RunResult]) -> None:
     """Reference design (gantry), G9: during the power loss and restore, the load shall not drop.
 
@@ -431,6 +448,7 @@ def _travel_after(result: RunResult, start: float, end: float) -> float:
 @pytest.mark.req("FW-020")
 @pytest.mark.req("TST-015")
 @pytest.mark.req("TST-016")
+@pytest.mark.long_run
 def test_acc_019(gantry: dict[str, RunResult]) -> None:
     """Reference design (gantry), G10: on a motor stall or belt slip during a move, motion shall stop.
 
@@ -452,6 +470,7 @@ def test_acc_019(gantry: dict[str, RunResult]) -> None:
 @pytest.mark.req("ACC-020")
 @pytest.mark.req("FW-020")
 @pytest.mark.req("TST-016")
+@pytest.mark.long_run
 def test_acc_020(gantry: dict[str, RunResult]) -> None:
     """Reference design (gantry), G10: on a motor stall or belt slip during a move, an encoder-mismatch
     fault shall be reported.
@@ -468,6 +487,7 @@ def test_acc_020(gantry: dict[str, RunResult]) -> None:
 
 @pytest.mark.req("ACC-021")
 @pytest.mark.req("FW-020")
+@pytest.mark.long_run
 def test_acc_021(gantry: dict[str, RunResult]) -> None:
     """Reference design (gantry), G10: after a stall or slip fault, re-homing shall be required before
     further motion.
@@ -490,6 +510,7 @@ def test_acc_021(gantry: dict[str, RunResult]) -> None:
 
 @pytest.mark.req("ACC-022")
 @pytest.mark.req("FW-021")
+@pytest.mark.long_run
 def test_acc_022(gantry: dict[str, RunResult]) -> None:
     """Reference design (gantry), G11: when a limit switch trips mid-workspace, motion shall stop.
 
@@ -501,6 +522,7 @@ def test_acc_022(gantry: dict[str, RunResult]) -> None:
 
 @pytest.mark.req("ACC-023")
 @pytest.mark.req("FW-021")
+@pytest.mark.long_run
 def test_acc_023(gantry: dict[str, RunResult]) -> None:
     """Reference design (gantry), G11: when a limit switch trips mid-workspace, a fault shall be reported.
 
@@ -513,6 +535,7 @@ def test_acc_023(gantry: dict[str, RunResult]) -> None:
 
 @pytest.mark.req("ACC-024")
 @pytest.mark.req("FW-021")
+@pytest.mark.long_run
 def test_acc_024(gantry: dict[str, RunResult]) -> None:
     """Reference design (gantry), G11: after a mid-workspace limit trip, re-homing shall be required before
     further motion.
@@ -806,6 +829,7 @@ def test_acc_026(native_gantry: dict[str, tuple[RunResult, CoreDriver]]) -> None
 @pytest.mark.req("ACC-027")
 @pytest.mark.req("FW-027")
 @pytest.mark.req("SCO-022")
+@pytest.mark.long_run
 def test_acc_027(gantry: dict[str, RunResult]) -> None:
     """Reference design (gantry), G13: a lift command while the gantry is moving shall be handled by the
     defined policy (queue or reject) in every run.
@@ -825,6 +849,7 @@ def test_acc_027(gantry: dict[str, RunResult]) -> None:
 @pytest.mark.req("FW-028")
 @pytest.mark.req("SCO-021")
 @pytest.mark.req("SCO-025")
+@pytest.mark.long_run
 def test_acc_028(gantry: dict[str, RunResult]) -> None:
     """Reference design (gantry), G14: under rapid-fire and conflicting commands, no two actuator commands
     shall overlap.
