@@ -1638,6 +1638,7 @@ void MultibodyProvider::check_carried_stability(const State& before, double h) {
 
     const std::vector<CarriedPair> pairs =
         carried_pairs(kin, std::vector<Vector6d>(carried_.size(), Vector6d::Zero()));
+    compute_travel_floor(kin, before, pairs);
     carried_stability_.assign(carried_.size(), CarriedLoadOutput{});
     std::vector<std::uint8_t> coupled(carried_.size(), 0);
     Eigen::Index critical = -1;
@@ -1801,6 +1802,55 @@ void MultibodyProvider::compute_member_compliance(const Kinematics& kin, const E
     }
 }
 
+// The floor of each carried joint at load (member_loads.hpp, Definition (c)): C(s) W at the worst s over the joint's
+// travel. C(s) = e^T C_f e is convex in the lever weight on a segment (C_f is positive semi-definite), so its maximum
+// over [s_lo, s_hi] is at s_lo, s_hi or a load node between them. A prismatic joint's limits map to s along the
+// member at its axis's rate ds/dq at load; open limits, other joint types and the span's ends give [0, L].
+void MultibodyProvider::compute_travel_floor(const Kinematics& kin, const State& before,
+                                             const std::vector<CarriedPair>& pairs) {
+    carried_travel_floor_.assign(carried_.size(), 0.0);
+    for (Eigen::Index i = 0; i < count(carried_.size()); ++i) {
+        const CarriedJoint& c = at(carried_, i);
+        const CarriedPair& pair = at(pairs, i);
+        const LumpedBeam& beam = at(model_.members, c.member);
+        const MemberCompliance& compliance = at(member_compliance_, c.member);
+        if (compliance.force.rows() == 0) {
+            continue;
+        }
+        double s_lo = 0.0;
+        double s_hi = beam.length;
+        const Joint& joint = at(model_.bodies, c.body).joint;
+        if (joint.type == JointType::Prismatic && joint.lower.size() == 1 && joint.upper.size() == 1 &&
+            std::isfinite(joint.lower[0]) && std::isfinite(joint.upper[0])) {
+            Eigen::Matrix3d parent_rotation = Eigen::Matrix3d::Identity();
+            if (beam.parent >= 0) {
+                parent_rotation = at(kin.world, beam.parent).rotation.transpose();
+            }
+            const Eigen::Vector3d axis = parent_rotation * (joint.orientation * joint.axis);
+            const double rate = axis.dot(pair.axis_y.cross(pair.axis_z));
+            const double q = before.q[position_offset(c.body)];
+            const double a = pair.output.position + (rate * (joint.lower[0] - q));
+            const double b = pair.output.position + (rate * (joint.upper[0] - q));
+            s_lo = std::clamp(std::min(a, b), 0.0, beam.length);
+            s_hi = std::clamp(std::max(a, b), 0.0, beam.length);
+        }
+        const auto collocated = [&compliance](const CarriedPair& at_s) {
+            const Eigen::Index k = at_s.output.node;
+            const double w = at_s.output.weight;
+            return (w * w * compliance.force(k, k)) + (2.0 * w * (1.0 - w) * compliance.force(k, k + 1)) +
+                   ((1.0 - w) * (1.0 - w) * compliance.force(k + 1, k + 1));
+        };
+        const CarriedPair low = carried_pair_at_position(kin, i, s_lo);
+        const CarriedPair high = carried_pair_at_position(kin, i, s_hi);
+        double largest = std::max(collocated(low), collocated(high));
+        for (Eigen::Index j = low.output.node + 1; j <= high.output.node; ++j) {
+            largest = std::max(largest, compliance.force(j, j));
+        }
+        const double weight = carried_mass(i) * model_.gravity.dot(pair.axis_y);
+        at(carried_travel_floor_, i) = std::abs(largest * weight);
+    }
+}
+
 // The pair's work in this step and the member's validity (member_loads.hpp, Work and validity); after the step,
 // pairs at the start state with the loads the step applied.
 void MultibodyProvider::record_carried_validity(const Kinematics& kin, const std::vector<CarriedPair>& pairs,
@@ -1855,12 +1905,10 @@ void MultibodyProvider::record_carried_validity(const Kinematics& kin, const std
             carried += (weighted(compliance.force, pair, other) * other.output.force) +
                        (weighted(compliance.moment, pair, other) * other.output.moment);
         }
-        const double weight = carried_mass(i) * model_.gravity.dot(pair.axis_y);
         running.quasi_static_deflection = std::max(running.quasi_static_deflection, std::abs(own_weight + carried));
         running.relative_deflection =
             std::max(running.relative_deflection, std::abs(pair.output.deflection - own_weight));
-        running.static_floor =
-            std::max(running.static_floor, std::abs(weighted(compliance.force, pair, pair) * weight));
+        running.static_floor = std::max(running.static_floor, at(carried_travel_floor_, i));
         at(carried_base, m) = std::max(at(carried_base, m), std::abs(carried));
     }
     const bool evaluating = !(before.t < config_.carried_evaluation_start);
@@ -1879,7 +1927,8 @@ void MultibodyProvider::record_carried_validity(const Kinematics& kin, const std
         running.dynamic_ratio = 0.0;
         if (evaluating) {
             window.current = std::max(window.current, at(carried_base, m));
-            running.window_quasi_static = std::max({window.stored, window.current, running.static_floor});
+            running.window_peak = std::max(window.stored, window.current);
+            running.window_quasi_static = std::max(running.window_peak, running.static_floor);
             window.filled += 1;
             if (window.filled >= compliance.bucket_steps && !window.buckets.empty()) {
                 window.buckets[window.next] = window.current;
@@ -1903,6 +1952,7 @@ void MultibodyProvider::record_carried_validity(const Kinematics& kin, const std
         published.quasi_static_deflection = running.quasi_static_deflection;
         published.relative_deflection = running.relative_deflection;
         published.static_floor = running.static_floor;
+        published.window_peak = running.window_peak;
         published.peak_quasi_static = running.peak_quasi_static;
         published.window_quasi_static = running.window_quasi_static;
         published.window_periods = running.window_periods;

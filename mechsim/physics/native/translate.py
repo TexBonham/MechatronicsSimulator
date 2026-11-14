@@ -560,17 +560,19 @@ def carried_validity_lines(model: PhysicsModel, values: Sequence[tuple[float, ..
             f"force {force:.6g} N, largest quasi-static deflection {quasi_static:.6g} m, largest dynamic ratio "
             f"from the evaluation start (the carried deflection relative to the member's own-weight shape, over "
             f"the larger of the carried loads' largest quasi-static deflection within the window of the member's "
-            f"first loaded mode and the carried weight's static deflection at the foot) {ratio:.6g} against the "
+            f"first loaded mode and the carried weight's worst-case static deflection over its travel) {ratio:.6g} "
+            f"against the "
             f"limit {CARRIED_RATIO_LIMIT:.6g}; no flag bounds only this: from the evaluation start the deflection "
             f"relative to the own-weight shape stayed within {CARRIED_RATIO_LIMIT:.6g} times that base (ENG-052, "
-            f"PHY-035, ruling 74)"
+            f"PHY-035, rulings 74, 76)"
         )
         if unresolved:
             lines.append(
                 f"lumped member '{member.name}': the one-way carried-load result is not valid from t = {since:.6g} s: "
                 f"relative to its own-weight shape the member deflects more than {CARRIED_RATIO_LIMIT:.6g} times the "
                 f"larger of the largest quasi-static deflection of its carried loads within the window and the "
-                f"carried weight's static deflection, more than any load applied no faster than suddenly can "
+                f"carried weight's worst-case static deflection over its travel, more than any load applied no "
+                f"faster than suddenly can "
                 f"cause, so the carried system drives it near its own frequency, where the missing back-reaction of "
                 f"the one-way coupling matters; full coupling is milestone 4 (ruling 69, ENG-052)"
             )

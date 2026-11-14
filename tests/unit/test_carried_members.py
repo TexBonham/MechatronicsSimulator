@@ -338,45 +338,49 @@ def test_a_run_reports_each_carrying_member_s_deflection_and_lag_after_the_run()
 def test_a_run_reports_each_carrying_member_s_work_ratio_and_validity() -> None:
     """Brief M3-E7c (ruling 69): the record carries the engine's work, largest force, quasi-static deflection and
     ratio; the run-end lines state them per carrying member, and a flagged member gets the not-valid line with its
-    time. The resting carriage loads the undamped member released from straight under gravity: positive work. Judged
-    from the release (evaluation start 0) it is flagged: the ratio is formed relative to the own-weight shape g (ruling
-    74, member_loads.hpp Definition (b)), and the own weight released from straight rings about it, so abs(d - g)
-    reaches 2 C W + g against the base C W, a ratio near 2 + g / (C W), above 2.04 whenever g > 0.04 C W (the 1 m bar
-    outweighs the 40 mm cube several times). That is the release the evaluation start exists for (Definition (d)):
-    from a start after the run's 50 steps the ratio stays 0 and nothing is flagged. (Under the E7c and E7e base,
-    abs(g + C W), the same run read below the limit.)"""
+    time. The resting carriage loads the undamped member released from straight under gravity (backward Euler alone
+    settles it: e^(-11) of the static deflection after 2 s, the settling note of the reroute test above). Evaluated
+    from 2 s (ruling 74, Definition (d)) the ratio is abs(d - g) = C(a) W over the floor, the largest C(s) W over the
+    carriage's travel (ruling 76): at most 1, positive, not flagged. Judged from the release (start 0) it is flagged,
+    the documented behaviour: abs(d - g) rings to 2 C W + g against the floor, a ratio near (2 + g / (C W)) C(a) /
+    C_max, above 2.04 here (the 1 m bar outweighs the 40 mm cube several times; a = 0.46875 is a load node at the
+    travel's largest compliance)."""
     assert translate.CARRIED_RATIO_LIMIT == core.CARRIED_RATIO_LIMIT
     model = _physics(_design(["slide"]))
-    late = prepare_model(model, None, 1e-3, None, 1, 0.1)
-    held = core.NativeAdapter()
-    held.load(core.PreparedModel(late.model_json, "", late.version), core.Rate(1000))
+    released = prepare_model(model, None, 1e-3)
+    judged = core.NativeAdapter()
+    judged.load(core.PreparedModel(released.model_json, "", released.version), core.Rate(1000))
     for _ in range(50):
-        held.step()
-    assert held.carried_record().values()[0][7:] == (0.0, False, 0.0)
-    prepared = prepare_model(model, None, 1e-3)
+        judged.step()
+    judged_ratio, judged_unresolved, judged_since = judged.carried_record().values()[0][7:]
+    assert judged_ratio > core.CARRIED_RATIO_LIMIT
+    assert judged_unresolved is True
+    assert 0.0 <= judged_since < 0.05
+    assert len(translate.carried_validity_lines(model, judged.carried_record().values())) == 2
+    prepared = prepare_model(model, None, 1e-3, None, 1, 2.0)
     adapter = core.NativeAdapter()
     adapter.load(core.PreparedModel(prepared.model_json, "", prepared.version), core.Rate(1000))
     record = adapter.carried_record()
-    for _ in range(50):
+    for _ in range(2200):
         adapter.step()
     value = record.values()[0]
     work, force, quasi_static, ratio, unresolved, since = value[4:]
     assert work > 0.0
     assert force > 0.0
     assert quasi_static > 0.0
-    assert ratio > core.CARRIED_RATIO_LIMIT
-    assert unresolved is True
-    assert 0.0 <= since < 0.05
+    assert 0.0 < ratio <= 1.0 + 1e-4
+    assert unresolved is False
+    assert since == 0.0
     lines = translate.carried_validity_lines(model, record.values())
-    assert len(lines) == 2
+    assert len(lines) == 1
     assert lines[0].startswith("lumped member 'bar_beam': the carried load-path pair did")
     assert f"{work:.6g} J" in lines[0]
-    assert f"static deflection at the foot) {ratio:.6g} against the limit 2.04" in lines[0]
+    assert f"worst-case static deflection over its travel) {ratio:.6g} against the limit 2.04" in lines[0]
     assert "from the evaluation start the deflection relative to the own-weight shape stayed within 2.04" in lines[0]
     flagged = translate.carried_validity_lines(model, [(1e-3, 0.0, 0.0, 0.0, 10.7, 50.0, 1e-3, 13.5, True, 2.125)])
     assert len(flagged) == 2
-    assert "static deflection at the foot) 13.5 against" in flagged[0]
-    assert "quasi-static deflection of its carried loads within the window and the carried weight's" in flagged[1]
+    assert "static deflection over its travel) 13.5 against" in flagged[0]
+    assert "within the window and the carried weight's worst-case static deflection over its travel" in flagged[1]
     assert flagged[1].startswith(
         "lumped member 'bar_beam': the one-way carried-load result is not valid from t = 2.125 s"
     )

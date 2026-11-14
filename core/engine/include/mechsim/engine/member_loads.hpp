@@ -55,8 +55,9 @@ struct MemberOutput {
     double quasi_static_deflection = 0.0;    // largest |u_qs| of the member's carried joints this step, m
     double peak_quasi_static = 0.0;          // the largest quasi_static_deflection since load, m
     double relative_deflection = 0.0;        // largest abs(d - g) of the carried joints this step (Definition), m
-    double static_floor = 0.0;               // largest abs(C_ii W_i) this step, the base's floor (Definition), m
-    double window_quasi_static = 0.0;        // the ratio's base: max(window peak of abs(u_qs - g), floor), m
+    double static_floor = 0.0;               // the base's floor: max over joints of max over travel C(s) W, m
+    double window_peak = 0.0;                // the window's peak of abs(u_qs - g), before the floor, m
+    double window_quasi_static = 0.0;        // the ratio's base: max(window_peak, static_floor), m
     double window_periods = 0.0;             // N, the window in periods of the member's first loaded mode
     Eigen::Index window_steps = 0;           // the window in steps, 4 ceil(N) b (Definition)
     double dynamic_ratio = 0.0;              // relative_deflection / window_quasi_static (0 before the evaluation
@@ -126,7 +127,7 @@ struct MemberOutput {
 // = e_i^T C_f e_i its collocated compliance there and W_i = m_i (gravity . y) the carried weight across the member
 // (m_i the joint's subtree mass), each step from the evaluation start:
 //   sample  = max_i abs(d_i - g_i)                       (d_i the published deflection at the foot)
-//   base    = max(max over the window of max_i abs(u_qs,i - g_i), floor),   floor = max_i abs(C_ii W_i)
+//   base    = max(max over the window of max_i abs(u_qs,i - g_i), floor),   floor = max_i F_i, (c)
 //   ratio   = sample / base,   flagged from the first step whose ratio exceeds carried_ratio_limit.
 // (a) The window is physical time. A load older than the window can legitimately leave free ringing of at most 2
 // u_qs of its own (the step response above); the member's node damping takes e^(-2 pi zeta) of it per period, so
@@ -144,23 +145,30 @@ struct MemberOutput {
 // the step-response bound above applies to it alone; it removes the old case of gravity sag opposite to the load
 // (ratio 3). What the subtraction does not remove: own-weight ringing still in the member at the evaluation start
 // (the release from straight on an undamped member decays only by the scheme) is counted against the carried loads.
-// (c) The base has a floor, the static deflection of the carried weight at the current foot point. A carried body
-// at rest puts its weight on the member (F_i = W_i, u_qs,i - g_i = C_ii W_i), so a hanging load at rest reads 1
-// whatever the window holds; the floor stops the ratio being formed against a signed sum that a fluctuating moment
-// or force term has cancelled toward zero while the member still holds the carried weight. It only raises the base,
-// so it can only remove flags: a resonance whose amplitude stays below 2.04 C_ii W_i is not flagged.
+// (c) The base has a floor (ruling 76, replacing the floor at the current foot point of ruling 74): the static
+// deflection of the carried weight at the worst foot position over the carried joint's travel, F_i = max over s in
+// the joint's limits of C(s) abs(W_i) (the whole span for a joint without finite limits), computed once at load from
+// the chain's static compliance; the member's floor is the largest over its joints. Why: the floor at the current
+// foot fell as s^2 toward a pinned support while a small ring there (a mode's shape, a moment's collocated term) falls
+// as s, so the ratio grew as 1 / s with nothing material happening (G15's rail_y near its support, a 15 micrometre
+// ring from the y belt's undamped drive mode). Against F_i the ratio is the dynamic deflection's excess over the
+// scale of the member's legitimate carried deflection, wherever the carriage stands. What it keeps: a member pumped
+// to several times its largest static carried deflection is still flagged, once its deflection passes 2.04 F. The
+// flag time moves only while 2.04 F exceeds 2.04 times the windowed peak: for a force F_0 sin(omega_1 t) the resonant
+// growth u ~ s1 c F_0 omega_1 t / 2 is flagged where the larger base is first passed, so the flag moves from omega t
+// near the E7c bound th_1 (g(th) = 2.04) to th_F with g(th_F) = 2.04 F / (c F_0), later by (th_F - th_1) / omega_1
+// when F > c F_0 and not at all otherwise. Gravity off (W = 0, F = 0), as in the E7c resonant test and two-member rig,
+// it does not move. It only raises the base, so it can only remove flags.
 // (d) Evaluation starts at MultibodyConfig::carried_evaluation_start (s, default 0): before it the work and the peaks
 // accumulate but the window is not fed and the ratio is 0 and never flagged; the window starts empty at the first
 // step whose start time is at or after it. A release from straight (the loads applied suddenly at t = 0, and the
 // own weight with them) is then not judged when the start is after the settle time.
 // What no flag bounds: from the evaluation start, at every step the largest carried deflection relative to the
 // member's own-weight shape stayed within carried_ratio_limit = 2.04 times the larger of the largest quasi-static
-// deflection of the carried loads over the window and the carried weight's static deflection at the foot. Still
+// deflection of the carried loads over the window and the worst-case static carried deflection over the travel. Still
 // flagged without resonance (conservative, not special-cased): a single load reversal at half a period (ratio 4).
 // Not covered by the bound: a moment and a force at the same joint with modal shares of opposite sign, and several
-// carried joints on one member. Near a support the floor and the force term vanish as s^2 (pinned) while a moment's
-// collocated term and a mode's shape vanish as s, so a carried moment driven near the member's frequency reads a
-// ratio growing as 1 / s there (G15's rail_y at 8.3 s: the y belt's 50.8 Hz drive mode against the rail's 50 Hz).
+// carried joints on one member. A resonance whose amplitude stays below 2.04 F is not flagged anywhere on the span.
 inline constexpr double carried_validity_margin = 0.02;
 inline constexpr double carried_ratio_limit = 2.0 * (1.0 + carried_validity_margin);
 inline constexpr double carried_window_periods_max = 100.0;

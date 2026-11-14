@@ -298,6 +298,9 @@ private:
     std::vector<spatial::Vector6d> carried_load_;     // per carried_, world-aligned [M about r_c; F] on the member
     bool carried_ready_ = false;                      // carried_load_ holds a reaction (else computed at step start)
     std::vector<CarriedLoadOutput> carried_stability_;  // per carried_, the lag's stability fields at load
+    // per carried_, the base's floor: max over the joint's travel of C(s) W at load (member_loads.hpp, Definition (c))
+    std::vector<double> carried_travel_floor_;
+    void compute_travel_floor(const Kinematics& kin, const State& before, const std::vector<CarriedPair>& pairs);
     // Per member, at load (member_loads.hpp, Work and validity): node compliances and gravity deflection, empty for
     // a member that carries nothing; and the running work and validity state.
     struct MemberCompliance {
