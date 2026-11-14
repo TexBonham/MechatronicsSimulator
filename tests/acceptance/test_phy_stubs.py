@@ -99,8 +99,7 @@ def differential_misses(bridge: Any, native: Any) -> list[str]:
 @pytest.mark.xfail(
     strict=True,
     reason=(
-        "not met (brief M3-X2): G5 and G6 error on native (the adapter refuses a mass change on the rope-hung "
-        "payload); "
+        "not met (briefs M3-X2, M3-X2c; G5 and G6 within tolerance on native since M3-N5): "
         "G7 hook_held and G9 load_held differ by 1.03 mm (payload on its rope and compliant lift belt against the "
         "bridge's fixed payload and rigid transmission); G10's stall, re-home and slip events come 8 to 20 ms earlier "
         "(compliant belts move the encoder-mismatch crossing)"
