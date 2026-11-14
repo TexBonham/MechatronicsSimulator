@@ -14,8 +14,8 @@ class CaseRuns:
     (name, value) pairs of the `bindings` passed to `get`, the CLI's `--set` pairs (`physics.adapter`, `${}` values
     and `instance:` overrides alike); nothing else is in it, so two calls with the same file and the same pairs share
     one run and any differing pair gets its own. A case several test modules read through the real stack is run once,
-    on first use, with no archive written. A test that needs a run of its own (run-twice determinism, a run into a folder, a run of an edited copy) calls `run_case` itself and
-    never goes through this cache."""
+    on first use, with no archive written. A test that needs a run of its own (run-twice determinism, a run into a
+    folder, a run of an edited copy) calls `run_case` itself and never goes through this cache."""
 
     def __init__(self) -> None:
         self._runs: dict[tuple[str, tuple[tuple[str, str], ...]], tuple[RunResult, CoreDriver]] = {}

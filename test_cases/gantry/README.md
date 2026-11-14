@@ -54,7 +54,7 @@ bridge (BLD-039) and the pendulum. A case several test modules read runs once pe
 ## Native against the bridge (PHY-024, brief M3-X2d)
 
 Each criterion is compared at its own axis's tolerance (`docs/spec/phy.md`, the differential tolerance row): one full
-step, 0.2 mm, plus that axis's belt stretch at rest in that case (lift: (payload + 0.4064 kg) g on 1e5 N/m, 0.240 mm
+step, 0.2 mm, plus that axis's belt stretch at rest in that case (lift: (payload + the build's driven mass, 0.4064 kg) g on 1e5 N/m, 0.240 mm
 empty, 0.436 mm with 2 kg, 0.779 mm with 5.5 kg; x and y carry no load at rest, 0.2 mm); event times 3 ms; counts
 exact. Six misses of record, with their causes from the archives of both adapters (`tests/acceptance/
 test_phy_stubs.py`, `MISSES_OF_RECORD`; a companion test asserts the list exactly):
@@ -62,7 +62,7 @@ test_phy_stubs.py`, `MISSES_OF_RECORD`; a companion test asserts the list exactl
 | Miss | Bridge | Native | Cause | Verdict |
 |---|---|---|---|---|
 | G7 `hook_held`, G9 `load_held` | 2.177 mm at 12.050 s | 1.146 mm at 12.044 s (record, before E8); 1.821 mm at 12.050 s at the head | Drive cleared from 12.022 s (SIG-033: K = D = 0), brake (0.5 N m) from 12.042 s. Bridge: rigid drive, payload welded, fall at 2.4074 g / 3.098 kg = 7.62 m/s^2 for 20 ms (1.524 mm), brake stop 0.656 mm: 2.180 mm. Native, two engine mechanisms: (a) the belt's efficiency loss is a shaft damping c = alpha L / max(omega, omega_s) frozen at the step's start rate (ruling 47, M3-E6): released from rest it holds the rotor about 2 ms (recorded 0.002, 0.038, 0.655, 3.86 rad/s against about 5 rad/s after one step at 0.95); (b) the rope goes slack at 12.030 s and, before E8, did not take up again in the window, so the brake stopped the rotor and the 0.4074 kg carriage alone. A three-mass backward-Euler model of these terms gives 1.140 mm (head rope: 1.811 mm) | Explained: 1.040 mm predicted against 1.031 mm; no rotor damping (ruled out). At the head the difference is 0.357 mm, inside 0.436 mm: the native baseline predates E8 and is stale |
-| G10 `stall_fault`, `slip_fault` | 9.161 s, 31.427 s | 9.153 s, 31.407 s | The x belt's stretch under the drive torque at the fault, 0.0496 mm, puts the mismatch ahead: crossing 1.7 ms (stall, 28.2 mm/s) and 4.7 ms (slip, 10.5 mm/s) earlier, the event (detection + v / a) twice that: 3.4 ms and 9.4 ms | Finding: against 8 ms and 20 ms observed; the recomputed crossings move 2 and 5 ms as predicted, the rest is unexplained |
+| G10 `stall_fault`, `slip_fault` | 9.161 s, 31.427 s | 9.153 s, 31.407 s | The x belt's stretch under the drive torque at the fault, 0.0496 mm, puts the mismatch ahead: crossing 1.7 ms (stall, 28.2 mm/s) and 4.7 ms (slip, 10.5 mm/s) earlier, the event (detection + v / a) twice that: 3.4 ms and 9.4 ms | Finding: against 8 ms and 20 ms observed; the recomputed crossings move 2 and 5 ms as predicted; the stop phase (detection to the fault at zero commanded velocity) and the carriage's coast during the stall are not yet accounted (M3-X2g item 2 not finished); the head reproduces both adapters' event times |
 | G10 `stall_rehomed` | 12.044 s | 12.030 s | Follows the stall stop (8 ms) and a homing 2 ms shorter (G2 `ready`) | Consequence of the finding |
 | G10 `slip_carriage_stopped` | 21.16 mm | 20.43 mm | The stop starts 10 ms earlier; the commanded stop distance moves 2 v per second of detection, 2 x 0.036 m/s x 10 ms = 0.72 mm | Consequence of the finding |
 
