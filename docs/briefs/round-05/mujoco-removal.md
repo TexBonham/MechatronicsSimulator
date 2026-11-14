@@ -21,7 +21,7 @@ its row; its values of record are the fixed baselines.
 |---|---|
 | `core/physics/mujoco/` (`include/`, `src/`, `tests/`, `CMakeLists.txt`, `CLAUDE.md`, `HISTORY.md`, `README.md`) | Delete; `HISTORY.md` content moves to `docs/adr/0004` notes or the physics `HISTORY.md` |
 | `core/physics/CMakeLists.txt` `add_subdirectory(mujoco)` | Delete the line |
-| `core/cmake/MuJoCo.cmake` (pinned release fetch with SHA-256) and its `include` in the top-level `core/CMakeLists.txt` | Delete |
+| `core/cmake/MuJoCo.cmake` (pinned release fetch with SHA-256), included only from `core/physics/mujoco/CMakeLists.txt` | Delete |
 | CMake target `mechsim_physics_mujoco` | Gone with the directory; remove from `core/bindings/CMakeLists.txt` lines 21 (`set_target_properties`) and 39 (`target_link_libraries`) |
 | `core/bindings/CMakeLists.txt` lines 42 to 47: `install(FILES $<TARGET_FILE:mujoco::mujoco> ...)` and the `$ORIGIN` rpath note | Delete: libmujoco no longer ships in the wheel |
 | `core/bindings/` `make_physics_adapter("mujoco")` branch and any MuJoCo-only binding (prepared MJCF text in `PreparedModel`) | Delete the branch; `make_physics_adapter` accepts `native` only, anything else an `AdapterError` naming the value; `PreparedModel`'s MJCF field removed or left empty with a contract note (owner's contract review) |

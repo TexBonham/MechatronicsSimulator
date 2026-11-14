@@ -78,4 +78,5 @@ xfail_strict = true
 addopts = ["--strict-markers"]
 markers = [
     "req(id): cites the spec requirement this test verifies, e.g. ENG-001",
+    "long_run: a test over a few minutes (whole gantry runs at 10 substeps, sweeps, the batch); CI runs these in one Linux job only",
 ]

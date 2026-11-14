@@ -26,7 +26,27 @@ jobs:
       - name: Types
         run: uv run mypy
       - name: Tests
-        run: uv run pytest
+        # The long-run tests (whole gantry runs at 10 substeps, the G16 sweep, PHY-016 on the bridge, ACC-037, the
+        # G1 to G16 batch) run in python-long only; this job is expected to take about 20 minutes.
+        run: uv run pytest -m "not long_run"
+
+  python-long:
+    # The long-run marker (pyproject.toml): about 70 minutes, the G1 to G16 batch (ACC-036) about 35 of them.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+      - name: Install C++ toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends cmake ninja-build g++
+      - name: Sync environment
+        run: uv sync --locked
+      - name: Long-run tests
+        run: uv run pytest -m long_run
 
   python-windows:
     runs-on: windows-2022
@@ -51,4 +71,5 @@ jobs:
       - name: Types
         run: uv run mypy
       - name: Tests
-        run: uv run pytest
+        # Long-run tests excluded (python-long runs them); keeps this job under 30 minutes.
+        run: uv run pytest -m "not long_run"

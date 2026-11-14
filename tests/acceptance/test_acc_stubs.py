@@ -1,7 +1,10 @@
 """Strict-xfail stubs for the ACC spec (acceptance tier)."""
 
+import io
 import itertools
 import math
+import re
+import time
 from collections.abc import Callable
 from dataclasses import replace
 from pathlib import Path
@@ -10,6 +13,7 @@ from typing import Any
 import numpy as np
 import pytest
 
+from mechsim.cli import default_services, main
 from mechsim.testing.core_driver import CoreDriver, core_services
 from mechsim.testing.runner import RunResult, Services, prepare, run_case, sweep_runs
 from mechsim.testing.schema import ROOT
@@ -586,6 +590,7 @@ def _check_g12(driver: CoreDriver) -> None:
 
 
 @pytest.mark.req("ACC-025")
+@pytest.mark.long_run
 def test_acc_025(native_gantry: dict[str, tuple[RunResult, CoreDriver]]) -> None:
     """Reference design (gantry), G12: after a fast move and after an E-stop, the peak load swing angle
     shall be within its limit.
@@ -674,6 +679,7 @@ def _forced_peak(times: Any, path: Any, start: float, end: float) -> float:
 
 
 @pytest.mark.req("ACC-025")
+@pytest.mark.long_run
 def test_acc_025_bounds(native_gantry: dict[str, tuple[RunResult, CoreDriver]]) -> None:
     """The first ramp and the E-stop (G12 header). Per axis: over the first ramp (8 s to 10 s) theta <= R0 + the
     swing the hook's recorded motion forces (2 a / g for an exact ramp), and a priori theta <= R0 + 2 a_max / g with
@@ -723,6 +729,7 @@ def test_acc_025_bounds(native_gantry: dict[str, tuple[RunResult, CoreDriver]]) 
     "abs(f_s - 3000 Hz) crosses the 52.5 Hz belt mode (8.737 and 8.763 s); no gantry value in the data converts it "
     "(the drive's step size or microstepping, or belt damping, would)",
 )
+@pytest.mark.long_run
 def test_acc_025_first_ramp_allowance(native_gantry: dict[str, tuple[RunResult, CoreDriver]]) -> None:
     """The first ramp's drive allowance, a priori (brief M3-X1f item 1): the trolley follows the commanded ramp in rate
     through its belt, a second-order follower (stiffness with its damper in parallel, BLD-041), so its acceleration is
@@ -761,6 +768,7 @@ def test_acc_025_first_ramp_allowance(native_gantry: dict[str, tuple[RunResult, 
     "rad into the 0.01 rad band against the 5 s placeholder (move_settle_x 5.208 s, estop_settle_x not settled by "
     "30 s); damping, limit and band owed by the gantry team",
 )
+@pytest.mark.long_run
 def test_acc_026(native_gantry: dict[str, tuple[RunResult, CoreDriver]]) -> None:
     """Reference design (gantry), G12: after a fast move and after an E-stop, the swing settle time shall
     be within its limit.
@@ -932,6 +940,7 @@ def _g15_reproduced(member: str, flagged: bool, verdict: bool | None, column: in
     "safety factor is not evaluated; the 20 and 40 substep verdicts are the gate report's hand record (G15_RECORD), "
     "which a 10-substep pass alone cannot change",
 )
+@pytest.mark.long_run
 def test_acc_029(native_gantry: dict[str, tuple[RunResult, CoreDriver]]) -> None:
     """Reference design (gantry), G15: under maximum acceleration with rated load and an E-stop with a
     swinging load, every member shall stay above the minimum safety factor.
@@ -990,6 +999,7 @@ def test_acc_029(native_gantry: dict[str, tuple[RunResult, CoreDriver]]) -> None
     "2.04 over its ratio 2.25, 1.91, 1.46 mm; settled 1.0806 mm against 1.0977 mm); the 20 and 40 substep verdicts "
     "are the gate report's hand record (G15_RECORD), which a 10-substep pass alone cannot change",
 )
+@pytest.mark.long_run
 def test_acc_030(native_gantry: dict[str, tuple[RunResult, CoreDriver]]) -> None:
     """Reference design (gantry), G15: under the same worst cases, member deflection shall stay under the
     target.
@@ -1032,6 +1042,7 @@ def test_acc_030(native_gantry: dict[str, tuple[RunResult, CoreDriver]]) -> None
 
 @pytest.mark.req("INV-014")
 @pytest.mark.parametrize("case", ["G12", "G15"])
+@pytest.mark.long_run
 def test_native_gantry_cases_repeat_bit_identically(
     case: str, native_gantry: dict[str, tuple[RunResult, CoreDriver]], tmp_path: Path
 ) -> None:
@@ -1128,6 +1139,7 @@ def _g16_torque(driver: CoreDriver, motor: str) -> tuple[Any, Any]:
 
 @pytest.mark.req("ACC-031")
 @pytest.mark.req("LIB-017")
+@pytest.mark.long_run
 def test_acc_031(g16: list[tuple[RunResult, CoreDriver]]) -> None:
     """Reference design (gantry), G16: a sweep of NEMA 17 against NEMA 23 with the rated load shall report
     the torque margin per motor.
@@ -1267,15 +1279,38 @@ def test_acc_035() -> None:
 
 
 @pytest.mark.req("ACC-036")
-@pytest.mark.xfail(strict=True, reason="stub")
-def test_acc_036() -> None:
+@pytest.mark.req("TST-024")
+@pytest.mark.long_run
+def test_acc_036(tmp_path: Path) -> None:
     """Acceptance criterion 2: the simulator shall run G1 to G16 in one batch and produce the pass/fail
     report.
-    """
-    raise NotImplementedError
+
+    One `mechsim suite` call on `test_cases/gantry/suite.yaml` (native, the default adapter): the printed report and
+    the written one carry every case G1 to G16 with its verdict and every criterion of it, and the batch summary
+    counts every run (the nominal runs plus G16's three sweep runs). Verdicts are the cases' own (G12 and G15 are
+    recorded, not passed, rulings 64, 81); this test checks the report, not the verdicts."""
+    stdout = io.StringIO()
+    started = time.monotonic()
+    code = main(
+        ["suite", str(GANTRY_CASES / "suite.yaml"), "--out", str(tmp_path), "--report", str(tmp_path / "report.md")],
+        default_services(),
+        stdout,
+        io.StringIO(),
+    )
+    print(f"batch G1 to G16 on native: {time.monotonic() - started:.0f} s, exit {code}")
+    text = stdout.getvalue()
+    cases = [f"G{index}" for index in range(1, 17)]
+    for case in cases:
+        prepared = prepare(GANTRY_CASES / f"{case}.yaml")
+        assert re.search(rf"^Case {case}: (PASS|FAIL|ERROR)$", text, re.MULTILINE) is not None, case
+        for criterion in prepared.case.criteria:
+            assert re.search(rf"^  (pass|fail|error) +{criterion.name}:", text, re.MULTILINE), (case, criterion.name)
+    assert f"{len(cases) + 3} runs:" in text
+    assert (tmp_path / "report.md").read_text(encoding="utf-8").count("G16") >= 1
 
 
 @pytest.mark.req("ACC-037")
+@pytest.mark.long_run
 def test_acc_037() -> None:
     """Acceptance criterion 3, rewritten: the rope pendulum's period and swing decay shall match their
     closed-form values within tolerance.
@@ -1466,6 +1501,7 @@ def test_acc_045() -> None:
 
 # ===== PHY-016 ==============================================================
 @pytest.mark.req("PHY-016")
+@pytest.mark.long_run
 def test_phy_016(bridge_gantry: dict[str, RunResult]) -> None:
     """The MuJoCo adapter shall carry the milestone 2 acceptance cases, G5 to G11, G13 and G14.
 
