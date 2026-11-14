@@ -132,9 +132,14 @@ def score_run(
     read `integrity` (SCO-014); a recorded tier 1 crossing fails the case (SCO-015). `gravity` (the design's, m/s^2)
     gives the down direction `swing:` quantities are measured from (SCO-030); without it they are unevaluable.
     `stepper_drives` describe the run's stepper motors for `missed_steps:` and `torque_margin:` (SCO-031, SCO-032);
-    a value criterion reading one names the motor's part in its report line."""
+    a value criterion reading one names the motor's part in its report line. Those quantities judge the case's
+    evaluation window (its `integrity.evaluate_from`, TST-044; ruling 91), and the steps lost and the least margin
+    before it are one note line per motor a criterion reads."""
     not_valid = flagged(tuple(recording.validity))
-    steppers = _StepperView(_SwingView(recording, gravity), stepper_drives, recording)
+    start = 0.0
+    if case.integrity is not None:
+        start = case.integrity.start_seconds()
+    steppers = _StepperView(_SwingView(recording, gravity), stepper_drives, recording, start)
     view = _StructuralView(steppers, integrity, not_valid)
     recording = view
     results: list[CriterionResult] = []
@@ -185,8 +190,26 @@ def score_run(
         run=run,
         approximations=report.approximations + _layer_approximations(recording),
         crossings=crossings + tuple(line for line, _ in invalid),
-        notes=tuple(report.notes),
+        notes=tuple(report.notes) + _before_lines(case, steppers, report),
     )
+
+
+def _before_lines(case: Case, steppers: _StepperView, report: RunReport) -> tuple[str, ...]:
+    if report.errored:
+        return ()
+    motors: list[str] = []
+    for criterion in case.criteria:
+        if not isinstance(criterion, ValueCriterion):
+            continue
+        kind, _, motor = criterion.quantity.partition(":")
+        if kind in STEPPER_KINDS and motor not in motors:
+            motors.append(motor)
+    lines: list[str] = []
+    for motor in motors:
+        line = steppers.before_line(motor)
+        if line is not None:
+            lines.append(line)
+    return tuple(lines)
 
 
 STRUCTURAL_KINDS = ("safety_factor", "deflection")
@@ -437,12 +460,18 @@ class _StepperView:
     (`signal:<motor>.torque`), clipped to the holding torque; `torque_margin:<motor>` (N m) at every sample, the part's
     curve at the shaft joint's recorded speed less abs(the transmission's recorded shaft load torque). A motor the run
     does not describe, without a step and direction driver, without a rotor series or without a load torque column is
-    unevaluable, naming the motor (invariant 7). Other refs go to the recording."""
+    unevaluable, naming the motor (invariant 7). Other refs go to the recording.
 
-    def __init__(self, recording: RecordView, steppers: Sequence[StepperDrive], raw: RecordView) -> None:
+    Both judge the evaluation window (ruling 91): from the first sample at or after `start` (the case's evaluation
+    start), missed steps counted from their value at that sample. `before_line` reports what came before it."""
+
+    def __init__(
+        self, recording: RecordView, steppers: Sequence[StepperDrive], raw: RecordView, start: float = 0.0
+    ) -> None:
         self._recording = recording
         self._raw = raw
         self._steppers = {item.motor: item for item in steppers}
+        self._start = start
 
     @property
     def validity(self) -> Sequence[CarriedValidity]:
@@ -470,11 +499,54 @@ class _StepperView:
             return self._recording.series(reference)
         if motor not in self._steppers:
             raise _UnevaluableError(f"{reference}: {motor!r} is not a stepper motor of the run")
-        stepper = self._steppers[motor]
-        rotor = self._read(reference, f"joint:{stepper.shaft_joint}.position", "rotor position")
+        whole = self._whole(kind, motor, reference)
+        first = self._first(whole.times, reference)
+        values = whole.values[first:]
         if kind == "missed_steps":
+            base = whole.values[first]
+            values = tuple(item - base for item in values)
+        return Series(tuple(whole.times[first:]), tuple(values), whole.unit)
+
+    def before_line(self, motor: str) -> str | None:
+        """Steps lost and the least torque margin before the evaluation start, per motor (ruling 91): None when the
+        start is 0, the motor is not described, or a quantity is unevaluable (its criterion reports why)."""
+        if self._start <= 0.0 or motor not in self._steppers:
+            return None
+        try:
+            missed = self._whole("missed_steps", motor, f"missed_steps:{motor}")
+            margin = self._whole("torque_margin", motor, f"torque_margin:{motor}")
+            first = self._first(missed.times, f"missed_steps:{motor}")
+        except _UnevaluableError:
+            return None
+        if first == 0:
+            return None
+        lost = missed.values[first]
+        least = min(range(first), key=lambda index: margin.values[index])
+        line = (
+            f"motor '{motor}' (part {self._steppers[motor].part}): before the evaluation start {self._start:.6g} s, "
+            f"missed steps {lost:.6g}"
+        )
+        for time, count in zip(missed.times[:first], missed.values[:first], strict=True):
+            if abs(count) >= 0.5:
+                line = f"{line} (first beyond half a step at {time:.6g} s)"
+                break
+        return (
+            f"{line}, least torque margin {margin.values[least]:.6g} N m at {margin.times[least]:.6g} s; the sizing "
+            "criteria judge from the start (SCO-031, SCO-032, ruling 91)"
+        )
+
+    def _whole(self, kind: str, motor: str, reference: str) -> Series:
+        stepper = self._steppers[motor]
+        if kind == "missed_steps":
+            rotor = self._read(reference, f"joint:{stepper.shaft_joint}.position", "rotor position")
             return self._missed(reference, stepper, rotor)
         return self._margin(reference, stepper)
+
+    def _first(self, times: Sequence[float], reference: str) -> int:
+        for index, time in enumerate(times):
+            if time >= self._start:
+                return index
+        raise _UnevaluableError(f"{reference}: no sample at or after the evaluation start {self._start:.6g} s")
 
     def _read(self, reference: str, source: str, what: str) -> Series:
         try:

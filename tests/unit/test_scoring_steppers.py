@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
+from fractions import Fraction
 from pathlib import Path
 from typing import Any
 
@@ -12,7 +13,7 @@ import pytest
 
 from mechsim.scoring.score import LOAD_TORQUE, StepperDrive, available_torque, score_run
 from mechsim.testing.core_driver import core_services
-from mechsim.testing.driver import Series
+from mechsim.testing.driver import RunReport, Series
 from mechsim.testing.runner import prepare, stepper_drives
 from mechsim.testing.schema import cross_check
 from tests.unit.test_runner_fakes import FakeRecording, recording_from
@@ -201,3 +202,86 @@ def test_a_stepper_quantity_must_name_a_component_of_the_design() -> None:
     assert len(problems) == 2
     assert "unknown component 'nobody'" in problems[0]
     assert "unknown component 'nothing'" in problems[1]
+
+
+def _windowed_recording() -> _WithColumns:
+    rotor = [0.5, 0.5 + STEP, 0.5 + STEP, 0.5 + 1.5 * STEP]
+    torque = [0.0, HOLD * math.sin(math.pi / 4.0), 0.0, 2.0 * HOLD]
+    base = _recording([0.0, 4.0, 4.0, 2.0], [1.0, 1.0, 1.0, 0.0], rotor, torque)
+    return _WithColumns(base, [0.1, -0.3, 0.05, 0.0])
+
+
+def _windowed_case(start: str) -> Any:
+    return case_with(
+        value("final", "within", "0.25", quantity="missed_steps:m", target="0"),
+        value("minimum", "above", "0 N*m", name="d", quantity="torque_margin:m"),
+        integrity={"evaluate_from": start},
+    )
+
+
+@pytest.mark.req("SCO-031")
+@pytest.mark.req("SCO-032")
+def test_the_stepper_quantities_judge_the_evaluation_window() -> None:
+    # Whole-run missed steps 0, -0.5, 1, -1 (rotor travel 1 step at 1 s with a half-step lead) and margins 0.30, 0.05, 0.15, 0 (the two tests above). From the case's
+    # evaluation start 1.5 s the window's first sample is 2 s: missed steps counted from its value 1 are 0, -2
+    # (final -2 at 3 s), the least margin over 2 s and 3 s is 0 at 3 s. Before it: the missed steps at the start
+    # sample are 1, first at or beyond half a step at 1 s (-0.5); the least margin over 0 s and 1 s is 0.05 at 1 s.
+    # A start exactly on a sample (2 s) gives the same window.
+    for start in ("1.5 s", "2 s"):
+        score = score_run(_windowed_case(start), _windowed_recording(), ENDED, stepper_drives=(MOTOR,))
+        missed, margin = score.criteria
+        print(f"windowed from {start}: missed {missed.measured} (expected -2), margin {margin.measured} (expected 0)")
+        assert missed.measured == pytest.approx(-2.0, abs=1e-12)
+        assert missed.worst_time == 3.0
+        assert missed.status == "fail"
+        assert margin.measured == pytest.approx(0.0, abs=1e-12)
+        assert margin.worst_time == 3.0
+        start_text = start.split(" ")[0]
+        assert score.notes == (
+            f"motor 'm' (part small_part): before the evaluation start {start_text} s, missed steps 1 (first beyond "
+            "half a step at 1 s), least torque margin 0.05 N m at 1 s; the sizing criteria judge from the start "
+            "(SCO-031, SCO-032, ruling 91)",
+        )
+
+
+@pytest.mark.req("SCO-031")
+@pytest.mark.req("SCO-032")
+def test_a_window_starting_after_a_clean_start_names_no_lost_step_time() -> None:
+    # Start 0.5 s: the window opens at 1 s; before it only the 0 s sample (missed 0, margin 0.30). The start sample's
+    # missed steps -0.5 are the value before the window (final -1 less it: -0.5); no sample before it reaches half a
+    # step.
+    score = score_run(_windowed_case("0.5 s"), _windowed_recording(), ENDED, stepper_drives=(MOTOR,))
+    assert score.criteria[0].measured == pytest.approx(-0.5, abs=1e-12)
+    assert score.notes == (
+        "motor 'm' (part small_part): before the evaluation start 0.5 s, missed steps -0.5, least torque margin "
+        "0.3 N m at 0 s; the sizing criteria judge from the start (SCO-031, SCO-032, ruling 91)",
+    )
+
+
+@pytest.mark.req("SCO-031")
+@pytest.mark.req("SCO-032")
+def test_no_before_line_without_a_start_an_evaluable_motor_or_a_run() -> None:
+    zero = score_run(_windowed_case("0 s"), _windowed_recording(), ENDED, stepper_drives=(MOTOR,))
+    assert zero.notes == ()
+    assert zero.criteria[0].measured == pytest.approx(-1.0, abs=1e-12)
+    undescribed = score_run(_windowed_case("1.5 s"), _windowed_recording(), ENDED)
+    assert undescribed.notes == ()
+    assert undescribed.criteria[0].status == "error"
+    plain = _recording([0.0] * 4, [1.0] * 4, [0.0] * 4, [0.0] * 4)
+    no_load = score_run(_windowed_case("1.5 s"), plain, ENDED, stepper_drives=(MOTOR,))
+    assert no_load.notes == ()
+    assert no_load.criteria[1].status == "error"
+    failed = RunReport("run_error", 2, Fraction(1), "boom")
+    errored = score_run(_windowed_case("1.5 s"), _windowed_recording(), failed, stepper_drives=(MOTOR,))
+    assert errored.notes == ()
+
+
+@pytest.mark.req("SCO-031")
+@pytest.mark.req("SCO-032")
+def test_an_evaluation_start_past_the_last_sample_is_unevaluable() -> None:
+    score = score_run(_windowed_case("3.5 s"), _windowed_recording(), ENDED, stepper_drives=(MOTOR,))
+    for result in score.criteria:
+        assert result.status == "error"
+        assert result.note is not None
+        assert "no sample at or after the evaluation start 3.5 s" in result.note
+    assert score.notes == ()
