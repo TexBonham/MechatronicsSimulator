@@ -815,6 +815,51 @@ TEST_CASE("carried validity: under gravity a force resonance is flagged where th
     CHECK(flagged <= shifted[1] + (3.0 * x));
 }
 
+// A carried joint whose foot cannot move along the member has no travel (member_loads.hpp, Definition (c)): its floor
+// is the static deflection of the carried weight at its own position, C(s) W, not the span's largest. The rig's
+// carriage, under gravity, placed at s = L / 4 on a fixed joint, a revolute joint about z and a prismatic joint across
+// the member (axis y); the prismatic carriage along x without limits keeps the whole span, C_max W. The floor is
+// computed once at load from the chain's static compliance: 1e-6 relative against the lever-rule value (the ENG-052
+// row's tolerance for the floor).
+TEST_CASE("carried validity: a carried joint without travel takes the floor at its own position", "[ENG-052]") {
+    struct Case {
+        JointType type;
+        Eigen::Vector3d axis;
+        bool travels;
+    };
+    const double s = 0.25;
+    for (const Case& c : {Case{JointType::Fixed, Eigen::Vector3d::UnitZ(), false},
+                         Case{JointType::Revolute, Eigen::Vector3d::UnitZ(), false},
+                         Case{JointType::Prismatic, Eigen::Vector3d::UnitY(), false},
+                         Case{JointType::Prismatic, Eigen::Vector3d::UnitX(), true}}) {
+        CarriedRig rig = carried_rig(BeamEnds::SimplySupported, 8, 1.0, 0.0, true,
+                                     mechsim::engine::test::ParentKind::World, 0.1);
+        const double length = rig.spec.length;
+        Body& carriage = rig.model.bodies[static_cast<std::size_t>(rig.carriage)];
+        carriage.joint.type = c.type;
+        carriage.joint.axis = c.axis;
+        if (!c.travels) {
+            carriage.joint.position.x() = s * length;
+        }
+        const double ei = flexural_rigidity(rig.spec);
+        double expected = pinned_chain_compliance(8, s * length, length) / ei * 9.81;
+        if (c.travels) {
+            expected = pinned_chain_largest(8, length) / ei * 9.81;
+        }
+        MultibodyProvider provider(rig.model);
+        State state{provider.neutral_positions(), Eigen::VectorXd::Zero(provider.velocity_size()), 0.0};
+        if (c.travels) {
+            state.q[provider.position_offset(rig.carriage)] = s * length;
+        }
+        SemiImplicitEuler integrator(StepConfig{1e-3});
+        static_cast<void>(provider.step(integrator, state));
+        const MemberOutput& out = provider.outputs().members.front();
+        std::printf("no travel: joint type %d, axis (%.0f, %.0f, %.0f): floor %.9e m against %.9e m\n",
+                    static_cast<int>(c.type), c.axis.x(), c.axis.y(), c.axis.z(), out.static_floor, expected);
+        CHECK(std::abs(out.static_floor - expected) <= 1e-6 * expected);
+    }
+}
+
 TEST_CASE("carried validity: the work and the flag are deterministic", "[ENG-052]") {
     const TwoMembers rig = two_members();
     const double duration = 5.0 * 2.0 * std::numbers::pi / rig.omega;
