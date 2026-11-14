@@ -16,7 +16,7 @@ import pytest
 from mechsim.cli import default_services, main
 from mechsim.testing.core_driver import CoreDriver, core_services
 from mechsim.testing.runner import RunResult, Services, prepare, run_case, sweep_runs
-from mechsim.testing.schema import ROOT
+from mechsim.testing.schema import ROOT, load_suite_file
 
 PENDULUM_CASE = ROOT / "test_cases" / "pendulum" / "P1_period.yaml"
 GANTRY_CASES = ROOT / "test_cases" / "gantry"
@@ -1358,10 +1358,19 @@ def test_acc_036(tmp_path: Path) -> None:
     """Acceptance criterion 2: the simulator shall run G1 to G16 in one batch and produce the pass/fail
     report.
 
-    One `mechsim suite` call on `test_cases/gantry/suite.yaml` (native, the default adapter): the printed report and
-    the written one carry every case G1 to G16 with its verdict and every criterion of it, and the batch summary
-    counts every run (the nominal runs plus G16's three sweep runs). Verdicts are the cases' own (G12 and G15 are
-    recorded, not passed, rulings 64, 81); this test checks the report, not the verdicts."""
+    One `mechsim suite` call on `test_cases/gantry/suite.yaml` (native, the default adapter). The cases and the run
+    count come from the suite file and the cases' own sweeps and variations, not from a list in the test (brief
+    M3-X2d): the printed report and the written Markdown report each carry every case with its verdict and every
+    criterion of it, and both count every run (one nominal run per case, one per sweep value, `count` per
+    variations block). Verdicts are the cases' own (G12 and G15 are recorded, not passed, rulings 64, 81); this test
+    checks the report, not the verdicts."""
+    suite = load_suite_file(GANTRY_CASES / "suite.yaml")
+    cases = [prepare(GANTRY_CASES / name).case for name in suite.cases]
+    runs = 0
+    for case in cases:
+        runs += 1 + sum(len(sweep.values) for sweep in case.sweeps)
+        if case.variations is not None:
+            runs += case.variations.count
     stdout = io.StringIO()
     started = time.monotonic()
     code = main(
@@ -1370,16 +1379,19 @@ def test_acc_036(tmp_path: Path) -> None:
         stdout,
         io.StringIO(),
     )
-    print(f"batch G1 to G16 on native: {time.monotonic() - started:.0f} s, exit {code}")
+    print(f"batch of {len(cases)} cases, {runs} runs, on native: {time.monotonic() - started:.0f} s, exit {code}")
     text = stdout.getvalue()
-    cases = [f"G{index}" for index in range(1, 17)]
+    written = (tmp_path / "report.md").read_text(encoding="utf-8")
+    assert len(cases) == len(suite.cases)
     for case in cases:
-        prepared = prepare(GANTRY_CASES / f"{case}.yaml")
-        assert re.search(rf"^Case {case}: (PASS|FAIL|ERROR)$", text, re.MULTILINE) is not None, case
-        for criterion in prepared.case.criteria:
-            assert re.search(rf"^  (pass|fail|error) +{criterion.name}:", text, re.MULTILINE), (case, criterion.name)
-    assert f"{len(cases) + 3} runs:" in text
-    assert (tmp_path / "report.md").read_text(encoding="utf-8").count("G16") >= 1
+        assert re.search(rf"^Case {case.id}: (PASS|FAIL|ERROR)$", text, re.MULTILINE) is not None, case.id
+        assert re.search(rf"^## Case {case.id}: (PASS|FAIL|ERROR)$", written, re.MULTILINE) is not None, case.id
+        for criterion in case.criteria:
+            name = re.escape(criterion.name)
+            assert re.search(rf"^  (pass|fail|error) +{name}:", text, re.MULTILINE), (case.id, criterion.name)
+            assert re.search(rf"^\| {name} \| (pass|fail|error) \|", written, re.MULTILINE), (case.id, criterion.name)
+    assert re.search(rf"^{runs} runs:", text, re.MULTILINE) is not None
+    assert re.search(rf"^- Runs: {runs}:", written, re.MULTILINE) is not None
 
 
 @pytest.mark.req("ACC-037")
