@@ -17,15 +17,16 @@ per-step joint drive, zero-stretch coupling fix; ctest debug-sanitize 491, Pytho
 `integrity_halt`; ctest debug-sanitize 526, Python 4377 passed and 107 xfail). E5 (regularised efficiency switch, screw lock
 row), N4 (17f3d18: adapter follow-up, run-time mode lines, substep rest interpolation, node pose series; ctest
 debug-sanitize 545, Python 4387 passed and 107 xfail). X1b with its fix round X1c (e83666a: structural acceptance
-on native, node-pose deflection; ctest debug-sanitize 546, Python 4461 passed and 100 xfail). Integration branch `wip/05-x1a` (not merged to the round branch
-yet): the gantry on native (X1a, X1d), E6, I3 and I3b, the moving load on a flexible member (E7, E7b to E7g:
-load path, stability check, carried mass on the member, momentum form, the member-wide validity flag, the
-evaluation start gating rope snap; rulings 63 to 70, 73, 74, 76, 77), integrity (I4, I4b, I5, I5b, I5c: peak
-moment from node springs, the exact moment under a carried force and couple, design-load and evaluation-start
-case fields, not-valid results, fatigue by damage; rulings 71, 72, 75). In review: I5b with I5c. In flight: D2
-(structural damping as design data, ruling 78). Next: X1f (G12 and G15 as results of record at three step
-sizes), land the integration branch, X2, gate (the MuJoCo removal commit follows the owner's retirement
-decision). Briefs of record
+on native, node-pose deflection; ctest debug-sanitize 546, Python 4461 passed and 100 xfail). the integration branch `wip/05-x1a` (66ffb18, 2026-11-14;
+verified there at ctest debug-sanitize 613, Python 4698 passed and 100 xfail, lint, format, types and imports
+clean): the gantry on native with flexible rails that carry their carriages, the payload on its rope, G12 and G15
+(recorded, not passed: rulings 64, 81, 82); the lift jump fix (E6, ruling 66); the moving load on a flexible member
+(E7 to E7g, ENG-052; rulings 63, 65, 67 to 70, 73, 74, 76, 77); integrity from node springs with the exact carried
+moment, case fields for the design load and the evaluation start, not-valid results, fatigue by damage (I3 to I5d;
+rulings 71, 72, 75, 79); structural damping as design data (D2 to D2d, X1h; rulings 78, 80). In flight: X2 (the
+suite on native by default, G16, one batch, the retirement check; `wip/05-x2`). Next: gate (reference tier on both
+adapters, Opus invariant audit, Fable gate review, gate report; the MuJoCo removal commit follows the owner's
+retirement decision). Briefs of record
 in `docs/briefs/round-05/`; worktrees `../MechatronicsSimulator-05-<letter>`. Round 4's rulings and gate report
 are below for reference; round 4's cost rows are in `docs/cost-log-archive.md`.
 
