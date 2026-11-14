@@ -115,6 +115,31 @@ def _member_chain(root: str, end: str, segments: int, length: float) -> Chain:
     return chain_layout(root, end, segments, length)
 
 
+def _member_system(
+    root: str, end: str, segments: int, length: float, flexural_rigidity: float, mass_per_length: float
+) -> tuple[Chain, NDArray[np.float64], NDArray[np.float64], NDArray[np.float64]]:
+    """The one chain of any support pair (BLD-019, BLD-040): stiffness, mass and the basis of allowed angles; a
+    clamped far end holds both the end deflection and the end slope (ENG-022, ruling 16)."""
+    chain = _member_chain(root, end, segments, length)
+    stiffness, mass, basis = _matrices(chain, flexural_rigidity, mass_per_length)
+    if end == "clamped":
+        basis = linalg.null_space(np.vstack([_influence(chain, length), np.ones(len(chain.hinges))]))
+    return chain, stiffness, mass, basis
+
+
+def member_deflection(
+    root: str, end: str, segments: int, length: float, flexural_rigidity: float, load: float, at: float
+) -> float:
+    """Static deflection at `at` under a point load `load` there, on the member's chain for its supports."""
+    chain, stiffness, _mass, basis = _member_system(root, end, segments, length, flexural_rigidity, 1.0)
+    reduced = basis.T @ stiffness @ basis
+    if np.linalg.matrix_rank(reduced) < reduced.shape[0]:
+        raise ChainError("the member's supports leave it a mechanism; it has no static deflection")
+    influence = _influence(chain, at)
+    angles = basis @ np.linalg.solve(reduced, load * (basis.T @ influence))
+    return float(influence @ angles)
+
+
 def loaded_first_frequency(
     root: str,
     end: str,
@@ -127,12 +152,9 @@ def loaded_first_frequency(
 ) -> float:
     """Lowest eigenfrequency (rad/s) of the member's chain for its supports, with a point mass `carried_mass` moving
     with the deflection at `at` (the engine's carried mass, ENG-052: inertia at the foot point for the deflection
-    motion, no weight, no rotary inertia): M + m a a^T, a the deflection influence of the hinge angles at `at`. A
-    clamped far end holds both the end deflection and the end slope (ENG-022, ruling 16)."""
-    chain = _member_chain(root, end, segments, length)
-    stiffness, mass, basis = _matrices(chain, flexural_rigidity, mass_per_length)
-    if end == "clamped":
-        basis = linalg.null_space(np.vstack([_influence(chain, length), np.ones(len(chain.hinges))]))
+    motion, no weight, no rotary inertia): M + m a a^T, a the deflection influence of the hinge angles at `at`. The
+    same chain calibrates a member (BLD-019), so a calibrated member's damping uses its recorded frequency."""
+    chain, stiffness, mass, basis = _member_system(root, end, segments, length, flexural_rigidity, mass_per_length)
     influence = _influence(chain, at)
     mass = mass + carried_mass * np.outer(influence, influence)
     values = linalg.eigh(basis.T @ stiffness @ basis, basis.T @ mass @ basis, eigvals_only=True)

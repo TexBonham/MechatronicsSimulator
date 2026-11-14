@@ -50,30 +50,6 @@ TRANSMISSION_TYPES = ("belt_pulley", "lead_screw")
 LUMPED_ROOTS = ("clamped", "pinned")
 
 
-def clamped_chain(
-    segments: int, length: float, flexural_rigidity: float, mass_per_length: float
-) -> tuple[NDArray[np.float64], NDArray[np.float64], NDArray[np.float64], NDArray[np.float64]]:
-    """The engine's clamped-clamped chain (ENG-022, ruling 16) in its hinge angles: the roller layout (springs E I / l
-    at the segment midpoints, a half segment at the far end) with the far end held in place and in rotation (the
-    engine's hinge about the member axis), so the angles allowed are those with zero end deflection sum (x_j <
-    L) and zero end slope sum. Returns stiffness, mass, the allowed basis and the midspan influence row."""
-    chain = structure.chain_layout("clamped", "roller", segments, length)
-    segment = length / segments
-    count = len(chain.hinges)
-    stiffness = np.eye(count) * (flexural_rigidity / segment)
-    inertia = np.zeros((count, count))
-    for index, (start, span) in enumerate(zip(chain.starts, chain.spans, strict=True)):
-        centre = start + 0.5 * span
-        lever = np.array([centre - chain.hinges[j] if j <= index else 0.0 for j in range(count)])
-        turn = np.array([1.0 if j <= index else 0.0 for j in range(count)])
-        body = mass_per_length * span
-        inertia += body * np.outer(lever, lever) + body * span * span / 12.0 * np.outer(turn, turn)
-    end = np.array([length - hinge for hinge in chain.hinges])
-    basis = linalg.null_space(np.vstack([end, np.ones(count)]))
-    midspan = np.array([max(0.5 * length - hinge, 0.0) for hinge in chain.hinges])
-    return stiffness, inertia, basis, midspan
-
-
 def clamped_calibration(
     segments: int,
     length: float,
@@ -85,12 +61,13 @@ def clamped_calibration(
 ) -> CalibrationScales:
     """BLD-019 on a clamped-clamped member (ruling 32, N >= 16): E I scaled so the chain's midspan deflection under
     `load` equals `deflection`, then the mass so its first mode equals `frequency_hz` (as `structure.calibrate`)."""
-    stiffness, inertia, basis, midspan = clamped_chain(segments, length, flexural_rigidity, mass_per_length)
-    reduced = basis.T @ stiffness @ basis
-    angles = basis @ np.linalg.solve(reduced, load * (basis.T @ midspan))
-    stiffness_scale = float(midspan @ angles) / deflection
-    values = linalg.eigh(stiffness_scale * reduced, basis.T @ inertia @ basis, eigvals_only=True)
-    omega = math.sqrt(max(float(values[0]), 0.0))
+    stiffness_scale = (
+        structure.member_deflection("clamped", "clamped", segments, length, flexural_rigidity, load, 0.5 * length)
+        / deflection
+    )
+    omega = structure.loaded_first_frequency(
+        "clamped", "clamped", segments, length, flexural_rigidity * stiffness_scale, mass_per_length
+    )
     return CalibrationScales(stiffness_scale, (omega / (2.0 * math.pi * frequency_hz)) ** 2)
 
 
@@ -850,6 +827,11 @@ def _transmission(
         "backlash": _q(float(values.get("backlash", 0.0)), "m"),
     }
     ratio_value = float(values.get("damping_ratio", 0.0))
+    if not 0.0 <= ratio_value < 1.0:
+        collector.failures.append(
+            f"{label}: damping_ratio {ratio_value!r}: a modal damping ratio in [0, 1) (LIB-035, BLD-041)"
+        )
+        return None
     if ratio_value > 0.0:
         driven_mass = _subtree_mass(bodies, driven_body)
         entry["damping"] = _q(transmission_damping(ratio_value, float(values["stiffness"]), driven_mass), "N*s/m")

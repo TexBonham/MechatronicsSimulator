@@ -9,14 +9,14 @@ import math
 import pytest
 from pydantic import ValidationError
 
-from mechsim.builder import BuildResult, structure
-from mechsim.design.schema import FlexibleMember, OpenValue
+from mechsim.builder import BuildError, BuildResult, structure
+from mechsim.design.schema import Design, FlexibleMember, OpenValue
 from mechsim.library.registry import default_registry
 from mechsim.physics.mujoco.prepare import prepare_model as prepare_bridge
 from mechsim.physics.native.translate import _subtree_mass, translate
 from mechsim.physics.neutral import PhysicsModel
 from tests.reference.test_transmission_damping import belt_model
-from tests.unit.test_builder_structure import CALIBRATION, EI, RHO_A, _bar, _build
+from tests.unit.test_builder_structure import CALIBRATION, EI, RHO_A, _bar, _bar_data, _build
 from tests.unit.test_builder_support import filled_gantry, gantry, gantry_data
 
 UNDAMPED = (
@@ -208,3 +208,44 @@ def test_the_bridge_keeps_its_rigid_belt_line_and_names_an_ignored_damping() -> 
 def test_the_gantry_belts_state_the_placeholder_ratio_fixed_in_advance() -> None:
     belts = {item.name: item.overrides for item in gantry().components if item.type == "belt_pulley"}
     assert belts == {name: {"damping_ratio": "0.01"} for name in ("x_belt", "y_belt", "lift_belt")}
+
+
+@pytest.mark.req("BLD-040", "BLD-019")
+@pytest.mark.parametrize(
+    ("supports", "segments"),
+    [(["clamped", "free"], 8), (["pinned", "roller"], 8), (["clamped", "roller"], 8), (["clamped", "clamped"], 16)],
+)
+def test_the_damping_frequency_is_the_calibrated_chains_recorded_first_frequency(
+    supports: list[str], segments: int
+) -> None:
+    """One chain implementation (BLD-040, ruling 80): calibration scales the mass so the chain's first mode is the
+    recorded 8 Hz, and the damping conversion's omega_1 is that same chain's, so they agree to rounding (1e-9)."""
+    result = _build(_bar(supports, calibration=CALIBRATION, damping_ratio="0.01", segments=segments))
+    record = result.lumped[0]
+    assert record.first_frequency == pytest.approx(2.0 * math.pi * 8.0, rel=1e-9)
+    assert record.node_damping == pytest.approx(2.0 * 0.01 * record.node_stiffness / (2.0 * math.pi * 8.0), rel=1e-9)
+
+
+@pytest.mark.req("BLD-041", "LIB-035")
+def test_a_resolved_transmission_ratio_outside_zero_to_one_is_refused() -> None:
+    """[0, 1) holds for the catalog's damping_ratio however it was given, open parameters included (resolved before
+    the build): above 1 the catalog's maximum refuses it at validation; 1 itself, which that inclusive maximum admits,
+    is a build error."""
+    with pytest.raises(BuildError, match="damping_ratio"):
+        _belt_build("1")
+    with pytest.raises(ValidationError, match="damping_ratio"):
+        _belt_build("1.5")
+
+
+@pytest.mark.req("DES-047")
+@pytest.mark.parametrize(("value", "valid"), [("0.02", True), ("1", False), ("-0.5", False)])
+def test_an_open_member_ratio_is_range_checked_when_resolved(value: str, valid: bool) -> None:
+    from mechsim.testing.runner import _substitute
+
+    data = _bar_data(["clamped", "free"], damping_ratio="${rail_damping}")
+    resolved = _substitute(data, {"rail_damping": value}, frozenset())
+    if valid:
+        assert Design.model_validate(resolved).bodies[0].flexible.damping_ratio == pytest.approx(0.02)  # type: ignore[union-attr]
+    else:
+        with pytest.raises(ValidationError, match="damping_ratio"):
+            Design.model_validate(resolved)
