@@ -1134,6 +1134,16 @@ RopeAttachment attachment(const Rope& rope, const Eigen::Vector3d& n, double d,
     return out;
 }
 
+// Rope.hpp, Taut set: a segment in the step's set pulls with its law's tension (spring and damper) when it is taut by
+// that law at the step's start, else with its spring alone from rest length, affine in the stretch (negative while
+// it starts short of rest length, so the step's end force is k times the end stretch).
+double in_step_tension(const RopeSegment& seg, double rest, double stiffness) {
+    if (seg.taut) {
+        return seg.tension;
+    }
+    return stiffness * (seg.length - rest);
+}
+
 ModelChangeEvent change_event(ModelChange kind, Eigen::Index target, Eigen::Index index, double value, double time) {
     ModelChangeEvent event;
     event.kind = kind;
@@ -1211,12 +1221,14 @@ void MultibodyProvider::add_rope_wrenches(const Kinematics& kin, std::vector<Vec
     for (Eigen::Index r = 0; r < count(model_.ropes.size()); ++r) {
         const std::vector<RopePoint> points = rope_points(kin, r, false);
         const std::vector<RopeSegment> segments = rope_segments(points, r);
+        const double l = at(rope_rest_, r) / at(model_.ropes, r).segments;
+        const double k = at(model_.ropes, r).axial_rigidity / l;
         for (Eigen::Index s = 0; s < count(segments.size()); ++s) {
             const RopeSegment& seg = at(segments, s);
-            if (!seg.taut) {
+            if (!rope_segment_in_set(r, s, seg)) {
                 continue;
             }
-            const Eigen::Vector3d force = seg.tension * seg.direction;
+            const Eigen::Vector3d force = in_step_tension(seg, l, k) * seg.direction;
             apply(at(points, s), Eigen::Vector3d::Zero(), force);
             apply(at(points, s + 1), Eigen::Vector3d::Zero(), -force);
         }
@@ -1248,16 +1260,24 @@ void MultibodyProvider::add_rope_terms(const Kinematics& kin, DynamicsTerms& ter
         const double l = at(rope_rest_, r) / rope.segments;
         for (Eigen::Index s = 0; s < count(segments.size()); ++s) {
             const RopeSegment& seg = at(segments, s);
-            if (!seg.taut) {
+            if (!rope_segment_in_set(r, s, seg)) {
                 continue;
             }
             const Eigen::Vector3d& n = seg.direction;
             const Eigen::Matrix3d axial = n * n.transpose();
-            const Eigen::Matrix3d stiffness =
-                (rope.axial_rigidity / l) * axial + (seg.tension / seg.length) * (identity - axial);
             const Eigen::MatrixXd relative = at(points, s + 1).jacobian - at(points, s).jacobian;
+            if (seg.taut) {
+                const Eigen::Matrix3d stiffness =
+                    (rope.axial_rigidity / l) * axial + (seg.tension / seg.length) * (identity - axial);
+                terms.stiffness += relative.transpose() * stiffness * relative;
+                terms.damping += (rope.damping / l) * relative.transpose() * axial * relative;
+                continue;
+            }
+            Eigen::Matrix3d stiffness = (rope.axial_rigidity / l) * axial;
+            if (seg.length > l) {
+                stiffness += ((rope.axial_rigidity / l) * (seg.length - l) / seg.length) * (identity - axial);
+            }
             terms.stiffness += relative.transpose() * stiffness * relative;
-            terms.damping += (rope.damping / l) * relative.transpose() * axial * relative;
         }
         if (rope.segments == 1 && at(rope_attached_, r) == 0) {
             continue;
@@ -1275,6 +1295,35 @@ void MultibodyProvider::add_rope_terms(const Kinematics& kin, DynamicsTerms& ter
                                      across * a.angular_jacobian;
         terms.damping += joint.coefficient * rate.transpose() * rate;
     }
+}
+
+std::vector<std::vector<std::uint8_t>> MultibodyProvider::rope_length_set(const Eigen::VectorXd& q,
+                                                                           const Eigen::VectorXd& v) const {
+    std::vector<std::vector<std::uint8_t>> out;
+    if (model_.ropes.empty()) {
+        return out;
+    }
+    const Kinematics kin = kinematics(q, v);
+    for (Eigen::Index r = 0; r < count(model_.ropes.size()); ++r) {
+        const double l = at(rope_rest_, r) / at(model_.ropes, r).segments;
+        std::vector<std::uint8_t> taut;
+        for (const RopeSegment& seg : rope_segments(rope_points(kin, r, false), r)) {
+            std::uint8_t flag = 0;
+            if (seg.length >= l) {
+                flag = 1;
+            }
+            taut.push_back(flag);
+        }
+        out.push_back(taut);
+    }
+    return out;
+}
+
+bool MultibodyProvider::rope_segment_in_set(Eigen::Index rope, Eigen::Index segment, const RopeSegment& seg) const {
+    if (rope_set_active_) {
+        return at(at(rope_set_, rope), segment) != 0;
+    }
+    return seg.length >= at(rope_rest_, rope) / at(model_.ropes, rope).segments;
 }
 
 void MultibodyProvider::setup_members_and_ropes() {
@@ -2457,13 +2506,30 @@ std::vector<BodyOutput> MultibodyProvider::body_states(const Eigen::VectorXd& q,
 StepHealth MultibodyProvider::step(Integrator& integrator, State& state) {
     const State before = state;
     StepHealth health;
+    int passes = 0;
     try {
         prepare_carried(before, integrator.config().h);
         carried_momentum_active_ = config_.carried_momentum && config_.carried_added_mass && carried_has_previous_;
         carried_step_ = integrator.config().h;
-        health = integrator.step(*this, state);
+        rope_set_ = rope_length_set(before.q, before.v);
+        rope_set_active_ = true;
+        bool settled = false;
+        while (!settled) {
+            state = before;
+            health = integrator.step(*this, state);
+            ++passes;
+            std::vector<std::vector<std::uint8_t>> end = rope_length_set(state.q, state.v);
+            settled = end == rope_set_;
+            if (!settled && passes >= config_.iteration_cap) {
+                throw SolverNonConvergenceError(before.t, "rope segments' taut set did not settle within " +
+                                                              std::to_string(config_.iteration_cap) + " passes");
+            }
+            rope_set_ = std::move(end);
+        }
     } catch (...) {
+        state = before;
         carried_momentum_active_ = false;
+        rope_set_active_ = false;
         clear_inputs();
         throw;
     }
@@ -2480,6 +2546,8 @@ StepHealth MultibodyProvider::step(Integrator& integrator, State& state) {
             row.sign * at(lock_impulse_, r) / integrator.config().h;
     }
     record_members_and_ropes(before, state, integrator.config().h);
+    rope_set_active_ = false;
+    outputs_.rope_passes = passes;
     ++step_index_;
     carried_momentum_active_ = false;
     for (Eigen::Index i = 0; i < count(carried_.size()); ++i) {

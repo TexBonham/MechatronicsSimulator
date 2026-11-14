@@ -43,6 +43,7 @@ add_executable(mechsim_engine_tests
     tests/test_model_changes.cpp
     tests/test_multibody_errors.cpp
     tests/test_rope.cpp
+    tests/test_rope_taut.cpp
     tests/test_integrator.cpp
     tests/test_step_config.cpp
     tests/test_transmission_locking.cpp
