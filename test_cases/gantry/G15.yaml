@@ -45,14 +45,16 @@
 # rows stop there.
 #
 # Measured (M3-X1f, native; 10 / 20 / 40 substeps). rail_y is flagged not valid at every step size: from 8.311 /
-# 8.350 / G15_40_FLAG s, dynamic ratio 2.76 / 3.63 / G15_40_RATIO against 2.04, the trolley starting the move 24 mm
+# 8.350 / 8.350 s, dynamic ratio 2.76 / 3.63 / 4.11 against 2.04, the trolley starting the move 24 mm
 # from its support; its results are not valid (ruling 69) and the case errors. rail_x unflagged: dynamic ratio 1.026
-# / 1.216 / G15_40_XRATIO; settled 1.0806 mm (-1.56 percent); peak deflection from 8 s 1.134 / 1.141 / G15_40_XDEF mm
-# at the stop (2.25 / 1.91 mm scaled by 2.04 over the ratio: under 1 cm, established); peak stress 9.63 / 9.70 /
-# G15_40_XSTRESS MPa at 16.549 s, when the E-stop drops the lift onto its lower limit (root moment 7.0 to 9.6 N m):
-# safety factor 1.424 / 1.414 / G15_40_XSF against 1.5, a fail on the placeholder section and strength, also when
-# scaled (0.72); tier 1 crossing of rail_x at 16.547 / 9.616 / G15_40_XCROSS s. Fastenings: frame_mount 462 / 479 N,
-# rail_x_mount 163 / 180 N at 8.98 s against the 2 kN placeholder: pass, also scaled. The rail_x_mount strength row
+# / 1.216 / 1.559; settled 1.0806 mm (-1.56 percent); peak deflection from 8 s 1.134 / 1.141 / 1.119 mm
+# (2.25 / 1.91 / 1.46 mm scaled by 2.04 over the ratio: under 1 cm, established); peak stress 9.63 / 9.70 / 10.71
+# MPa, at 16.549 s at 10 and 20 substeps (the E-stop drops the lift onto its lower limit; root moment 7.0 to 9.6 N m)
+# and at 9.616 s at 40 (the move's start rings rail_x harder as the step is refined): safety factor 1.424 / 1.414 /
+# 1.280 against 1.5, a fail on the placeholder section and strength at every step size, also when scaled (0.72 /
+# 0.84 / 0.98); tier 1 crossing of rail_x at 16.547 / 9.616 / 9.531 s. Neither rail's dynamic ratio converges as
+# the step is refined, damped as they now are (ruling 77). Fastenings: frame_mount 462 / 479 / 490 N, rail_x_mount
+# 163 / 180 / 191 N at 8.98 s against the 2 kN placeholder: pass, also scaled. The rail_x_mount strength row
 # (53.6 MPa, 0.37) puts the whole rail's reaction moment about the mount on the rail's section: not a verdict (no mount
 # section, INT-005). Loaded first frequency (ruling 73 (c)), the peak of the response of the mid-span node to the
 # rerouted foot force: rail_y 36.25 Hz against sqrt(k / (m_c + f m_beam)) = 18.72 Hz (k = 48 E I / L^3, m_c 6.135 kg,

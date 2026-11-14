@@ -834,11 +834,12 @@ def _g15_flags(result: RunResult) -> dict[str, tuple[float, bool]]:
 @pytest.mark.req("ACC-029")
 @pytest.mark.xfail(
     strict=True,
-    reason="placeholder rail section and PETG strength (gantry team): rail_x's safety factor is 1.42 (10 substeps; "
-    "1.41 at 20) at 16.549 s, when the E-stop drops the lift onto its lower limit, against the 1.5 minimum (13.71 MPa "
-    "on the 40 x 40 mm, 2e-8 m^4 placeholder section; the stop raises rail_x's root moment from 7.0 to 9.6 N m); and "
-    "rail_y is not valid from 8.31 s at every step size run (dynamic ratio 2.76, 3.63 at 20 substeps, against 2.04: "
-    "the trolley starts 24 mm from rail_y's support; rulings 69, 78), so its safety factor is not evaluated",
+    reason="placeholder rail section and PETG strength (gantry team): rail_x's safety factor is 1.424, 1.414, 1.280 "
+    "at 10, 20, 40 substeps (16.549 s, when the E-stop drops the lift onto its lower limit; 9.616 s at 40) against the "
+    "1.5 minimum (13.71 MPa on the 40 x 40 mm, 2e-8 m^4 placeholder section; the stop raises rail_x's root moment from "
+    "7.0 to 9.6 N m); and rail_y is not valid from 8.31 s at every step size run (dynamic ratio 2.76, 3.63, 4.11 at "
+    "10, 20, 40 substeps, against 2.04: the trolley starts 24 mm from rail_y's support; rulings 69, 78), so its "
+    "safety factor is not evaluated",
 )
 def test_acc_029(native_gantry: dict[str, tuple[RunResult, CoreDriver]]) -> None:
     """Reference design (gantry), G15: under maximum acceleration with rated load and an E-stop with a
@@ -885,10 +886,10 @@ def test_acc_029(native_gantry: dict[str, tuple[RunResult, CoreDriver]]) -> None
 @pytest.mark.req("ACC-030")
 @pytest.mark.xfail(
     strict=True,
-    reason="rail_y is not valid from 8.31 s at every step size run (dynamic ratio 2.76 at 10 substeps, 3.63 at 20, "
-    "against 2.04; rulings 69, 78: placeholder rails and belts at the fixed 0.01 damping), so its deflection criteria "
-    "are not evaluated; rail_x passes (peak 1.13 mm, 2.25 mm scaled by 2.04 / 1.026; settled 1.0806 mm against "
-    "1.0977 mm)",
+    reason="rail_y is not valid from 8.31 s at every step size run (dynamic ratio 2.76, 3.63, 4.11 at 10, 20, 40 "
+    "substeps against 2.04; rulings 69, 78: placeholder rails and belts at the fixed 0.01 damping), so its "
+    "deflection criteria are not evaluated; rail_x passes at every step size (peak 1.134, 1.141, 1.119 mm; scaled by "
+    "2.04 over its ratio 2.25, 1.91, 1.46 mm; settled 1.0806 mm against 1.0977 mm)",
 )
 def test_acc_030(native_gantry: dict[str, tuple[RunResult, CoreDriver]]) -> None:
     """Reference design (gantry), G15: under the same worst cases, member deflection shall stay under the
