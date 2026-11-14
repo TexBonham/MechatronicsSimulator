@@ -121,3 +121,4 @@ type live in the root `CLAUDE.md` dispatch table once measured.
 | 2026-11-14 | M3-X1h driven mass with member chains, G12 and G15 baseline entries (wip/05-x1a 1e941bc); helper moved to a neutral module inline | module-writer (opus) | 190K | 106 calls |
 | 2026-11-14 | M3-X2 suite on native by default, bridge baselines, retirement tests (wip/05-x2 2e40042): stopped at its cap, items 1 and 2 not green; ruling 83 | module-writer (opus) | 245K | 195 calls, over the 150 cap |
 | 2026-11-14 | M3-N5 mass change on a rope-hung payload (wip/05-n5 1e62d64) | module-writer (opus) | 112K | 51 calls |
+| 2026-11-14 | M3 review: N5 (wip/05-n5 1e62d64): accept, 2 medium latent, 3 low; ruling 84 | Fable review (general-purpose) | see notification | cap 12 |
