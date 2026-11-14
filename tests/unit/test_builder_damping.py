@@ -226,6 +226,35 @@ def test_the_damping_frequency_is_the_calibrated_chains_recorded_first_frequency
     assert record.node_damping == pytest.approx(2.0 * 0.01 * record.node_stiffness / (2.0 * math.pi * 8.0), rel=1e-9)
 
 
+@pytest.mark.req("BLD-040", "BLD-019")
+@pytest.mark.parametrize(
+    ("supports", "segments"),
+    [(["clamped", "free"], 8), (["pinned", "roller"], 8), (["clamped", "roller"], 8), (["clamped", "clamped"], 16)],
+)
+def test_a_perturbed_chain_moves_the_calibration_and_the_damping_together(
+    supports: list[str], segments: int, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The test that tells one implementation from two: the chain's stiffness matrix (`structure._matrices`, under
+    every calibration and every damping frequency) is scaled by 1.21 in this test. An uncalibrated member's omega_1
+    then rises by sqrt(1.21) = 1.1, so its node damping 2 zeta k / omega_1 falls by 1 / 1.1: the perturbation reaches
+    the damping path. A calibrated member still realises the recorded 8 Hz on the perturbed chain, and the damping
+    uses that same chain, so its omega_1 stays 2 pi 8 rad/s to 1e-9; a damping frequency from a second implementation
+    (a closed form or another chain) would sit 10 percent off."""
+    plain = _build(_bar(supports, damping_ratio="0.01", segments=segments)).lumped[0]
+    original = structure._matrices
+
+    def perturbed(*args: object, **kwargs: object) -> object:
+        stiffness, mass, basis = original(*args, **kwargs)  # type: ignore[arg-type]
+        return 1.21 * stiffness, mass, basis
+
+    monkeypatch.setattr(structure, "_matrices", perturbed)
+    stiffer = _build(_bar(supports, damping_ratio="0.01", segments=segments)).lumped[0]
+    assert stiffer.node_damping == pytest.approx(plain.node_damping / 1.1, rel=1e-9)
+    record = _build(_bar(supports, calibration=CALIBRATION, damping_ratio="0.01", segments=segments)).lumped[0]
+    assert record.first_frequency == pytest.approx(2.0 * math.pi * 8.0, rel=1e-9)
+    assert record.node_damping == pytest.approx(2.0 * 0.01 * record.node_stiffness / (2.0 * math.pi * 8.0), rel=1e-9)
+
+
 @pytest.mark.req("BLD-041", "LIB-035")
 def test_a_resolved_transmission_ratio_outside_zero_to_one_is_refused() -> None:
     """[0, 1) holds for the catalog's damping_ratio however it was given, open parameters included (resolved before
