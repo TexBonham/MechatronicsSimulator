@@ -107,3 +107,4 @@ type live in the root `CLAUDE.md` dispatch table once measured.
 | 2026-11-13 | M3-E7g member-wide validity flag (wip/05-e7 92793ba); follow-up: evaluation start gates rope snap | module-writer (opus), resumed once | 213K + follow-up | 85 calls + follow-up |
 | 2026-11-13 | M3 review: E7g (wip/05-e7 92793ba): accept, 3 minor open; remedy for the gantry's undamped rails; ruling 78 | Fable review (general-purpose), resumed | ~55K | 7 calls |
 | 2026-11-13 | M3-I5c fatigue by damage, test repairs (wip/05-x1a 701f56c) | module-writer (opus) | 156K | 63 calls |
+| 2026-11-13 | M3-I5 re-review after I5b and I5c: accept on condition (stale INT row), 8 open items; ruling 79 | Fable review (general-purpose), resumed | ~70K | 15 cap |
