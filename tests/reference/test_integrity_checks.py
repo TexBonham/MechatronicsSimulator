@@ -834,6 +834,66 @@ def test_strength_clamped_carried_force_and_couple_step_by_the_couple_exactly() 
 
 
 @pytest.mark.req("INT-005", "INT-023")
+@pytest.mark.parametrize("fraction", [0.1, 0.3125, 0.5, 0.77])
+def test_strength_own_weight_and_a_carried_load_on_a_clamped_member_never_read_below_the_chain_peak(
+    fraction: float,
+) -> None:
+    """Brief M3-I5c. The clamped-clamped bar under its own weight and the carriage (total field, nothing subtracted).
+    The chain's exact moment from the clamp at x = 0, a clean sample (no load in the stub [0, l / 2]):
+    M(x) = M(0) + R0 x + sum F_i (x - c_i)+ + F (x - s)+ - C H(x - s), with the recorded M(0) = -M_z0 and R0 = F_y0,
+    each node's weight F_i =
+    -rho A g span_i at its centre (lumped_beam: node j spans [(j + 1/2) l, (j + 3/2) l], the last [(N - 1/2) l, L];
+    the stub's weight is the parent's) and the carriage's F, C at s as the engine applies them (in the spring sense the
+    step at s is -C: the carriage's weight P offset by +e gives C = -P e and M(s+) - M(s-) = +P e). Closure: this M(L)
+    equals the recorded end moment (the statics' check on every sign). M is linear between those loads, so its peak
+    magnitude is at 0, L, a node centre or s-/s+. The read is the strength check's moment: the largest magnitude over
+    the end samples, the springs and the rule's reads, plus its bound (zero here). It is at or above the exact peak
+    (the peak sits at a sample or under the load; a hogging under-read of line B needs a hogging extremum strictly
+    between samples, which only a couple's jump at s makes) and above it by at most 3 w l^2 (line B's sagging
+    over-read, beam.py header). Tolerance 1e-9 of the peak: settling e^-170, rounding 2e-10 (the carried tests'
+    header)."""
+    from mechsim.integrity.beam import carried_at, carried_reads
+
+    member_inputs, bodies, _ = _carried_bar(True, fraction, ("clamped", "clamped"))
+    assert member_inputs.loads is not None
+    assert member_inputs.nodes is not None
+    loads, section = member_inputs.loads, member_inputs.section
+    n = member_inputs.nodes.count
+    segment = section.length / n
+    w = section.density * section.area * _CARRIED_GRAVITY
+    moments = node_moments(member_inputs, bodies)[0]
+    reads = carried_reads(member_inputs, loads, moments, bodies)
+    s, force, couple = carried_at(member_inputs, bodies)
+    at, carried_force, carried_couple = float(s[-1, 0]), float(force[-1, 0]), float(couple[-1, 0])
+    centres = [(j + 1.0) * segment for j in range(n - 1)] + [(n - 0.25) * segment]
+    weights = [-w * segment] * (n - 1) + [-w * segment / 2.0]
+    start, slope = -float(loads.start_moment[-1, 2]), float(loads.start_force[-1, 1])
+
+    def exact(x: float, after: bool) -> float:
+        value = start + slope * x + carried_force * max(x - at, 0.0)
+        for centre, weight in zip(centres, weights, strict=True):
+            value = value + weight * max(x - centre, 0.0)
+        if after:
+            value = value - carried_couple
+        return value
+
+    closing = float(loads.end_moment[-1, 2])
+    scale = max(abs(start), abs(closing))
+    report(f"clamped own weight and carriage at {fraction} L, closure M(L)", closing, exact(section.length, True))
+    assert exact(section.length, True) == pytest.approx(closing, abs=EXACT * scale)
+    points = [exact(0.0, False), exact(section.length, True), exact(at, False), exact(at, True)]
+    points = points + [exact(centre, centre > at) for centre in centres]
+    peak_exact = max(abs(value) for value in points)
+    samples = np.concatenate(([start], moments[-1], [closing]))
+    read = max(float(np.abs(samples).max()), float(np.abs(reads.values[-1][reads.found[-1]]).max()))
+    read = read + float(reads.bound[-1])
+    report(f"clamped own weight and carriage at {fraction} L, read against the chain's peak", peak_exact, read)
+    assert float(reads.bound[-1]) == 0.0
+    assert read >= peak_exact * (1.0 - EXACT)
+    assert read - peak_exact <= 3.0 * w * segment**2 + EXACT * peak_exact
+
+
+@pytest.mark.req("INT-005", "INT-023")
 def test_strength_of_a_member_carrying_nothing_is_unchanged_to_the_last_bit() -> None:
     """The I4 formula (ends, then every spring) on the same inputs, written out: bit for bit."""
     from mechsim.integrity.beam import member_normal_stress, normal_stress

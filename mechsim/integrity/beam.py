@@ -271,8 +271,10 @@ def node_moments(
 #
 # The rule. Where no other load acts, the moment is linear each side of s with a jump C at s. Line A through the clean
 # samples k - 1 and k, evaluated at s, is the moment just left of the load, A(s) = M(s-); line B through the clean
-# samples k + 2 and k + 3 gives B(s) = M(s+); M(s+) - M(s-) = C. The peak under the load is the larger magnitude of
-# the two: exact for a force and a couple, no bound, nothing needed but s. Fewer than two samples on a side:
+# samples k + 2 and k + 3 gives B(s) = M(s+); M(s+) - M(s-) = -C in the spring sense (a weight P offset by +e along
+# the member gives C = -P e and a step +P e, brief M3-I5c's closure test). The peak under the load is the larger
+# magnitude of the two: exact for a force and a couple, no bound, nothing needed but s. Fewer than two samples on a
+# side:
 #   left, k = 0: a pinned root's start line (value M(0) = 0, slope the pin's reaction F_y0), clean; a clamped root's
 #     stub has no clean left line (bounded below);
 #   right, k + 3 > N + 1: the end's line (value M(L) = M_z1, slope -F_y1), clean at every end condition (above).
@@ -299,8 +301,14 @@ def node_moments(
 # not a line, so the extrapolated lines miss its curvature: A reaches s from x_k (at most l), B from x_{k+2} (at most
 # 2 l), and a secant of a parabola extended by d beyond its chord of length l departs from it by (w / 2) d (d + l):
 # up to w l^2 for A and 3 w l^2 for B. The line lies on the outside of the curvature: above a sagging moment (an
-# over-read, conservative) and, in a hogging region (a clamped end's), below it by the same at most 3 w l^2. A member
-# carrying nothing has no candidate and stays unchanged to the last bit.
+# over-read, conservative) and, in a hogging region (a clamped end's), below it by the same at most 3 w l^2. The reads
+# stay the rule's values (exact without own weight); the peak a check takes is the largest magnitude over the ends,
+# every spring and the reads (`member_normal_stress`, tier 1 the same), so it is never below a plain sample (brief
+# M3-I5c). A hogging under-read can then matter only where the moment at s exceeds every sample in magnitude, which
+# needs a hogging extremum strictly between samples: under own weight (M'' = -w, concave) and downward forces
+# (concave kinks) the hogging peak lies at an end, a clean sample; only a carried couple's jump can put it at s, and
+# there the read is low by at most 3 w l^2. A member carrying nothing has no candidate and stays unchanged to the
+# last bit.
 
 COUPLE_FLOOR = 1e-9
 
