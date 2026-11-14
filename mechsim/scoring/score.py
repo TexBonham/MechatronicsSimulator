@@ -11,6 +11,7 @@ from __future__ import annotations
 import math
 from collections.abc import Sequence
 from dataclasses import dataclass, replace
+from itertools import pairwise
 from typing import Any, Literal, Protocol, runtime_checkable
 
 from mechsim.design.schema import OpenValue
@@ -413,7 +414,7 @@ def available_torque(curve: Sequence[tuple[float, float]], speed: float) -> floa
     last_speed, last_torque = curve[-1]
     if magnitude > last_speed:
         return 0.0
-    for (low_speed, low_torque), (high_speed, high_torque) in zip(curve, curve[1:], strict=False):
+    for (low_speed, low_torque), (high_speed, high_torque) in pairwise(curve):
         if magnitude <= high_speed:
             weight = (magnitude - low_speed) / (high_speed - low_speed)
             return low_torque + weight * (high_torque - low_torque)
