@@ -1805,7 +1805,9 @@ void MultibodyProvider::compute_member_compliance(const Kinematics& kin, const E
 // The floor of each carried joint at load (member_loads.hpp, Definition (c)): C(s) W at the worst s over the joint's
 // travel. C(s) = e^T C_f e is convex in the lever weight on a segment (C_f is positive semi-definite), so its maximum
 // over [s_lo, s_hi] is at s_lo, s_hi or a load node between them. A prismatic joint's limits map to s along the
-// member at its axis's rate ds/dq at load; open limits, other joint types and the span's ends give [0, L].
+// member at its axis's rate ds/dq at load, and one across the member (rate 0) has no travel; a joint whose child
+// origin is fixed in the parent (revolute, fixed, spherical) has none either: s_lo = s_hi = its own s. Open limits,
+// the planar, free and translation joints and the span's ends give [0, L].
 void MultibodyProvider::compute_travel_floor(const Kinematics& kin, const State& before,
                                              const std::vector<CarriedPair>& pairs) {
     carried_travel_floor_.assign(carried_.size(), 0.0);
@@ -1820,14 +1822,22 @@ void MultibodyProvider::compute_travel_floor(const Kinematics& kin, const State&
         double s_lo = 0.0;
         double s_hi = beam.length;
         const Joint& joint = at(model_.bodies, c.body).joint;
-        if (joint.type == JointType::Prismatic && joint.lower.size() == 1 && joint.upper.size() == 1 &&
-            std::isfinite(joint.lower[0]) && std::isfinite(joint.upper[0])) {
+        const bool fixed_foot = joint.type == JointType::Revolute || joint.type == JointType::Fixed ||
+                                joint.type == JointType::Spherical;
+        double rate = 0.0;
+        if (joint.type == JointType::Prismatic) {
             Eigen::Matrix3d parent_rotation = Eigen::Matrix3d::Identity();
             if (beam.parent >= 0) {
                 parent_rotation = at(kin.world, beam.parent).rotation.transpose();
             }
             const Eigen::Vector3d axis = parent_rotation * (joint.orientation * joint.axis);
-            const double rate = axis.dot(pair.axis_y.cross(pair.axis_z));
+            rate = axis.dot(pair.axis_y.cross(pair.axis_z));
+        }
+        if (fixed_foot || (joint.type == JointType::Prismatic && std::abs(rate) <= 1e-12)) {
+            s_lo = pair.output.position;
+            s_hi = pair.output.position;
+        } else if (joint.type == JointType::Prismatic && joint.lower.size() == 1 && joint.upper.size() == 1 &&
+                   std::isfinite(joint.lower[0]) && std::isfinite(joint.upper[0])) {
             const double q = before.q[position_offset(c.body)];
             const double a = pair.output.position + (rate * (joint.lower[0] - q));
             const double b = pair.output.position + (rate * (joint.upper[0] - q));
@@ -1852,10 +1862,14 @@ void MultibodyProvider::compute_travel_floor(const Kinematics& kin, const State&
 }
 
 // The pair's work in this step and the member's validity (member_loads.hpp, Work and validity); after the step,
-// pairs at the start state with the loads the step applied.
+// pairs at the start state with the loads the step applied. The sample and the base are member-wide (Definition,
+// ruling 77): over the member's load nodes, the deflection and the carried loads' quasi-static deflection relative to
+// the own-weight shape.
 void MultibodyProvider::record_carried_validity(const Kinematics& kin, const std::vector<CarriedPair>& pairs,
                                                 const State& before, const State& after, double h) {
     std::vector<std::uint8_t> carrying(model_.members.size(), 0);
+    std::vector<double> foot_relative(model_.members.size(), -1.0);
+    std::vector<double> foot_position(model_.members.size(), 0.0);
     for (const CarriedPair& pair : pairs) {
         MemberOutput& running = at(member_validity_, pair.output.member);
         running.carried_force = 0.0;
@@ -1872,6 +1886,11 @@ void MultibodyProvider::record_carried_validity(const Kinematics& kin, const std
         const double wj = j.output.weight;
         return (wi * wj * matrix(ki, kj)) + (wi * (1.0 - wj) * matrix(ki, kj + 1)) +
                ((1.0 - wi) * wj * matrix(ki + 1, kj)) + ((1.0 - wi) * (1.0 - wj) * matrix(ki + 1, kj + 1));
+    };
+    const auto at_node = [](const Eigen::MatrixXd& matrix, Eigen::Index a, const CarriedPair& j) {
+        const Eigen::Index kj = j.output.node;
+        const double wj = j.output.weight;
+        return (wj * matrix(a, kj)) + ((1.0 - wj) * matrix(a, kj + 1));
     };
     for (Eigen::Index i = 0; i < count(pairs.size()); ++i) {
         const CarriedPair& pair = at(pairs, i);
@@ -1906,10 +1925,39 @@ void MultibodyProvider::record_carried_validity(const Kinematics& kin, const std
                        (weighted(compliance.moment, pair, other) * other.output.moment);
         }
         running.quasi_static_deflection = std::max(running.quasi_static_deflection, std::abs(own_weight + carried));
-        running.relative_deflection =
-            std::max(running.relative_deflection, std::abs(pair.output.deflection - own_weight));
         running.static_floor = std::max(running.static_floor, at(carried_travel_floor_, i));
-        at(carried_base, m) = std::max(at(carried_base, m), std::abs(carried));
+        const double foot = std::abs(pair.output.deflection - own_weight);
+        if (foot > at(foot_relative, m)) {
+            at(foot_relative, m) = foot;
+            at(foot_position, m) = pair.output.position;
+        }
+    }
+    std::vector<Eigen::Matrix3d> rotation;
+    std::vector<Eigen::Vector3d> origin;
+    for (const Transform& x : kin.world) {
+        rotation.emplace_back(x.rotation.transpose());
+        origin.push_back(x.translation);
+    }
+    for (Eigen::Index m = 0; m < count(model_.members.size()); ++m) {
+        if (at(carrying, m) == 0) {
+            continue;
+        }
+        const MemberCompliance& compliance = at(member_compliance_, m);
+        MemberOutput& running = at(member_validity_, m);
+        const std::vector<double> deflection = node_deflections(at(model_.members, m), rotation, origin);
+        for (Eigen::Index a = 0; a < compliance.gravity.size(); ++a) {
+            double carried = 0.0;
+            for (const CarriedPair& other : pairs) {
+                if (other.output.member != m) {
+                    continue;
+                }
+                carried += (at_node(compliance.force, a, other) * other.output.force) +
+                           (at_node(compliance.moment, a, other) * other.output.moment);
+            }
+            running.relative_deflection =
+                std::max(running.relative_deflection, std::abs(at(deflection, a) - compliance.gravity[a]));
+            at(carried_base, m) = std::max(at(carried_base, m), std::abs(carried));
+        }
     }
     const bool evaluating = !(before.t < config_.carried_evaluation_start);
     for (Eigen::Index m = 0; m < count(model_.members.size()); ++m) {
@@ -1940,7 +1988,12 @@ void MultibodyProvider::record_carried_validity(const Kinematics& kin, const std
             if (running.window_quasi_static > 0.0) {
                 running.dynamic_ratio = running.relative_deflection / running.window_quasi_static;
             }
-            running.peak_ratio = std::max(running.peak_ratio, running.dynamic_ratio);
+            if (running.dynamic_ratio > running.peak_ratio) {
+                running.peak_ratio = running.dynamic_ratio;
+                running.peak_position = at(foot_position, m);
+                running.peak_window_peak = running.window_peak;
+                running.peak_relative_deflection = running.relative_deflection;
+            }
             if (!running.unresolved && running.dynamic_ratio > carried_ratio_limit) {
                 running.unresolved = true;
                 running.unresolved_time = before.t;
@@ -1959,6 +2012,9 @@ void MultibodyProvider::record_carried_validity(const Kinematics& kin, const std
         published.window_steps = running.window_steps;
         published.dynamic_ratio = running.dynamic_ratio;
         published.peak_ratio = running.peak_ratio;
+        published.peak_position = running.peak_position;
+        published.peak_window_peak = running.peak_window_peak;
+        published.peak_relative_deflection = running.peak_relative_deflection;
         published.unresolved = running.unresolved;
         published.unresolved_time = running.unresolved_time;
     }

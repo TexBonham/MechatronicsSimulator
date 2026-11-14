@@ -95,9 +95,12 @@ Work and validity (brief M3-E7c, ruling 69, header Work and validity): per carry
 (cumulative h Q_n . v_{n+1}), `carried_force`/`peak_carried_force`, `quasi_static_deflection`/`peak_quasi_static`
 (node compliances and gravity deflection from the elastic modes at load, `member_compliance_`), `dynamic_ratio`,
 `peak_ratio`, `unresolved` + `unresolved_time` above `carried_ratio_limit` = 2 (1 + `carried_validity_margin` 0.02);
-information only, nothing clamped. Definition (brief M3-E7f, ruling 74, header Definition): ratio =
-`relative_deflection` (max abs(d - g), g the own-weight deflection at the foot) / `window_quasi_static` = max(window
-peak of abs(u_qs - g), `static_floor` = max over the travel of C(s) W, `carried_travel_floor_` at load, ruling 76); `window_peak` before the floor; window N = ln 50 / (2 pi zeta) periods of the first loaded
+information only, nothing clamped. Definition (briefs M3-E7f, M3-E7g, rulings 74, 77, header Definition),
+member-wide over the load nodes: ratio = `relative_deflection` (max over nodes abs(d_a - g_a), `node_deflections`) /
+`window_quasi_static` = max(window peak of max over nodes abs(u_qs,a - g_a), `static_floor` = max over the travel of
+C(s) W, `carried_travel_floor_` at load, ruling 76; no travel for revolute, fixed, spherical or a cross-axis
+prismatic); `window_peak` before the floor; at the peak ratio `peak_position`, `peak_window_peak`,
+`peak_relative_deflection`; window N = ln 50 / (2 pi zeta) periods of the first loaded
 mode (node damping only; cap 100, undamped gets the cap), a fixed ring of 4 ceil(N) quarter-period buckets
 (`member_window_`); evaluated, and the window fed, from `MultibodyConfig::carried_evaluation_start` (s, default 0);
 `window_periods`, `window_steps` published; `peak_quasi_static` stays the largest abs(u_qs) since load.

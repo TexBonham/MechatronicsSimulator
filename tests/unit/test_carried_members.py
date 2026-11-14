@@ -317,7 +317,7 @@ def test_a_run_reports_each_carrying_member_s_deflection_and_lag_after_the_run()
     adapter = core.NativeAdapter()
     adapter.load(core.PreparedModel(prepared.model_json, "", prepared.version), core.Rate(1000))
     record = adapter.carried_record()
-    assert record.values() == [(0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, False, 0.0)]
+    assert record.values() == [(0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, False, 0.0, 0.0, 0.0, 0.0, 0.0)]
     for _ in range(50):
         adapter.step()
     deflection = adapter.carried_deflection()[0]
@@ -340,11 +340,12 @@ def test_a_run_reports_each_carrying_member_s_work_ratio_and_validity() -> None:
     ratio; the run-end lines state them per carrying member, and a flagged member gets the not-valid line with its
     time. The resting carriage loads the undamped member released from straight under gravity (backward Euler alone
     settles it: e^(-11) of the static deflection after 2 s, the settling note of the reroute test above). Evaluated
-    from 2 s (ruling 74, Definition (d)) the ratio is abs(d - g) = C(a) W over the floor, the largest C(s) W over the
-    carriage's travel (ruling 76): at most 1, positive, not flagged. Judged from the release (start 0) it is flagged,
-    the documented behaviour: abs(d - g) rings to 2 C W + g against the floor, a ratio near (2 + g / (C W)) C(a) /
-    C_max, above 2.04 here (the 1 m bar outweighs the 40 mm cube several times; a = 0.46875 is a load node at the
-    travel's largest compliance)."""
+    from 2 s (ruling 74, Definition (d)) the ratio is the largest nodal abs(d_b - g_b) = max over nodes b of C(b, a)
+    W over the floor, the largest C(s) W over the carriage's travel (rulings 76, 77): at most 1 (abs(C(b, a)) <=
+    sqrt(C(b, b) C(a, a)) <= C_max, C positive semi-definite, the travel holding the span's largest), positive, not
+    flagged. Judged from the release (start 0) it is flagged, the documented behaviour: abs(d - g) rings to 2 C W +
+    g against the floor, a ratio near (2 + g / (C W)) C(a) / C_max, above 2.04 here (the 1 m bar outweighs the 40 mm
+    cube several times; a = 0.46875 is a load node at the travel's largest compliance)."""
     assert translate.CARRIED_RATIO_LIMIT == core.CARRIED_RATIO_LIMIT
     model = _physics(_design(["slide"]))
     released = prepare_model(model, None, 1e-3)
@@ -352,7 +353,7 @@ def test_a_run_reports_each_carrying_member_s_work_ratio_and_validity() -> None:
     judged.load(core.PreparedModel(released.model_json, "", released.version), core.Rate(1000))
     for _ in range(50):
         judged.step()
-    judged_ratio, judged_unresolved, judged_since = judged.carried_record().values()[0][7:]
+    judged_ratio, judged_unresolved, judged_since = judged.carried_record().values()[0][7:10]
     assert judged_ratio > core.CARRIED_RATIO_LIMIT
     assert judged_unresolved is True
     assert 0.0 <= judged_since < 0.05
@@ -364,28 +365,39 @@ def test_a_run_reports_each_carrying_member_s_work_ratio_and_validity() -> None:
     for _ in range(2200):
         adapter.step()
     value = record.values()[0]
-    work, force, quasi_static, ratio, unresolved, since = value[4:]
+    work, force, quasi_static, ratio, unresolved, since = value[4:10]
+    position, floor, window, sample = value[10:]
     assert work > 0.0
     assert force > 0.0
     assert quasi_static > 0.0
     assert 0.0 < ratio <= 1.0 + 1e-4
     assert unresolved is False
     assert since == 0.0
+    assert 0.0 < position < 1.0
+    assert floor > 0.0
+    assert 0.0 < window <= floor
+    assert ratio == pytest.approx(sample / max(window, floor), rel=1e-12)
     lines = translate.carried_validity_lines(model, record.values())
     assert len(lines) == 1
     assert lines[0].startswith("lumped member 'bar_beam': the carried load-path pair did")
     assert f"{work:.6g} J" in lines[0]
     assert f"worst-case static deflection over its travel) {ratio:.6g} against the limit 2.04" in lines[0]
-    assert "from the evaluation start the deflection relative to the own-weight shape stayed within 2.04" in lines[0]
-    flagged = translate.carried_validity_lines(model, [(1e-3, 0.0, 0.0, 0.0, 10.7, 50.0, 1e-3, 13.5, True, 2.125)])
+    assert f"the foot at {position:.6g} m, the largest nodal relative deflection {sample:.6g} m" in lines[0]
+    assert f"the window peak {window:.6g} m and the floor {floor:.6g} m" in lines[0]
+    assert "the member's largest deflection relative to its own-weight shape stayed within 2.04" in lines[0]
+    flagged = translate.carried_validity_lines(
+        model, [(1e-3, 0.0, 0.0, 0.0, 10.7, 50.0, 1e-3, 13.5, True, 2.125, 0.25, 1e-4, 2e-5, 1.35e-3)]
+    )
     assert len(flagged) == 2
     assert "static deflection over its travel) 13.5 against" in flagged[0]
+    assert "the foot at 0.25 m, the largest nodal relative deflection 0.00135 m" in flagged[0]
+    assert "the window peak 2e-05 m and the floor 0.0001 m" in flagged[0]
     assert "within the window and the carried weight's worst-case static deflection over its travel" in flagged[1]
     assert flagged[1].startswith(
         "lumped member 'bar_beam': the one-way carried-load result is not valid from t = 2.125 s"
     )
     assert "ruling 69" in flagged[1]
-    assert translate.carried_validity_lines(_physics(_design([])), [(0.0,) * 10]) == ()
+    assert translate.carried_validity_lines(_physics(_design([])), [(0.0,) * 14]) == ()
 
 
 @pytest.mark.req("PHY-035")

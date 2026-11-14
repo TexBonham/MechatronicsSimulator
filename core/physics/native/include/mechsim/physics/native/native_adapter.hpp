@@ -43,7 +43,8 @@ struct DrivenSchemeDecayRecord {
 // record so it outlives the adapter. A member that carries nothing, or whose parent is fixed across it, holds zeros.
 // The validity fields (brief M3-E7c, ruling 69; member_loads.hpp, Work and validity) are the engine's last
 // MemberOutput values: the pair's work since load, the largest rerouted force and quasi-static deflection, the
-// largest dynamic ratio, and whether and from when the one-way result is not valid. The kernel's types do not carry
+// largest dynamic ratio with its foot position, floor, window peak and sample, and whether and from when the
+// one-way result is not valid. The kernel's types do not carry
 // them: this record is the only route out.
 struct CarriedMemberRecord {
     double deflection = 0.0;   // m
@@ -56,6 +57,12 @@ struct CarriedMemberRecord {
     double peak_ratio = 0.0;
     bool unresolved = false;
     double unresolved_time = 0.0;  // s, engine time of the first flagged step
+    // At the step of peak_ratio (member-wide, ruling 77): the foot position, the window peak and the largest nodal
+    // deflection relative to the own-weight shape; the floor over the travel is constant.
+    double peak_position = 0.0;             // m
+    double static_floor = 0.0;              // m
+    double peak_window_peak = 0.0;          // m
+    double peak_relative_deflection = 0.0;  // m
 };
 struct CarriedRecord {
     std::vector<CarriedMemberRecord> members;

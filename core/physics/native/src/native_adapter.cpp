@@ -1112,6 +1112,10 @@ void NativeAdapter::step() {
             record.peak_ratio = member.peak_ratio;
             record.unresolved = member.unresolved;
             record.unresolved_time = member.unresolved_time;
+            record.peak_position = member.peak_position;
+            record.static_floor = member.static_floor;
+            record.peak_window_peak = member.peak_window_peak;
+            record.peak_relative_deflection = member.peak_relative_deflection;
         }
     }
     e.last_health.max_constraint_drift = drift;
