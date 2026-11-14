@@ -235,6 +235,12 @@ private:
                                  const State& after, double h);
     [[nodiscard]] Eigen::MatrixXd angular_jacobian(const Kinematics& kin, Eigen::Index body) const;
     void record_members_and_ropes(const State& before, const State& after, double h);
+    // The evaluation starts as step counts (ENG-047, ENG-052): steps taken since load, and the first step index at or
+    // after each start, fixed at the first step: n = max(0, ceil((start - t_0) / h - 1e-9)), t_0 and h that step's.
+    [[nodiscard]] static std::int64_t start_step(double start, double t0, double h);
+    std::int64_t step_index_ = 0;
+    std::int64_t carried_start_step_ = 0;
+    std::int64_t rope_start_step_ = 0;
     void check_constraint_change(Eigen::Index constraint) const;
     ModelChangeEvent release_load(LoadSource source, Eigen::Index target, double time);
     Eigen::Index release_payload(Eigen::Index body);

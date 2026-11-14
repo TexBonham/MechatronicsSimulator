@@ -860,6 +860,39 @@ TEST_CASE("carried validity: a carried joint without travel takes the floor at i
     }
 }
 
+// The evaluation start by step count (ENG-052, Definition (d)): the first evaluated step is n = ceil(start / h - 1e-9)
+// from t = 0, not a comparison with the summed time (whose round-off, at 0.1 ms, judged the step beginning exactly at
+// 0.01 s or 8 s as before). The rig carries a constant 1 N, gravity off, so the window's peak is 0 exactly in the
+// steps before the start and positive from it: the count of steps with window_peak == 0 is n. Starts 0.01 s and 8 s
+// at 1 ms and 0.1 ms give start / h; 0.15 ms at 0.1 ms rounds up to 2; 0 gives 0.
+TEST_CASE("carried validity: the evaluation start is a whole number of steps, rounded up", "[ENG-052]") {
+    struct Case {
+        double h;
+        double start;
+        long expected;
+    };
+    for (const Case c : {Case{1e-3, 0.01, 10}, Case{1e-4, 0.01, 100}, Case{1e-3, 8.0, 8000}, Case{1e-4, 8.0, 80000},
+                         Case{1e-4, 1.5e-4, 2}, Case{1e-3, 0.0, 0}}) {
+        const CarriedRig rig = loaded_rig(1.0);
+        mechsim::engine::MultibodyConfig config;
+        config.carried_evaluation_start = c.start;
+        MultibodyProvider provider(rig.model, config);
+        State state = start_state(provider, rig.carriage, 0.5);
+        SemiImplicitEuler integrator(StepConfig{c.h});
+        long before = 0;
+        for (long n = 0; n < c.expected + 5; ++n) {
+            provider.apply_body_wrench(rig.carriage, Eigen::Vector3d::Zero(), Eigen::Vector3d(0.0, -1.0, 0.0));
+            static_cast<void>(provider.step(integrator, state));
+            if (provider.outputs().members.front().window_peak == 0.0) {
+                ++before;
+            }
+        }
+        std::printf("evaluation start %.6g s at h %.0e: %ld steps before (expected %ld)\n", c.start, c.h, before,
+                    c.expected);
+        CHECK(before == c.expected);
+    }
+}
+
 TEST_CASE("carried validity: the work and the flag are deterministic", "[ENG-052]") {
     const TwoMembers rig = two_members();
     const double duration = 5.0 * 2.0 * std::numbers::pi / rig.omega;

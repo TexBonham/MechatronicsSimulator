@@ -1960,7 +1960,7 @@ void MultibodyProvider::record_carried_validity(const Kinematics& kin, const std
             at(carried_base, m) = std::max(at(carried_base, m), std::abs(carried));
         }
     }
-    const bool evaluating = !(before.t < config_.carried_evaluation_start);
+    const bool evaluating = step_index_ >= carried_start_step_;
     for (Eigen::Index m = 0; m < count(model_.members.size()); ++m) {
         if (at(carrying, m) == 0) {
             continue;
@@ -2021,7 +2021,22 @@ void MultibodyProvider::record_carried_validity(const Kinematics& kin, const std
     }
 }
 
+// The first step whose begin time t_0 + n h is at or after the start, counted in steps so that the summed time's
+// round-off cannot move it: n = ceil((start - t_0) / h - 1e-9), the 1e-9 of a step absorbing the division's
+// round-off on a start that is a whole number of steps; a start between steps rounds up. At most 0 gives 0.
+std::int64_t MultibodyProvider::start_step(double start, double t0, double h) {
+    const double steps = std::ceil(((start - t0) / h) - 1e-9);
+    if (!(steps > 0.0)) {
+        return 0;
+    }
+    return static_cast<std::int64_t>(std::min(steps, 9.0e18));
+}
+
 void MultibodyProvider::record_members_and_ropes(const State& before, const State& after, double h) {
+    if (step_index_ == 0) {
+        carried_start_step_ = start_step(config_.carried_evaluation_start, before.t, h);
+        rope_start_step_ = start_step(config_.rope_snap_evaluation_start, before.t, h);
+    }
     outputs_.events = pending_events_;
     pending_events_.clear();
     outputs_.members.clear();
@@ -2061,7 +2076,7 @@ void MultibodyProvider::record_members_and_ropes(const State& before, const Stat
             out.held_tension = at(rope_held_tension_, r);
             continue;
         }
-        if (before.t < config_.rope_snap_evaluation_start) {
+        if (step_index_ < rope_start_step_) {
             at(rope_held_tension_, r) = std::max(at(rope_held_tension_, r), out.max_tension);
             out.held_tension = at(rope_held_tension_, r);
             continue;
@@ -2465,6 +2480,7 @@ StepHealth MultibodyProvider::step(Integrator& integrator, State& state) {
             row.sign * at(lock_impulse_, r) / integrator.config().h;
     }
     record_members_and_ropes(before, state, integrator.config().h);
+    ++step_index_;
     carried_momentum_active_ = false;
     for (Eigen::Index i = 0; i < count(carried_.size()); ++i) {
         at(carried_load_, i) = -at(outputs_.joints, at(carried_, i).body).reaction_wrench;
