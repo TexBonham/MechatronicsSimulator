@@ -490,6 +490,13 @@ void NativeAdapter::load(const kernel::PreparedModel& prepared, const kernel::Ra
                 throw json::ParseError("carried_evaluation_start: a finite time in seconds, at least 0");
             }
         }
+        if (doc.has("rope_snap_evaluation_start")) {
+            config.rope_snap_evaluation_start =
+                doc.at("rope_snap_evaluation_start").number("rope_snap_evaluation_start");
+            if (!(config.rope_snap_evaluation_start >= 0.0) || !std::isfinite(config.rope_snap_evaluation_start)) {
+                throw json::ParseError("rope_snap_evaluation_start: a finite time in seconds, at least 0");
+            }
+        }
         eng::StepConfig step_config;
         step_config.h = e->h;
         step_config.symmetry_tolerance = run.at("symmetry_tolerance").number("symmetry_tolerance");

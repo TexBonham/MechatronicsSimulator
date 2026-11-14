@@ -69,6 +69,7 @@ struct Doc {
     std::string starts = "[]";
     int substeps = 0;  // 0: the key is left out (one engine step per adapter step)
     std::string evaluation_start;  // empty: the key is left out (the carried-load flag evaluated from 0)
+    std::string snap_start;        // empty: rope_snap_evaluation_start left out (the snap from 0)
 
     [[nodiscard]] std::string text() const {
         std::string list;
@@ -89,7 +90,7 @@ struct Doc {
                list + R"(], "neutral_bodies": )" + std::to_string(neutral) + R"(, "constraints": )" + constraints +
                R"(, "members": )" + members + R"(, "transmissions": )" + transmissions + R"(, "ropes": )" + ropes +
                R"(, "contact": )" + contact + R"(, "payloads": )" + payloads + R"(, "starts": )" + starts +
-               substeps_key() + evaluation_key() + "}";
+               substeps_key() + evaluation_key() + snap_key() + "}";
     }
 
     [[nodiscard]] std::string substeps_key() const {
@@ -104,6 +105,13 @@ struct Doc {
             return "";
         }
         return R"(, "carried_evaluation_start": )" + evaluation_start;
+    }
+
+    [[nodiscard]] std::string snap_key() const {
+        if (snap_start.empty()) {
+            return "";
+        }
+        return R"(, "rope_snap_evaluation_start": )" + snap_start;
     }
 };
 
@@ -1386,6 +1394,20 @@ TEST_CASE("native adapter: a carried evaluation start is read in seconds and ref
     NativeAdapter adapter;
     Doc doc = slider(1.0);
     doc.evaluation_start = "-0.5";
+    CHECK_THROWS_AS(load(adapter, doc), AdapterError);
+}
+
+TEST_CASE("native adapter: a rope snap evaluation start is read in seconds and refused below zero", "[ENG-047]") {
+    // INT-031, ruling 75 (rope.hpp, Snap): the key is optional, a finite time at least 0.
+    for (const char* good : {"0", "8.0"}) {
+        NativeAdapter adapter;
+        Doc doc = slider(1.0);
+        doc.snap_start = good;
+        CHECK_NOTHROW(load(adapter, doc));
+    }
+    NativeAdapter adapter;
+    Doc doc = slider(1.0);
+    doc.snap_start = "-0.5";
     CHECK_THROWS_AS(load(adapter, doc), AdapterError);
 }
 

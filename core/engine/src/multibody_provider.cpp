@@ -1357,6 +1357,7 @@ void MultibodyProvider::setup_members_and_ropes() {
         }
         rope_rest_.push_back(rope.rest_length);
         rope_attached_.push_back(1);
+        rope_held_tension_.push_back(0.0);
     }
 }
 
@@ -2057,8 +2058,15 @@ void MultibodyProvider::record_members_and_ropes(const State& before, const Stat
             out.snatch_underestimated = out.snatch_omega_h > Rope::snatch_resolution_limit;
         }
         if (at(rope_attached_, r) == 0 || !(out.max_tension > rope.breaking_tension)) {
+            out.held_tension = at(rope_held_tension_, r);
             continue;
         }
+        if (before.t < config_.rope_snap_evaluation_start) {
+            at(rope_held_tension_, r) = std::max(at(rope_held_tension_, r), out.max_tension);
+            out.held_tension = at(rope_held_tension_, r);
+            continue;
+        }
+        out.held_tension = at(rope_held_tension_, r);
         Eigen::Index worst = 0;
         for (Eigen::Index s = 0; s < count(out.tension.size()); ++s) {
             if (at(out.tension, s) > at(out.tension, worst)) {

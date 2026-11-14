@@ -121,7 +121,9 @@ tension-only spring-dampers, slack or taut from the step start; K gets k n n^T +
 top attachment damping and friction (spherical joint torque, in D); `set_rope_rest_length(r, L)` (winch);
 `outputs().ropes` per segment tension, max, load end, `snatch_omega_h` = sqrt(EA / (L M)) h (flag above 0.2:
 first snatch peak about 15 % low); snap: end-of-step tension
-over `breaking_tension` releases `to_body` from the next step, event `RopeSnapped`.
+over `breaking_tension` releases `to_body` from the next step, event `RopeSnapped`, only in steps starting at or after
+`MultibodyConfig::rope_snap_evaluation_start` (s, default 0; document key `rope_snap_evaluation_start`); before it
+the exceedance is held, `RopeOutput::held_tension` the largest since load (INT-031, ruling 75).
 Ruling 21: swing and belt modes go through K, so they integrate as backward Euler: with x = omega h the mode loses
 (1 + x^2)^(-pi / atan x) of its amplitude per period (about pi x; 1 % at 1 ms for a 1 m pendulum) and runs x^2 / 3
 slow (1 % at 27 Hz at 1 kHz); `RopeOutput::scheme_decay` and `TransmissionOutput::scheme_decay` publish pi omega h

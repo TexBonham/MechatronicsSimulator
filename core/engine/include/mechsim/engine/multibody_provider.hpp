@@ -288,6 +288,7 @@ private:
     std::vector<std::uint8_t> constraint_enabled_;  // per constraint, persistent (ENG-033)
     std::vector<double> rope_rest_;                 // per rope, current rest length, m
     std::vector<std::uint8_t> rope_attached_;       // per rope, to_body attachment held
+    std::vector<double> rope_held_tension_;         // per rope, RopeOutput::held_tension
     std::vector<ModelChangeEvent> pending_events_;  // listed in the next step's outputs
     struct CarriedJoint {
         Eigen::Index member = 0;
