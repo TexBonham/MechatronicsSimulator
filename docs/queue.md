@@ -17,7 +17,7 @@ per-step joint drive, zero-stretch coupling fix; ctest debug-sanitize 491, Pytho
 `integrity_halt`; ctest debug-sanitize 526, Python 4377 passed and 107 xfail). E5 (regularised efficiency switch, screw lock
 row), N4 (17f3d18: adapter follow-up, run-time mode lines, substep rest interpolation, node pose series; ctest
 debug-sanitize 545, Python 4387 passed and 107 xfail). X1b with its fix round X1c (e83666a: structural acceptance
-on native, node-pose deflection; ctest debug-sanitize 546, Python 4461 passed and 100 xfail). the integration branch `wip/05-x1a` (66ffb18, 2026-11-14;
+on native, node-pose deflection; ctest debug-sanitize 546, Python 4461 passed and 100 xfail). The integration branch `wip/05-x1a` landed (66ffb18, 2026-11-14;
 verified there at ctest debug-sanitize 613, Python 4698 passed and 100 xfail, lint, format, types and imports
 clean): the gantry on native with flexible rails that carry their carriages, the payload on its rope, G12 and G15
 (recorded, not passed: rulings 64, 81, 82); the lift jump fix (E6, ruling 66); the moving load on a flexible member
