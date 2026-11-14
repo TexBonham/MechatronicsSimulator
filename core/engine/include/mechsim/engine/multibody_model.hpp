@@ -114,6 +114,12 @@ struct MultibodyConfig {
     // the flag are evaluated, and the window filled, from the first step starting at or after it. The adapter sets
     // it from the model document's carried_evaluation_start (PHY-035).
     double carried_evaluation_start = 0.0;
+    // The rope snap's evaluation start, s (ENG-047, INT-031, ruling 75; rope.hpp, Snap): a step starting before it
+    // does not release a load whose tension exceeds the breaking tension (a release from slack or straight can double
+    // the static tension, which is not a load case); it publishes the exceedance as RopeOutput::held_tension. From the
+    // first step starting at or after it the snap is unchanged. The adapter sets it from the model document's
+    // rope_snap_evaluation_start; 0 (default) is the behaviour before the key.
+    double rope_snap_evaluation_start = 0.0;
 };
 
 }  // namespace mechsim::engine

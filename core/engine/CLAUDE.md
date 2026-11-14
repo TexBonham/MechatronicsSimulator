@@ -95,9 +95,12 @@ Work and validity (brief M3-E7c, ruling 69, header Work and validity): per carry
 (cumulative h Q_n . v_{n+1}), `carried_force`/`peak_carried_force`, `quasi_static_deflection`/`peak_quasi_static`
 (node compliances and gravity deflection from the elastic modes at load, `member_compliance_`), `dynamic_ratio`,
 `peak_ratio`, `unresolved` + `unresolved_time` above `carried_ratio_limit` = 2 (1 + `carried_validity_margin` 0.02);
-information only, nothing clamped. Definition (brief M3-E7f, ruling 74, header Definition): ratio =
-`relative_deflection` (max abs(d - g), g the own-weight deflection at the foot) / `window_quasi_static` = max(window
-peak of abs(u_qs - g), `static_floor` = max over the travel of C(s) W, `carried_travel_floor_` at load, ruling 76); `window_peak` before the floor; window N = ln 50 / (2 pi zeta) periods of the first loaded
+information only, nothing clamped. Definition (briefs M3-E7f, M3-E7g, rulings 74, 77, header Definition),
+member-wide over the load nodes: ratio = `relative_deflection` (max over nodes abs(d_a - g_a), `node_deflections`) /
+`window_quasi_static` = max(window peak of max over nodes abs(u_qs,a - g_a), `static_floor` = max over the travel of
+C(s) W, `carried_travel_floor_` at load, ruling 76; no travel for revolute, fixed, spherical or a cross-axis
+prismatic); `window_peak` before the floor; at the peak ratio `peak_position`, `peak_window_peak`,
+`peak_relative_deflection`; window N = ln 50 / (2 pi zeta) periods of the first loaded
 mode (node damping only; cap 100, undamped gets the cap), a fixed ring of 4 ceil(N) quarter-period buckets
 (`member_window_`); evaluated, and the window fed, from `MultibodyConfig::carried_evaluation_start` (s, default 0);
 `window_periods`, `window_steps` published; `peak_quasi_static` stays the largest abs(u_qs) since load.
@@ -118,7 +121,9 @@ tension-only spring-dampers, slack or taut from the step start; K gets k n n^T +
 top attachment damping and friction (spherical joint torque, in D); `set_rope_rest_length(r, L)` (winch);
 `outputs().ropes` per segment tension, max, load end, `snatch_omega_h` = sqrt(EA / (L M)) h (flag above 0.2:
 first snatch peak about 15 % low); snap: end-of-step tension
-over `breaking_tension` releases `to_body` from the next step, event `RopeSnapped`.
+over `breaking_tension` releases `to_body` from the next step, event `RopeSnapped`, only in steps starting at or after
+`MultibodyConfig::rope_snap_evaluation_start` (s, default 0; document key `rope_snap_evaluation_start`); before it
+the exceedance is held, `RopeOutput::held_tension` the largest since load (INT-031, ruling 75).
 Ruling 21: swing and belt modes go through K, so they integrate as backward Euler: with x = omega h the mode loses
 (1 + x^2)^(-pi / atan x) of its amplitude per period (about pi x; 1 % at 1 ms for a 1 m pendulum) and runs x^2 / 3
 slow (1 % at 27 Hz at 1 kHz); `RopeOutput::scheme_decay` and `TransmissionOutput::scheme_decay` publish pi omega h

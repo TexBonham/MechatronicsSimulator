@@ -147,22 +147,22 @@ inline double point_height(const MultibodyProvider& provider, const State& state
     return world_point(provider, state, beam_point(beam, x)).y();
 }
 
-// Unit-load chain value (lumped_beam.hpp, unit-load method) of the pinned-pinned chain under P = 1 distributed by
-// the lever rule onto the load nodes around a, measured at a by the same interpolation (reciprocity): the chain's
-// own deflection, exact for the statically determinate chain, divided by E I.
-inline double pinned_chain_compliance(int segments, double a, double length) {
+// Unit-load chain value (lumped_beam.hpp, unit-load method) of the pinned-pinned chain: the deflection at b, measured
+// by the lever rule's interpolation around b, under P = 1 distributed by the lever rule onto the load nodes around a;
+// sum over the springs of m_a m_b l (exact for the statically determinate chain), divided by E I. Symmetric in a, b.
+inline double pinned_chain_transfer(int segments, double a, double b, double length) {
     const double l = length / segments;
     std::vector<double> nodes{0.0};
     for (int j = 0; j < segments; ++j) {
         nodes.push_back((j + 0.5) * l);
     }
     nodes.push_back(length);
-    std::size_t k = 0;
-    while (k + 2 < nodes.size() && nodes[k + 1] <= a) {
-        ++k;
-    }
-    const double w = (nodes[k + 1] - a) / (nodes[k + 1] - nodes[k]);
-    const auto moment = [&](double x) {
+    const auto moment = [&](double s, double x) {
+        std::size_t k = 0;
+        while (k + 2 < nodes.size() && nodes[k + 1] <= s) {
+            ++k;
+        }
+        const double w = (nodes[k + 1] - s) / (nodes[k + 1] - nodes[k]);
         double m = 0.0;
         const std::array<std::array<double, 2>, 2> loads{{{nodes[k], w}, {nodes[k + 1], 1.0 - w}}};
         for (const auto& load : loads) {
@@ -176,10 +176,33 @@ inline double pinned_chain_compliance(int segments, double a, double length) {
     };
     double sum = 0.0;
     for (int j = 0; j < segments; ++j) {
-        const double m = moment((j + 0.5) * l);
-        sum += m * m * l;
+        sum += moment(a, (j + 0.5) * l) * moment(b, (j + 0.5) * l) * l;
     }
     return sum;
+}
+
+// The collocated value: the chain's own deflection at a under P = 1 at a, divided by E I (ruling 57).
+inline double pinned_chain_compliance(int segments, double a, double length) {
+    return pinned_chain_transfer(segments, a, a, length);
+}
+
+// The largest deflection over the chain's load nodes under P = 1 at a, divided by E I: the member-wide quasi-static
+// reference of a single carried force (member_loads.hpp, Definition).
+inline double pinned_chain_member_max(int segments, double a, double length) {
+    double largest = 0.0;
+    for (int j = 0; j < segments; ++j) {
+        largest = std::max(largest, std::abs(pinned_chain_transfer(segments, a, (j + 0.5) * length / segments, length)));
+    }
+    return largest;
+}
+
+// The largest collocated value over the chain's load nodes, divided by E I: C_max of the floor over the whole span.
+inline double pinned_chain_largest(int segments, double length) {
+    double largest = 0.0;
+    for (int j = 0; j < segments; ++j) {
+        largest = std::max(largest, pinned_chain_compliance(segments, (j + 0.5) * length / segments, length));
+    }
+    return largest;
 }
 
 }  // namespace mechsim::engine::test

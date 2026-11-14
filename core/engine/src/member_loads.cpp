@@ -164,6 +164,22 @@ CarriedPair carried_pair(const LumpedBeam& beam, Eigen::Index carried, const std
     return pair;
 }
 
+std::vector<double> node_deflections(const LumpedBeam& beam, const std::vector<Eigen::Matrix3d>& rotation,
+                                     const std::vector<Eigen::Vector3d>& origin) {
+    Eigen::Matrix3d parent_rotation = Eigen::Matrix3d::Identity();
+    if (beam.parent >= 0) {
+        parent_rotation = rotation.at(static_cast<std::size_t>(beam.parent));
+    }
+    const Eigen::Matrix3d root_rotation = parent_rotation * beam.orientation.toRotationMatrix();
+    const Eigen::Vector3d root = placed_point(beam.parent, beam.position, rotation, origin);
+    std::vector<double> out;
+    for (const LoadNode& node : load_nodes(beam)) {
+        const Eigen::Vector3d point = placed_point(node.body, node.point, rotation, origin);
+        out.push_back((point - (root + (node.x * root_rotation.col(0)))).dot(root_rotation.col(1)));
+    }
+    return out;
+}
+
 double lag_growth_factor(double r, double x, double zeta) {
     const double lead = 1.0 + (2.0 * zeta * x) + (x * x);
     Eigen::Matrix3d companion = Eigen::Matrix3d::Zero();

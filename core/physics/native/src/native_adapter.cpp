@@ -490,6 +490,13 @@ void NativeAdapter::load(const kernel::PreparedModel& prepared, const kernel::Ra
                 throw json::ParseError("carried_evaluation_start: a finite time in seconds, at least 0");
             }
         }
+        if (doc.has("rope_snap_evaluation_start")) {
+            config.rope_snap_evaluation_start =
+                doc.at("rope_snap_evaluation_start").number("rope_snap_evaluation_start");
+            if (!(config.rope_snap_evaluation_start >= 0.0) || !std::isfinite(config.rope_snap_evaluation_start)) {
+                throw json::ParseError("rope_snap_evaluation_start: a finite time in seconds, at least 0");
+            }
+        }
         eng::StepConfig step_config;
         step_config.h = e->h;
         step_config.symmetry_tolerance = run.at("symmetry_tolerance").number("symmetry_tolerance");
@@ -1112,6 +1119,10 @@ void NativeAdapter::step() {
             record.peak_ratio = member.peak_ratio;
             record.unresolved = member.unresolved;
             record.unresolved_time = member.unresolved_time;
+            record.peak_position = member.peak_position;
+            record.static_floor = member.static_floor;
+            record.peak_window_peak = member.peak_window_peak;
+            record.peak_relative_deflection = member.peak_relative_deflection;
         }
     }
     e.last_health.max_constraint_drift = drift;

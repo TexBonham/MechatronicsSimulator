@@ -260,18 +260,21 @@ void bind_adapter(py::module_& m) {
         .def(
             "values",
             [](const physics::native::CarriedRecord& record) {
-                std::vector<std::tuple<double, double, double, double, double, double, double, double, bool, double>>
+                std::vector<std::tuple<double, double, double, double, double, double, double, double, bool, double,
+                                       double, double, double, double>>
                     out;
                 out.reserve(record.members.size());
                 for (const physics::native::CarriedMemberRecord& r : record.members) {
                     out.emplace_back(r.deflection, r.lag_ratio, r.lag_omega_h, r.lag_factor, r.work, r.peak_force,
-                                     r.peak_quasi_static, r.peak_ratio, r.unresolved, r.unresolved_time);
+                                     r.peak_quasi_static, r.peak_ratio, r.unresolved, r.unresolved_time,
+                                     r.peak_position, r.static_floor, r.peak_window_peak, r.peak_relative_deflection);
                 }
                 return out;
             },
             "A copy: [(largest deflection m, lag ratio r, omega h, largest per-step factor, the pair's work J, "
             "largest rerouted force N, largest quasi-static deflection m, largest dynamic ratio, unresolved, "
-            "unresolved from s)] per member (ENG-052, brief M3-E7c).");
+            "unresolved from s, at the peak ratio: foot position m, floor m, window peak m, largest nodal deflection "
+            "relative to the own-weight shape m)] per member (ENG-052, briefs M3-E7c, M3-E7g).");
 
     py::class_<physics::native::NativeAdapter, PhysicsAdapter, py::smart_holder>(
         m, "NativeAdapter", "The own engine behind the PhysicsAdapter interface (PHY-020); load the native translation.")

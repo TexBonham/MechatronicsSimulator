@@ -544,37 +544,40 @@ def carried_member_lines(model: PhysicsModel, values: Sequence[tuple[float, ...]
 
 def carried_validity_lines(model: PhysicsModel, values: Sequence[tuple[float, ...]]) -> tuple[str, ...]:
     """Per carrying member at the end of a native run (ENG-052, PHY-035, brief M3-E7c, ruling 69): the pair's net work
-    on the member and the largest dynamic ratio against the limit, and, when the engine flagged the member, a line that
-    the one-way carried-load result is not valid for it from the flagged time and why. `CarriedRecord.values()` per
-    member in document order: (..., work J, largest force N, largest quasi-static deflection m, largest ratio,
-    unresolved, unresolved from s)."""
+    on the member and the largest dynamic ratio against the limit with what it was formed from, and, when the engine
+    flagged the member, a line that the one-way carried-load result is not valid for it from the flagged time and why.
+    `CarriedRecord.values()` per member in document order: (..., work J, largest force N, largest quasi-static
+    deflection m, largest ratio, unresolved, unresolved from s, at the largest ratio: foot position m, floor m, window
+    peak m, largest nodal deflection relative to the own-weight shape m)."""
     lines: list[str] = []
     for member, value in zip(model.lumped_members, values, strict=True):
         if len(member.carries) == 0:
             continue
         work, force, quasi_static, ratio = value[4], value[5], value[6], value[7]
         unresolved, since = bool(value[8]), value[9]
+        position, floor, window, sample = value[10], value[11], value[12], value[13]
         lines.append(
             f"lumped member '{member.name}': the carried load-path pair did {work:.6g} J of net work on the member "
             f"over the run (energy the carried bodies never lose: they do not ride the deflection); largest rerouted "
             f"force {force:.6g} N, largest quasi-static deflection {quasi_static:.6g} m, largest dynamic ratio "
-            f"from the evaluation start (the carried deflection relative to the member's own-weight shape, over "
-            f"the larger of the carried loads' largest quasi-static deflection within the window of the member's "
-            f"first loaded mode and the carried weight's worst-case static deflection over its travel) {ratio:.6g} "
-            f"against the "
-            f"limit {CARRIED_RATIO_LIMIT:.6g}; no flag bounds only this: from the evaluation start the deflection "
-            f"relative to the own-weight shape stayed within {CARRIED_RATIO_LIMIT:.6g} times that base (ENG-052, "
-            f"PHY-035, rulings 74, 76)"
+            f"from the evaluation start (the member's largest nodal deflection relative to its own-weight shape, over "
+            f"the larger of the carried loads' largest nodal quasi-static deflection within the window of the "
+            f"member's first loaded mode and the carried weight's worst-case static deflection over its travel) "
+            f"{ratio:.6g} against the limit {CARRIED_RATIO_LIMIT:.6g}, at that step the foot at {position:.6g} m, "
+            f"the largest nodal relative deflection {sample:.6g} m, the window peak {window:.6g} m and the floor "
+            f"{floor:.6g} m; no flag bounds only this: from the evaluation start the member's largest deflection "
+            f"relative to its own-weight shape stayed within {CARRIED_RATIO_LIMIT:.6g} times that base (ENG-052, "
+            f"PHY-035, rulings 74, 76, 77)"
         )
         if unresolved:
             lines.append(
                 f"lumped member '{member.name}': the one-way carried-load result is not valid from t = {since:.6g} s: "
-                f"relative to its own-weight shape the member deflects more than {CARRIED_RATIO_LIMIT:.6g} times the "
-                f"larger of the largest quasi-static deflection of its carried loads within the window and the "
-                f"carried weight's worst-case static deflection over its travel, more than any load applied no "
-                f"faster than suddenly can "
-                f"cause, so the carried system drives it near its own frequency, where the missing back-reaction of "
-                f"the one-way coupling matters; full coupling is milestone 4 (ruling 69, ENG-052)"
+                f"relative to its own-weight shape the member deflects somewhere more than {CARRIED_RATIO_LIMIT:.6g} "
+                f"times the larger of the largest nodal quasi-static deflection of its carried loads within the "
+                f"window and the carried weight's worst-case static deflection over its travel, more than a load "
+                f"applied no faster than suddenly causes, so the carried system drives it near its own frequency, "
+                f"where the missing back-reaction of the one-way coupling matters; full coupling is milestone 4 "
+                f"(ruling 69, ENG-052)"
             )
     return tuple(lines)
 

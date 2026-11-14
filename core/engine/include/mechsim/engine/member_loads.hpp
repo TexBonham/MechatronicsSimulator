@@ -54,15 +54,20 @@ struct MemberOutput {
     double peak_carried_force = 0.0;         // the largest carried_force since load, N
     double quasi_static_deflection = 0.0;    // largest |u_qs| of the member's carried joints this step, m
     double peak_quasi_static = 0.0;          // the largest quasi_static_deflection since load, m
-    double relative_deflection = 0.0;        // largest abs(d - g) of the carried joints this step (Definition), m
+    double relative_deflection = 0.0;        // the sample: max over the load nodes of abs(d_a - g_a) (Definition), m
     double static_floor = 0.0;               // the base's floor: max over joints of max over travel C(s) W, m
-    double window_peak = 0.0;                // the window's peak of abs(u_qs - g), before the floor, m
+    double window_peak = 0.0;                // the window's peak of max over nodes abs(u_qs,a - g_a), m
     double window_quasi_static = 0.0;        // the ratio's base: max(window_peak, static_floor), m
     double window_periods = 0.0;             // N, the window in periods of the member's first loaded mode
     Eigen::Index window_steps = 0;           // the window in steps, 4 ceil(N) b (Definition)
     double dynamic_ratio = 0.0;              // relative_deflection / window_quasi_static (0 before the evaluation
                                              // start and while the base is 0)
     double peak_ratio = 0.0;                 // the largest dynamic_ratio since load
+    // At the step of peak_ratio: the foot position s of the carried joint with the largest abs(d - g) at its foot, the
+    // window peak and the sample (peak_ratio = peak_relative_deflection / max(peak_window_peak, static_floor)).
+    double peak_position = 0.0;             // m
+    double peak_window_peak = 0.0;          // m
+    double peak_relative_deflection = 0.0;  // m
     bool unresolved = false;                 // dynamic_ratio has exceeded carried_ratio_limit at some step
     double unresolved_time = 0.0;            // start time of the first such step, s (0 while resolved)
 };
@@ -122,53 +127,76 @@ struct MemberOutput {
 // round-off at a ratio of exactly 2. Not covered by the bound (the rule applies, the theorem does not): a moment and
 // a force at the same joint with modal shares of opposite sign, and several carried joints on one member (a joint's
 // deflection under another joint's load). The flag is information: nothing is clamped and the dynamics do not change.
-// Definition (brief M3-E7f, ruling 74; replaces the E7e base, whose window used the scheme's own decay and whose ratio
-// was formed on absolute deflections). With g_i = e_i . d_g the member's own-weight deflection at joint i's foot, C_ii
-// = e_i^T C_f e_i its collocated compliance there and W_i = m_i (gravity . y) the carried weight across the member
-// (m_i the joint's subtree mass), each step from the evaluation start:
-//   sample  = max_i abs(d_i - g_i)                       (d_i the published deflection at the foot)
-//   base    = max(max over the window of max_i abs(u_qs,i - g_i), floor),   floor = max_i F_i, (c)
+// Definition (briefs M3-E7f, M3-E7g, rulings 74, 76, 77; replaces the E7e base, whose window used the scheme's own
+// decay and whose ratio was formed on absolute deflections, and E7f's sample at the foot, which let the member's peak
+// away from a foot near a support reach many times the floor unflagged). Member-wide: with a running over the
+// member's load nodes, d_a the node's deflection across the member (node_deflections), g_a its own-weight deflection
+// (d_g), u_qs,a - g_a = sum_j (C_f(a, .) e_j F_j + C_m(a, .) e_j M_j) the carried loads' quasi-static deflection
+// there, and W_i = m_i (gravity . y) the carried weight across the member (m_i the joint's subtree mass), each step
+// from the evaluation start:
+//   sample  = max_a abs(d_a - g_a)
+//   base    = max(max over the window of max_a abs(u_qs,a - g_a), floor),   floor = max_i F_i, (c)
 //   ratio   = sample / base,   flagged from the first step whose ratio exceeds carried_ratio_limit.
+// Between nodes both deflections are the lever rule's interpolation of the two nodes (the published foot deflection
+// is), so the maxima over the nodes are the maxima over the member and bound every foot point's values.
+// Node by node. For a force F at joint j, mode p contributes at node a the share c_ap = (g_a phi_p)(e_j phi_p) F /
+// omega_p^2 of u_qs,a, and under the scheme the step response of each mode keeps abs(e_n) < abs(c_ap) (above), so
+// abs(u_a - u_qs,a) < sum_p abs(c_ap) at every node and every step. At the collocated node every share has the sign
+// of F and the sum is abs(u_qs,j): u_j < 2 u_qs,j <= 2 max_b abs(u_qs,b), the factor 2 exactly. At a node whose
+// shares all have one sign the same holds there: abs(u_a) < 2 abs(u_qs,a). At other nodes the shares can differ in sign and the sum of their
+// magnitudes exceed abs(u_qs,a); for the maxima the bound is then max_a (abs(u_qs,a) + sum_p abs(c_ap)) over max_b
+// abs(u_qs,b), which on the pinned continuum (shares sin(n pi a / L) sin(n pi s / L) / n^4) is at most 2.09 (a load
+// near a support, the node near 0.43 L), reached only if every mode's phase aligns: with the continuum's own
+// frequencies n^2 omega_1 the largest over time is 1.98 to 2.00 over s in [0.002, 0.5] L. So for the maxima the
+// factor 2 holds within the 2 percent margin wherever the modes' phases do not align beyond the continuum's; a
+// lumped chain's frequencies are not commensurate, and a step load near a support left ringing undamped for many
+// periods can drift toward 2.09 and raise a conservative flag. Both maxima are of the same nodes' values, so a
+// window of several loads and the floor bound the sample as they bound the collocated value.
 // (a) The window is physical time. A load older than the window can legitimately leave free ringing of at most 2
 // u_qs of its own (the step response above); the member's node damping takes e^(-2 pi zeta) of it per period, so
 // after N = ln(1 / delta) / (2 pi zeta) periods of the first loaded mode it is below delta of its size and may be
 // forgotten. The scheme's own loss pi x per period is left out: it only shortens what the window must hold (so
-// leaving it out is conservative) and it made the memory depend on the step (E7e: 46 periods of rail_y at 10
-// substeps, 92 at 20). The window is 4 ceil(N) quarter-period buckets of b = max(1, floor(pi / (2 x))) steps each,
-// b h within one step of a quarter period: the same physical time at any step to one step per bucket. An undamped
-// member (zeta = 0: its ringing never decays physically) and any with N above the cap get carried_window_periods_max
-// = 100 periods, a choice: past it an undamped member's old ringing counts against its current loads (a
-// conservative false flag), and the cap binds for zeta < ln 50 / (200 pi) = 0.0062.
+// leaving it out is conservative) and it would make the memory depend on the step (E7e's window ran twice as many
+// periods at half the step). The window is 4 ceil(N) quarter-period buckets of b = max(1, floor(pi / (2 x))) steps
+// each, b h within one step of a quarter period: the same physical time at any step to one step per bucket. An
+// undamped member (zeta = 0: its ringing never decays physically) and any with N above the cap get
+// carried_window_periods_max = 100 periods, a choice: past it an undamped member's old ringing counts against its
+// current loads (a conservative false flag), and the cap binds for zeta < ln 50 / (200 pi) = 0.0062.
 // (b) Relative to the member's static shape. The own weight is a load the member carries whether or not anything
 // rides it; its static shape g is the member's equilibrium, not a carried load's effect. Subtracting g from both the
-// sample and u_qs leaves u_qs,i - g_i = sum_j (C_f F + C_m M)_ij, the carried loads' own quasi-static deflection, and
-// the step-response bound above applies to it alone; it removes the old case of gravity sag opposite to the load
-// (ratio 3). What the subtraction does not remove: own-weight ringing still in the member at the evaluation start
-// (the release from straight on an undamped member decays only by the scheme) is counted against the carried loads.
+// sample and u_qs leaves u_qs,a - g_a, the carried loads' own quasi-static deflection, and the step-response bound
+// above applies to it alone; it removes the old case of gravity sag opposite to the load (ratio 3). What the
+// subtraction does not remove: own-weight ringing still in the member at the evaluation start (the release from
+// straight on an undamped member decays only by the scheme) is counted against the carried loads.
 // (c) The base has a floor (ruling 76, replacing the floor at the current foot point of ruling 74): the static
 // deflection of the carried weight at the worst foot position over the carried joint's travel, F_i = max over s in
-// the joint's limits of C(s) abs(W_i) (the whole span for a joint without finite limits), computed once at load from
-// the chain's static compliance; the member's floor is the largest over its joints. Why: the floor at the current
-// foot fell as s^2 toward a pinned support while a small ring there (a mode's shape, a moment's collocated term) falls
-// as s, so the ratio grew as 1 / s with nothing material happening (G15's rail_y near its support, a 15 micrometre
-// ring from the y belt's undamped drive mode). Against F_i the ratio is the dynamic deflection's excess over the
-// scale of the member's legitimate carried deflection, wherever the carriage stands. What it keeps: a member pumped
-// to several times its largest static carried deflection is still flagged, once its deflection passes 2.04 F. The
-// flag time moves only while 2.04 F exceeds 2.04 times the windowed peak: for a force F_0 sin(omega_1 t) the resonant
-// growth u ~ s1 c F_0 omega_1 t / 2 is flagged where the larger base is first passed, so the flag moves from omega t
-// near the E7c bound th_1 (g(th) = 2.04) to th_F with g(th_F) = 2.04 F / (c F_0), later by (th_F - th_1) / omega_1
-// when F > c F_0 and not at all otherwise. Gravity off (W = 0, F = 0), as in the E7c resonant test and two-member rig,
-// it does not move. It only raises the base, so it can only remove flags.
+// the joint's travel of C(s) abs(W_i), computed once at load from the chain's static compliance; the member's floor is
+// the largest over its joints. The travel: a prismatic joint's finite limits mapped along the member; the whole span
+// for one without finite limits and for planar, free and translation joints; none (s at load only) for a joint whose
+// foot cannot move along the member (revolute, fixed, spherical, or a prismatic axis across the member). W_i counts
+// the carried subtree in the tree only: a load hanging on a rope or a contact reaches the member through the joint's
+// reaction, which u_qs includes, but not through the floor (conservative: a lower floor only adds flags). Why: the
+// floor at the current foot fell as s^2 toward a pinned support while a small ring there (a mode's shape, a moment's
+// collocated term) falls as s, so the ratio grew as 1 / s with nothing material happening. Against F_i the ratio is
+// the dynamic deflection's excess over the scale of the member's legitimate carried deflection, wherever the carriage
+// stands. What it keeps: a member pumped anywhere on its span to more than 2.04 F is flagged. The flag time moves
+// only while 2.04 F exceeds 2.04 times the windowed peak: for a force F_0 sin(omega_1 t) the resonant growth u ~ s1 c
+// F_0 omega_1 t / 2 is flagged where the larger base is first passed, so the flag moves from omega t near the E7c
+// bound th_1 (g(th) = 2.04) to th_F with g(th_F) = 2.04 F / (c F_0), later by (th_F - th_1) / omega_1 when F > c F_0
+// and not at all otherwise. Gravity off (W = 0, F = 0), as in the E7c resonant test and two-member rig, it does not
+// move. It only raises the base, so it can only remove flags.
 // (d) Evaluation starts at MultibodyConfig::carried_evaluation_start (s, default 0): before it the work and the peaks
 // accumulate but the window is not fed and the ratio is 0 and never flagged; the window starts empty at the first
 // step whose start time is at or after it. A release from straight (the loads applied suddenly at t = 0, and the
 // own weight with them) is then not judged when the start is after the settle time.
-// What no flag bounds: from the evaluation start, at every step the largest carried deflection relative to the
-// member's own-weight shape stayed within carried_ratio_limit = 2.04 times the larger of the largest quasi-static
-// deflection of the carried loads over the window and the worst-case static carried deflection over the travel. Still
-// flagged without resonance (conservative, not special-cased): a single load reversal at half a period (ratio 4).
+// What no flag bounds: from the evaluation start, at every step the member's largest deflection relative to its own
+// static shape, at any point of the span, stayed within carried_ratio_limit = 2.04 times the larger of the windowed
+// peak of the carried loads' largest nodal quasi-static deflection and the worst-case static carried deflection over
+// the travel. Still flagged without resonance (conservative, not special-cased): a single load reversal at half a
+// period (ratio up to 4); a release from straight judged from time 0 (evaluation start 0: the own-weight ringing
+// counts against the carried loads); a step load near a support ringing long undamped (Node by node, up to 2.09).
 // Not covered by the bound: a moment and a force at the same joint with modal shares of opposite sign, and several
-// carried joints on one member. A resonance whose amplitude stays below 2.04 F is not flagged anywhere on the span.
+// carried joints on one member. A resonance whose amplitude stays below 2.04 F anywhere on the span is not flagged.
 inline constexpr double carried_validity_margin = 0.02;
 inline constexpr double carried_ratio_limit = 2.0 * (1.0 + carried_validity_margin);
 inline constexpr double carried_window_periods_max = 100.0;
@@ -364,6 +392,11 @@ struct LoadNode {
     Eigen::Vector3d point = Eigen::Vector3d::Zero();
 };
 [[nodiscard]] std::vector<LoadNode> load_nodes(const LumpedBeam& beam);
+
+// The deflection of each load node across the member, root to tip: (p_a - (r_root + x_a x)) . y, m (the published
+// foot deflection at s = x_a; the member-wide sample of Definition).
+[[nodiscard]] std::vector<double> node_deflections(const LumpedBeam& beam, const std::vector<Eigen::Matrix3d>& rotation,
+                                                   const std::vector<Eigen::Vector3d>& origin);
 
 // The pair for one carried body: world points and axes from body_from_world (per body, body_X_world: rotation world
 // to body, translation the body origin in the world), load the world-aligned [M about r_c; F] on the member.
