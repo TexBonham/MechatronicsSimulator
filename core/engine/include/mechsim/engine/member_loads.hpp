@@ -187,7 +187,9 @@ struct MemberOutput {
 // move. It only raises the base, so it can only remove flags.
 // (d) Evaluation starts at MultibodyConfig::carried_evaluation_start (s, default 0): before it the work and the peaks
 // accumulate but the window is not fed and the ratio is 0 and never flagged; the window starts empty at the first
-// step whose start time is at or after it. A release from straight (the loads applied suddenly at t = 0, and the
+// step whose start time is at or after it, counted in steps (not the summed time, whose round-off judged the step
+// beginning exactly at the start as before): n = ceil((start - t_0) / h - 1e-9) steps after load, t_0 and h the first
+// step's; a start between steps rounds up. A release from straight (the loads applied suddenly at t = 0, and the
 // own weight with them) is then not judged when the start is after the settle time.
 // What no flag bounds: from the evaluation start, at every step the member's largest deflection relative to its own
 // static shape, at any point of the span, stayed within carried_ratio_limit = 2.04 times the larger of the windowed

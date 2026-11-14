@@ -31,7 +31,8 @@ struct MultibodyModel;
 //
 // Snap (ENG-034). When a segment's end-of-step tension exceeds breaking_tension, the last segment (to to_body) is
 // removed from the next step on; the chain stays hung from from_body. Only from MultibodyConfig::
-// rope_snap_evaluation_start (INT-031, ruling 75): in a step starting before it the exceedance is published as
+// rope_snap_evaluation_start (INT-031, ruling 75; counted in steps: the first judged step is n = ceil((start - t_0) /
+// h - 1e-9) after load): in a step starting before it the exceedance is published as
 // RopeOutput::held_tension and the load stays attached.
 //
 // Snatch resolution (rulings 15 and 22, ADR 0016 Consequences): the rope's fundamental with the load,

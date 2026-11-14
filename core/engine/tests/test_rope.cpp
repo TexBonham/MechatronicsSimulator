@@ -450,6 +450,48 @@ TEST_CASE("a rope does not snap before the snap's evaluation start and snaps fro
     REQUIRE(provider.outputs().ropes[0].held_tension == held);
 }
 
+// The snap's evaluation start by step count (rope.hpp, Snap): the first judged step is n = ceil(start / h - 1e-9). A
+// bob hung at its static stretch with a breaking tension below g M exceeds it in every step, so the rope snaps in step
+// n exactly and stays attached for the n steps before: start / h for 0.01 s and 8 s at 1 ms and 0.1 ms, 2 for
+// 0.15 ms at 0.1 ms (rounded up), 0 for start 0.
+TEST_CASE("a rope's snap evaluation start is a whole number of steps, rounded up", "[ENG-047][ENG-034]") {
+    struct Case {
+        double h;
+        double start;
+        long expected;
+    };
+    for (const Case c : {Case{1e-3, 0.01, 10}, Case{1e-4, 0.01, 100}, Case{1e-3, 8.0, 8000}, Case{1e-4, 8.0, 80000},
+                         Case{1e-4, 1.5e-4, 2}, Case{1e-3, 0.0, 0}}) {
+        MultibodyModel model;
+        model.gravity = Eigen::Vector3d(0.0, 0.0, -gravity);
+        const double axial = 1e4;
+        const double length = 1.0 + gravity * (1.0 + 0.5 * 1e-4 * 0.5) / axial;
+        const Eigen::Vector3d at(0.0, 0.0, -length);
+        const Eigen::Index bob = add_bob(model, at, 1.0);
+        Rope rope = basic_rope(bob, 2);
+        rope.axial_rigidity = axial;
+        rope.mass_per_length = 1e-4;
+        rope.breaking_tension = 0.5 * gravity;
+        static_cast<void>(add_rope(model, rope, Eigen::Vector3d::Zero(), at));
+        MultibodyConfig config;
+        config.rope_snap_evaluation_start = c.start;
+        MultibodyProvider provider(model, config);
+        SemiImplicitEuler integrator(StepConfig{c.h});
+        State state = rest_state(provider);
+        long attached = 0;
+        while (provider.rope_attached(0) && attached <= c.expected) {
+            provider.step(integrator, state);
+            if (provider.rope_attached(0)) {
+                ++attached;
+            }
+        }
+        std::printf("rope snap start %.6g s at h %.0e: %ld steps held (expected %ld)\n", c.start, c.h, attached,
+                    c.expected);
+        CHECK(attached == c.expected);
+        CHECK_FALSE(provider.rope_attached(0));
+    }
+}
+
 TEST_CASE("a rope released on request lets its load go and lists the release", "[ENG-034][ENG-047]") {
     MultibodyModel model;
     model.gravity = Eigen::Vector3d(0.0, 0.0, -gravity);
