@@ -9,8 +9,9 @@ line, a Decisions log row and the spec edits below (R-18).
 
 The fixed bridge baselines (PHY-025): `test_cases/gantry/bridge_baselines/G1.yaml` to `G14.yaml` (13 files, no G12)
 and `test_cases/pendulum/bridge_baselines/P1.yaml`, `P2.yaml`, generated once on 2026-11-14 and never regenerated.
-PHY-024's comparison (`tests/acceptance/test_phy_stubs.py`) already reads them, not a live bridge run, so it survives
-unchanged. PHY-021's live two-adapter comparisons (`tests/reference/test_phy_stubs.py::test_phy_021` and every
+PHY-024's comparison (`tests/acceptance/test_phy_stubs.py`: `test_phy_024` and `test_phy_024_misses_of_record`,
+per-axis tolerances and the list of record since brief M3-X2d) already reads them, not a live bridge run, so it
+survives unchanged. PHY-021's live two-adapter comparisons (`tests/reference/test_phy_stubs.py::test_phy_021` and every
 `mujoco`-parametrized reference test) are deleted; the drive-free references keep their closed forms, which the
 native adapter already meets (PHY-023). PHY-016 (`test_phy_016`, the bridge carrying G5 to G14) is retired with
 its row; its values of record are the fixed baselines.
