@@ -13,9 +13,15 @@ from mechsim.builder import BuildError, BuildResult, structure
 from mechsim.design.schema import Design, FlexibleMember, OpenValue
 from mechsim.library.registry import default_registry
 from mechsim.physics.mujoco.prepare import prepare_model as prepare_bridge
-from mechsim.physics.native.translate import _subtree_mass, translate
+from mechsim.physics.native.translate import driven_mass, translate
 from mechsim.physics.neutral import PhysicsModel
-from tests.reference.test_transmission_damping import belt_model
+from tests.reference.test_transmission_damping import (
+    ARM_BODY,
+    CARRIAGE,
+    belt_model,
+    chain_mass,
+    member_belt_build,
+)
 from tests.unit.test_builder_structure import CALIBRATION, EI, RHO_A, _bar, _bar_data, _build
 from tests.unit.test_builder_support import filled_gantry, gantry, gantry_data
 
@@ -169,7 +175,7 @@ def test_a_stated_transmission_ratio_becomes_two_zeta_sqrt_k_m_on_the_driven_sub
         driven = next(
             body for body in result.bodies if body.joint is not None and body.joint.name == transmission.driven_joint
         )
-        expected = 2.0 * 0.02 * math.sqrt(float(transmission.stiffness) * _subtree_mass(result, driven.name))
+        expected = 2.0 * 0.02 * math.sqrt(float(transmission.stiffness) * driven_mass(result, driven.name))
         assert float(transmission.damping) == pytest.approx(expected, rel=1e-12)
 
 
@@ -278,3 +284,44 @@ def test_an_open_member_ratio_is_range_checked_when_resolved(value: str, valid: 
     else:
         with pytest.raises(ValidationError, match="damping_ratio"):
             Design.model_validate(resolved)
+
+
+# ===== The driven mass counts member chains (BLD-041, PHY-037) ==========
+
+
+@pytest.mark.req("BLD-041", "PHY-037")
+def test_the_driven_mass_counts_a_member_chain_on_the_carriage_and_the_mode_line_prints_it() -> None:
+    """m = carriage 2 kg + arm body 0.1 kg + the arm's chain rho A (L - l / 2) (`chain_mass`), the mass the engine moves
+    with the driven joint; D = 2 zeta sqrt(k m), and the native mode line prints that m, omega = sqrt(k / m), zeta as
+    stated and the time constant 2 m / D."""
+    model = _build_physics(member_belt_build(True))
+    mass = CARRIAGE + ARM_BODY + chain_mass()
+    damping = float(model.transmissions[0].damping)
+    assert damping == pytest.approx(2.0 * 0.01 * math.sqrt(1e5 * mass), rel=1e-12)
+    assert driven_mass(model, "carriage") == pytest.approx(mass, rel=1e-12)
+    line = next(item for item in translate(model, 1e-3).report if item.startswith("transmission 'belt': compliant"))
+    assert f"omega = sqrt(k / m) = {math.sqrt(1e5 / mass):.6g} rad/s" in line
+    assert f"zeta = D / (2 sqrt(k m)) = {0.01:.6g} on the driven mass m = {mass:.6g} kg" in line
+    assert f"time constant 2 m / D = {2.0 * mass / damping:.6g} s" in line
+
+
+@pytest.mark.req("BLD-041", "PHY-037")
+def test_a_design_without_members_keeps_its_body_only_driven_mass_to_the_last_bit() -> None:
+    """With no lumped member the driven mass is the subtree's body masses summed in model order, exactly as before:
+    the rigid arm (2 + 0.1 kg) and the gantry built with rigid members."""
+    model = _build_physics(member_belt_build(False))
+    assert float(model.transmissions[0].damping) == 2.0 * 0.01 * math.sqrt(1e5 * (0.0 + CARRIAGE + ARM_BODY))
+    rigid = _build_physics(_build(gantry(), rigid_members=True))
+    assert len(rigid.lumped_members) == 0
+    for transmission in rigid.transmissions:
+        driven = next(
+            body for body in rigid.bodies if body.joint is not None and body.joint.name == transmission.driven_joint
+        )
+        names = {driven.name}
+        total = 0.0
+        for body in rigid.bodies:
+            if body.name in names or body.parent in names:
+                names.add(body.name)
+                total += float(body.mass)
+        assert driven_mass(rigid, driven.name) == total
+        assert float(transmission.damping) == 2.0 * 0.01 * math.sqrt(float(transmission.stiffness) * total)

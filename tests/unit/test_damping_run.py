@@ -176,9 +176,9 @@ def test_every_damped_member_and_belt_prints_stated_built_and_loaded_ratios(gant
     'payload_shackle' (1 g) is a run-time body fixed to the hook, inside every subtree here, so each run mass is the
     build mass plus 1 g exactly (to the line's six figures).
 
-    A belt's build-time figure: the builder anchors D = 2 zeta sqrt(k m_b), m_b the subtree's bodies without member
-    chains; the line divides by sqrt(k m) with m = m_b + chains, so it prints 0.01 sqrt(m_b / m): 0.01 to rounding for
-    the belts that carry no member, below it for x_belt, whose carriage carries rail_y_beam. A member's build-time
+    A belt's build-time figure: the builder anchors D = 2 zeta sqrt(k m) on the driven mass m, the subtree's bodies
+    and the member chains rooted in it (brief M3-X1h), the same m the line divides by, so it prints 0.01 for every belt,
+    x_belt (whose carriage carries rail_y_beam) included. A member's build-time
     figure is c omega_c / (2 k) with omega_c the first mode with its build-time carried mass, below omega_1 because a
     mass only lowers it (Rayleigh), so below 0.01. The shackle adds positive mass, so each run figure is lower again."""
     members = [line for line in gantry_lines if "damping ratio stated" in line and line.startswith("flexible body")]
@@ -199,8 +199,7 @@ def test_every_damped_member_and_belt_prints_stated_built_and_loaded_ratios(gant
         built = _figure(line, "realised at build time ")
         loaded = _figure(line, "realised in this run ")
         mass = _mass(line, "(m = ")
-        chains = _mass(line, "member chains on them ")
-        assert built == pytest.approx(0.01 * math.sqrt((mass - chains) / mass), rel=1e-5)
+        assert built == pytest.approx(0.01, rel=1e-12)
         assert loaded < built
         assert _mass(line.split("realised in this run")[1], "(m = ") == pytest.approx(mass + SHACKLE, abs=2e-5)
     x_belt = next(line for line in belts if line.startswith("transmission 'x_belt'"))
@@ -211,4 +210,3 @@ def test_every_damped_member_and_belt_prints_stated_built_and_loaded_ratios(gant
     for line in belts:
         if not line.startswith("transmission 'x_belt'"):
             assert _mass(line, "member chains on them ") == 0.0
-            assert _figure(line, "realised at build time ") == pytest.approx(0.01, rel=1e-12)

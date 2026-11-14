@@ -448,14 +448,60 @@ def _gravity(model: PhysicsModel) -> float:
     return math.sqrt(sum(float(value) ** 2 for value in model.gravity))
 
 
-def _subtree_mass(model: PhysicsModel, root: str) -> float:
+def chain_mass(member: LumpedMember) -> float:
+    """The mass of a lumped member's chain bodies as the engine builds them (`core/engine` lumped beam): segments of
+    density x area x span, l = L / N, N - 1 full spans and a half span at the tip, a pinned root adding a half-span pin
+    segment (a clamped root leaves its half span on the parent, so rho A (L - l / 2)), and a roller body of
+    roller_mass_fraction x rho A L at a roller or clamped far end."""
+    section = member.section
+    per_length = float(section.density) * float(section.area)
+    length = float(section.length)
+    segment = length / member.segments
+    spans = [segment] * (member.segments - 1) + [0.5 * segment]
+    if member.root == "pinned":
+        spans = [0.5 * segment, *spans]
+    total = 0.0
+    for span in spans:
+        total += per_length * span
+    if member.end != "free":
+        total += float(member.roller_mass_fraction) * per_length * length
+    return total
+
+
+@dataclass(frozen=True)
+class DrivenSubtree:
+    """What moves rigidly with a joint's child `root`: the bodies of its joint subtree, their mass, and the mass of the
+    lumped member chains rooted on any of them (each chain's bodies are the engine's children of its parent body, so a
+    body a member carries is a child of the member's parent and already in the subtree, ENG-052)."""
+
+    bodies: frozenset[str]
+    body_mass: float
+    chain_mass: float
+
+    @property
+    def mass(self) -> float:
+        return self.body_mass + self.chain_mass
+
+
+def driven_subtree(model: PhysicsModel, root: str) -> DrivenSubtree:
+    """`root`'s subtree in `model` (every parent listed before its children) with its member chains (BLD-041, PHY-037);
+    the one count of the driven mass for the builder's damping anchor, the run-damping line and the mode line."""
     names = {root}
     total = 0.0
     for body in model.bodies:
         if body.name in names or body.parent in names:
             names.add(body.name)
             total += float(body.mass)
-    return total
+    chains = 0.0
+    for member in model.lumped_members:
+        if member.parent in names:
+            chains += chain_mass(member)
+    return DrivenSubtree(frozenset(names), total, chains)
+
+
+def driven_mass(model: PhysicsModel, root: str) -> float:
+    """The mass the engine moves with the joint whose child is `root`: its subtree's bodies and member chains."""
+    return driven_subtree(model, root).mass
 
 
 def _rotate(q: Sequence[float], v: Sequence[float]) -> tuple[float, float, float]:
@@ -485,7 +531,7 @@ def _static_load(model: PhysicsModel, driven: Body) -> float | None:
         axis = list(_rotate(_floats(body.joint.orientation), axis))
         body = next((item for item in model.bodies if item.name == body.parent), None)
     along = sum(float(g) * a for g, a in zip(model.gravity, axis, strict=True))
-    return abs(along) * _subtree_mass(model, driven.name)
+    return abs(along) * driven_mass(model, driven.name)
 
 
 def _creep_line(transmission: Any, model: PhysicsModel, driven: Body) -> str | None:
@@ -641,13 +687,14 @@ def _transmission(
             "period (1 + x^2)^(-pi / atan x), frequency ratio atan(x) / x, unresolved above x = 0.2"
         )
     else:
-        driven_mass = _subtree_mass(model, driven.name)
-        omega = math.sqrt(stiffness / driven_mass)
+        mass = driven_mass(model, driven.name)
+        omega = math.sqrt(stiffness / mass)
         mode = f"omega = sqrt(k / m) = {omega:.6g} rad/s on the driven mass: {mode_text(omega * h)}"
         if damping > 0.0:
             loss += (
-                f", zeta = D / (2 sqrt(k m)) = {damping / (2.0 * math.sqrt(stiffness * driven_mass)):.6g} on the "
-                f"driven mass m = {driven_mass:.6g} kg, time constant 2 m / D = {2.0 * driven_mass / damping:.6g} s"
+                f", zeta = D / (2 sqrt(k m)) = {damping / (2.0 * math.sqrt(stiffness * mass)):.6g} on the "
+                f"driven mass m = {mass:.6g} kg (its bodies and member chains), time constant 2 m / D = "
+                f"{2.0 * mass / damping:.6g} s"
             )
     report.append(
         f"transmission '{transmission.name}': compliant, stiffness {stiffness:.6g} at the output, {loss}; "

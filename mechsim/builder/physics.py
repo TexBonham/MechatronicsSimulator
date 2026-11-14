@@ -38,6 +38,7 @@ from mechsim.design.schema import (
 )
 from mechsim.library.registry import Registry, RegistryError
 from mechsim.materials.schema import Material
+from mechsim.physics.native.translate import driven_mass
 from mechsim.physics.neutral import LumpedMember, PhysicsModel, Rope, StructuralMember
 from mechsim.schema_base import format_errors
 
@@ -773,9 +774,9 @@ def transmission_damping(ratio: float, stiffness: float, driven_mass: float) -> 
     Derivation: with the shaft held, the driven subtree (mass m along a prismatic output, inertia about a revolute
     one) on the coupling's spring k and damper D at the output obeys m x'' + D x' + k x = 0, omega = sqrt(k / m) and
     D = 2 zeta m omega, so D = 2 zeta sqrt(k m); its free decay has the logarithmic decrement 2 pi zeta /
-    sqrt(1 - zeta^2) and the time constant 1 / (zeta omega) = 2 m / D. m is the driven subtree's mass the native
-    translation's mode line uses (ruling 45); a case payload added at run time raises it, so the realised ratio is
-    D / (2 sqrt(k m_run)), which that line prints."""
+    sqrt(1 - zeta^2) and the time constant 1 / (zeta omega) = 2 m / D. m is the driven mass the native translation's
+    mode line uses (ruling 45; its subtree's bodies and member chains, `translate.driven_mass`); a body added at run
+    time raises it, so the realised ratio is D / (2 sqrt(k m_run)), which the run's damping line prints."""
     return 2.0 * ratio * math.sqrt(stiffness * driven_mass)
 
 
@@ -790,9 +791,10 @@ def _transmission(
     component: ComponentInstance,
     registry: Registry,
     child_joints: dict[str, Joint],
-    bodies: Sequence[Mapping[str, Any]],
     collector: Collector,
-) -> dict[str, Any] | None:
+) -> tuple[dict[str, Any], float, str] | None:
+    """The neutral transmission entry without its damping, its stated damping ratio and its driven body (the damping
+    needs the driven mass, counted on the validated model, `_damped`)."""
     kind = registry.component_type(component.type)
     shaft_mounts = {mount.name for mount in kind.mechanical.mounts if mount.kind == "shaft"}
     shaft: str | None = None
@@ -835,15 +837,25 @@ def _transmission(
             f"{label}: damping_ratio {ratio_value!r}: a modal damping ratio in [0, 1) (LIB-035, BLD-041)"
         )
         return None
-    if ratio_value > 0.0:
-        driven_mass = _subtree_mass(bodies, driven_body)
-        entry["damping"] = _q(transmission_damping(ratio_value, float(values["stiffness"]), driven_mass), "N*s/m")
     if component.type == "belt_pulley":
         entry["pulley_radius"] = _q(ratio, "m")
     else:
         entry["lead"] = _q(ratio * 2.0 * math.pi, "m")
         entry["self_locking"] = bool(values["self_locking"])
-    return entry
+    return entry, ratio_value, driven_body
+
+
+def _damped(model: PhysicsModel, data: dict[str, Any], stated: Sequence[tuple[float, str]]) -> PhysicsModel:
+    """The model with each damped transmission's D = 2 zeta sqrt(k m) (BLD-041), m the driven mass the native
+    translation's mode line uses (`translate.driven_mass`: the driven subtree's bodies and the member chains rooted in
+    it, the mass the engine moves with the driven joint); unchanged when no ratio is above 0."""
+    if all(ratio == 0.0 for ratio, _ in stated):
+        return model
+    for entry, (ratio, driven_body) in zip(data["transmissions"], stated, strict=True):
+        if ratio > 0.0:
+            stiffness = _number(entry["stiffness"])
+            entry["damping"] = _q(transmission_damping(ratio, stiffness, driven_mass(model, driven_body)), "N*s/m")
+    return PhysicsModel.model_validate(data)
 
 
 def _rotor_inertias(design: Design, registry: Registry) -> dict[str, tuple[float, list[str]]]:
@@ -1076,6 +1088,7 @@ def build_physics(
                     "material": FLOOR_MATERIAL,
                 }
             ]
+    stated: list[tuple[float, str]] = []
     for component in design.components:
         if registry.has_type(component.type) and registry.component_type(component.type).category == "transmission":
             if component.type not in TRANSMISSION_TYPES:
@@ -1083,14 +1096,15 @@ def build_physics(
                     f"transmission '{component.name}': type '{component.type}' has no neutral transmission model"
                 )
                 continue
-            transmission = _transmission(component, registry, child_joints, bodies, collector)
+            transmission = _transmission(component, registry, child_joints, collector)
             if transmission is not None:
-                data["transmissions"].append(transmission)
+                data["transmissions"].append(transmission[0])
+                stated.append(transmission[1:])
     _check_overlap(ordered, shapes, exclusions, collector)
     if len(collector.failures) > 0:
         return empty
     try:
-        model = PhysicsModel.model_validate(data)
+        model = _damped(PhysicsModel.model_validate(data), data, stated)
     except ValidationError as error:
         collector.failures.extend(f"physics model: {message}" for message in format_errors(error))
         return empty
