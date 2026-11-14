@@ -28,7 +28,7 @@ from mechsim import _core as core
 from mechsim.builder import BuildError, build
 from mechsim.builder.payload import with_payload
 from mechsim.builder.result import BuildResult as CoreBuild
-from mechsim.builder.run_damping import run_damping_lines
+from mechsim.builder.run_damping import run_damping_lines, stated_ratios
 from mechsim.design.schema import Design, DesignError, blob_hash, design_materials
 from mechsim.integrity.config import IntegrityConfig
 from mechsim.integrity.plugin import IntegrityError
@@ -617,8 +617,10 @@ class CoreDriver:
                     held[index] = max(held[index], tension.max_tension)
             recorder.write_row(record)
         self.approximations = (*self.approximations, *held_rope_lines(model, held, self._evaluate_from()))
-        if native:
-            self.approximations = (*self.approximations, *run_damping_lines(model, self._payload))
+        if native and self._build is not None and self._build.physics is not None:
+            stated = stated_ratios(self._build, default_registry())
+            lines = run_damping_lines(self._build.physics, model, self._payload, stated)
+            self.approximations = (*self.approximations, *lines)
         self.subscriber_errors = tuple(str(error) for error in sink.subscriber_errors())
         self._view = RecordingView(
             recorder.recording(),

@@ -779,6 +779,13 @@ def transmission_damping(ratio: float, stiffness: float, driven_mass: float) -> 
     return 2.0 * ratio * math.sqrt(stiffness * driven_mass)
 
 
+def transmission_values(component: ComponentInstance, registry: Registry) -> Mapping[str, Any]:
+    """The transmission instance's part values with its concrete overrides (the build's and the run line's one source
+    of its stated `damping_ratio`, BLD-041); raises RegistryError."""
+    concrete = {key: value for key, value in component.overrides.items() if open_name(value) is None}
+    return registry.resolve_part(component.part, concrete).values
+
+
 def _transmission(
     component: ComponentInstance,
     registry: Registry,
@@ -803,9 +810,8 @@ def _transmission(
     if shaft is None or driven is None:
         collector.failures.append(f"{label}: needs a shaft joint and a driven body on a joint (BLD-005)")
         return None
-    concrete = {key: value for key, value in component.overrides.items() if open_name(value) is None}
     try:
-        values = registry.resolve_part(component.part, concrete).values
+        values = transmission_values(component, registry)
     except RegistryError as error:
         collector.failures.append(f"{label}: {error} (BLD-027)")
         return None
