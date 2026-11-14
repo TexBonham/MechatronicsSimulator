@@ -35,7 +35,7 @@ to source_hash, zeros when unset; `rigid_members` builds flexible bodies rigid, 
 `element_kinds`, `member_constants`); `mass.py` (closed forms, frames, `z_to`); `structure.py` (`chain_layout`,
 `chain_deflection`, `chain_first_frequency`, `loaded_first_frequency`, `node_damping`, `lowest_carried_frequency`, `calibrate` -> `CalibrationScales`, `load_point`, `fastenings`,
 `member_mounts`, `rope_element`, `lumped_section`; the linearized engine chain in hinge angles, numpy/scipy);
-`wiring.py`; `result.py`.
+`run_damping.py` (`stated_ratios(build, registry)` -> name to the ratio the data states; `run_damping_lines(built, run, payload, stated)` -> one line per damped member and transmission of a native run: stated exactly as stated, realised at build time on the build's model, realised in this run on the run's model (end fitting `<payload>_shackle`) plus the case payload when its carrier is in the subtree; BLD-040, BLD-041, PHY-037, ruling 80); `physics.transmission_values(component, registry)` (a transmission's resolved part values, the one source of its stated `damping_ratio`); `wiring.py`; `result.py`.
 
 | Section | File | Line |
 |---|---|---|
@@ -82,9 +82,9 @@ Loops as constraints (BLD-004), clamped-clamped calibration layout; full couplin
 
 | Section | File | Line |
 |---|---|---|
-| Checks | physics.py | 132 |
-| Bodies and joints | physics.py | 295 |
-| Overlap | physics.py | 421 |
-| Lumped members | physics.py | 477 |
-| Transmissions and signals | physics.py | 673 |
-| Physics model | physics.py | 809 |
+| Checks | physics.py | 106 |
+| Bodies and joints | physics.py | 307 |
+| Overlap | physics.py | 433 |
+| Lumped members | physics.py | 489 |
+| Transmissions and signals | physics.py | 766 |
+| Physics model | physics.py | 936 |
