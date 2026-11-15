@@ -7,8 +7,8 @@ for every case with a rope. One regeneration of the whole suite after E8, compar
 record; the companion miss list and the retirement table follow it.
 
 Fresh agent. Agent: module-writer (Opus). Worktree `../MechatronicsSimulator-05-x2` on `wip/05-x2` (X2f landed;
-the extension is current unless the merge below changes C++, which it does not). Call cap 60 with the handoff
-rule (at 50 calls stop adding scope, commit what is green, report what is left by item). Read first:
+the extension is current unless the merge below changes C++, which it does not). Call cap 90 with the handoff
+rule (at 80 calls stop adding scope, commit what is green, report what is left by item). Read first:
 `docs/briefs/round-05/m3-x2d.md` and `m3-x2g.md` (their rules hold: no tuning, nothing of MuJoCo deleted, bridge
 baselines never regenerated), `tests/acceptance/test_phy_stubs.py` (the companion miss list, the PHY-024 row),
 `test_cases/gantry/README.md`, `docs/milestones.md` (criterion 2 row), round 5 rulings 86, 90 to 94 in
@@ -29,6 +29,9 @@ record and its causes), `test_cases/gantry/README.md`, `docs/milestones.md` crit
 
 ## Items, in order
 
+0. `test_cases/gantry/G16.yaml`: its header comment still says the sizing criteria judge a "window"; reword
+   it to the span rule of ruling 93 (between rest samples from the last rest at or before the evaluation start) in
+   one or two sentences; nothing else in the case changes (the case hash changes once, absorbed by item 2).
 1. `git merge --no-edit wip/05-x2g` into `wip/05-x2`; resolve conflicts keeping both sides' intent (X2f's G16 and
    scoring rows, X2g's PHY-024 derivation, README notes and milestones row; `docs/spec/traceability.md` by
    regenerating it with `python3 tools/traceability.py` or the project's documented command). Run the scoring unit
@@ -50,8 +53,21 @@ record and its causes), `test_cases/gantry/README.md`, `docs/milestones.md` crit
    release artefact recorded as a finding for the owner (ruling 94, E9), G10's remainder as a finding with X2g's
    measurements. Nothing marked met without evidence.
 
+5. The in-motion demonstration (ruling 95; X2f's draft is in the scratchpad at
+   `/tmp/claude-1000/-home-tex-dev-MechatronicsSimulator/e12b8ab0-2af1-4dae-a612-eacb9e002661/scratchpad/item2_in_motion_draft.py`,
+   and X2f built the weak x part at factor 0.05 through the run's registry): a `long_run` test that writes a test-local copy
+   of G16's nominal case with `integrity.evaluate_from: 0 s` into its tmp dir, runs it with the weak x part (the
+   derivation in the header: the x motor's demand in homing and at cruise by ACC-031's derivation against the
+   scaled curve, at least 20 percent short at cruise), and asserts: stall events during motion (homing or the
+   move), the span count for `x_motor` at least one, its windowed margin negative, the report's lines saying so;
+   the same test (or a sibling) copies G10 with the start at 0 and asserts its stalled motor's span count at
+   least one. The suite's own cases keep their 9 s start. Ownership adds `tests/acceptance/test_acc_stubs.py` for
+   this test and ACC-032's conversion sentence.
+6. Run `tests/acceptance/test_acc_stubs.py -k "test_acc_032" -m long_run -s` once (X2f's result was cut off by its
+   output filter) and quote its printed lines.
+
 ## Report
 
-Under 250 words: commits; the merge's conflicts and how resolved; the baseline comparison (entries changed with
+Under 300 words: commits; the merge's conflicts and how resolved; item 5's factor, stall times and counts; ACC-032's lines; the baseline comparison (entries changed with
 old, new, cause; any status change); the misses of record as the comparison prints them; the retirement table's
 criterion 2 wording; lints; open issues.
