@@ -341,6 +341,7 @@ struct NativeAdapter::Engine {
     std::vector<Eigen::Index> shaft_of;          // per neutral body: its transmission when it is a shaft, else -1
     std::vector<std::pair<Eigen::Index, Eigen::Index>> springs;  // (v DOF, -1) or (member, node), spring order
     std::vector<Eigen::Index> payload_bodies;
+    std::vector<std::pair<Eigen::Index, std::size_t>> rope_payloads;  // (free body under world, rope ending at it)
     std::vector<Eigen::Index> neutral_dof_to_engine;  // neutral velocity DOF -> engine velocity DOF
     std::vector<kernel::JointDrive> drives;           // this step's drives, input order
     std::vector<Eigen::Index> driven;                 // joints carrying an engine drive (set_joint_drive)
@@ -732,6 +733,17 @@ void NativeAdapter::load(const kernel::PreparedModel& prepared, const kernel::Ra
             const Eigen::Index carrier = body_index(p.at("carrier"), "payload carrier", e->neutral_bodies, false);
             provider.set_attachment(body, carrier, true, q);
             e->payload_bodies.push_back(body);
+        }
+        for (std::size_t r = 0; r < model.ropes.size(); ++r) {
+            const Eigen::Index body = model.ropes[r].to_body;
+            if (body < 0 || static_cast<std::size_t>(body) >= e->neutral_bodies ||
+                std::ranges::find(e->payload_bodies, body) != e->payload_bodies.end()) {
+                continue;
+            }
+            const eng::Body& hung = item(provider.model().bodies, body);
+            if (hung.joint.type == eng::JointType::Free && hung.parent == -1) {
+                e->rope_payloads.emplace_back(body, r);
+            }
         }
 
         for (const eng::LumpedBeam& beam : model.members) {
@@ -1351,6 +1363,21 @@ void NativeAdapter::disable_constraint(std::size_t constraint) {
     }
 }
 
+namespace {
+
+// A free body under world at a rope's load end is a payload hung on that rope (never welded): its mass changes as a
+// welded payload's does, its release is the rope's, and an attach to a carrier has no rope form.
+Eigen::Index hanging_rope(const std::vector<std::pair<Eigen::Index, std::size_t>>& rope_payloads, std::size_t payload) {
+    for (const auto& [body, rope] : rope_payloads) {
+        if (static_cast<std::size_t>(body) == payload) {
+            return static_cast<Eigen::Index>(rope);
+        }
+    }
+    return -1;
+}
+
+}  // namespace
+
 // Load index space: a payload body's neutral index releases that payload's weld; neutral body count + r releases rope
 // r's load end.
 void NativeAdapter::release_load(std::size_t load) {
@@ -1373,7 +1400,8 @@ void NativeAdapter::release_load(std::size_t load) {
 
 void NativeAdapter::set_payload_mass(std::size_t payload, double mass) {
     Engine& e = engine("set_payload_mass");
-    if (std::ranges::find(e.payload_bodies, index_of(payload)) == e.payload_bodies.end()) {
+    if (std::ranges::find(e.payload_bodies, index_of(payload)) == e.payload_bodies.end() &&
+        hanging_rope(e.rope_payloads, payload) < 0) {
         throw AdapterError(e.steps, "set_payload_mass: body " + std::to_string(payload) + " is not a payload");
     }
     try {
@@ -1385,6 +1413,19 @@ void NativeAdapter::set_payload_mass(std::size_t payload, double mass) {
 
 void NativeAdapter::set_payload_attachment(std::size_t payload, std::size_t body) {
     Engine& e = engine("set_payload_attachment");
+    const Eigen::Index rope = hanging_rope(e.rope_payloads, payload);
+    if (rope >= 0) {
+        if (body != kernel::kWorldBody) {
+            throw AdapterError(e.steps, "set_payload_attachment: payload " + std::to_string(payload) +
+                                            " hangs on a rope; attaching it to a carrier has no rope form");
+        }
+        try {
+            e.provider->release_rope(rope);
+        } catch (const eng::EngineError& error) {
+            throw AdapterError(e.steps, "set_payload_attachment: engine: " + error.cause());
+        }
+        return;
+    }
     if (std::ranges::find(e.payload_bodies, index_of(payload)) == e.payload_bodies.end()) {
         throw AdapterError(e.steps, "set_payload_attachment: body " + std::to_string(payload) + " is not a payload");
     }

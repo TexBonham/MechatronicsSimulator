@@ -74,6 +74,8 @@ faults:
 end:
   at: 15 s
   max_duration: 15 s
+integrity:
+  evaluate_from: 9 s
 criteria:
   - name: not_homed_after_restore
     check: event

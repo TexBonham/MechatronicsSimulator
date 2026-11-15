@@ -175,6 +175,12 @@ def test_inv_020_every_workflow_runs_on_linux_and_windows(workflow: str) -> None
 @pytest.mark.req("INV-020")
 def test_inv_020_python_steps_match_across_runners() -> None:
     jobs = _workflow_jobs("python")
-    by_runner = {str(job["runs-on"]): _run_steps(job) for job in jobs.values()}
-    assert by_runner["windows-2022"] == by_runner["ubuntu-24.04"]
-    assert "uv run pytest" in by_runner["windows-2022"]
+    assert set(jobs) == {"python", "python-windows", "python-long"}
+    linux = _run_steps(jobs["python"])
+    windows = _run_steps(jobs["python-windows"])
+    assert str(jobs["python"]["runs-on"]) == "ubuntu-24.04"
+    assert str(jobs["python-windows"]["runs-on"]) == "windows-2022"
+    assert windows == linux
+    assert 'uv run pytest -m "not long_run"' in windows
+    # The long-run tier is one Linux job; together with the two jobs above every test runs.
+    assert _run_steps(jobs["python-long"]) == ["uv sync --locked", "uv run pytest -m long_run"]

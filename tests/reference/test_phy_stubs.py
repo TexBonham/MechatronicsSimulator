@@ -5,6 +5,7 @@ import math
 from pathlib import Path
 from typing import Any
 
+import numpy as np
 import pytest
 
 from mechsim import _core as core
@@ -60,13 +61,71 @@ def crossings(times: list[float], values: list[float]) -> list[float]:
     return out
 
 
+PENDULUM_DAMPING = 0.04520785330006282
+
+
 @pytest.mark.req("PHY-021")
-@pytest.mark.xfail(strict=True, reason="stub")
 def test_phy_021() -> None:
     """Two adapters run on the same neutral model, inputs and seed shall agree on body poses, velocities and forces
     within the differential tolerance.
+
+    Drive-free reference (ruling 41: 1e-6 relative, on the scale of each quantity's largest value over the run): the
+    schema pendulum released from 0.05 rad, 8000 steps of 1 ms on both adapters. Converted before comparing (ruling
+    41): the bridge's linear velocity is at the centre of mass, the kernel contract's at the body origin, so the
+    bridge's is moved to the origin, v_o = v_c - w x (R c). By construction (PHY-021 row): the joint reaction is the
+    constraint wrench at a different instant of the step on each adapter, so the two may differ by at most one step's
+    change of the reaction, max_n abs(F[n+1] - F[n]) from the native series; the bridge's generalized force projects
+    the constraint wrench on the axis and leaves out the passive joint damping the native adapter includes, so the
+    two differ by at most the damping torque c max abs(qdot), c the joint's 0.0452 N m s/rad.
     """
-    raise NotImplementedError
+    model = from_yaml(PENDULUM)
+    com = np.array([0.25, 0.0, 0.0])
+    adapters = {name: loaded(model, name, starts={"pivot": 0.05}) for name in ("native", "mujoco")}
+    series: dict[str, dict[str, list[Any]]] = {name: {} for name in adapters}
+    for _ in range(8000):
+        for name, physics in adapters.items():
+            physics.step()
+            outputs = physics.outputs()
+            body = outputs.bodies[0]
+            w = np.array(body.angular_velocity)
+            velocity = np.array(body.linear_velocity)
+            if name == "mujoco":
+                velocity = velocity - np.cross(w, _rotate(np.array(body.orientation), com))
+            reaction = outputs.joints[0].reaction
+            values = {
+                "position": np.array(body.position),
+                "orientation": np.array(body.orientation),
+                "angular_velocity": w,
+                "linear_velocity": velocity,
+                "reaction": np.array([*reaction.force, *reaction.moment]),
+                "generalized_force": np.array(outputs.joints[0].generalized_force),
+            }
+            for key, value in values.items():
+                series[name].setdefault(key, []).append(value)
+    native = {key: np.array(value) for key, value in series["native"].items()}
+    bridge = {key: np.array(value) for key, value in series["mujoco"].items()}
+    # The body origin sits on the fixed pivot, so its position and velocity are zero on both adapters; their scale is
+    # the motion's: the 0.25 m centre-of-mass offset and that offset times the largest angular rate.
+    rate = float(np.max(np.abs(native["angular_velocity"])))
+    scales = {"position": 0.25, "orientation": 1.0, "angular_velocity": rate, "linear_velocity": 0.25 * rate}
+    for key, scale in scales.items():
+        difference = float(np.max(np.abs(native[key] - bridge[key])))
+        print(f"{key}: largest difference {difference:.3e}, limit 1e-6 x {scale:.4e}")
+        assert difference <= 1e-6 * scale
+    step_change = float(np.max(np.abs(np.diff(native["reaction"], axis=0))))
+    reaction = float(np.max(np.abs(native["reaction"] - bridge["reaction"])))
+    print(f"reaction: largest difference {reaction:.3e} N, limit one step's change {step_change:.3e} N")
+    assert reaction <= step_change
+    damping = PENDULUM_DAMPING * float(np.max(np.abs(native["angular_velocity"])))
+    generalized = float(np.max(np.abs(native["generalized_force"] - bridge["generalized_force"])))
+    print(f"generalized force: largest difference {generalized:.3e} N m, limit c max abs(qdot) {damping:.3e} N m")
+    assert generalized <= damping * (1.0 + 1e-6)
+
+
+def _rotate(quaternion: Any, vector: Any) -> Any:
+    w, x, y, z = (float(item) for item in quaternion)
+    u = np.array([x, y, z])
+    return vector + 2.0 * np.cross(u, np.cross(u, vector) + w * vector)
 
 
 @pytest.mark.req("PHY-022", "PHY-028")

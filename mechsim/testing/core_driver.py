@@ -45,10 +45,8 @@ from mechsim.integrity.tier1 import (
     tier1_enabled,
     trace_notes,
 )
-from mechsim.library.registry import default_registry
+from mechsim.library.registry import Registry, default_registry
 from mechsim.materials.schema import MaterialError
-from mechsim.physics.mujoco.prepare import StartStateError, prepare_model
-from mechsim.physics.mujoco.translate import UnmappableElementError
 from mechsim.physics.native.prepare import prepare_model as prepare_native_model
 from mechsim.physics.native.translate import StartStateError as NativeStartStateError
 from mechsim.physics.native.translate import UnmappableElementError as NativeUnmappableElementError
@@ -105,6 +103,7 @@ from mechsim.testing.core_wiring import (
 from mechsim.testing.driver import (
     INTEGRITY_KIND,
     MATERIAL_OVERRIDES_KEY,
+    Builder,
     BuildResult,
     EndReason,
     EndSpec,
@@ -458,7 +457,7 @@ class CoreDriver:
             return self._run(end, config, self._model)
         except DriverError:
             raise
-        except (StartStateError, UnmappableElementError, NativeStartStateError, NativeUnmappableElementError) as error:
+        except (NativeStartStateError, NativeUnmappableElementError) as error:
             raise DriverError(str(error)) from error
         except WiringError as error:
             raise DriverError(str(error)) from error
@@ -510,7 +509,7 @@ class CoreDriver:
             tier1 = self._tier1_setup(model, document)
             springs = self._first_springs(document)
         else:
-            artifacts = prepare_model(model, self._starts, step, payloads)
+            artifacts = _prepare_bridge(model, self._starts, step, payloads)
             self.approximations = (*artifacts.report, *stand_in)
             prepared = core.PreparedModel(artifacts.neutral_json, artifacts.mjcf, artifacts.version)
             if integrity is not None and tier1_enabled(integrity):
@@ -907,6 +906,18 @@ def carried_validity(model: PhysicsModel, values: Sequence[tuple[Any, ...]]) -> 
     return tuple(out)
 
 
+def _prepare_bridge(model: PhysicsModel, starts: Mapping[str, float], step: float, payloads: Mapping[str, str]) -> Any:
+    """The bridge's translation, imported only by a run on the bridge so that a run on the default native adapter
+    never loads it (PHY-026); its start-state and unmappable-element errors become `DriverError` as before."""
+    from mechsim.physics.mujoco.prepare import StartStateError, prepare_model
+    from mechsim.physics.mujoco.translate import UnmappableElementError
+
+    try:
+        return prepare_model(model, starts, step, payloads)
+    except (StartStateError, UnmappableElementError) as error:
+        raise DriverError(str(error)) from error
+
+
 def model_columns(model: PhysicsModel, payloads: Sequence[str] = ()) -> dict[str, Columns]:
     """Column labels of the index-column series from the neutral model (REC-018, ruling 18): joints in body order
     (prismatic m and N, revolute and the rest rad and N m), transmissions and payload bodies by name."""
@@ -1139,22 +1150,30 @@ def _rope_snap_gate(model: PhysicsModel, integrity: IntegrityConfig | None) -> t
 # ===== Services =========================================================
 
 
-def core_builder(design: Design, adapter: str = DEFAULT_PHYSICS_ADAPTER) -> CoreBuild:
-    """The shipped catalog and chips, the shipped materials with the design's overrides (MAT-020); lumped members
-    rigid on the bridge until X2 (BLD-033, ruling 29), flexible as the design states them on the native adapter."""
+def core_builder(design: Design, adapter: str = DEFAULT_PHYSICS_ADAPTER, registry: Registry | None = None) -> CoreBuild:
+    """The run's catalog (`registry`, default the shipped one; LIB-016) and the shipped chips, the shipped materials
+    with the design's overrides (MAT-020); lumped members rigid on the bridge until X2 (BLD-033, ruling 29), flexible
+    as the design states them on the native adapter."""
     rigid = adapter != NATIVE_ADAPTER
+    if registry is None:
+        registry = default_registry()
     try:
-        return build(design, default_registry(), design_materials(design), rigid_members=rigid)
+        return build(design, registry, design_materials(design), rigid_members=rigid)
     except (BuildError, DesignError, MaterialError) as error:
         raise DriverError(str(error)) from error
 
 
-def core_services(designs_root: Path = DESIGNS_ROOT) -> Services:
+def core_services(designs_root: Path = DESIGNS_ROOT, registry: Registry | None = None) -> Services:
     """The runner's real services: a fresh `CoreDriver` per run, the builder, the record archiver, and integrity
-    over the recording when the design has an `integrity.yaml` beside its design file (INT-022)."""
+    over the recording when the design has an `integrity.yaml` beside its design file (INT-022). `registry` (default
+    the shipped catalog) is the run's: overrides are checked and the design is built against it (LIB-016)."""
+    builder: Builder = core_builder
+    if registry is not None:
+        builder = partial(core_builder, registry=registry)
     return Services(
         driver=partial(CoreDriver, designs_root=designs_root),
-        builder=core_builder,
+        builder=builder,
+        registry=registry,
         archiver=RecordArchiver(designs_root),
         designs_root=designs_root,
         integrity=IntegrityService(designs_root),

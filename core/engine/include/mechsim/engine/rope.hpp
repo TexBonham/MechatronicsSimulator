@@ -18,9 +18,40 @@ struct MultibodyModel;
 //
 // Segment force. d the segment length, n the unit vector from its upper end a (towards from_body) to its lower end b:
 //   T = (EA / l)(d - l) + (damping / l) d_dot when d > l and that sum is positive; else T = 0 (slack),
-// T n on a and -T n on b. Taut or slack is fixed from the start-of-step state for the whole step (ADR 0016).
-// Implicit treatment (ADR 0013): a taut segment adds J^T (k n n^T + (T / d)(I - n n^T)) J to K and J^T (c n n^T) J
-// to D, J = J_b - J_a the relative point Jacobian; the geometric term (T / d) carries the transverse chain modes.
+// T n on a and -T n on b. This law is what RopeOutput publishes at the end state; within a step a segment pulls by the
+// taut set below. Implicit treatment (ADR 0013): a segment taut by the law at the step's start adds
+// J^T (k n n^T + (T / d)(I - n n^T)) J to K and J^T (c n n^T) J to D, J = J_b - J_a the relative point Jacobian; the
+// geometric term (T / d) carries the transverse chain modes.
+//
+// Taut set (brief M3-E8, ruling 87). A segment's state within a step is consistent with the step's end state: it is
+// taut exactly when its end-of-step length is at or above its rest length (equality taut, so a rope at its rest length
+// holds its load from the first step). A segment in the step's set pulls
+//   - with the law's T, spring and damper, terms as above, when the law is taut at the step's start (d > l, T > 0);
+//   - else (it goes taut within the step, or is past rest length while its damper reads slack) with its spring alone,
+//     k (d - l) from rest length, affine (negative while it starts short of rest length, so its end force is k times
+//     its end stretch: a segment that ends the step just past rest length carries a small force, not the accumulated
+//     fall), adding k n n^T, plus (k (d - l) / d)(I - n n^T) when d > l, to K and nothing to D: the damper acts only
+//     in steps that start taut. A segment struck at speed v publishes the law's c v at the step's end; the next step
+//     applies it.
+// MultibodyProvider::step solves with the set read from the start-of-step lengths, reads the set from the end-of-step
+// lengths, and re-solves from the same start with that set until two agree (every inconsistent segment flips at once,
+// rope and segment order: deterministic). The cap is MultibodyConfig::iteration_cap solves (ENG-025, 50); a set still
+// changing at the cap throws SolverNonConvergenceError and leaves the state as it was. A rope that stays taut agrees
+// at the first solve, which is the start-of-step rule's step bit for bit. The top attachment's torque reads the top
+// segment's start-of-step direction and the swing rate, not the set, so slack or taut it acts as before; a rest length
+// set mid-run applies from the next step and the set is judged against it, so a winch needs no special case.
+// Convergence. One segment, along its line, mass m, start stretch e0 = d - l, speed v0, free acceleration g: the slack
+// solve ends at e_S = e0 + h (v0 + h g); taut with the spring alone (e0 < 0), at e_T = m e_S / (m + h^2 k), the sign of
+// e_S; taut with the damper (e0 > 0), at e_T = (m e_S + h c e0) / (m + h c + h^2 k), at or above 0 whenever e_S is, and
+// below 0 only if e_S is. Either way the second solve agrees: at most two. (A damper on a segment starting slack would
+// give e_T < 0 <= e_S when m e_S < -h c e0, a two-cycle; that is why it waits for a step that starts taut.) A chain
+// whose segments meet at less than 90 degrees: the end stretches are e = e_free - h^2 W K e_+, W = J M^-1 J^T
+// tridiagonal with positive diagonal and off-diagonal -n_i . n_(i+1) / m_node <= 0, so the set solves a linear
+// complementarity problem with the M-matrix I + h^2 W K (with dampers, k + c / h for the start-taut ones); flipping
+// every inconsistent segment at once (the primal-dual active set method) is monotone from the second solve and ends
+// within n + 2 solves for n segments in the model (Hintermueller, Ito and Kunisch, SIAM J. Optim. 13, 2003): 10 for
+// an 8 segment rope, under the cap. Bends past 90 degrees, other degrees of freedom and the exact end lengths are
+// outside that proof; there the cap stands and reaching it ends the run.
 //
 // Attachment (round 5 ruling 14): the top segment hangs from from_body through a damped spherical joint. With
 // omega_rel = P (n x (v_b - v_a) / d - omega_from), P = I - n n^T, the joint torque on the segment is

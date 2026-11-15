@@ -30,19 +30,21 @@
 # y 0.010562 rad (8.623 s); E-stop x 0.044999 rad (23.502 s). First ramp a priori: the trolley follows the commanded
 # ramp in rate through its belt, a second-order follower with its damper in parallel (BLD-041), so its acceleration
 # peaks at a p(zeta), zeta the smallest ratio the run prints for the belt (brief M3-X1g: the masses the engine
-# carries, the payload on its rope not among them: x_belt 0.0074, y_belt 0.0100), a_max about 0.099 m/s^2, swing
+# carries, the payload on its rope not among them; since M3-X1h the x belt's build-time mass counts the member chains
+# it carries, BLD-041: x_belt 0.0100, y_belt 0.0100), a_max about 0.099 m/s^2, swing
 # within R0 + 2 a_max / g (holds) and at least the forced swing less R0 (two-sided, ruling 60). The recorded hook
 # acceleration does not stay within a_max: the firmware commands whole steps of 12.5 micrometres, each ringing the
 # belt mode by q omega^2 (y 1.36 m/s^2 at 52.5 Hz, x 0.25 at the measured 22.6 Hz), 3.32 m/s^2 in y at 8.777 s
 # where the per-tick step-count beat crosses the y belt mode, 0.56 in x (expected failure, ACC-025 row).
-# Evaluation start (brief M3-X1g item 7): integrity, the engine's validity flag and the rope's snap count from 8 s
-# (`integrity.evaluate_from`, TST-044), as in G15: the run starts with the rails straight, and the release from
+# Evaluation start (brief M3-X1g item 7; since M3-X2 the suite's one start, 9 s, derived in README.md): integrity,
+# the engine's validity flag and the rope's snap count from 9 s (`integrity.evaluate_from`, TST-044), as in G15: the run starts with the rails straight, and the release from
 # straight (tier 1 crossings at 0.013 s on rail_x and 0.018 s on rail_y) is not a load case; homing ends by 5.25 s
 # and the first move starts at 8 s. This is the correction G15 carries, not a window moved to pass: no criterion
-# here reads a rail. Measured with it (10 substeps): no tier 1 crossing counts (the release's are recorded as
-# integrity_before_evaluation events); rail_y is flagged not valid from 8.3108 s (dynamic ratio 2.863 against 2.04,
-# the trolley 24 mm from its support at the move's start), so its rows are not valid from then and its crossing at
-# 22.533 s (stress 9.55 MPa against 9.14) is recorded as not valid, never counted; no criterion reads rail_y, so the
+# here reads a rail. Measured with it (10 substeps, start 9 s, M3-X2b): no tier 1 crossing counts (the release's are
+# recorded as integrity_before_evaluation events); rail_y is flagged not valid from 9.0 s, the evaluation start
+# (dynamic ratio 3.373 against 2.04; with the earlier 8 s start the flag fell at 8.3108 s, ratio 2.863, the trolley
+# 24 mm from its support at the move's start), so its rows are not valid from then and its crossing at 22.533 s
+# (stress 9.54 MPa against 9.14) is recorded as not valid, never counted; no criterion reads rail_y, so the
 # flag alone makes nothing here an error (ruling 82; the run notes carry the line). Result: fail, on the settle
 # criteria only (below); every swing peak passes.
 #
@@ -78,7 +80,7 @@ physics:
   adapter: native
   substeps: 10
 integrity:
-  evaluate_from: 8 s
+  evaluate_from: 9 s
 open_parameters:
   - name: swing_settle_band
     dimension: dimensionless

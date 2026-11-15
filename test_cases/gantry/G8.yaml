@@ -48,6 +48,8 @@ faults:
 end:
   at: 12 s
   max_duration: 12 s
+integrity:
+  evaluate_from: 9 s
 criteria:
   # ACC-016: the motors stop: the watchdog has dropped the motor rail (`rail:motor_power`, round 4 ruling 27) and no
   # driver gets a step pulse once the heartbeat timeout plus the watchdog's cutoff delay (50 ms + 10 ms placeholders)

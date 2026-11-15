@@ -86,15 +86,18 @@ def build(
     ropes: tuple[Rope, ...] = ()
     if physics.model is not None:
         ropes = payload_ropes(design, registry)
-    return BuildResult(
-        design=design,
-        module_instances=module_order(design, registry),
-        physics=physics.model,
-        wiring=wiring,
-        chip=chip,
-        members=physics.members,
-        lumped=physics.lumped,
-        pending=tuple(sorted(set(collector.pending))),
-        notes=tuple(collector.notes),
-        payload_ropes=ropes,
+    return BuildResult.model_validate(
+        {
+            "design": design,
+            "module_instances": module_order(design, registry),
+            "physics": physics.model,
+            "wiring": wiring,
+            "chip": chip,
+            "members": physics.members,
+            "lumped": physics.lumped,
+            "pending": tuple(sorted(set(collector.pending))),
+            "notes": tuple(collector.notes),
+            "payload_ropes": ropes,
+        },
+        context={"registry": registry},
     )

@@ -78,4 +78,5 @@ xfail_strict = true
 addopts = ["--strict-markers"]
 markers = [
     "req(id): cites the spec requirement this test verifies, e.g. ENG-001",
+    "long_run: a whole native gantry run the fast tier does not need (the acceptance checks of G2 to G16), sweeps, the batch, PHY-023 (re-runs the reference tier, 191 s); CI runs these in one Linux job only (3705 s measured 2026-11-14 before PHY-023 joined, about 3900 s with it; the rest of the suite 1328 s measured 2026-11-14, brief M3-X2e)",
 ]

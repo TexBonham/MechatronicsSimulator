@@ -78,7 +78,7 @@ _N = r"[a-z][a-z0-9_]*"
 QUANTITY_REF_PATTERN = (
     rf"^(signal:{_N}\.{_N}|pose:{_N}\.(x|y|z|roll|pitch|yaw)|joint:{_N}\.(position|velocity)"
     rf"|rail:{_N}(\.voltage)?|state:{_N}|fault:{_N}|count:(message|state|fault)\.{_N}"
-    rf"|safety_factor:{_N}|deflection:{_N}|swing:{_N}\.{_N}(\.(x|y|z))?)$"
+    rf"|safety_factor:{_N}|deflection:{_N}|swing:{_N}\.{_N}(\.(x|y|z))?|missed_steps:{_N}|torque_margin:{_N})$"
 )
 EVENT_REF_PATTERN = rf"^(message|state|fault|event):{_N}$"
 INSTANCE_PREFIX = "instance:"
@@ -239,14 +239,15 @@ class Rates(StrictModel):
 PhysicsAdapterName = Literal["mujoco", "native"]
 MUJOCO_ADAPTER: PhysicsAdapterName = "mujoco"
 NATIVE_ADAPTER: PhysicsAdapterName = "native"
-DEFAULT_PHYSICS_ADAPTER: PhysicsAdapterName = MUJOCO_ADAPTER
+DEFAULT_PHYSICS_ADAPTER: PhysicsAdapterName = NATIVE_ADAPTER
 PHYSICS_ADAPTERS: tuple[PhysicsAdapterName, ...] = (MUJOCO_ADAPTER, NATIVE_ADAPTER)
 ADAPTER_SETTING = "physics.adapter"
 
 
 class PhysicsSettings(StrictModel):
-    """The run configuration's physics section (TST-040): `adapter` selects the physics adapter, `mujoco` by default
-    until X2 (ruling 41); `--set physics.adapter=<name>` overrides it. `substeps` (TST-042, rulings 21, 49): engine
+    """The run configuration's physics section (TST-040): `adapter` selects the physics adapter, `native` by default
+    (round 5 ruling 1, M3-X2; the bridge `mujoco` is the non-default, ruling 41); `--set physics.adapter=<name>`
+    overrides it. `substeps` (TST-042, rulings 21, 49): engine
     steps per physics step on the native adapter, each h / substeps, the control tick unchanged; above one on the
     bridge the run fails."""
 
@@ -559,8 +560,10 @@ def reference_dimension(reference: str) -> str | None:
         if component in ("x", "y", "z"):
             return LENGTH
         return ANGLE
-    if kind in ("state", "fault", "count", "safety_factor", "swing"):
+    if kind in ("state", "fault", "count", "safety_factor", "swing", "missed_steps"):
         return ANGLE
+    if kind == "torque_margin":
+        return "[mass] * [length] ** 2 / [time] ** 2"
     if kind == "deflection":
         return LENGTH
     if kind == "rail":
@@ -1124,6 +1127,8 @@ def _check_reference(
         members = {body.name for body in design.bodies if body.flexible is not None}
         if rest not in members:
             errors.append(f"{path}: {rest!r} is not a structural member (a body with flexible)")
+    if kind in ("missed_steps", "torque_margin") and rest not in {item.name for item in design.components}:
+        errors.append(f"{path}: unknown component {rest!r}")
     if kind == "message" and rest not in messages:
         errors.append(f"{path}: unknown operator message {rest!r}")
     if kind == "event" and design.firmware is None:

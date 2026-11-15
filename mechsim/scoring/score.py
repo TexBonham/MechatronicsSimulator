@@ -11,6 +11,7 @@ from __future__ import annotations
 import math
 from collections.abc import Sequence
 from dataclasses import dataclass, replace
+from itertools import pairwise
 from typing import Any, Literal, Protocol, runtime_checkable
 
 from mechsim.design.schema import OpenValue
@@ -124,13 +125,22 @@ def score_run(
     run: RunIdentity | None = None,
     integrity: IntegrityResults | None = None,
     gravity: Sequence[float] | None = None,
+    stepper_drives: Sequence[StepperDrive] = (),
 ) -> CaseScore:
     """Score one run of a resolved case. `limits` maps criterion name to the limit text of the case as written
     (its `${}` forms), which the baseline keeps; by default the resolved criterion's own text. Structural criteria
     read `integrity` (SCO-014); a recorded tier 1 crossing fails the case (SCO-015). `gravity` (the design's, m/s^2)
-    gives the down direction `swing:` quantities are measured from (SCO-030); without it they are unevaluable."""
+    gives the down direction `swing:` quantities are measured from (SCO-030); without it they are unevaluable.
+    `stepper_drives` describe the run's stepper motors for `missed_steps:` and `torque_margin:` (SCO-031, SCO-032);
+    a value criterion reading one names the motor's part in its report line. Those quantities judge the case's
+    span from the last rest sample at or before the case's evaluation start (its `integrity.evaluate_from`, TST-044;
+    rulings 91, 93), and the steps lost and the least margin before it are one note line per motor a criterion reads."""
     not_valid = flagged(tuple(recording.validity))
-    view = _StructuralView(_SwingView(recording, gravity), integrity, not_valid)
+    start = 0.0
+    if case.integrity is not None:
+        start = case.integrity.start_seconds()
+    steppers = _StepperView(_SwingView(recording, gravity), stepper_drives, recording, start)
+    view = _StructuralView(steppers, integrity, not_valid)
     recording = view
     results: list[CriterionResult] = []
     for criterion in case.criteria:
@@ -140,7 +150,13 @@ def score_run(
             continue
         view.read_not_valid = None
         try:
-            results.append(_evaluate(criterion, recording, limit))
+            result = _evaluate(criterion, recording, limit)
+            part = None
+            if isinstance(criterion, ValueCriterion):
+                part = steppers.part(criterion.quantity)
+            if part is not None and result.note is None:
+                result = replace(result, note=f"part {part}")
+            results.append(result)
         except (_UnevaluableError, StatisticError, KeyError) as error:
             note = _reason(error)
             reason = view.not_valid_reason()
@@ -174,8 +190,26 @@ def score_run(
         run=run,
         approximations=report.approximations + _layer_approximations(recording),
         crossings=crossings + tuple(line for line, _ in invalid),
-        notes=tuple(report.notes),
+        notes=tuple(report.notes) + _before_lines(case, steppers, report),
     )
+
+
+def _before_lines(case: Case, steppers: _StepperView, report: RunReport) -> tuple[str, ...]:
+    if report.errored:
+        return ()
+    motors: list[str] = []
+    for criterion in case.criteria:
+        if not isinstance(criterion, ValueCriterion):
+            continue
+        kind, _, motor = criterion.quantity.partition(":")
+        if kind in STEPPER_KINDS and motor not in motors:
+            motors.append(motor)
+    lines: list[str] = []
+    for motor in motors:
+        line = steppers.before_line(motor)
+        if line is not None:
+            lines.append(line)
+    return tuple(lines)
 
 
 STRUCTURAL_KINDS = ("safety_factor", "deflection")
@@ -369,6 +403,235 @@ class _StructuralView:
         if record is not None:
             raise _UnevaluableError(f"{reference}: {record.reason()}")
         return Series((time,), (value,), unit)
+
+
+STEPPER_KINDS = ("missed_steps", "torque_margin")
+LOAD_TORQUE = "physics/transmissions/shaft_load_torque"
+
+
+@dataclass(frozen=True)
+class StepperDrive:
+    """One stepper motor instance as scoring reads it (SCO-031, SCO-032): its part and the part's catalog data, SI
+    (`step_angle` rad, `holding_torque` N m, `torque_speed` (rad/s, N m) points from speed 0), the shaft joint its
+    rotor turns (`joint:<shaft_joint>.position`), the step and direction driver that drives it by its coils (None
+    when none does) and that driver's `microsteps` per full step, and the transmission on its shaft whose recorded
+    shaft load torque (PHY-033) it carries (None when none does). The runner builds them from the run's build."""
+
+    motor: str
+    part: str
+    shaft_joint: str
+    step_angle: float
+    holding_torque: float
+    torque_speed: tuple[tuple[float, float], ...]
+    driver: str | None = None
+    microsteps: int = 1
+    transmission: str | None = None
+
+
+def available_torque(curve: Sequence[tuple[float, float]], speed: float) -> float:
+    """The part's torque-speed curve at the shaft speed's magnitude (rad/s): linear between its points, the last
+    point's torque at its speed and 0 above it, as the stepper model reads it (SIG-033)."""
+    magnitude = abs(speed)
+    if len(curve) == 0:
+        raise _UnevaluableError("the part has no torque-speed curve")
+    last_speed, last_torque = curve[-1]
+    if magnitude > last_speed:
+        return 0.0
+    for (low_speed, low_torque), (high_speed, high_torque) in pairwise(curve):
+        if magnitude <= high_speed:
+            weight = (magnitude - low_speed) / (high_speed - low_speed)
+            return low_torque + weight * (high_torque - low_torque)
+    return last_torque
+
+
+@runtime_checkable
+class _Columns(Protocol):
+    """A record view that also gives the raw recording, whose index-column series carry column names (REC-018)."""
+
+    @property
+    def recording(self) -> Any: ...
+
+
+class _StepperView:
+    """The record view plus two stepper quantities per motor (SCO-031, SCO-032), from the run's `StepperDrive`s:
+    `missed_steps:<motor>` (full steps) at every sample, the commanded angle (the signed sum of the driver's step pin
+    microsteps, sense from its dir pin, times step_angle / microsteps) less the rotor's travel, over the step angle,
+    less the drive's own lead (2 / pi) asin(tau / T_hold), tau the drive torque read back (`signal:<motor>.torque`),
+    clipped to the holding torque, each relative to its value at the first sample (a motor holding a load at t = 0
+    reads 0 there); `torque_margin:<motor>` (N m) at every sample, the part's
+    curve at the shaft joint's recorded speed less abs(the transmission's recorded shaft load torque). A motor the run
+    does not describe, without a step and direction driver, without a rotor series or without a load torque column is
+    unevaluable, naming the motor (invariant 7). Other refs go to the recording.
+
+    Both judge a span (rulings 91, 93): from the last rest sample at or before `start` (the case's evaluation start),
+    missed steps counted from their value there and unevaluable unless the final sample rests. `before_line` reports
+    what came before the span."""
+
+    def __init__(
+        self, recording: RecordView, steppers: Sequence[StepperDrive], raw: RecordView, start: float = 0.0
+    ) -> None:
+        self._recording = recording
+        self._raw = raw
+        self._steppers = {item.motor: item for item in steppers}
+        self._start = start
+
+    @property
+    def validity(self) -> Sequence[CarriedValidity]:
+        return self._recording.validity
+
+    def times(self) -> Sequence[float]:
+        return self._recording.times()
+
+    def controller_states(self) -> Sequence[str]:
+        return self._recording.controller_states()
+
+    def events(self) -> Sequence[RecordedEvent]:
+        return self._recording.events()
+
+    def part(self, reference: str) -> str | None:
+        """The part of the motor a stepper quantity reads, for the report line; None for other refs."""
+        kind, _, motor = reference.partition(":")
+        if kind not in STEPPER_KINDS or motor not in self._steppers:
+            return None
+        return self._steppers[motor].part
+
+    def series(self, reference: str) -> Series:
+        kind, _, motor = reference.partition(":")
+        if kind not in STEPPER_KINDS:
+            return self._recording.series(reference)
+        if motor not in self._steppers:
+            raise _UnevaluableError(f"{reference}: {motor!r} is not a stepper motor of the run")
+        whole = self._whole(kind, motor, reference)
+        rest = self._rest(motor, reference)
+        first = self._span_start(whole.times, rest, reference)
+        values = whole.values[first:]
+        if kind == "missed_steps":
+            if not rest[-1]:
+                raise _UnevaluableError(
+                    f"{reference}: motor {motor!r} is not at rest at the final sample {whole.times[-1]:.6g} s"
+                )
+            base = whole.values[first]
+            values = tuple(item - base for item in values)
+        return Series(tuple(whole.times[first:]), tuple(values), whole.unit)
+
+    def before_line(self, motor: str) -> str | None:
+        """Steps lost and the least torque margin before the span's first rest sample, per motor (rulings 91, 93):
+        None when the start is 0, the motor is not described, nothing precedes the rest sample, or a quantity is
+        unevaluable (its criterion reports why)."""
+        if self._start <= 0.0 or motor not in self._steppers:
+            return None
+        reference = f"missed_steps:{motor}"
+        try:
+            missed = self._whole("missed_steps", motor, reference)
+            margin = self._whole("torque_margin", motor, f"torque_margin:{motor}")
+            first = self._span_start(missed.times, self._rest(motor, reference), reference)
+        except _UnevaluableError:
+            return None
+        if first == 0:
+            return None
+        lost = missed.values[first]
+        least = min(range(first), key=lambda index: margin.values[index])
+        line = (
+            f"motor '{motor}' (part {self._steppers[motor].part}): before the rest at {missed.times[first]:.6g} s "
+            f"(evaluation start {self._start:.6g} s), missed steps {lost:.6g}"
+        )
+        for time, count in zip(missed.times[:first], missed.values[:first], strict=True):
+            if abs(count) >= 0.5:
+                line = f"{line} (first beyond half a step at {time:.6g} s)"
+                break
+        return (
+            f"{line}, least torque margin {margin.values[least]:.6g} N m at {margin.times[least]:.6g} s; the sizing "
+            "criteria judge from that rest (SCO-031, SCO-032, rulings 91, 93)"
+        )
+
+    def _whole(self, kind: str, motor: str, reference: str) -> Series:
+        stepper = self._steppers[motor]
+        if kind == "missed_steps":
+            rotor = self._read(reference, f"joint:{stepper.shaft_joint}.position", "rotor position")
+            return self._missed(reference, stepper, rotor)
+        return self._margin(reference, stepper)
+
+    def _rest(self, motor: str, reference: str) -> list[bool]:
+        """Rest at each sample (ruling 93): the step pin idle over the tick ending there (no microstep applied) and
+        the shaft speed below a tenth of a microstep per sample interval."""
+        stepper = self._steppers[motor]
+        if stepper.driver is None:
+            raise _UnevaluableError(f"{reference}: motor {motor!r} has no step and direction driver")
+        steps = self._read(reference, f"signal:{stepper.driver}.step", "step pin").values
+        speed = self._read(reference, f"joint:{stepper.shaft_joint}.velocity", "shaft speed")
+        microstep = stepper.step_angle / stepper.microsteps
+        times = speed.times
+        flags: list[bool] = []
+        for index, (count, omega) in enumerate(zip(steps, speed.values, strict=True)):
+            interval = 0.0
+            if index > 0:
+                interval = times[index] - times[index - 1]
+            elif len(times) > 1:
+                interval = times[1] - times[0]
+            slow = interval > 0.0 and abs(omega) * interval < 0.1 * microstep
+            flags.append(count == 0.0 and slow)
+        return flags
+
+    def _span_start(self, times: Sequence[float], rest: Sequence[bool], reference: str) -> int:
+        """The last rest sample at or before the evaluation start (ruling 93)."""
+        found = -1
+        for index, (time, still) in enumerate(zip(times, rest, strict=True)):
+            if time > self._start:
+                break
+            if still:
+                found = index
+        if found < 0:
+            raise _UnevaluableError(
+                f"{reference}: no rest sample at or before the evaluation start {self._start:.6g} s"
+            )
+        return found
+
+    def _read(self, reference: str, source: str, what: str) -> Series:
+        try:
+            return self._recording.series(source)
+        except KeyError as error:
+            motor = reference.partition(":")[2]
+            raise _UnevaluableError(f"{reference}: motor {motor!r} has no recorded {what} ({source})") from error
+
+    def _missed(self, reference: str, stepper: StepperDrive, rotor: Series) -> Series:
+        if stepper.driver is None:
+            raise _UnevaluableError(f"{reference}: motor {stepper.motor!r} has no step and direction driver")
+        steps = self._read(reference, f"signal:{stepper.driver}.step", "step pin").values
+        senses = self._read(reference, f"signal:{stepper.driver}.dir", "dir pin").values
+        torque = self._read(reference, f"signal:{stepper.motor}.torque", "drive torque").values
+        microstep = stepper.step_angle / stepper.microsteps
+        commanded = 0.0
+        start = rotor.values[0]
+        values: list[float] = []
+        for count, sense, angle, drive in zip(steps, senses, rotor.values, torque, strict=True):
+            if sense > 0.5:
+                commanded += count * microstep
+            else:
+                commanded -= count * microstep
+            ratio = max(-1.0, min(1.0, drive / stepper.holding_torque))
+            lead = 2.0 / math.pi * math.asin(ratio)
+            values.append((commanded - (angle - start)) / stepper.step_angle - lead)
+        first = values[0]
+        return Series(tuple(rotor.times), tuple(value - first for value in values), "")
+
+    def _margin(self, reference: str, stepper: StepperDrive) -> Series:
+        speed = self._read(reference, f"joint:{stepper.shaft_joint}.velocity", "shaft speed")
+        load = self._load(reference, stepper)
+        values = [
+            available_torque(stepper.torque_speed, omega) - abs(tau)
+            for omega, tau in zip(speed.values, load, strict=True)
+        ]
+        return Series(tuple(speed.times), tuple(values), "N m")
+
+    def _load(self, reference: str, stepper: StepperDrive) -> list[float]:
+        missing = f"{reference}: motor {stepper.motor!r} has no recorded shaft load torque"
+        if stepper.transmission is None or not isinstance(self._raw, _Columns):
+            raise _UnevaluableError(missing)
+        stored = self._raw.recording.series.get(LOAD_TORQUE)
+        if stored is None or stepper.transmission not in stored.names:
+            raise _UnevaluableError(f"{missing} (transmission {stepper.transmission!r})")
+        column = stored.names.index(stepper.transmission)
+        return [float(row[column]) for row in stored.values]
 
 
 def _not_valid_after(record: CarriedValidity, times: Sequence[float], values: Sequence[float]) -> list[float]:

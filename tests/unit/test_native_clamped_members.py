@@ -93,7 +93,7 @@ def test_the_translation_emits_the_engines_clamped_ends() -> None:
 def test_the_native_build_is_flexible_and_the_bridge_build_rigid() -> None:
     design = prepare(G3).design
     native = core_builder(design, "native")
-    bridge = core_builder(design)
+    bridge = core_builder(design, "mujoco")
     assert native.physics is not None
     assert bridge.physics is not None
     assert len(bridge.physics.lumped_members) == 0

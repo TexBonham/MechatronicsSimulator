@@ -888,10 +888,10 @@
     },
     "PhysicsSettings": {
       "additionalProperties": false,
-      "description": "The run configuration's physics section (TST-040): `adapter` selects the physics adapter, `mujoco` by default\nuntil X2 (ruling 41); `--set physics.adapter=<name>` overrides it. `substeps` (TST-042, rulings 21, 49): engine\nsteps per physics step on the native adapter, each h / substeps, the control tick unchanged; above one on the\nbridge the run fails.",
+      "description": "The run configuration's physics section (TST-040): `adapter` selects the physics adapter, `native` by default\n(round 5 ruling 1, M3-X2; the bridge `mujoco` is the non-default, ruling 41); `--set physics.adapter=<name>`\noverrides it. `substeps` (TST-042, rulings 21, 49): engine\nsteps per physics step on the native adapter, each h / substeps, the control tick unchanged; above one on the\nbridge the run fails.",
       "properties": {
         "adapter": {
-          "default": "mujoco",
+          "default": "native",
           "enum": [
             "mujoco",
             "native"
@@ -1370,7 +1370,7 @@
           "type": "string"
         },
         "quantity": {
-          "pattern": "^(signal:[a-z][a-z0-9_]*\\.[a-z][a-z0-9_]*|pose:[a-z][a-z0-9_]*\\.(x|y|z|roll|pitch|yaw)|joint:[a-z][a-z0-9_]*\\.(position|velocity)|rail:[a-z][a-z0-9_]*(\\.voltage)?|state:[a-z][a-z0-9_]*|fault:[a-z][a-z0-9_]*|count:(message|state|fault)\\.[a-z][a-z0-9_]*|safety_factor:[a-z][a-z0-9_]*|deflection:[a-z][a-z0-9_]*|swing:[a-z][a-z0-9_]*\\.[a-z][a-z0-9_]*(\\.(x|y|z))?)$",
+          "pattern": "^(signal:[a-z][a-z0-9_]*\\.[a-z][a-z0-9_]*|pose:[a-z][a-z0-9_]*\\.(x|y|z|roll|pitch|yaw)|joint:[a-z][a-z0-9_]*\\.(position|velocity)|rail:[a-z][a-z0-9_]*(\\.voltage)?|state:[a-z][a-z0-9_]*|fault:[a-z][a-z0-9_]*|count:(message|state|fault)\\.[a-z][a-z0-9_]*|safety_factor:[a-z][a-z0-9_]*|deflection:[a-z][a-z0-9_]*|swing:[a-z][a-z0-9_]*\\.[a-z][a-z0-9_]*(\\.(x|y|z))?|missed_steps:[a-z][a-z0-9_]*|torque_margin:[a-z][a-z0-9_]*)$",
           "title": "Quantity",
           "type": "string"
         },
@@ -1566,7 +1566,7 @@
           "type": "string"
         },
         "quantity": {
-          "pattern": "^(signal:[a-z][a-z0-9_]*\\.[a-z][a-z0-9_]*|pose:[a-z][a-z0-9_]*\\.(x|y|z|roll|pitch|yaw)|joint:[a-z][a-z0-9_]*\\.(position|velocity)|rail:[a-z][a-z0-9_]*(\\.voltage)?|state:[a-z][a-z0-9_]*|fault:[a-z][a-z0-9_]*|count:(message|state|fault)\\.[a-z][a-z0-9_]*|safety_factor:[a-z][a-z0-9_]*|deflection:[a-z][a-z0-9_]*|swing:[a-z][a-z0-9_]*\\.[a-z][a-z0-9_]*(\\.(x|y|z))?)$",
+          "pattern": "^(signal:[a-z][a-z0-9_]*\\.[a-z][a-z0-9_]*|pose:[a-z][a-z0-9_]*\\.(x|y|z|roll|pitch|yaw)|joint:[a-z][a-z0-9_]*\\.(position|velocity)|rail:[a-z][a-z0-9_]*(\\.voltage)?|state:[a-z][a-z0-9_]*|fault:[a-z][a-z0-9_]*|count:(message|state|fault)\\.[a-z][a-z0-9_]*|safety_factor:[a-z][a-z0-9_]*|deflection:[a-z][a-z0-9_]*|swing:[a-z][a-z0-9_]*\\.[a-z][a-z0-9_]*(\\.(x|y|z))?|missed_steps:[a-z][a-z0-9_]*|torque_margin:[a-z][a-z0-9_]*)$",
           "title": "Quantity",
           "type": "string"
         },

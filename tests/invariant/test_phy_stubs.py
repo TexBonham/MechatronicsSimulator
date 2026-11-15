@@ -1,8 +1,11 @@
 """Invariant tier stubs for the physics adapter spec (PHY), strict xfail until converted."""
 
+import ast
 import math
 import re
 import struct
+import subprocess
+import sys
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -210,11 +213,53 @@ def test_phy_010_run_twice_bitwise(
         assert a == b, f"{name} on {adapter}: step {step + 1} differs"
 
 
+_BRIDGE_MODULES = ("mujoco", "mechsim.physics.mujoco")
+
+
+def _is_bridge(module: str) -> bool:
+    return any(module == name or module.startswith(f"{name}.") for name in _BRIDGE_MODULES)
+
+
 @pytest.mark.req("PHY-026")
-@pytest.mark.xfail(strict=True, reason="stub")
-def test_phy_026() -> None:
-    """After retirement, no runtime code path shall import MuJoCo."""
-    raise NotImplementedError
+def test_phy_026_no_module_level_import_of_the_bridge() -> None:
+    """After retirement, no runtime code path shall import MuJoCo. Before the removal (ADR 0004, round 5 ruling 1) it
+    holds for the default native adapter: no module under `mechsim/` outside the bridge's own package imports MuJoCo
+    or the bridge at module level (the import graph a native run loads); the one bridge run path imports it inside
+    the function that prepares a bridge run."""
+    offenders = []
+    bridge = ROOT / "mechsim" / "physics" / "mujoco"
+    for path in sorted((ROOT / "mechsim").rglob("*.py")):
+        if bridge in path.parents:
+            continue
+        for node in ast.parse(path.read_text(encoding="utf-8")).body:
+            names: list[str] = []
+            if isinstance(node, ast.Import):
+                names = [alias.name for alias in node.names]
+            if isinstance(node, ast.ImportFrom) and node.module is not None and node.level == 0:
+                names = [node.module, *(f"{node.module}.{alias.name}" for alias in node.names)]
+            for name in names:
+                if _is_bridge(name):
+                    offenders.append(f"{path.relative_to(ROOT)}:{node.lineno}: {name}")
+    assert offenders == []
+
+
+@pytest.mark.req("PHY-026")
+def test_phy_026_a_native_run_loads_no_bridge_module(tmp_path: Path) -> None:
+    """A run on the default adapter through the CLI, in a fresh interpreter, loads no MuJoCo or bridge module (the
+    pendulum release case P1; the C++ bridge stays linked into the extension until the removal commit)."""
+    script = (
+        "import sys\n"
+        "from mechsim.cli import main\n"
+        f"case = {str(ROOT / 'test_cases' / 'pendulum' / 'P1_period.yaml')!r}\n"
+        f"code = main(['run', case, '--out', {str(tmp_path)!r}])\n"
+        f"print('LOADED', sorted(m for m in sys.modules if m == 'mujoco' or m.startswith(('mujoco.', "
+        f"'mechsim.physics.mujoco'))))\n"
+        "sys.exit(code)\n"
+    )
+    result = subprocess.run([sys.executable, "-c", script], capture_output=True, text=True, check=False, cwd=ROOT)
+    assert result.returncode == 0, result.stderr
+    assert "physics adapter: native" in result.stdout
+    assert "LOADED []" in result.stdout
 
 
 ROOT = Path(__file__).resolve().parents[2]

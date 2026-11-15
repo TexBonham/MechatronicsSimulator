@@ -12,6 +12,8 @@ from mechsim import _core as core
 from mechsim.physics.mujoco.prepare import prepare_model as prepare_bridge
 from mechsim.physics.native.prepare import prepare_model as prepare_native
 from mechsim.physics.neutral import PhysicsModel, from_yaml
+from mechsim.testing.baseline import load_baseline
+from mechsim.testing.schema import load_test_case
 from tests.invariant.test_phy_stubs import _load, driven
 
 ORIGIN = ("0 m", "0 m", "0 m")
@@ -274,13 +276,34 @@ def test_phy_020() -> None:
         adapter.step()
 
 
+ROOT = Path(__file__).resolve().parents[2]
+BRIDGE_BASELINES = {
+    "gantry": ("G1", "G2", "G3", "G4", "G5", "G6", "G7", "G8", "G9", "G10", "G11", "G13", "G14"),
+    "pendulum": ("P1", "P2"),
+}
+
+
 @pytest.mark.req("PHY-025")
-@pytest.mark.xfail(strict=True, reason="stub")
 def test_phy_025() -> None:
     """The comparison recordings used for retirement shall be kept as fixed baselines, stored as YAML scoring summaries
-    in git.
-    """
-    raise NotImplementedError
+    in git: one file per milestone 1 and 2 case under `test_cases/<suite>/bridge_baselines/`, each a valid baseline
+    of that case alone, every entry from a run on the bridge (run id suffix `-mujoco`, TST-040), covering every
+    criterion the case states; nothing under `mechsim/` names the folder, so no suite run writes it."""
+    for suite, cases in BRIDGE_BASELINES.items():
+        folder = ROOT / "test_cases" / suite / "bridge_baselines"
+        assert sorted(path.stem for path in folder.glob("*.yaml")) == sorted(cases)
+        for case_id in cases:
+            baseline = load_baseline(folder / f"{case_id}.yaml")
+            assert {entry.case for entry in baseline.entries} == {case_id}
+            for entry in baseline.entries:
+                assert entry.run is not None
+                assert entry.run.run_id.endswith("-mujoco"), entry
+            folder_cases = (ROOT / "test_cases" / suite).glob("*.yaml")
+            case_file = next(path for path in folder_cases if path.stem.split("_")[0] == case_id)
+            stated = {criterion.name for criterion in load_test_case(case_file).criteria}
+            assert {entry.criterion for entry in baseline.entries} == stated
+    for path in (ROOT / "mechsim").rglob("*.py"):
+        assert "bridge_baselines" not in path.read_text(encoding="utf-8"), path
 
 
 @pytest.mark.req("PHY-027")

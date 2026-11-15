@@ -117,7 +117,11 @@ Mid-run changes (ENG-031 to 034), next step on, each listed in the next step's `
 `set_spring_offset(member, node, offset)` (rest = built + offset), `set_spring_stiffness(member, node, k)`,
 `disable_constraint(c)` / `release_load(c)` (zero rows; twice throws), `release_rope(r)` (same path); `constraint_enabled`, `rope_attached`.
 Ropes (ENG-047, ADR 0016, rulings 14, 15): N segments, N - 1 Translation nodes, end half-masses on the end bodies;
-tension-only spring-dampers, slack or taut from the step start; K gets k n n^T + (T / d)(I - n n^T), D gets c n n^T;
+tension-only spring-dampers; K gets k n n^T + (T / d)(I - n n^T), D gets c n n^T for a segment taut by its law at the
+step start. Taut set (rope.hpp header, brief M3-E8, ruling 87): within a step a segment is taut exactly when its
+end-of-step length is >= rest; `step()` re-solves from the start with the set read from the end until two agree
+(cap `iteration_cap` solves, then `SolverNonConvergenceError`, state restored; `outputs().rope_passes`); a segment
+going taut in the step pulls k (d - l) affine, no damper until a step starts taut; a rope that stays taut: 1 pass, bit-identical;
 top attachment damping and friction (spherical joint torque, in D); `set_rope_rest_length(r, L)` (winch);
 `outputs().ropes` per segment tension, max, load end, `snatch_omega_h` = sqrt(EA / (L M)) h (flag above 0.2:
 first snatch peak about 15 % low); snap: end-of-step tension
@@ -136,14 +140,14 @@ collects the events after each step.
 
 | Section | Line |
 |---|---|
-| Helpers | 41 |
-| Construction | 302 |
-| Kinematics | 397 |
-| Dynamics | 469 |
-| Transmissions | 704 |
-| Constraints | 856 |
-| Members, ropes and model changes | 1092 |
-| Inputs and outputs | 1722 |
+| Helpers | 43 |
+| Construction | 304 |
+| Kinematics | 399 |
+| Dynamics | 471 |
+| Transmissions | 712 |
+| Constraints | 864 |
+| Members, ropes and model changes | 1100 |
+| Inputs and outputs | 2380 |
 
 ## Section index, `src/collision.cpp`
 

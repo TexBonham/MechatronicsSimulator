@@ -18,5 +18,6 @@ cases:
   - G13.yaml
   - G14.yaml
   - G15.yaml
+  - G16.yaml
 baseline: baseline.yaml
-note: "Cases G1 to G15 on the draft gantry (G12 and G15 on the native adapter, the rest on the bridge); the example suite file (TST-008)"
+note: "Cases G1 to G16 on the draft gantry, all on the native adapter (the default since M3-X2); the example suite file (TST-008)"
