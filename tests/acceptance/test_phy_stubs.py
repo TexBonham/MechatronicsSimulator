@@ -224,8 +224,10 @@ def gantry_misses() -> list[str]:
     return sorted(misses)
 
 
-# ===== Misses of record (brief M3-X2d item 3; mechanism of G7 and G9 brief M3-X2g item 1, 2026-11-14) ==========
-# G7 hook_held and G9 load_held, EXPLAINED as a modelling difference, but the native value of record is stale.
+# ===== Misses of record (brief M3-X2d item 3; mechanism of G7 and G9 brief M3-X2g item 1; list M3-X2h) ==========
+# Four misses, all G10 (brief M3-X2h: the native baseline regenerated whole after E8). G7 hook_held and G9
+# load_held are no longer misses: explained as a modelling difference (below), inside their 0.436 mm tolerance
+# since E8: bridge 2.17742 and 2.17752 mm, native 1.82075 and 1.82062 mm, 0.357 mm apart.
 #   Bridge 2.177 mm at 12.050 s, native of record 1.146 mm at 12.044 s (G9 the same in its own window). The lift
 #   stepper is disabled from 12.022 s (SIG-033: a disabled drive, K = D = 0, cleared by the native adapter), the
 #   brake (0.5 N m, 20 ms engage delay) acts from 12.042 s. Masses at the belt (n = 0.04 / 2 pi m/rad): rotor
@@ -249,9 +251,10 @@ def gantry_misses() -> list[str]:
 #   1.146 mm, and the bridge's 2.180 mm against 2.177 mm: difference 1.040 mm predicted against 1.031 mm observed.
 #   Its steps: compliant belt and rope, lossless 2.418 mm (+0.238); with (a) 1.811 mm (-0.607); with (b) 1.140 mm
 #   (-0.670). The engine at the head (E8 merged, 8803705: the rope takes up within the step) records 1.821 mm
-#   (model 1.811 mm), so G7 now differs from the bridge by 0.357 mm, inside its 0.436 mm tolerance: the miss lives
-#   on in `baseline.yaml` (regenerated at X2c, before E8), which this brief may not regenerate. With the engine of
-#   3c06a8e built in place, G7 on native records 1.14623 mm, the baseline's value to 2 nm (brief M3-X2g run).
+#   (model 1.811 mm), so G7 now differs from the bridge by 0.357 mm, inside its 0.436 mm tolerance; the baseline
+#   regenerated after E8 (M3-X2h) holds 1.82075 mm (G9 1.82062 mm). With the engine of 3c06a8e built in place, G7 on
+#   native records 1.14623 mm, the pre-E8 value of record to 2 nm (brief M3-X2g run). Mechanism (a) remains: a
+#   possible engine artefact recorded for the owner (ruling 94, E9), not a miss.
 #   Ruled out: the stepper's viscous damping (SIG-033 publishes a disabled drive with D = 0; the reduced model needs
 #   none), the belt's modal damping (4.03 N s/m on the stretch rate, 0.01 of critical), the brake's engagement (the
 #   same 20 ms on both adapters; it only ends the fall).
@@ -279,13 +282,6 @@ MISSES_OF_RECORD: dict[str, str] = {
     "G10 stall_rehomed: event at 12.044 s on the bridge, 12.03 s on native, tolerance 0.003 s (three ticks)": (
         "the re-home follows the stall stop 8 ms earlier and a homing 2 ms shorter; consequence of a finding"
     ),
-    "G7 hook_held: 0.00217742 m on the bridge, 0.00114624 m on native, tolerance 0.0004361 m (lift axis)": (
-        "explained: frozen-rate efficiency damping on release (ruling 47) and the pre-E8 rope slack rule; 2.180 "
-        "against 1.140 mm predicted; at the head native records 1.821 mm, inside 0.436 mm: baseline stale"
-    ),
-    "G9 load_held: 0.00217752 m on the bridge, 0.00114618 m on native, tolerance 0.0004361 m (lift axis)": (
-        "explained: as G7 hook_held, the same brake hold after the power loss; baseline stale since E8"
-    ),
 }
 
 
@@ -293,8 +289,8 @@ MISSES_OF_RECORD: dict[str, str] = {
 @pytest.mark.xfail(
     strict=True,
     reason=(
-        "not met (ruling 83, owner decision at the gate): the six misses of record, MISSES_OF_RECORD; G7 and G9 "
-        "explained (frozen-rate efficiency damping, pre-E8 rope slack rule; stale baseline), G10 a finding"
+        "not met (ruling 83, owner decision at the gate): the four misses of record, MISSES_OF_RECORD, all G10: "
+        "stall_fault and slip_fault a finding, stall_rehomed and slip_carriage_stopped its consequences"
     ),
 )
 def test_phy_024() -> None:
