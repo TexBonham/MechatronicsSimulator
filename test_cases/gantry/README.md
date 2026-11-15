@@ -44,6 +44,30 @@ at 5.5 kg), `lift 0.4` is accepted and the lift ends at 0.4001 m (M3-X2c; that w
 Windows derive from the gantry team's values of 2026-11-11 (0.05 m/s^2, 0.1 m/s, 0.02 m/s homing, 10 cm homing travel,
 0.5 m workspace); each case header carries its derivation.
 
+## Sourced components (brief M3-GV, owner decision 4)
+
+Every value below is REPLACEABLE: a published datasheet's figure put in a gantry slot until the gantry team gives its
+own; sources and URLs in `docs/gantry-team-inputs.md`.
+
+Rails. Both rails are a 2040 aluminium T-slot extrusion (Alux 2040 V-slot: A = 285.30 mm^2, I = 45162 mm^4 about the
+40 mm deep axis, 11680 mm^4 about the 20 mm one, 0.761 kg/m) on the library's `aluminium_6063_t5_extrusion` (E = 69
+GPa, rho = 2690 kg/m^3; the datasheet's alloy is 6063 in temper T66, the library holds T5), 40 mm deep vertical, so
+`second_moment_z` (the bending plane, ruling 65) is the deep axis's and `fibre_y` = 20 mm, `fibre_z` = 10 mm. rail_y's
+box is 40 x 60 mm; the same 2040 is used (40 mm vertical as the box, one profile for the frame), the box stays the CAD
+stand-in and the rails declare the extrusion's mass (rho A L = 0.38373 kg each) instead of the solid box's. Per rail,
+L = 0.5 m, E I = 69e9 x 4.5162e-8 = 3116.18 N m^2, rho A = 0.767457 kg/m, calibration load P = 100 N at mid-span:
+
+| Rail | Supports | Midspan deflection | First frequency |
+|---|---|---|---|
+| rail_x | clamped-clamped | P L^3 / (192 E I) = 0.0208923 mm | 4.7300^2 / (2 pi L^2) sqrt(E I / (rho A)) = 907.599 Hz |
+| rail_y | pinned-roller | P L^3 / (48 E I) = 0.0835693 mm | pi / (2 L^2) sqrt(E I / (rho A)) = 400.372 Hz |
+
+The built chains print 902.104 Hz (rail_x, 16 segments, clamped-clamped calibration layout owed, ruling 16) and
+400.379 Hz (rail_y). Damping ratio 0.02 on both rails: the low end of 2 to 7 percent for an assembly with many bolted
+joints (SimScale's table, which cites no origin; bolted steel at low amplitude 0.5 to 2 percent in the same table),
+fixed in advance. At the 1 ms default step both first modes are unresolved (x = 5.67 and 2.52); G12 and G15 run at 100
+microseconds (x = 0.567, 0.252).
+
 ## What runs where (INV-020, brief M3-X2d)
 
 The acceptance checks of G2 to G16 read whole native runs of 30 to 130 s each and carry the `long_run` marker: CI

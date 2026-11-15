@@ -53,22 +53,30 @@ open_parameters:
   - name: rail_section_area
     dimension: "[length] ** 2"
     owed_by: gantry team
-    note: Rail extrusion section area (row 17 planning default, rails flexible with extrusion sections).
-    default: "1.5e-4 m**2"
+    note: >-
+      Rail extrusion section area. REPLACEABLE sourced value (brief M3-GV): a 2040 aluminium T-slot extrusion, 285.30
+      mm^2 (Alux 2040 V-slot datasheet, docs/gantry-team-inputs.md), until the gantry team's own rail.
+    default: "2.853e-4 m**2"
   - name: rail_section_second_moment
     dimension: "[length] ** 4"
     owed_by: gantry team
-    note: Rail extrusion section second moment of area.
-    default: "2e-8 m**4"
+    note: >-
+      Rail extrusion section second moment of area about the deep (40 mm) axis, the vertical bending plane. REPLACEABLE
+      sourced value (brief M3-GV): 2040 extrusion, Iy 45162 mm^4 (Alux 2040 V-slot datasheet).
+    default: "4.5162e-8 m**4"
   - name: rail_calibration
     dimension: choice
     owed_by: gantry team
-    note: Known deflection and first natural frequency each rail is calibrated to, from hand calculation or FEA.
+    note: >-
+      Known deflection and first natural frequency each rail is calibrated to, from hand calculation or FEA. The
+      default is rail_x's (clamped-clamped, 2040 extrusion on 6063-T5, E 69 GPa, rho 2690 kg/m^3: P L^3 / (192 E I)
+      and f_1 = 4.7300^2 / (2 pi L^2) sqrt(E I / (rho A)), test_cases/gantry/README.md); rail_y states its own
+      (pinned-roller) inline. REPLACEABLE, computed from the sourced section (brief M3-GV), not measured.
     default:
       source: hand
       load: 100 N
-      deflection: 1 mm
-      first_natural_frequency: 50 Hz
+      deflection: 0.0208923 mm
+      first_natural_frequency: 907.599 Hz
   - name: encoder_placement
     dimension: choice
     owed_by: gantry team
@@ -265,12 +273,21 @@ bodies:
           position: [0.65 m, 0 m, 0.6 m]
           size: [0.1 m, 0.1 m, 1.2 m]
   - name: rail_x
-    material: petg_printed
+    # REPLACEABLE (brief M3-GV, owner decision 4): a 2040 aluminium T-slot extrusion on the library's 6063-T5 in place
+    # of the printed PETG rail; the box below stays the CAD stand-in (milestone 4), the section is the extrusion's.
+    material: aluminium_6063_t5_extrusion
     process:
-      kind: printed
-      build_direction: [1.0, 0.0, 0.0]
-      walls: 2
-      infill: 20 percent
+      kind: extrusion
+    # The extrusion's own mass, not the solid box's (a solid 6063 box would weigh 2.2 kg on rail_x, 3.2 kg on rail_y):
+    # rho A L = 2690 x 2.853e-4 x 0.5 = 0.38373 kg (the datasheet's 0.761 kg/m gives 0.3805 kg, 0.8 percent apart); at
+    # the box centre; ixx rho L (Iy + Iz), iyy and izz m L^2 / 12 plus rho L times the section's second moment.
+    mass_properties:
+      mass: 0.383729 kg
+      com: [0.25 m, 0 m, 0 m]
+      inertia:
+        ixx: 7.6453e-5 kg*m**2
+        iyy: 8.0101e-3 kg*m**2
+        izz: 8.0551e-3 kg*m**2
     geometry:
       kind: primitives
       shapes:
@@ -279,14 +296,15 @@ bodies:
           size: [0.5 m, 0.04 m, 0.04 m]
     flexible:
       section:
-        # Placeholder 40 x 40 mm section; rail_section_area and rail_section_second_moment stay open. Length 0.5 m
-        # per rail, gantry team 2026-11-11. Both bending axes and fibre distances stated (ruling 58): the placeholder
-        # square section, half its 40 mm depth to the outer fibre on each axis.
-        area: 1.5e-4 m**2
-        second_moment_y: 2e-8 m**4
-        second_moment_z: 2e-8 m**4
+        # REPLACEABLE sourced section (brief M3-GV): 2040 extrusion (Alux 2040 V-slot datasheet: A 285.30 mm^2,
+        # Iy 45162 mm^4 about the 40 mm deep axis, Ix 11680 mm^4 about the 20 mm one), the 40 mm depth vertical (frame
+        # y, the bending plane, ruling 65): second_moment_z is the deep axis's, fibre_y half the 40 mm depth, fibre_z
+        # half the 20 mm width. Length 0.5 m per rail, gantry team 2026-11-11.
+        area: 2.853e-4 m**2
+        second_moment_y: 1.168e-8 m**4
+        second_moment_z: 4.5162e-8 m**4
         fibre_y: 0.02 m
-        fibre_z: 0.02 m
+        fibre_z: 0.01 m
         length: 0.5 m
       calibration: ${rail_calibration}
       # Row 17 planning default for the rail end conditions (root, end); owed by the gantry team with the sections.
@@ -295,17 +313,26 @@ bodies:
       supports: [clamped, clamped]
       segments: 16
       carries: [x_axis]
-      # PLACEHOLDER owed by the gantry team (ruling 78, docs/gantry-team-inputs.md): modal damping ratio of the first
-      # bending mode, fixed in advance at the low end of the published range for printed PETG and similar
-      # thermoplastics (loss factor about 0.02 to 0.05, ratio half of it), not adjusted to any result.
-      damping_ratio: "0.01"
+      # REPLACEABLE sourced value (brief M3-GV): modal damping ratio of the first bending mode, 0.02, the low end of
+      # the 2 to 7 percent quoted for an assembly with many bolted joints (SimScale, docs/gantry-team-inputs.md; the
+      # source cites no origin), fixed in advance and not adjusted to any result.
+      damping_ratio: "0.02"
   - name: rail_y
-    material: petg_printed
+    # REPLACEABLE (brief M3-GV, owner decision 4): a 2040 aluminium T-slot extrusion on the library's 6063-T5 in place
+    # of the printed PETG rail; the box below stays the CAD stand-in (milestone 4), the section is the extrusion's.
+    material: aluminium_6063_t5_extrusion
     process:
-      kind: printed
-      build_direction: [1.0, 0.0, 0.0]
-      walls: 2
-      infill: 20 percent
+      kind: extrusion
+    # The extrusion's own mass, not the solid box's (a solid 6063 box would weigh 2.2 kg on rail_x, 3.2 kg on rail_y):
+    # rho A L = 2690 x 2.853e-4 x 0.5 = 0.38373 kg (the datasheet's 0.761 kg/m gives 0.3805 kg, 0.8 percent apart); at
+    # the box centre; ixx rho L (Iy + Iz), iyy and izz m L^2 / 12 plus rho L times the section's second moment.
+    mass_properties:
+      mass: 0.383729 kg
+      com: [0.25 m, 0 m, 0 m]
+      inertia:
+        ixx: 7.6453e-5 kg*m**2
+        iyy: 8.0101e-3 kg*m**2
+        izz: 8.0551e-3 kg*m**2
     geometry:
       kind: primitives
       shapes:
@@ -314,23 +341,32 @@ bodies:
           size: [0.5 m, 0.04 m, 0.06 m]
     flexible:
       section:
-        # The placeholder 40 x 40 mm section of rail_x, both axes and fibres stated (ruling 58). rail_y's box above is
-        # 40 x 60 mm, so its own section would put fibre_z at 0.03 m: the shared placeholder stands until the gantry
-        # team states rail_y's section (docs/gantry-team-inputs.md; the rail bends in-plane only, ruling 65).
-        area: 1.5e-4 m**2
-        second_moment_y: 2e-8 m**4
-        second_moment_z: 2e-8 m**4
+        # REPLACEABLE sourced section (brief M3-GV): the same 2040 extrusion as rail_x, 40 mm deep vertical. rail_y's
+        # box above is 40 x 60 mm (40 vertical); no 40 x 60 extrusion is chosen: the 2040 is the brief's part, its
+        # 40 mm depth matches the box's vertical, and one profile for both rails is the simplest frame to buy; the
+        # 60 mm box width stays the CAD stand-in. fibre_z is half the 2040's 20 mm width.
+        area: 2.853e-4 m**2
+        second_moment_y: 1.168e-8 m**4
+        second_moment_z: 4.5162e-8 m**4
         fibre_y: 0.02 m
-        fibre_z: 0.02 m
+        fibre_z: 0.01 m
         length: 0.5 m
-      calibration: ${rail_calibration}
+      # rail_y's own calibration (pinned-roller, the same section): P L^3 / (48 E I) and f_1 = pi / (2 L^2)
+      # sqrt(E I / (rho A)), README; REPLACEABLE, computed from the sourced section, not measured.
+      calibration:
+        source: hand
+        load: 100 N
+        deflection: 0.0835693 mm
+        first_natural_frequency: 400.372 Hz
       # Row 17 planning default for the rail end conditions (root, end); owed by the gantry team with the sections.
       # Pinned-roller at eight segments, inside the 2 percent tolerance from N = 8 (rulings 31, 32).
       supports: [pinned, roller]
       segments: 8
       carries: [y_axis]
-      # PLACEHOLDER owed by the gantry team, as rail_x (ruling 78): loss factor 0.02, the low end for printed PETG.
-      damping_ratio: "0.01"
+      # REPLACEABLE sourced value (brief M3-GV): modal damping ratio of the first bending mode, 0.02, the low end of
+      # the 2 to 7 percent quoted for an assembly with many bolted joints (SimScale, docs/gantry-team-inputs.md; the
+      # source cites no origin), fixed in advance and not adjusted to any result.
+      damping_ratio: "0.02"
   - name: trolley
     material: petg_printed
     process:
