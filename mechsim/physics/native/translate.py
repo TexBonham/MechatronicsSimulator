@@ -619,7 +619,8 @@ def efficiency_damping_lines(model: PhysicsModel, values: Sequence[tuple[int, fl
             f"(ruling 47) removed up to {float(ratio):.4g} times the loss it stands for in one step, at "
             f"t = {float(time):.6g} s (a shaft leaving rest is held back: lag at most 1 + ln(beta^2 a h / omega_s) / "
             f"ln((1 + beta) / (2 beta)) + 1/2 steps plus a logarithmic tail; flagged above "
-            f"{EFFICIENCY_DAMPING_FACTOR:g}; the end-rate form is milestone 4 item E9; PHY-031, ruling 94)"
+            f"{EFFICIENCY_DAMPING_FACTOR:g}; the end-rate form is milestone 4 item E9; a time before the case's "
+            f"evaluation start is the unloaded start of the belts and rails, ruling 87; PHY-031, ruling 94)"
         )
     return tuple(lines)
 

@@ -75,12 +75,12 @@ namespace mechsim::engine {
 //       above omega* every step gains at least a_p h / 2 and loses at most omega* / (omega* + omega_k). Summing,
 //       the lag after K steps is at most
 //         N = 1 + ln(beta^2 a h / omega_s) / ln((1 + beta) / (2 beta)) + 1/2
-//             + (2 beta / (1 - beta)) ln(1 + K (1 - beta) / (4 beta))  steps,
+//             + (2 beta / (1 - beta)) ln(1 + K (1 - beta) / (2 beta))  steps,
 //       the logarithmic tail being the frozen rate's lag in any acceleration (r = 1 + a h / omega above omega_s); the
 //       ln term is dropped when beta^2 a h <= omega_s (no held phase).
 //       G7 on native (lift belt released from rest at 12.022 s): Lambda = 0.0526 x 0.151 N m, c at rest
 //       Lambda / omega_s = 79 N m s/rad, J = 2.8e-5 kg m^2, a = 5390 rad/s^2, beta a h = 0.28 rad/s; N = 1 + 2.17 +
-//       0.5 + 0.93 (K = 1000) = 4.6 steps; the recurrence gives 0.0019, 0.036, 0.61, 4.1 rad/s (recorded 0.002,
+//       0.5 + 1.03 (K = 1000) = 4.7 steps; the recurrence gives 0.0019, 0.036, 0.61, 4.1 rad/s (recorded 0.002,
 //       0.038, 0.655, 3.86) against a_p h = 5.1 rad/s a step, a rate lag of 3.2 steps after four and 3.6 after
 //       1000, the rotor held near rest (under 0.04 rad/s) for two (the ruling's "about 2 ms"), r = 19 at release.
 //   (v) The proper form, the loss evaluated at the step's end rate by one re-solve as the rope's taut set does

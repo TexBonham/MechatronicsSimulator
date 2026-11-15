@@ -272,8 +272,9 @@ def gantry_misses() -> list[str]:
 #   (3) coast: the stalled carriage coasts 253.8 um on native, 253.3 um on the bridge (-0.02 counts); under the
 #       slip the carriage speed differs slightly (+0.26 counts by the crossing). Offset at the crossing 5.91 and 6.11.
 #   Crossing shift = offset / the mismatch's growth rate (the commanded less the carriage speed: stall 28.9 mm/s =
-#   1.73 counts/ms; slip 0.3 x 35.3 mm/s = 0.64 counts/ms): continuous crossings 8.5777 against 8.5812 s (3.44 ms)
-#   and 30.7040 against 30.7139 s (9.93 ms); the integer counts cross at ticks 8578, 8582 and 30705, 30715.
+#   1.73 counts/ms; slip 0.3 x 35.3 mm/s = 0.64 counts/ms: 5.91 / 1.73 = 3.4 ms and 6.11 / 0.64 = 9.5 ms predicted):
+#   measured continuous crossings 8.5777 against 8.5812 s (3.44 ms) and 30.7040 against 30.7139 s (9.93 ms); the
+#   integer counts cross at ticks 8578, 8582 and 30705, 30715.
 #   (4) stop phase: v / a with v still rising at a, so a detection earlier by d stops d sooner: 575 against 579 ms
 #       and 702 against 712 ms observed, the crossing shift again. Predicted lead 2 x 3.44 = 6.9 ms and 2 x 9.93 =
 #       19.9 ms against 8 and 20 ms (86 and 99 percent; the remainder the integer count and tick quantisation, the
