@@ -1,9 +1,11 @@
 """Strict-xfail stubs for the ACC spec (acceptance tier)."""
 
+import copy
 import io
 import itertools
 import math
 import re
+import shutil
 import time
 from collections.abc import Callable
 from dataclasses import replace
@@ -12,13 +14,15 @@ from typing import Any
 
 import numpy as np
 import pytest
+from ruamel.yaml import YAML
 
 from mechsim.cli import default_services, main
-from mechsim.library.registry import default_registry
-from mechsim.scoring.score import CriterionResult, available_torque
+from mechsim.library.registry import Registry, default_registry, load_registry
+from mechsim.library.schema import CATALOG_DIR
+from mechsim.scoring.score import CriterionResult, available_torque, score_run
 from mechsim.testing.core_driver import CoreDriver, core_services
-from mechsim.testing.runner import RunResult, Services, prepare, run_case, sweep_runs
-from mechsim.testing.schema import ROOT, load_suite_file
+from mechsim.testing.runner import RunResult, Services, prepare, run_case, stepper_drives, sweep_runs
+from mechsim.testing.schema import ROOT, ValueCriterion, load_suite_file
 from tests.conftest import CaseRuns
 
 PENDULUM_CASE = ROOT / "test_cases" / "pendulum" / "P1_period.yaml"
@@ -1412,6 +1416,188 @@ def _g16_before_values(line: str) -> tuple[float, float, float, float]:
     match = re.search(pattern, line)
     assert match is not None, line
     return tuple(float(match.group(index)) for index in range(1, 5))  # type: ignore[return-value]
+
+
+# ===== In motion, evaluation start 0 (ACC-032, rulings 93, 95) ==============
+# The suite's cases judge from the rest at or before 9 s, so G16's and G10's losses (homing, G10's 8.5 s stall) fall
+# before the span. Ruling 95: the in-motion demonstration runs test-local copies of the cases evaluated from the
+# start, data only; the suite's cases keep their 9 s start. The record's first sample is at one physics step, 1 ms,
+# and the span starts at a rest sample at or before the evaluation start (ruling 93), so `evaluate_from: 0 s` has no
+# sample to start from (unevaluable); the start is the first sample, 1 ms, where every motor is still at rest (homing
+# applies its first microstep tens of ticks later).
+G16_FIRST_SAMPLE = "1 ms"
+
+
+def _start_at_zero(case: Path, directory: Path) -> Path:
+    text = case.read_text()
+    assert text.count("evaluate_from: 9 s") == 1, case
+    copied = directory / case.name
+    copied.write_text(text.replace("evaluate_from: 9 s", f"evaluate_from: {G16_FIRST_SAMPLE}"))
+    return copied
+
+
+# A motor that must lose steps in motion. Not the lift: a gravity-loaded axis cannot be 20 percent short at cruise and
+# still hold at rest (ACC-032 row, ruling 93). The x axis carries no gravity load: a test-local part, the NEMA 17
+# entry with its holding torque and every curve point scaled by G16_WEAK_FACTOR, supplied through the registry the run
+# is prepared and built with (`core_services(registry=...)`, LIB-016, BLD-027); the shipped catalog is unchanged.
+G16_WEAK_PART = "nema17_weak_test"
+G16_WEAK_FACTOR = 0.05
+G16_HOMING_SPEED = 0.02
+
+
+def _g16_weak_registry(directory: Path) -> Registry:
+    catalog = directory / "catalog"
+    shutil.copytree(CATALOG_DIR, catalog)
+    yaml = YAML(typ="safe")
+    path = catalog / "stepper_behavioral.yaml"
+    source = yaml.load(path.read_text())
+    found = [item for item in source["parts"] if item["name"] == "nema17_class_generic"]
+    assert len(found) == 1
+    entry = copy.deepcopy(found[0])
+    entry["name"] = G16_WEAK_PART
+    entry["values"]["holding_torque"] = f"{G16_HOLDING['nema17_class_generic'] * G16_WEAK_FACTOR!r} N*m"
+    for point in entry["torque_speed_curve"]:
+        torque = float(point["torque"].split(" ")[0])
+        point["torque"] = f"{torque * G16_WEAK_FACTOR!r} N*m"
+    source["parts"].append(entry)
+    with path.open("w") as handle:
+        yaml.dump(source, handle)
+    return load_registry(catalog)
+
+
+def _losses(driver: CoreDriver, motor: str, holding: float) -> list[float]:
+    """The times at which `motor`'s whole missed-step count from the record (`_g16_missed`, the commanded angle less
+    the rotor's travel less the drive's lead, SCO-031) grows: each pull-out loses whole steps (SIG-033)."""
+    times, missed = _g16_missed(driver, motor, holding)
+    whole = np.abs(np.round(missed))
+    rises = np.nonzero(np.diff(whole) > 0.0)[0] + 1
+    return [float(times[index]) for index in rises]
+
+
+def _stepping(driver: CoreDriver, motor: str, at: float) -> bool:
+    """Whether `motor`'s driver applied commanded microsteps in the 5 ms up to `at` (the axis is commanded to move:
+    homing at 0.02 m/s is 1600 microsteps per second, more than one per 1 ms tick)."""
+    view = driver.recording()
+    times = np.asarray(view.times(), dtype=np.float64)
+    steps = np.asarray(view.series(f"signal:{G16_DRIVERS[motor]}.step").values, dtype=np.float64)
+    inside = (times >= at - 0.005) & (times <= at)
+    return bool(np.any(steps[inside] != 0.0))
+
+
+@pytest.mark.req("ACC-032")
+@pytest.mark.req("SCO-031")
+@pytest.mark.req("SCO-032")
+@pytest.mark.req("SIG-033")
+@pytest.mark.long_run
+def test_acc_032_weak_x_motor_loses_steps_in_motion(tmp_path: Path) -> None:
+    """G16 nominal, evaluated from the first sample (test-local copy, ruling 95), with the x motor replaced by the NEMA
+    17 scaled by G16_WEAK_FACTOR = 0.05 (holding 0.02 N m, the curve 0.0198 N m at 30 rpm, 0.019 N m at 150 rpm):
+    the x motor loses steps while it is commanded to move, and the report says so.
+
+    Derivation (ACC-031's demand, against the scaled curve): x demands T = (m_x a + F_f) c / eta + J alpha, m_x from
+    the built model, F_f = 5 N, c = 0.04 / 2 pi m, eta = 0.95, J = 5.4e-6 kg m^2, alpha = a / c. In homing at the
+    constant 0.02 m/s (omega = 0.02 / c = 3.14 rad/s, 30 rpm) the demand is at least F_f c / eta = 0.0335 N m
+    against 0.0198 N m available, 41 percent short; at the 0.1 m/s cruise (a = 0.05 m/s^2 on the ramps) at least
+    that plus m_x a c / eta against 0.019 N m, more than the 20 percent short ruling 91 asks (asserted). At rest the
+    axis needs no torque (no gravity load; Coulomb friction only resists motion), so the hold is ample and every
+    loss is in motion. Asserted: both shortfalls; the whole missed-step count from the record (`_g16_missed`) rising
+    at least once, each rise and any stall event while the x driver is stepping (SIG-033 raises `stalled`, the stall
+    event, only on a tick with no commanded microstep, so a pull-out while stepping is counted, not flagged; the
+    events are printed); the report's missed steps over the span from the first sample at least one whole step (a
+    count within 0.25 of a whole one is the report's own criterion; at least one means abs(count) above 0.75) and
+    failing, its least margin negative at a time the driver is stepping and failing, both naming the part."""
+    case = _start_at_zero(G16_CASE, tmp_path)
+    registry = _g16_weak_registry(tmp_path)
+    drivers: list[CoreDriver] = []
+    services = core_services(registry=registry)
+
+    def driver() -> CoreDriver:
+        made = CoreDriver()
+        drivers.append(made)
+        return made
+
+    chosen = Services(driver, services.builder, registry=registry)
+    result = run_case(case, chosen, {"instance:x_motor.part": G16_WEAK_PART}, None)
+    assert result.report is not None
+    assert not result.report.errored, result.report.error
+    mass = _g16_masses(dict.fromkeys(G16_MOTORS, "nema23_class_generic"))["x_motor"]
+    curve = registry.part(G16_WEAK_PART).torque_speed_curve
+    assert curve is not None
+    points = tuple((float(point.speed), float(point.torque)) for point in curve)
+    homing_demand = G16_FRICTION * G16_C / G16_ETA
+    homing_available = available_torque(points, G16_HOMING_SPEED / G16_C)
+    cruise_demand = (mass * G16_A + G16_FRICTION) * G16_C / G16_ETA + G16_ROTOR["nema17_class_generic"] * G16_A / G16_C
+    cruise_available = G16_AVAILABLE["nema17_class_generic"] * G16_WEAK_FACTOR
+    print(
+        f"weak x motor: moved mass {mass:.4f} kg; homing demand {homing_demand:.5f} N m against {homing_available:.5f}"
+        f" N m; cruise demand {cruise_demand:.5f} N m against {cruise_available:.5f} N m"
+    )
+    assert homing_demand > homing_available
+    assert cruise_demand >= 1.2 * cruise_available
+    stalls = _g16_stalls(drivers[0], "x_motor")
+    losses = _losses(drivers[0], "x_motor", G16_HOLDING["nema17_class_generic"] * G16_WEAK_FACTOR)
+    print(f"  stall events {len(stalls)}: first {stalls[:5]}, last {stalls[-3:]}")
+    print(f"  stepper lost-step rises {len(losses)}: first {losses[:5]}, last {losses[-3:]}")
+    for line in result.score.notes:
+        print(f"  note: {line}")
+    missed, missed_value = _g16_reported(result, "missed_steps_x_motor", G16_WEAK_PART)
+    margin, margin_value = _g16_reported(result, "torque_margin_x_motor", G16_WEAK_PART)
+    print(f"  report: {missed.name} {missed_value:.6f} ({missed.status}, {missed.note})")
+    print(f"  report: {margin.name} {margin_value:+.6f} N m at {margin.worst_time} s ({margin.status}, {margin.note})")
+    assert len(losses) >= 1
+    for loss in losses:
+        assert _stepping(drivers[0], "x_motor", loss), loss
+    for stall in stalls:
+        assert _stepping(drivers[0], "x_motor", stall), stall
+    assert abs(missed_value) > 0.75
+    assert missed.status == "fail"
+    assert margin_value < 0.0
+    assert margin.status == "fail"
+    assert margin.worst_time is not None
+    assert _stepping(drivers[0], "x_motor", margin.worst_time)
+
+
+@pytest.mark.req("ACC-032")
+@pytest.mark.req("SCO-031")
+@pytest.mark.long_run
+def test_acc_032_g10_stalled_motor_loses_steps_in_motion(tmp_path: Path) -> None:
+    """G10, evaluated from the first sample (test-local copy, ruling 95): its x motor is stalled for 0.5 s from 8.5 s
+    during its move (TST-016); with no available torque the rotor cannot follow its commanded steps, so the report's
+    count for the stalled motor over the span from the first sample is at least one whole step (abs(count) above
+    0.75) and fails. Scored from the copy's run with one added criterion on `missed_steps:x_motor` (final 0 within
+    0.25, ACC-032's form)."""
+    case = _start_at_zero(GANTRY_CASES / "G10.yaml", tmp_path)
+    drivers: list[CoreDriver] = []
+    services = core_services()
+
+    def driver() -> CoreDriver:
+        made = CoreDriver()
+        drivers.append(made)
+        return made
+
+    result = run_case(case, Services(driver, services.builder), None, None)
+    assert result.report is not None
+    assert not result.report.errored, result.report.error
+    prepared = prepare(case, {})
+    extra = {
+        "name": "missed_steps_x_motor",
+        "check": "value",
+        "quantity": "missed_steps:x_motor",
+        "statistic": "final",
+        "comparison": "within",
+        "target": "0",
+        "limit": "0.25",
+    }
+    scored = prepared.case.model_copy(update={"criteria": [ValueCriterion.model_validate(extra)]})
+    drives = stepper_drives(core_services().builder(prepared.design))
+    score = score_run(scored, drivers[0].recording(), result.report, stepper_drives=drives)
+    reported = score.criteria[0]
+    stalls = _g16_stalls(drivers[0], "x_motor")
+    print(f"G10 from the first sample: x motor stall events {len(stalls)}: first {stalls[:3]}, last {stalls[-3:]}")
+    print(f"  report: missed steps {reported.measured} ({reported.status}, {reported.note}); notes {score.notes}")
+    assert reported.measured is not None, reported.note
+    assert abs(reported.measured) > 0.75
+    assert reported.status == "fail"
 
 
 # ===== ACC-033 to ACC-034 ===================================================
