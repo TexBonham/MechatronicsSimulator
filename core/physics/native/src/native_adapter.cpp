@@ -354,6 +354,7 @@ struct NativeAdapter::Engine {
     std::vector<Eigen::Index> node_bodies;  // member chain bodies, published after the neutral bodies, in order
     std::vector<kernel::JointDrive> previous_drives;  // last tick's enabled drives: joint, end rest, K, D
     std::shared_ptr<DrivenSchemeDecayRecord> scheme_decay;       // joint order, largest over the run
+    std::shared_ptr<EfficiencyDampingRecord> efficiency_damping;  // transmission order, above the factor (E9)
     std::shared_ptr<CarriedRecord> carried;                      // per member, deflection and lag (ENG-052)
 };
 
@@ -455,6 +456,8 @@ void NativeAdapter::load(const kernel::PreparedModel& prepared, const kernel::Ra
     auto e = std::make_unique<Engine>();
     decay_record_->values.clear();
     e->scheme_decay = decay_record_;
+    efficiency_record_->values.clear();
+    e->efficiency_damping = efficiency_record_;
     carried_record_->members.clear();
     e->carried = carried_record_;
     e->rate = physics_rate;
@@ -1018,6 +1021,25 @@ void NativeAdapter::keep_scheme_decay(Engine& e) {
     }
 }
 
+void NativeAdapter::keep_efficiency_damping(Engine& e) {
+    const std::vector<eng::TransmissionOutput>& out = e.provider->outputs().transmissions;
+    for (std::size_t t = 0; t < out.size(); ++t) {
+        const double ratio = out[t].efficiency_damping_ratio;
+        if (!(ratio > kEfficiencyDampingFactor)) {
+            continue;
+        }
+        std::vector<EfficiencyDamping>& kept = e.efficiency_damping->values;
+        auto at = std::ranges::find_if(kept, [t](const EfficiencyDamping& d) { return d.transmission >= t; });
+        if (at == kept.end() || at->transmission != t) {
+            at = kept.insert(at, EfficiencyDamping{t, 0.0, 0.0});
+        }
+        if (ratio > at->ratio) {
+            at->ratio = ratio;
+            at->time = e.state.t;
+        }
+    }
+}
+
 // ===== Step and outputs ==================================================
 
 // The engine overwrites its events every engine step: each step's are appended here, so a tick of several engine
@@ -1108,6 +1130,7 @@ void NativeAdapter::step() {
         converged = converged && e.last_health.converged;
         collect_events(provider.outputs().events, e.events, changes);
         keep_scheme_decay(e);
+        keep_efficiency_damping(e);
         for (std::size_t m = 0; m < e.carried_deflection.size(); ++m) {
             e.carried_deflection[m] =
                 std::max(e.carried_deflection[m], provider.outputs().members[m].carried_deflection);
@@ -1299,6 +1322,10 @@ std::vector<DrivenSchemeDecay> NativeAdapter::driven_scheme_decay() const {
 }
 
 std::shared_ptr<const DrivenSchemeDecayRecord> NativeAdapter::scheme_decay_record() const { return decay_record_; }
+
+std::shared_ptr<const EfficiencyDampingRecord> NativeAdapter::efficiency_damping_record() const {
+    return efficiency_record_;
+}
 
 std::vector<double> NativeAdapter::carried_deflection() const {
     return engine("carried_deflection").carried_deflection;

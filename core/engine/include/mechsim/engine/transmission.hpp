@@ -51,6 +51,41 @@ namespace mechsim::engine {
 //       the efficiency to the end-of-step force, which put energy in whenever the power flow reversed within a step
 //       (a shaft swinging on a belt against a held carriage, brief M3-E6); -c omega_end with c >= 0 never does.
 // PowerFlow keeps its values; Static now means the shaft starts the step at exactly zero speed (or F = 0).
+//  (iv) Release artefact (E9, ruling 94, brief M3-X2i). c is frozen at the step's start rate, so over a step it
+//       removes the impulse c omega_end h where the loss it stands for removes Lambda h, Lambda = beta |L| the loss
+//       torque (beta = 1 / eta_f - 1, 1 - eta_b, or their max at rest). Their ratio is
+//         r = c omega_end / Lambda = abs(omega_end) / max(abs(omega_start), omega_s),
+//       published per step as TransmissionOutput::efficiency_damping_ratio (0 when c = 0). Steady or slowing
+//       motion has r <= 1, the creep of (ii) r < 1; a ramp at constant acceleration a from rest with exact rates
+//       omega_k = k a h has r = (k + 1) / k <= 2 for k >= 1, equality at the first moving step. r > 2 therefore
+//       singles out a rate that more than doubled in one step: the step leaving rest (or nearly so), where the
+//       frozen c over-damps by more than the loss itself. Below 2 the excess impulse in a step is at most the loss
+//       once more (eta 0.95 acting as 0.90 for that step), the slow tail below; above it the line of (v) is owed.
+//       Bound on the lag of a shaft released from rest under a net torque tau (the drive less nothing else, with
+//       tau > Lambda), J its inertia, a = tau / J the acceleration it would have, h the step: backward Euler with
+//       c_k = Lambda / max(omega_k, omega_s) gives
+//         omega_(k+1) = (J omega_k + tau h) / (J + h c_k),
+//         omega_(k+1) - omega_k = a_p h omega_k / (omega_k + omega*)  for omega_k >= omega_s,
+//       with a_p = (tau - Lambda) / J the acceleration the loss allows and omega* = Lambda h / J = beta a h. So step
+//       k gains the physical increment a_p h times omega_k / (omega_k + omega*): it loses omega* / (omega_k +
+//       omega*) of a step, and r_k = omega_(k+1) / omega_k <= tau / Lambda = 1 / beta (the largest r, at the start).
+//       The first step from rest gives omega_1 = omega_s / (beta + J omega_s / (tau h)), about omega_s / beta when
+//       omega_s << omega*, and loses at most one step. While omega_k <= omega* the rate grows each step by at least
+//       (omega* + tau h / J) / (2 omega*) = (1 + beta) / (2 beta), each such step losing at most one step; once
+//       above omega* every step gains at least a_p h / 2 and loses at most omega* / (omega* + omega_k). Summing,
+//       the lag after K steps is at most
+//         N = 1 + ln(beta^2 a h / omega_s) / ln((1 + beta) / (2 beta)) + 1/2
+//             + (2 beta / (1 - beta)) ln(1 + K (1 - beta) / (4 beta))  steps,
+//       the logarithmic tail being the frozen rate's lag in any acceleration (r = 1 + a h / omega above omega_s); the
+//       ln term is dropped when beta^2 a h <= omega_s (no held phase).
+//       G7 on native (lift belt released from rest at 12.022 s): Lambda = 0.0526 x 0.151 N m, c at rest
+//       Lambda / omega_s = 79 N m s/rad, J = 2.8e-5 kg m^2, a = 5390 rad/s^2, beta a h = 0.28 rad/s; N = 1 + 2.17 +
+//       0.5 + 0.93 (K = 1000) = 4.6 steps; the recurrence gives 0.0019, 0.036, 0.61, 4.1 rad/s (recorded 0.002,
+//       0.038, 0.655, 3.86) against a_p h = 5.1 rad/s a step, a rate lag of 3.2 steps after four and 3.6 after
+//       1000, the rotor held near rest (under 0.04 rad/s) for two (the ruling's "about 2 ms"), r = 19 at release.
+//   (v) The proper form, the loss evaluated at the step's end rate by one re-solve as the rope's taut set does
+//       (rope.hpp), removes the artefact; it is milestone 4 item E9. Until then the native adapter publishes, per
+//       transmission and run, the largest r above the factor 2 of (iv) and its time as an approximation line.
 //
 // Self-locking lead screw (rulings 48, 55, ENG-044). The drive T is the shaft's whole own torque at the step start:
 // its generalized-force input (set_generalized_forces), every set_shaft_torque on the shaft, body wrenches reduced
@@ -120,6 +155,9 @@ struct TransmissionOutput {
     // Ruling 21 approximation value: pi omega h, the amplitude fraction backward Euler removes per period of the
     // coupling mode (omega^2 = k b^T H^-1 a at the end state; 0 out of contact); set in step() outputs only.
     double scheme_decay = 0.0;
+    // E9 (iv) above: the impulse the frozen efficiency damping removed over the step against the loss it stands for,
+    // abs(omega_end) / max(abs(omega_start), omega_s); 0 when the step applied no efficiency damping; step() only.
+    double efficiency_damping_ratio = 0.0;
 };
 
 // Coupling at one state, with the linearization the provider adds to f, K and D.

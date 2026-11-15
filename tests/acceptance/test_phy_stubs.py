@@ -17,6 +17,7 @@ from mechsim.testing.core_driver import core_builder
 from mechsim.testing.runner import prepare
 from mechsim.testing.schema import OpenValue, load_suite_file, load_test_case
 from mechsim.units import parse_quantity
+from tests.conftest import CaseRuns
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -411,3 +412,28 @@ def test_differential_rules_per_dimension() -> None:
         "G7 gone: status pass on the bridge, missing on native",
         "G7 flipped: status pass on the bridge, fail on native",
     ]
+
+
+# ===== E9 approximation line on G7 (PHY-031, ruling 94, brief M3-X2i) =========================================
+
+
+@pytest.mark.req("PHY-031")
+@pytest.mark.long_run
+def test_g7_on_native_states_the_lift_belt_efficiency_damping(case_runs: CaseRuns) -> None:
+    """G7 on native releases the lift rotor from rest (the drive cleared at 12.022 s, and again around the home): the
+    frozen efficiency damping (engine transmission.hpp (iv)) then removes far more than the loss it stands for, and
+    the run states it, one line per transmission at most, with the run's largest ratio above the factor 2 and its
+    time. The ratio's value against its derivation is the engine adapter's test; the hold itself is unchanged by the
+    line (hook_held 1.821 mm, the native baseline)."""
+    result, driver = case_runs.get(ROOT / "test_cases" / "gantry" / "G7.yaml")
+    assert result.report is not None
+    assert not result.report.errored, result.report.error
+    lines = [line for line in driver.approximations if "efficiency loss applied as shaft damping" in line]
+    for name in ("x_belt", "y_belt", "lift_belt"):
+        assert len([line for line in lines if line.startswith(f"transmission '{name}':")]) <= 1
+    (lift,) = [line for line in lines if line.startswith("transmission 'lift_belt':")]
+    pattern = r"removed up to ([0-9.e+-]+) times the loss it stands for in one step, at t = ([0-9.e+-]+) s"
+    found = re.search(pattern, lift)
+    assert found is not None
+    print(f"G7 lift_belt efficiency damping: ratio {found.group(1)} at {found.group(2)} s")
+    assert float(found.group(1)) > 2.0

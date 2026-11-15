@@ -553,6 +553,111 @@ TEST_CASE("native adapter: a drive law handed over between ticks adds no energy 
     }
 }
 
+TEST_CASE("native adapter: a belt shaft released from rest publishes its efficiency damping ratio",
+          "[ENG-043][PHY-031]") {
+    // E9 (transmission.hpp (iv), brief M3-X2i). The carriage (m = 2 kg) starts on a belt stretched to m g / k, the
+    // shaft (J = 1e-4) at rest with no drive: the first step releases it. At rest the switch takes the larger loss
+    // beta = max(1 / 0.95 - 1, 1 - 0.95) = 1 / 0.95 - 1, so c = beta n F / omega_s, and the gain is n. Backward Euler
+    // on the shaft row: (J + h c + n^2 (h^2 k + h c_b) (1 - rho)) omega_1 = h n F, rho = (h^2 k + h c_b) / (m + h^2 k +
+    // h c_b) the carriage's share (it starts in equilibrium, F = m g). The ratio published is omega_1 / omega_s, so
+    //   r = n F h / (omega_s J + h beta n F) / (1 + e),  0 <= e <= n^2 (h^2 k + h c_b) / (J + h c)  (1.5e-4 here),
+    // about 1 / beta = 19 because h c >> J: the frozen damping removes 19 times the loss in that step.
+    NativeAdapter adapter;
+    Doc doc = belt("0.0", "0.95");
+    const double m = 2.0;
+    const double k = 1e5;
+    const double c_b = 50.0;
+    const double n = 0.01;
+    const double h = 1e-3;
+    const double J = 1e-4;
+    const double omega_s = 1e-4;
+    const double F = m * g;
+    doc.starts = R"([{"body": 1, "value": )" + std::to_string(-F / k) + "}]";
+    load(adapter, doc);
+    REQUIRE(adapter.efficiency_damping_record()->values.empty());
+    adapter.step();
+    const double beta = 1.0 / 0.95 - 1.0;
+    const double c = beta * n * F / omega_s;
+    const double predicted = n * F * h / (omega_s * J + h * beta * n * F);
+    const double e = n * n * (h * h * k + h * c_b) / (J + h * c);
+    const double omega_1 = std::abs(adapter.outputs().bodies[0].angular_velocity[2]);
+    std::printf("E9 release: r predicted %.6g (1 / beta %.6g), omega_1 / omega_s %.6g\n", predicted, 1.0 / beta,
+                omega_1 / omega_s);
+    const auto record = adapter.efficiency_damping_record();
+    REQUIRE(record->values.size() == 1);
+    CHECK(record->values[0].transmission == 0);
+    CHECK_THAT(record->values[0].time, WithinAbs(h, 1e-15));
+    CHECK_THAT(record->values[0].ratio, WithinRel(omega_1 / omega_s, 1e-12));
+    CHECK(record->values[0].ratio <= predicted * (1.0 + 1e-12));
+    CHECK(record->values[0].ratio >= predicted / (1.0 + e));
+    CHECK(record->values[0].ratio > mechsim::physics::native::kEfficiencyDampingFactor);
+}
+
+TEST_CASE("native adapter: a steadily turning belt shaft publishes no efficiency damping", "[ENG-043][PHY-031]") {
+    // The shaft lifts the carriage at 2 rad/s under a drive whose rest runs at that rate, offset by the forward load
+    // torque n m g / (eta K). Whatever the spin-up records stays as it is (here nothing: its first step starts with
+    // the belt unstretched, F = 0, so no efficiency damping, and the shaft is already moving when the load comes on);
+    // from 0.5 s on the rate stays within [1.5, 2.5] rad/s (checked), so every step's ratio abs(omega_end) /
+    // omega_start is at most 2.5 / 1.5 < 2 and nothing is added.
+    NativeAdapter adapter;
+    load(adapter, belt("0.0", "0.95"));
+    const double rate = 2.0;
+    const double k_drive = 50.0;
+    const double offset = 0.01 * 2.0 * g / (0.95 * k_drive);
+    for (int step = 1; step <= 500; ++step) {
+        drive(adapter, rate * 1e-3 * step + offset, k_drive, 0.5);
+        adapter.step();
+    }
+    const auto record = adapter.efficiency_damping_record();
+    const std::vector<mechsim::physics::native::EfficiencyDamping> spin_up = record->values;
+    double lowest = rate;
+    double highest = rate;
+    for (int step = 501; step <= 1500; ++step) {
+        drive(adapter, rate * 1e-3 * step + offset, k_drive, 0.5);
+        adapter.step();
+        const double omega = adapter.outputs().bodies[0].angular_velocity[2];
+        lowest = std::min(lowest, omega);
+        highest = std::max(highest, omega);
+    }
+    REQUIRE(lowest >= 1.5);
+    REQUIRE(highest <= 2.5);
+    REQUIRE(record->values.size() == spin_up.size());
+    for (std::size_t i = 0; i < spin_up.size(); ++i) {
+        CHECK(record->values[i].ratio == spin_up[i].ratio);
+        CHECK(record->values[i].time == spin_up[i].time);
+    }
+}
+
+TEST_CASE("native adapter: a lossless or unloaded belt publishes no efficiency damping", "[ENG-043][PHY-031]") {
+    // Efficiency 1: the loss and c are zero, so no step applies efficiency damping. Gravity off and nothing applied:
+    // F = 0, so c = beta n abs(F) / omega_s = 0 as well. A reload clears the record.
+    NativeAdapter adapter;
+    Doc released = belt("0.0", "1.0");
+    released.starts = R"([{"body": 1, "value": -1.962e-4}])";
+    load(adapter, released);
+    for (int step = 0; step < 50; ++step) {
+        adapter.step();
+    }
+    CHECK(adapter.efficiency_damping_record()->values.empty());
+    NativeAdapter idle;
+    Doc unloaded = belt("0.0", "0.95");
+    unloaded.gravity = "[0, 0, 0]";
+    load(idle, unloaded);
+    for (int step = 0; step < 50; ++step) {
+        idle.step();
+    }
+    CHECK(idle.efficiency_damping_record()->values.empty());
+    NativeAdapter again;
+    Doc lossy = belt("0.0", "0.95");
+    lossy.starts = R"([{"body": 1, "value": -1.962e-4}])";
+    load(again, lossy);
+    again.step();
+    REQUIRE(again.efficiency_damping_record()->values.size() == 1);
+    again.reset();
+    load(again, lossy);
+    CHECK(again.efficiency_damping_record()->values.empty());
+}
+
 // ===== Drives through transmissions (PHY-034, ruling 39; PHY-006, PHY-018) ===
 
 namespace {

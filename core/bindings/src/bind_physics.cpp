@@ -274,6 +274,21 @@ void bind_adapter(py::module_& m) {
             },
             "A copy: [(joint, decay)] in joint order.");
 
+    py::class_<physics::native::EfficiencyDampingRecord, py::smart_holder>(
+        m, "EfficiencyDampingRecord",
+        "Per transmission, the native run's largest efficiency damping ratio above the factor 2 and its time (E9).")
+        .def(
+            "values",
+            [](const physics::native::EfficiencyDampingRecord& record) {
+                std::vector<std::tuple<std::size_t, double, double>> out;
+                out.reserve(record.values.size());
+                for (const physics::native::EfficiencyDamping& d : record.values) {
+                    out.emplace_back(d.transmission, d.ratio, d.time);
+                }
+                return out;
+            },
+            "A copy: [(transmission, largest ratio, time s)] in transmission order.");
+
     py::class_<physics::native::CarriedRecord, py::smart_holder>(
         m, "CarriedRecord",
         "The native run's carried-joint deflection, lag stability, work and validity per member, shared (ENG-052).")
@@ -325,6 +340,14 @@ void bind_adapter(py::module_& m) {
                 return std::const_pointer_cast<physics::native::DrivenSchemeDecayRecord>(adapter.scheme_decay_record());
             },
             "The same values as a shared record: take it before PhysicsParty takes the adapter, read it after the run.")
+        .def(
+            "efficiency_damping_record",
+            [](const physics::native::NativeAdapter& adapter) {
+                return std::const_pointer_cast<physics::native::EfficiencyDampingRecord>(
+                    adapter.efficiency_damping_record());
+            },
+            "Per transmission whose frozen efficiency damping removed more than twice its loss in some step (E9): "
+            "take it before PhysicsParty takes the adapter, read it after the run.")
         .def(
             "carried_record",
             [](const physics::native::NativeAdapter& adapter) {

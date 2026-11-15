@@ -68,6 +68,9 @@ Efficiency (ruling 47): gain n (1 + s_w alpha), s_w = min(|omega| / omega_s, 1),
 explicit gain exact n / eta_f, n eta_b at and above omega_s; g_k = n always and the shaft gets implicit damping
 c = |alpha| n |F| / max(|omega|, omega_s) (larger loss at omega = 0), so the loss never adds energy (M3-E6). Static sag n F / K exact; creep tau_f = (n F (1 / eta_f - 1) /
 omega_s + D_d) / K, tau_b = (n F (1 - eta_b) / omega_s + D_d) / K. `Static` = shaft at exactly zero speed (or F = 0).
+E9 (header (iv), brief M3-X2i): `TransmissionOutput::efficiency_damping_ratio` = abs(omega_end) / max(abs(omega_start),
+omega_s) per step (0 without efficiency damping at the step start); above 2 only for a shaft leaving rest; lag bound
+in the header; the end-rate re-solve is milestone 4.
 Self-locking screw (ruling 48): `lock_rows_` from `evaluate` (transmission order), scalar row s omega >= 0 after the
 limit rows in `solve_constraints`, absent when the shaft's own torque T (tau, body wrenches, drive and model joint
 spring-damper) has T L > 0 (lowering: gain 0); two-sided only at omega == 0 with F = 0 and T = 0 (ruling 55); `TransmissionOutput::lock_torque` = s lambda / h; Locked when P >= 0 and T L >= 0

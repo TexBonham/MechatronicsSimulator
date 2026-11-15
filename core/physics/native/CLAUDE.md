@@ -18,6 +18,7 @@ Implements `kernel::PhysicsAdapter` over `engine::MultibodyProvider` + `SemiImpl
 | `set_transmission_slip(t, s)` | s in [0, 1] -> `set_slip` |
 | `integrator()`, `timestep()`, `events()`, `rope_segment_tensions()`, `rope_load_end_tensions()` | Extras for tests and later briefs (PHY-004, I2) |
 | `carried_deflection()` | Per member (document order): the largest `MemberOutput::carried_deflection` of any engine step since load, m (ENG-052, PHY-035); members read optional `carried` (neutral body indices) into `LumpedBeam::carried`; optional top-level `carried_evaluation_start` (s, finite, at least 0) into `MultibodyConfig::carried_evaluation_start` (ruling 74); `carried_record()` a shared `CarriedRecord` per member (deflection, lag ratio, omega h, factor; work, peak force, peak quasi-static deflection, peak ratio, unresolved, unresolved time from the engine's last `MemberOutput`, brief M3-E7c; the only route out, the kernel types do not carry them) read by `CoreDriver` after the run |
+| `efficiency_damping_record()` | Shared `EfficiencyDampingRecord{values}` of `EfficiencyDamping{transmission, ratio, time}`, transmission order: each transmission whose engine `efficiency_damping_ratio` exceeded `kEfficiencyDampingFactor` (2) in some engine step since load, the largest and its step's end time (E9, ruling 94, brief M3-X2i); reset by `load`; bound as `NativeAdapter.efficiency_damping_record()`, read by `CoreDriver` after the run |
 | `driven_scheme_decay()` | `DrivenSchemeDecay{joint, decay}` per joint that carried an enabled drive since load, joint order: the largest engine `JointOutput::scheme_decay` (pi omega h) of any engine step (rulings 44, 45; bound as `NativeAdapter.driven_scheme_decay()`, `scheme_decay_record()` the same values as a shared `DrivenSchemeDecayRecord` that outlives the adapter, reset by `load`, read by `CoreDriver` after the run) |
 
 ## Extras (`ExtendedProvider`, implicit through K and D)
@@ -41,16 +42,16 @@ characters in strings are ParseErrors; nesting capped at 64 levels; empty or tru
 | Helpers | src/native_adapter.cpp | 69 |
 | Joint extras | src/native_adapter.cpp | 238 |
 | Engine | src/native_adapter.cpp | 325 |
-| Adapter (load) | src/native_adapter.cpp | 420 |
-| Inputs | src/native_adapter.cpp | 870 |
-| Step and outputs | src/native_adapter.cpp | 1021 |
-| Mid-run changes | src/native_adapter.cpp | 1309 |
+| Adapter (load) | src/native_adapter.cpp | 421 |
+| Inputs | src/native_adapter.cpp | 873 |
+| Step and outputs | src/native_adapter.cpp | 1043 |
+| Mid-run changes | src/native_adapter.cpp | 1336 |
 | Fixtures and helpers | tests/test_native_adapter.cpp | 32 |
 | Joint drives | tests/test_native_adapter.cpp | 215 |
 | Friction and limits | tests/test_native_adapter.cpp | 272 |
 | Transmissions | tests/test_native_adapter.cpp | 412 |
-| Drives through transmissions | tests/test_native_adapter.cpp | 556 |
-| Payloads and mid-run changes (rope-hung payloads) | tests/test_native_adapter.cpp | 1001 |
-| Members and ropes | tests/test_native_adapter.cpp | 1199 |
-| Model change events | tests/test_native_adapter.cpp | 1388 |
-| JSON reader | tests/test_native_adapter.cpp | 1574 |
+| Drives through transmissions | tests/test_native_adapter.cpp | 661 |
+| Payloads and mid-run changes (rope-hung payloads) | tests/test_native_adapter.cpp | 1106 |
+| Members and ropes | tests/test_native_adapter.cpp | 1304 |
+| Model change events | tests/test_native_adapter.cpp | 1493 |
+| JSON reader | tests/test_native_adapter.cpp | 1679 |

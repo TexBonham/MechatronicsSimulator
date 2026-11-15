@@ -21,6 +21,7 @@ from mechsim.physics.native.translate import (
     MODE_RESOLUTION,
     SLIP_VELOCITY,
     driven_mode_lines,
+    efficiency_damping_lines,
     member_node_names,
     mode_text,
     translate,
@@ -207,6 +208,49 @@ def test_the_decay_record_is_readable_after_the_kernel_is_released() -> None:
 def test_the_largest_decay_of_the_run_is_kept_and_an_undriven_run_keeps_none() -> None:
     assert _run_decays(0.0, 0) == []
     assert driven_mode_lines(_driven_model(None, (1.0, 0.0, 0.0)), []) == ()
+
+
+# ===== Efficiency damping line from a real run (PHY-031, ruling 94, E9) ===
+
+
+def _efficiency_record(efficiency: float, ticks: int = 30) -> list[tuple[int, float, float]]:
+    """The belt model with the carriage hanging on it (axis along gravity, -y), released from rest undriven: the
+    load back-drives the shaft from rest, the step the engine's frozen efficiency damping over-damps (transmission.hpp
+    (iv)). The record is taken before the run and read after it."""
+    model = _driven_model(_belt(efficiency), (0.0, 1.0, 0.0))
+    prepared = prepare_model(model, None, H)
+    adapter = core.make_physics_adapter("native")
+    assert isinstance(adapter, core.NativeAdapter)
+    adapter.load(core.PreparedModel(prepared.model_json, "", prepared.version), core.Rate(1000))
+    record = adapter.efficiency_damping_record()
+    for _ in range(ticks):
+        adapter.step()
+    return [(int(index), float(ratio), float(time)) for index, ratio, time in record.values()]
+
+
+@pytest.mark.req("PHY-031")
+def test_a_belt_released_from_rest_states_its_efficiency_damping_ratio_once() -> None:
+    # One line per transmission and run: the run's largest ratio (above the factor 2 by the record's definition) and
+    # its time, inside the run. The ratio's value against its derivation is the engine adapter's test (native adapter:
+    # a belt shaft released from rest, [ENG-043][PHY-031]); here the record reaches the line through the binding.
+    values = _efficiency_record(0.95)
+    assert len(values) == 1
+    index, ratio, time = values[0]
+    assert index == 0
+    assert ratio > 2.0
+    assert 0.0 < time <= 30 * H
+    model = _driven_model(_belt(0.95), (0.0, 1.0, 0.0))
+    (line,) = efficiency_damping_lines(model, values)
+    assert line.startswith("transmission 'belt': efficiency loss applied as shaft damping frozen at the step's start")
+    assert f"removed up to {ratio:.4g} times the loss it stands for in one step, at t = {time:.6g} s" in line
+    assert "flagged above 2" in line
+    assert "milestone 4 item E9" in line
+
+
+@pytest.mark.req("PHY-031")
+def test_a_lossless_belt_states_no_efficiency_damping_line() -> None:
+    assert _efficiency_record(1.0) == []
+    assert efficiency_damping_lines(_driven_model(_belt(1.0), (0.0, 1.0, 0.0)), []) == ()
 
 
 # ===== Node pose series through CoreDriver (PHY-003, PHY-012, PHY-021) =====
