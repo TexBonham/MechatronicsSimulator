@@ -7,10 +7,10 @@
 # the shaft's rotation, less the drive's lead) and the torque margin (`torque_margin:<motor>`, SCO-032: the part's curve
 # at the recorded shaft speed less the recorded shaft load torque, minimum and its time; brief M3-X2e). Their limits
 # are the physics, not tuning: a sizing case passes when no motor loses a step (the final count is 0 within a quarter
-# step, half a step identifying a whole count uniquely) and every margin stays positive. Both judge the evaluation
-# window from `integrity.evaluate_from` (9 s; ruling 91): the lift belt starts unstretched and its release transient
-# is milestone 4's static start, so the steps lost and the least margin before 9 s are a before-evaluation note per
-# motor in the report, not a verdict. The acceptance test keeps the a-priori demand below as its cross-check (ACC-031).
+# step, half a step identifying a whole count uniquely) and every margin stays positive. Both judge the span between
+# rest samples from the last rest at or before `integrity.evaluate_from` (9 s) to the final sample (ruling 93): the
+# lift belt starts unstretched and its release transient is milestone 4's static start, so the steps lost and the
+# least margin before that rest are a before-span note per motor in the report, not a verdict. The acceptance test keeps the a-priori demand below as its cross-check (ACC-031).
 #
 # Timeline (gantry team limits 2026-11-11: 0.05 m/s^2 ramps, 0.1 m/s cruise, 50 mm slow zones at 0.05 m/s; homing
 # 0.02 m/s): homing from 0.1 m on each axis is done by 5.25 s. Part (a), the lift: `lift` to 30 cm at 6 s, from the
