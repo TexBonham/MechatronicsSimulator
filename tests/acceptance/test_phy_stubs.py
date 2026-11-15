@@ -254,8 +254,8 @@ def gantry_misses() -> list[str]:
 #   (-0.670). The engine at the head (E8 merged, 8803705: the rope takes up within the step) records 1.821 mm
 #   (model 1.811 mm), so G7 now differs from the bridge by 0.357 mm, inside its 0.436 mm tolerance; the baseline
 #   regenerated after E8 (M3-X2h) holds 1.82075 mm (G9 1.82062 mm). With the engine of 3c06a8e built in place, G7 on
-#   native records 1.14623 mm, the pre-E8 value of record to 2 nm (brief M3-X2g run). Mechanism (a) remains: a
-#   possible engine artefact recorded for the owner (ruling 94, E9), not a miss.
+#   native records 1.14623 mm, the pre-E8 value of record to 2 nm (brief M3-X2g run). Mechanism (a) remains, bounded
+#   and published per run (brief M3-X2i, engine transmission.hpp (iv); G7 lift belt ratio 19.97), not a miss.
 #   Ruled out: the stepper's viscous damping (SIG-033 publishes a disabled drive with D = 0; the reduced model needs
 #   none), the belt's modal damping (4.03 N s/m on the stretch rate, 0.01 of critical), the brake's engagement (the
 #   same 20 ms on both adapters; it only ends the fall).
