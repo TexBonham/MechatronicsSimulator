@@ -4,10 +4,10 @@ design:
 suite: gantry
 note: "placeholder-geometry: G1 to G16 on the native adapter, the default since M3-X2 (bridge values of record in bridge_baselines/,
   PHY-025; the native side of that comparison frozen as bridge_baselines/native_at_retirement.yaml, ruling 99 (c)); integrity
-  counts from the suite's one evaluation start, 1 s since M3-GV (README.md); G16 its nominal run (the sweep runs are not
-  baselined); the sourced replaceable parts of briefs M3-GV and M3-GV2 (2040 rails damped 0.02, StepperOnline motors, Gates
-  GT2 belts damped 0.01, 7x19 stainless rope, TAL220B cell with an HX711-class front end at the 2 Hz placeholder), G15's
-  settled targets re-derived on the 2040 section; regenerated whole by M3-GV2, README.md baseline note"
+  counts from the suite's one evaluation start, 1 s since M3-GV (README.md); G16 its nominal run (the sweep runs are not baselined);
+  the sourced replaceable parts of briefs M3-GV and M3-GV2 (2040 rails damped 0.02, StepperOnline motors, Gates GT2 belts
+  damped 0.01, 7x19 stainless rope, TAL220B cell with an HX711-class front end at the 2 Hz placeholder), G15's settled targets
+  re-derived on the 2040 section; regenerated whole by M3-GV2, README.md baseline note"
 entries:
   - case: G1
     criterion: hold_band
