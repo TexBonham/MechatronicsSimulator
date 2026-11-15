@@ -136,6 +136,67 @@ are below for reference; round 4's cost rows are in `docs/cost-log-archive.md`.
 | 96 | X2h (wip/05-x2 1e614d5; X2g merged; items 0 to 6 done). Native baseline regenerated after E8: 99 entries, none added or removed, no status changed; 15 values moved, all in rope cases, cause E8 (G7 `hook_held` 1.146 to 1.821 mm, G9 `load_held` 1.146 to 1.821 mm; G5, G6, G7 resume positions under 5 um; G12 swings up to 1e-4 rad and one settle 1 ms; G15 rail_x safety factor 1.424 to 1.436, still failing its placeholder). Misses of record now four, all G10: `slip_carriage_stopped` 21.16 against 20.43 mm (0.2 mm), `stall_fault` 9.161 against 9.153 s, `slip_fault` 31.427 against 31.407 s, `stall_rehomed` 12.044 against 12.030 s (3 ms); PHY-024 a strict expected failure; criterion 2 of the retirement table: not met, the owner decides whether the G10 finding and E9 stand in the way. In-motion demonstration (ruling 95): weak x part at factor 0.05, homing demand 0.0335 N m against 0.0198 available, 499 whole steps lost from 0.109 to 5.203 s while stepping, report missed -498.89 and margin -0.0008 N m (both fail as intended); G10's stalled motor 48.35 steps. ACC-032 confirmed: every span count 0; the NEMA 17 lift's one step and -0.1229 N m before the 6.048 s rest in the before-span note. Three findings: (1) an evaluation start of 0 s has no rest sample at or before it (the first record sample is at 1 ms), so the test copies use 1 ms; (2) `stepper.cpp` sets `stalled` only on a tick with no commanded microstep, so a pull-out while stepping raises no stall event (SIG-033; the record's count shows it); (3) `--write-baseline` drops the file's `note:` (put back by hand). | (1) and (3) to the re-review as minors (a start of 0 should take the first sample; the writer keeps the note); (2) to the owner's close-out list with E9 (the stall event's definition is a signal-layer behaviour change). X2 is re-reviewed on resume for X2f, X2g, X2h, then verified whole and landed. | planned default |
 | 97 | Re-review of X2f, X2g, X2h (accept all three; nothing blocks landing). Checked and right: the span rule as coded against SCO-031 and SCO-032 (rest, last rest at or before the start, the final-sample error, the before-span line); the builder re-check passes the run's registry to a validator that already accepted it, shipped registry the default; mechanism (a) is ruling 47's frozen-rate efficiency, c = 0.0526 x 0.151 / 1e-4 = 79 N m s/rad, the reduced model 1.140 against 1.146 before E8 and 1.811 against 1.821 at the head, 0.357 mm inside 0.436; the baseline 99 entries before and after, 19 values moved (15 rope entries by E8, 4 G16 by the span rule), the companion list the four G10 misses; the weak part in a tmp catalog through `core_services(registry=)`; R-18 and invariants 2, 3, 4. Minors for the close-out list: `_span_start` with a start at or before the first sample (0 s, or a case without an `integrity` block) finds no sample and every stepper quantity is unevaluable, where it should take the first sample when at rest (SCO-031); `torque_margin` now requires a step and direction driver without SCO-032 saying so; `mechsim suite --write-baseline` drops the file's `note:` (TST-027, code outside X2h). For the owner: `stepper.cpp` raises `stalled` only on a tick with no commanded microstep, so a pull-out while stepping loses whole steps the count shows but no event flags (SIG-033). | The three minors and the stall-event definition go to the milestone 3 close-out list (a short brief after the gate or in milestone 4, owner's call). X2 lands after the invariant audit and the full verification. | planned default |
 
+## Milestone 3 gate report (coordinator, 2026-11-14)
+
+Fable gate review at 66d8b26 (the X2 landing; `docs/briefs/round-05/review-m3-gate.md`, inputs in `gate-inputs.md`):
+**pass with owner confirmations**. The gate as `docs/milestones.md` states it is met: G12, G15 and G16 run in the
+16-case suite on the native adapter (the default), with G12's limits and the minimum safety factor still the gantry
+team's placeholders. The statement is honest: the baseline records G12's settle times as fail (derived 1135 s against
+the 5 s placeholder, ruling 64), G15's rail_x safety factor 1.436 against 1.5 as fail and every rail_y criterion as
+error (not valid under one-way coupling, rulings 69, 81, 82); ACC-026, 029 and 030 stay strict expected failures
+carrying the three-step-size record. No case passes through a hidden placeholder: G12's swing peaks pass their a-priori
+bounds (0.045 against 0.068 rad), not only the 0.1 rad limit. G16 passes against the placeholder torque tables, so its
+sizing result is against placeholder data, flagged.
+
+Numbers of record at the landing: reference tier C++ 61 of 61 under the sanitizers, Python 105 passed and 4 strict
+stubs, the pendulum period identical on both adapters (1.159849 s against 1.1596536 closed form); ctest debug-sanitize
+622 of 622; Python 4722 passed and 89 xfail (fast tier, 874 s) and 36 passed and 4 xfail (long tier, 3558 s); lint,
+format, types, imports clean; Opus invariant audit of the round clean (two optional minors); pre-landing Sonnet audit
+clean. CI on the round branch at 66d8b26: firmware green on both runners, python and python-windows green, python-long
+and the three cpp jobs still running when this report was written; the gate commit waits for green.
+
+Retirement (ADR 0004), for the owner's decision. Criterion 1 met: PHY-023 on native, PHY-021 passes, native against
+bridge pose 0.0 and reaction 2e-4 N under 1.9e-3. Criterion 2 not met: four misses of record, all G10, asserted exactly
+by the companion test: `stall_fault` 8 ms and `slip_fault` 20 ms early on native where the belt's stretch predicts 3.4
+and 9.4 ms (a finding; the firmware's mismatch was not rebuilt from the archives), `stall_rehomed` and
+`slip_carriage_stopped` its consequences. G7 and G9 are explained by two named engine mechanisms (the frozen-rate
+efficiency damping of ruling 47 and the pre-E8 slack rule), reduced model 1.811 against 1.821 mm, inside 0.436 mm.
+E9: that frozen-rate damping (79 N m s/rad at rest) removes most of a released rotor's momentum in the first steps, an
+engine fidelity artefact with no bound and no approximation line yet, which today shrinks a native-only difference.
+What the evidence shows: 13 of 15 bridge baselines inside their own per-axis tolerances, every miss listed with its
+cause. Not shown: G10's remainder, E9's bound, any differential beyond the gantry cases. The ADR 0004 fallback is not
+needed (contact and reference hold). The removal plan (`mujoco-removal.md`) executes as one commit after the decision;
+the review adds to it: `engine_artifact` in `core/kernel` `physics_adapter.hpp:32`, the `<mujoco/>` literals in the
+kernel and native adapter tests, `mechsim/physics/__init__.py`, `core_wiring.py:824`, the determinism test's
+docstrings, the README build notes (MuJoCo 3.9.0 pin), `core/physics/README.md`, the `CLAUDE.md` files naming the
+bridge, the invariant auditor's agent file, `designs/gantry/design.yaml:1085`, the PHY-015 stub.
+
+Silent dependency: the 9 s evaluation start derives from the placeholder damping 0.01 and the 50 Hz calibration and
+must be re-derived when the gantry team's values land; `docs/gantry-team-inputs.md` still says 8 s.
+
+Owner confirmations needed (change milestone 1 or 2 behaviour, or the architecture): rulings 2 (ADR 0016 as amended
+by 14, 15, 22, 87, 89), 3, 4, 5, 13, 14, 21, 24, 37, 40, 41, 63, 66, 69, 70, 72, 75, 79, 80, 87, 89, 93. Batch and
+retirement: 1, 83, 86, 90, 92, 94, 97, the ADR 0004 close. Gantry team: 6, 64, 78, the rail section and calibration
+inconsistency, belt damping, the torque curves, the rope's 5 kN and 1 g fitting, the 2 mm mismatch threshold (which
+drives G10's timing), the settle limit and band, a section meeting SF 1.5. Process: 11, 12, 36, 56, 62, 88.
+
+Carry to milestone 4 by ID: ACC-025's step-train companion, ACC-026, ACC-029, ACC-030, ACC-038, PHY-024 (until the
+decision), PHY-015 (retires), LIB-009, SIG-031, SIG-033 (the stall event raised only on a tick with no commanded
+microstep), SCO-031 (`_span_start` at or before the first sample), SCO-032 wording, TST-027 (`--write-baseline` drops
+the note), ENG-052's moment channel and travel check (ruling 68), E9, the static start (87), two-axis bending (65),
+full coupling (69), the second-order integrator tier (21), true stick (38), INT-005 plate theory, release designs
+(62), the payload's identity as a document field and the two-rope release (84), the run-cache content hash (97).
+
+Cost: round 5 is about 17.1M tokens against 6.0M to 6.8M planned and an 8.0M budget (the owner lifted the constraint
+at ruling 69). The three largest overruns: the X1 gantry wave with its engine and integrity follow-ups (X1a to X1h,
+E6 to E7g, I3 to I5d, D2 to D2d and their reviews) about 7.9M against 0.35M planned; the X2 wave (X2 to X2h, N5, B3,
+E8) about 3.1M against 0.35M; the N wave (N to N4, E5) about 2.3M against 0.4M. The pattern: each integration wave
+found engine and integrity physics the plan had not scoped (moving loads on flexible members, not-valid results,
+damping as data, the rope slack rule) and fixed it in the round rather than carrying it.
+
+Round close (W-07) after the owner's review: archive the round 5 cost rows, sweep the contract `CLAUDE.md` files,
+retire the gate briefs' placeholders, and the MuJoCo removal commit if the owner retires the bridge.
+
 ## Round 4 rulings, reference (owner 2026-11-11: every ruling confirmed at its planned default; ruling 2 stays a placeholder with I2C and SPI peripheral modes added to the milestone 4 scope)
 
 | # | Question | Planned default | Status |
