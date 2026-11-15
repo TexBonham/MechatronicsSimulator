@@ -576,7 +576,7 @@ components:
         direction: consumes
   - name: x_belt
     type: belt_pulley
-    part: gt2_20t_6mm_generic
+    part: gates_gt2_2mr_6mm_20t
     # PLACEHOLDER owed by the gantry team (ruling 78, docs/gantry-team-inputs.md): damping ratio of the driven mode on
     # the belt, fixed in advance at the low end for fibre-reinforced timing belts, not adjusted to any result.
     overrides:
@@ -609,7 +609,7 @@ components:
         direction: consumes
   - name: y_belt
     type: belt_pulley
-    part: gt2_20t_6mm_generic
+    part: gates_gt2_2mr_6mm_20t
     # PLACEHOLDER owed by the gantry team (ruling 78, docs/gantry-team-inputs.md): damping ratio of the driven mode on
     # the belt, fixed in advance at the low end for fibre-reinforced timing belts, not adjusted to any result.
     overrides:
@@ -645,7 +645,7 @@ components:
   # 3200 microsteps / 0.04 m = 80 000. Ruling 26's 8 mm lead is moot for the gantry.
   - name: lift_belt
     type: belt_pulley
-    part: gt2_20t_6mm_generic
+    part: gates_gt2_2mr_6mm_20t
     # PLACEHOLDER owed by the gantry team (ruling 78, docs/gantry-team-inputs.md): damping ratio of the driven mode on
     # the belt, fixed in advance at the low end for fibre-reinforced timing belts, not adjusted to any result.
     overrides:
