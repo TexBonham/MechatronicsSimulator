@@ -7,7 +7,9 @@ the existing data slots, flagged replaceable, so every case is testable, whereve
 the team. CAD import is milestone 4: section parameters in the design file stand in for geometry.
 
 Fresh agent. Agent: module-writer (Opus). Worktree `../MechatronicsSimulator-05-gv` on `wip/05-gv`, cut from
-`round/05-milestone-3` after X2i lands (no build: `tools/locked_build.sh sync` first). Call cap 120 with the handoff
+`round/05-milestone-3` at 56b3b52 (no build: `tools/locked_build.sh sync` first); brief X2i runs concurrently in
+`../MechatronicsSimulator-05-x2i` (it changes no recorded value: a report line and documentation), so the coordinator
+re-checks the baseline comparison once after the two merge; do not touch that worktree. Call cap 120 with the handoff
 rule (at 110 calls stop adding scope, commit what is green, report what is left by item). Read first:
 `docs/gantry-team-inputs.md` (every slot, where it lives, what is answered), `designs/gantry/design.yaml`,
 `designs/gantry/integrity.yaml`, `mechsim/library/CLAUDE.md` and the catalog files `stepper_behavioral.yaml`,
