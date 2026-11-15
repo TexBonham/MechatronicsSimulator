@@ -385,7 +385,8 @@ def test_support_pair_without_a_lumped_form_fails(supports: list[str]) -> None:
 
 @pytest.mark.req("BLD-005")
 def test_belts_become_neutral_transmissions() -> None:
-    """Catalog ratio is travel per shaft turn in SI m/rad: belt pulley radius = the ratio's SI value (40 mm per 2 pi rad) on every axis, the lift
+    """Catalog ratio is travel per shaft turn in SI m/rad: belt pulley radius = the ratio's SI
+    value (40 mm per 2 pi rad) on every axis, the lift
     included (gantry team 2026-11-11: no lead screw). Ratio, efficiency, stiffness and backlash are the values of the
     catalog part the design names on each belt (ruling 99 (a): read from the data, never a literal)."""
     design = filled_gantry()

@@ -15,10 +15,10 @@ import numpy as np
 import pytest
 
 from mechsim import _core as core
-from mechsim.library.registry import default_registry
 from mechsim.builder import BuildError
 from mechsim.builder.payload import PAYLOAD_CLEARANCE, PAYLOAD_EDGE, with_payload
 from mechsim.design.chip import shipped_chips
+from mechsim.library.registry import default_registry
 from mechsim.physics.mujoco.prepare import prepare_model
 from mechsim.testing import core_wiring
 from mechsim.testing.core_driver import CoreDriver, core_builder, model_columns

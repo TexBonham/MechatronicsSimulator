@@ -194,7 +194,8 @@ def test_a_brake_the_bridge_cannot_apply_ends_the_build_naming_brake_and_joint()
 @pytest.mark.req("BLD-034")
 def test_every_stepper_gets_its_shaft_body_and_axial_inertia() -> None:
     """The builder sets the shaft body's axial inertia to the rotor inertia (BLD-034), so the value passed is the
-    rotor_inertia of the catalog part the design names on each motor (ruling 99 (a): read from the data) to the round-off of a^T I a over a z axis (one
+    rotor_inertia of the catalog part the design names on each motor (ruling 99 (a): read from the data)
+    to the round-off of a^T I a over a z axis (one
     product and a few zero sums)."""
     built = core_builder(prepare(G3).design)
     assert built.physics is not None

@@ -138,7 +138,8 @@ def test_a_carried_mass_lowers_the_first_mode_most_at_the_cantilever_tip() -> No
 def test_the_gantry_rails_state_the_placeholder_ratio_fixed_in_advance() -> None:
     """Ruling 78: each rail states its modal damping ratio as design data, fixed in advance (since brief M3-GV the
     sourced 0.02 of a bolted aluminium frame, replaceable), one ratio for the frame: both rails state the same value,
-    above 0 (zero loss is unphysical, ruling 78) and below critical. Read from the design, never a literal (ruling 99)."""
+    above 0 (zero loss is unphysical, ruling 78) and below critical.
+    Read from the design, never a literal (ruling 99)."""
     design = gantry()
     ratios = {body.name: body.flexible.damping_ratio for body in design.bodies if body.flexible is not None}
     assert sorted(ratios) == ["rail_x", "rail_y"]

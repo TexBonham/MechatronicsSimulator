@@ -194,7 +194,8 @@ def _design_load() -> str:
 
 @pytest.mark.req("BLD-040", "BLD-041", "PHY-037")
 def test_every_damped_member_and_belt_prints_stated_built_and_loaded_ratios(gantry_lines: tuple[str, ...]) -> None:
-    """Rulings 80, 82: each line prints the data's ratio exactly as stated (read from the design), the ratio realised at build time and
+    """Rulings 80, 82: each line prints the data's ratio exactly as stated (read from the design), the ratio
+    realised at build time and
     the ratio realised with the run's bodies. The mass is what the engine carries (ENG-052's m_c): the joint tree below
     the root and the member chains rooted in it. The design load hangs on payload_rope below the hook, parented to the
     world: not in any tree, never counted (a pendulum to the member's and the belt's mode). The rope's end fitting

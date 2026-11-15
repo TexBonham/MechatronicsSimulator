@@ -14,9 +14,9 @@ from typing import Any
 
 import numpy as np
 import pytest
+from ruamel.yaml import YAML
 
 import mechsim.integrity.service as integrity_service
-from ruamel.yaml import YAML
 from mechsim.cli import default_services, main
 from mechsim.integrity.beam import STUB, carried_at
 from mechsim.integrity.plugin import RunInputs
