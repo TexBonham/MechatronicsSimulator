@@ -66,6 +66,17 @@ joints (SimScale's table, which cites no origin; bolted steel at low amplitude 0
 fixed in advance. At the 1 ms default step both first modes are unresolved (x = 5.67 and 2.52); G12 and G15 run at 100
 microseconds (x = 0.567, 0.252).
 
+G15's settled-deflection targets (ruling 99 (b), brief M3-GV2): the closed form for each rail's section and supports
+at mid-travel under its own weight, its carried weight and the design load, the method of the G15 header, re-derived
+whenever the section changes. E I = 69e9 x 4.5162e-8 = 3116.178 N m^2, w = rho A g = 2690 x 2.853e-4 x 9.81 = 7.528753
+N/m (the section's, not a calibrated chain's), P = (5.2164 kg design load + 0.3 m x 0.011161 kg/m rope + 0.001 kg end
+fitting) g = 51.21554 N, P_c = 1.68236 kg g = 16.50395 N (rail_y and all on it, the engine's carried mass), P_t =
+0.917467 kg g = 9.000351 N (trolley, lift, hook); L = 0.5 m. rail_x (clamped-clamped): w L^4 / (384 E I) + (P_c + P)
+L^3 / (192 E I) = 1.4541401e-5 m (was 1.0976722e-3 m on the placeholder section); rail_y (pinned-roller): 5 w L^4 /
+(384 E I) + (P_t + P) L^3 / (48 E I) = 5.2288134e-5 m (was 7.384859e-4 m). The settled runs before the change read
+1.45415e-5 and 5.22721e-5 m (+0.001 and -0.03 percent). Static moments (P_c + P) L / 8 + w L^2 / 12 = 4.389 N m and
+(P_t + P) L / 4 + w L^2 / 8 = 7.762 N m, stresses M c / I with c = 0.02 m: 1.944 and 3.438 MPa.
+
 Load cell chain. TAL220B 5 kg (1.0 mV/V rated output, 5 V excitation, ultimate overload 150 percent = 73.575 N)
 through an HX711-class front end (gain 128 or 64, 10 or 80 SPS; RATE high, 80 SPS, is chosen for the overload
 detection's latency). The cell gives 1.0e-3 x 5 V / 5 kg = 1e-3 V/kg; the firmware's 600 counts per kg on the

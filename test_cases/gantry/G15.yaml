@@ -166,7 +166,8 @@ criteria:
       start: 14 s
       end: 15 s
     comparison: within
-    target: 1.0976722e-3 m
+    # Closed form on the 2040 section (README, brief M3-GV2; 1.0976722e-3 m on the placeholder section before).
+    target: 1.4541401e-5 m
     relative_limit: "0.02"
   - name: deflection_rail_y
     check: value
@@ -184,5 +185,6 @@ criteria:
       start: 14 s
       end: 15 s
     comparison: within
-    target: 7.384859e-4 m
+    # Closed form on the 2040 section (README, brief M3-GV2; 7.384859e-4 m on the placeholder section before).
+    target: 5.2288134e-5 m
     relative_limit: "0.02"

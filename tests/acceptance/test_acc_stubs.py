@@ -18,6 +18,7 @@ from ruamel.yaml import YAML
 
 from mechsim.cli import default_services, main
 from mechsim.library.registry import Registry, default_registry, load_registry
+from mechsim.design.schema import shipped_materials
 from mechsim.library.schema import CATALOG_DIR
 from mechsim.scoring.score import CriterionResult, available_torque, score_run
 from mechsim.testing.core_driver import CoreDriver, core_services
@@ -905,34 +906,96 @@ def test_acc_028(gantry: dict[str, RunResult]) -> None:
 # 69), never pass or fail. Ruling 73's conditions for a result of record: (a) the verdicts restated with deflection
 # and stress scaled by 2.04 over the member's peak dynamic ratio, checked here; (b) the verdicts reproduced at 10, 20
 # and 40 substeps with no member flagged at any of them: the fixture runs 10 substeps only, so the other two are the
-# hand record of the gate report (`G15_RECORD`, brief M3-X1f), asserted here: the 10-substep run must match its row,
+# record of the native baseline (`_g15_record`, ruling 99 (b); the gate report's 20 and 40 substep rows were the
+# placeholder rails'), asserted here: the 10-substep run must match its row,
 # and every row must be unflagged and agree, so a 10-substep pass alone cannot convert the stubs; (c) the loaded
 # first frequency is reported in the G15 header (the chain's eigenfrequency with the engine's carried mass).
-G15_SPAN = 0.5
-G15_LOAD = 51.286
 G15_TABLE_FACTOR = 1.0
 G15_CHAIN = 0.02
 G15_FLAG_LIMIT = 2.04
-# (substeps, flagged, safety factor verdict, peak deflection verdict) per rail from the M3-X1f runs (G15 header);
-# a verdict of a flagged member is None (not valid). Re-recorded by hand whenever the gantry data changes.
-G15_RECORD = {
-    "rail_x": ((10, False, False, True), (20, False, False, True), (40, False, False, True)),
-    "rail_y": ((10, True, None, None), (20, True, None, None), (40, True, None, None)),
-}
-G15_RAILS = {
-    "rail_x": (64.087, 51.641, 43.856, 192.0, 384.0 / 1.0, 8.0, 12.0),
-    "rail_y": (256.35, 39.710, 9.000, 48.0, 384.0 / 5.0, 4.0, 8.0),
+G15_CASE = ROOT / "test_cases" / "gantry" / "G15.yaml"
+G15_BASELINE = ROOT / "test_cases" / "gantry" / "baseline.yaml"
+# Per support pair: (point-load deflection divisor, distributed-load deflection divisor, point-load moment divisor,
+# distributed-load moment divisor) at mid-span; closed forms, not data.
+G15_SUPPORTS = {
+    ("clamped", "clamped"): (192.0, 384.0, 8.0, 12.0),
+    ("pinned", "roller"): (48.0, 384.0 / 5.0, 4.0, 8.0),
 }
 
 
-def _g15_oracle(member: str) -> tuple[float, float]:
+def _g15_rails(result: RunResult) -> dict[str, tuple[float, ...]]:
+    """Ruling 99 (a), (b): every G15 oracle input from the data, never a literal. Per rail: span L, E I and w = rho A g
+    from the design's section and the library material's typical E and rho, the carried weight from the engine's
+    carried mass the run prints (`realised at build time ... (carried mass m kg)`, BLD-040), the support divisors, and
+    the fibre distance and second moment of the bending plane (`fibre_y`, `second_moment_z`). Also the design load P:
+    the case's `design_load_mass` plus the rope (mass per length times rest length) and its end fitting, from the
+    catalog part the design names on payload_rope."""
+    assert result.report is not None
+    prepared = prepare(G15_CASE)
+    design = prepared.design
+    registry = default_registry()
+    materials = shipped_materials()
+    case = YAML(typ="safe", pure=True).load(G15_CASE.read_text(encoding="utf-8"))
+    load_text = next(item["default"] for item in case["open_parameters"] if item["name"] == "design_load_mass")
+    rope = registry.part(next(item.part for item in design.ropes if item.name == "payload_rope")).values
+    load = float(str(load_text).split(" ")[0]) + rope["mass_per_length"] * rope["rest_length"] + rope["end_fitting_mass"]
+    gravity = 9.81
+    rails: dict[str, tuple[float, ...]] = {}
+    for body in design.bodies:
+        if body.flexible is None:
+            continue
+        section = body.flexible.section
+        material = materials[str(body.material)]
+        stiffness = material.youngs_modulus.typ * float(section.second_moment_z)
+        weight = material.density.typ * float(section.area) * gravity
+        line = next(
+            item for item in result.report.approximations if item.startswith(f"flexible body '{body.name}': damping")
+        )
+        carried = float(line.split("realised at build time ")[1].split("(carried mass ")[1].split(" kg")[0]) * gravity
+        supports = (str(body.flexible.supports[0]), str(body.flexible.supports[1]))
+        rails[body.name] = (
+            float(section.length),
+            stiffness,
+            weight,
+            carried,
+            *G15_SUPPORTS[supports],
+            float(section.fibre_y),
+            float(section.second_moment_z),
+            load * gravity,
+        )
+    assert sorted(rails) == ["rail_x", "rail_y"]
+    return rails
+
+
+def _g15_record() -> dict[str, tuple[tuple[int, bool, bool | None, bool | None], ...]]:
+    """(substeps, flagged, safety factor verdict, peak deflection verdict) per rail from the native baseline of record
+    (`baseline.yaml`, regenerated with the gantry data; ruling 99 (b)): a criterion in error is the flagged member's
+    (not valid, ruling 69), its verdict None. The case runs 10 substeps; the 20 and 40 substep rows of the gate report
+    (brief M3-X1f) were the placeholder rails' and are not carried over to the 2040 section."""
+    data = YAML(typ="safe", pure=True).load(G15_BASELINE.read_text(encoding="utf-8"))
+    status = {item["criterion"]: item["status"] for item in data["entries"] if item["case"] == "G15"}
+    record = {}
+    for member in ("rail_x", "rail_y"):
+        verdicts: list[bool | None] = []
+        for name in (f"safety_factor_{member}", f"deflection_{member}"):
+            verdict = None
+            if status[name] in ("pass", "fail"):
+                verdict = status[name] == "pass"
+            verdicts.append(verdict)
+        flagged = status[f"deflection_{member}"] == "error"
+        record[member] = ((10, flagged, verdicts[0], verdicts[1]),)
+    return record
+
+
+def _g15_oracle(member: str, result: RunResult) -> tuple[float, float]:
     """(static deflection m, static stress Pa) of `member` at mid-travel under its own weight, its carried weight and
     the design load, before the table's factor."""
-    stiffness, weight, carried, point, distributed, point_moment, distributed_moment = G15_RAILS[member]
-    span = G15_SPAN
-    deflection = weight * span**4 / (distributed * stiffness) + (carried + G15_LOAD) * span**3 / (point * stiffness)
-    moment = (carried + G15_LOAD) * span / point_moment + weight * span**2 / distributed_moment
-    return deflection, moment * 0.02 / 2e-8
+    span, stiffness, weight, carried, point, distributed, point_moment, distributed_moment, fibre, second, load = (
+        _g15_rails(result)[member]
+    )
+    deflection = weight * span**4 / (distributed * stiffness) + (carried + load) * span**3 / (point * stiffness)
+    moment = (carried + load) * span / point_moment + weight * span**2 / distributed_moment
+    return deflection, moment * fibre / second
 
 
 def _g15_flags(result: RunResult) -> dict[str, tuple[float, bool]]:
@@ -958,7 +1021,7 @@ def _g15_reproduced(member: str, flagged: bool, verdict: bool | None, column: in
     """Ruling 73 (b) against the hand record: this 10-substep run matches its row, and the verdict reproduces at
     every recorded step size with the member unflagged at each (fails while any member is flagged or any verdict
     differs)."""
-    rows = G15_RECORD[member]
+    rows = _g15_record()[member]
     assert rows[0][0] == 10
     assert (rows[0][1], rows[0][column]) == (flagged, verdict), (member, rows[0])
     for _, recorded_flag, *_ in rows:
@@ -1001,7 +1064,7 @@ def test_acc_029(native_gantry: dict[str, tuple[RunResult, CoreDriver]]) -> None
     print(f"G15 crossings: {result.score.crossings}")
     for member in ("rail_x", "rail_y"):
         row = result.metadata.integrity.member(member)
-        static = _g15_oracle(member)[1] * G15_TABLE_FACTOR
+        static = _g15_oracle(member, result)[1] * G15_TABLE_FACTOR
         ratio, flagged = flags[member]
         scaled = row.safety_factor * ratio / G15_FLAG_LIMIT
         print(
@@ -1011,7 +1074,7 @@ def test_acc_029(native_gantry: dict[str, tuple[RunResult, CoreDriver]]) -> None
         )
     for member in ("rail_x", "rail_y"):
         row = result.metadata.integrity.member(member)
-        static = _g15_oracle(member)[1] * G15_TABLE_FACTOR
+        static = _g15_oracle(member, result)[1] * G15_TABLE_FACTOR
         ratio, flagged = flags[member]
         criterion = _criterion(result, f"safety_factor_{member}")
         verdict = None
@@ -1055,7 +1118,7 @@ def test_acc_030(native_gantry: dict[str, tuple[RunResult, CoreDriver]]) -> None
     assert result.metadata.integrity is not None
     flags = _g15_flags(result)
     for member in ("rail_x", "rail_y"):
-        static = _g15_oracle(member)[0] * G15_TABLE_FACTOR
+        static = _g15_oracle(member, result)[0] * G15_TABLE_FACTOR
         settled = _criterion(result, f"settled_deflection_{member}")
         peak = _criterion(result, f"deflection_{member}")
         print(
@@ -1063,7 +1126,7 @@ def test_acc_030(native_gantry: dict[str, tuple[RunResult, CoreDriver]]) -> None
             f"{peak.worst_time} s ({peak.status}); static oracle {static!r} m; dynamic ratio, flagged {flags[member]}"
         )
     for member in ("rail_x", "rail_y"):
-        static = _g15_oracle(member)[0] * G15_TABLE_FACTOR
+        static = _g15_oracle(member, result)[0] * G15_TABLE_FACTOR
         ratio, flagged = flags[member]
         peak = _criterion(result, f"deflection_{member}")
         verdict = None
