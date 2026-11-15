@@ -89,7 +89,10 @@ def test_missed_steps_is_the_commanded_angle_less_the_rotor_travel_less_the_lead
     assert whole.status == "pass"
     moving = _recording([0.0, 4.0, 4.0, 2.0], [1.0] * 4, rotor, torque)
     stopped = _score("missed_steps:m", "final", "at_most", "5", moving)
-    assert (stopped.status, stopped.note) == ("error", "missed_steps:m: motor 'm' is not at rest at the final sample 3 s")
+    assert (stopped.status, stopped.note) == (
+        "error",
+        "missed_steps:m: motor 'm' is not at rest at the final sample 3 s",
+    )
 
 
 @pytest.mark.req("SCO-031")
@@ -230,9 +233,9 @@ def _windowed_case(start: str) -> Any:
 
 
 # The window recording: 4 microsteps (1 step) commanded at 1 s, the rotor follows, then slips back a step at 3 s.
-# Missed steps 0, 1 - 1 - 1 = -1 (lead 1 step at HOLD), 1 - 1 - 0 = 0, 1 - 0 - 0 = 1. Rest (no microstep and speed 0; threshold a tenth
-# of a microstep per 1 s interval): 0 s, 2 s, 3 s; 1 s moves. Margins at speeds 0, 5, 0, 0 (available 0.40, 0.35,
-# 0.40, 0.40) less loads 0.1, 0.3, 0.05, 0: 0.30, 0.05, 0.35, 0.40.
+# Missed steps 0, 1 - 1 - 1 = -1 (lead 1 step at HOLD), 1 - 1 - 0 = 0, 1 - 0 - 0 = 1. Rest (no microstep and speed
+# 0; threshold a tenth of a microstep per 1 s interval): 0 s, 2 s, 3 s; 1 s moves. Margins at speeds 0, 5, 0, 0
+# (available 0.40, 0.35, 0.40, 0.40) less loads 0.1, 0.3, 0.05, 0: 0.30, 0.05, 0.35, 0.40.
 
 
 @pytest.mark.req("SCO-031")

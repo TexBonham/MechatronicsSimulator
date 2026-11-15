@@ -1150,9 +1150,7 @@ def _rope_snap_gate(model: PhysicsModel, integrity: IntegrityConfig | None) -> t
 # ===== Services =========================================================
 
 
-def core_builder(
-    design: Design, adapter: str = DEFAULT_PHYSICS_ADAPTER, registry: Registry | None = None
-) -> CoreBuild:
+def core_builder(design: Design, adapter: str = DEFAULT_PHYSICS_ADAPTER, registry: Registry | None = None) -> CoreBuild:
     """The run's catalog (`registry`, default the shipped one; LIB-016) and the shipped chips, the shipped materials
     with the design's overrides (MAT-020); lumped members rigid on the bridge until X2 (BLD-033, ruling 29), flexible
     as the design states them on the native adapter."""

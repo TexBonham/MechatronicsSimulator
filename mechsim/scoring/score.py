@@ -581,7 +581,9 @@ class _StepperView:
             if still:
                 found = index
         if found < 0:
-            raise _UnevaluableError(f"{reference}: no rest sample at or before the evaluation start {self._start:.6g} s")
+            raise _UnevaluableError(
+                f"{reference}: no rest sample at or before the evaluation start {self._start:.6g} s"
+            )
         return found
 
     def _read(self, reference: str, source: str, what: str) -> Series:
