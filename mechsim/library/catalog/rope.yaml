@@ -73,3 +73,23 @@ parts:
       rest_length: "0.3 m"
       end_fitting_mass: "1 g"
     placeholders: [axial_stiffness, damping, mass_per_length, breaking_tension, rest_length, end_fitting_mass]
+  - name: rope_1_16in_7x19_304
+    type: rope
+    tier: breaking
+    description: 1/16 in (1.59 mm) 7x19 AISI 302/304 stainless steel wire rope, 0.3 m.
+    source: >-
+      REPLACEABLE sourced part (brief M3-GV; URLs in docs/gantry-team-inputs.md). 7x19 stainless steel cable table,
+      1/16 in: nominal breaking strength 480 lb (2135 N, AISI 302/304), weight 0.75 lb per 100 ft (0.011161 kg/m).
+      Axial stiffness from Lexco's wire rope stretch guide, elastic stretch E (percent of length) = W G / D^2 with G =
+      0.0000162 for 7x19 302/304 stainless (W lb, D in): EA = 100 D^2 / G = 100 x 0.0625^2 / 1.62e-5 = 24113 lbf =
+      107.26 kN. Not published, kept as the generic part's placeholders: the strain-rate damping, the rest length (the
+      design's rope, 0.3 m) and the end fitting's mass (no stainless swivel snap hook or shackle datasheet with a mass
+      could be fetched).
+    values:
+      axial_stiffness: "107.26 kN"
+      damping: "50 N*s"
+      mass_per_length: "0.011161 kg/m"
+      breaking_tension: "2135 N"
+      rest_length: "0.3 m"
+      end_fitting_mass: "1 g"
+    placeholders: [damping, rest_length, end_fitting_mass]
