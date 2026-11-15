@@ -199,8 +199,11 @@ def test_builder_maps_senses_and_torque_curve() -> None:
     assert (encoder.joint, encoder.position, encoder.reversed) == ("y_axis", None, False)
     assert instances["x_motor"].senses is None
     curve = instances["x_motor"].torque_speed
-    assert curve[0] == (0.0, pytest.approx(1.26))
-    assert curve[1][0] == pytest.approx(300.0 * 2.0 * np.pi / 60.0)
+    # The catalog part the design names on x_motor, its published curve in SI (ruling 99 (a): read from the data).
+    published = default_registry().part(instances["x_motor"].part).torque_speed_curve
+    assert published is not None
+    assert curve[0] == (0.0, pytest.approx(published[0].torque))
+    assert curve[1][0] == pytest.approx(published[1].speed)
 
 
 @pytest.mark.req("BLD-035")

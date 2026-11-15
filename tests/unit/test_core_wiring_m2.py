@@ -15,6 +15,7 @@ import numpy as np
 import pytest
 
 from mechsim import _core as core
+from mechsim.library.registry import default_registry
 from mechsim.builder import BuildError
 from mechsim.builder.payload import PAYLOAD_CLEARANCE, PAYLOAD_EDGE, with_payload
 from mechsim.design.chip import shipped_chips
@@ -172,9 +173,12 @@ def test_load_cell_reads_its_payload_and_the_amplifier_the_chip_adc(built: objec
     chip = shipped_chips()["stm32_placeholder"]
     cell = core_wiring.component_parameters(_instances(built)["load_cell"], places, model, ["payload"], chip)  # type: ignore[arg-type]
     assert cell["payload"] == 0
-    assert cell["capacity"] == pytest.approx(49.05)
+    design = {item.name: item for item in built.design.components}  # type: ignore[attr-defined]
+    assert cell["capacity"] == pytest.approx(default_registry().part(design["load_cell"].part).values["capacity"])
     amp = core_wiring.component_parameters(_instances(built)["load_amp"], places, model, ["payload"], chip)  # type: ignore[arg-type]
-    assert (amp["adc_bits"], amp["adc_reference"], amp["gain"]) == (12, pytest.approx(3.3), pytest.approx(241.8))
+    # The design's gain (README: the firmware's 600 counts per kg on the chip's 12-bit, 3.3 V ADC), read from the data.
+    gain = float(design["load_amp"].overrides["gain"])
+    assert (amp["adc_bits"], amp["adc_reference"], amp["gain"]) == (12, pytest.approx(3.3), pytest.approx(gain))
     original: Any = _instances(built)["load_cell"]
     reaction = original.model_copy(
         update={"senses": original.senses.model_copy(update={"joint_reaction": "hook_swing"})}

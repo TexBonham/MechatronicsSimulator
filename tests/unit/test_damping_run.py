@@ -12,7 +12,7 @@ from mechsim.design.schema import yaml_loader
 from mechsim.integrity.tier1 import Tier1Service
 from mechsim.physics.native.translate import steps_before
 from mechsim.testing.core_driver import CoreDriver, core_builder, core_services
-from mechsim.testing.runner import Services, run_case
+from mechsim.testing.runner import Services, prepare, run_case
 from tests.unit.test_integrity_tier1 import SNAP_CASE, SPRING, config
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -164,12 +164,37 @@ def _mass(line: str, label: str) -> float:
 
 
 SHACKLE = 0.001
-RAIL_Y_CHAIN = 2.025991  # rail_y_beam: rho A L = 26986.275 x 1.5e-4 x 0.5 = 2.023967, times 1.001 for its roller body
+G15 = ROOT / "test_cases" / "gantry" / "G15.yaml"
+
+
+def _rail_y_chain() -> float:
+    """rail_y_beam's chain mass as the engine carries it: the calibrated rho A over its spans (the build's lumped
+    record), times 1.001 for its roller body; read from the build of the data, never a literal (ruling 99 (a))."""
+    built = core_builder(prepare(G15).design)
+    record = next(item for item in built.lumped if item.member == "rail_y_beam")
+    return sum(record.masses) * 1.001
+
+
+def _stated() -> dict[str, float]:
+    """Each damped member's and belt's ratio as the design states it (ruling 78)."""
+    design = prepare(G15).design
+    stated = {body.name: float(body.flexible.damping_ratio) for body in design.bodies if body.flexible is not None}
+    for item in design.components:
+        if item.type == "belt_pulley":
+            stated[item.name] = float(item.overrides["damping_ratio"])
+    return stated
+
+
+def _design_load() -> str:
+    """G15's design load as the case states it (`design_load_mass`), as the line prints it."""
+    data = yaml_loader().load(G15.read_text(encoding="utf-8"))
+    value = next(item["default"] for item in data["open_parameters"] if item["name"] == "design_load_mass")
+    return str(value)
 
 
 @pytest.mark.req("BLD-040", "BLD-041", "PHY-037")
 def test_every_damped_member_and_belt_prints_stated_built_and_loaded_ratios(gantry_lines: tuple[str, ...]) -> None:
-    """Rulings 80, 82: each line prints the data's ratio exactly as stated (0.01), the ratio realised at build time and
+    """Rulings 80, 82: each line prints the data's ratio exactly as stated (read from the design), the ratio realised at build time and
     the ratio realised with the run's bodies. The mass is what the engine carries (ENG-052's m_c): the joint tree below
     the root and the member chains rooted in it. The design load hangs on payload_rope below the hook, parented to the
     world: not in any tree, never counted (a pendulum to the member's and the belt's mode). The rope's end fitting
@@ -185,13 +210,17 @@ def test_every_damped_member_and_belt_prints_stated_built_and_loaded_ratios(gant
     belts = [line for line in gantry_lines if "damping ratio stated" in line and line.startswith("transmission")]
     assert len(members) == 2
     assert len(belts) >= 3
+    stated = _stated()
+    load = _design_load()
+    rail_y_chain = _rail_y_chain()
     for line in (*members, *belts):
-        assert "damping ratio stated 0.01 " in line
-        assert "case payload 'payload' 5.2164 kg on 'hook' not counted" in line
+        name = line.split("'")[1]
+        assert f"damping ratio stated {stated[name]!r} " in line
+        assert f"case payload 'payload' {load} on 'hook' not counted" in line
     for line in members:
         built = _figure(line, "realised at build time ")
         loaded = _figure(line, "realised in this run ")
-        assert loaded < built < 0.01
+        assert loaded < built < stated[line.split("'")[1]]
         assert _mass(line, "(carried mass ") + SHACKLE == pytest.approx(
             _mass(line.split("realised in this run")[1], "(carried mass "), abs=2e-5
         )
@@ -199,14 +228,14 @@ def test_every_damped_member_and_belt_prints_stated_built_and_loaded_ratios(gant
         built = _figure(line, "realised at build time ")
         loaded = _figure(line, "realised in this run ")
         mass = _mass(line, "(m = ")
-        assert built == pytest.approx(0.01, rel=1e-12)
+        assert built == pytest.approx(stated[line.split("'")[1]], rel=1e-12)
         assert loaded < built
         assert _mass(line.split("realised in this run")[1], "(m = ") == pytest.approx(mass + SHACKLE, abs=2e-5)
     x_belt = next(line for line in belts if line.startswith("transmission 'x_belt'"))
     assert "run-time bodies 'payload_shackle'" in x_belt
-    assert _mass(x_belt, "member chains on them ") == pytest.approx(RAIL_Y_CHAIN, rel=1e-5)
+    assert _mass(x_belt, "member chains on them ") == pytest.approx(rail_y_chain, rel=1e-5)
     rail_x = next(line for line in members if line.startswith("flexible body 'rail_x'"))
-    assert _mass(rail_x, "member chains on them ") == pytest.approx(RAIL_Y_CHAIN, rel=1e-5)
+    assert _mass(rail_x, "member chains on them ") == pytest.approx(rail_y_chain, rel=1e-5)
     for line in belts:
         if not line.startswith("transmission 'x_belt'"):
             assert _mass(line, "member chains on them ") == 0.0

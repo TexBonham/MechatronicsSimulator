@@ -276,7 +276,14 @@ def test_shipped_file_loads_and_validates_against_the_schema(type_name: str) -> 
     catalog = load_catalog_file(path)
     assert [component.name for component in catalog.types] == [type_name]
     assert catalog.types[0].category == category
-    assert [part.name for part in catalog.resolved_parts()] == [part_name]
+    # The generic part ships, first, and every part in the file is of the file's type (sourced parts sit beside the
+    # generic one since brief M3-GV; the list is the file's, ruling 99 (a)).
+    names = [part.name for part in catalog.resolved_parts()]
+    assert names[0] == part_name
+    assert names == [
+        entry["name"] for entry in YAML(typ="safe", pure=True).load(path.read_text(encoding="utf-8"))["parts"]
+    ]
+    assert {part.type for part in catalog.resolved_parts()} == {type_name}
     schema = json.loads(SCHEMA_PATH.read_text(encoding="utf-8"))
     jsonschema.Draft202012Validator(schema).validate(raw(type_name))
 
@@ -591,7 +598,10 @@ def test_structural_type_ships_validates_and_is_registered(type_name: str) -> No
     catalog = load_catalog_file(CATALOG_DIR / file_name)
     assert [component.name for component in catalog.types] == [type_name]
     assert catalog.types[0].category == category
-    assert [part.name for part in catalog.resolved_parts()] == parts
+    names = [part.name for part in catalog.resolved_parts()]
+    assert names[: len(parts)] == parts
+    assert names == [entry["name"] for entry in _structural_raw(type_name)["parts"]]
+    assert {part.type for part in catalog.resolved_parts()} == {type_name}
     schema = json.loads(SCHEMA_PATH.read_text(encoding="utf-8"))
     jsonschema.Draft202012Validator(schema).validate(_structural_raw(type_name))
     registry = default_registry()
