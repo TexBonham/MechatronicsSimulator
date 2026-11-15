@@ -23,14 +23,14 @@ clean): the gantry on native with flexible rails that carry their carriages, the
 (recorded, not passed: rulings 64, 81, 82); the lift jump fix (E6, ruling 66); the moving load on a flexible member
 (E7 to E7g, ENG-052; rulings 63, 65, 67 to 70, 73, 74, 76, 77); integrity from node springs with the exact carried
 moment, case fields for the design load and the evaluation start, not-valid results, fatigue by damage (I3 to I5d;
-rulings 71, 72, 75, 79); structural damping as design data (D2 to D2d, X1h; rulings 78, 80). X2 (the suite on
-native by default, G16, one batch, the retirement check) is closed on its branch `wip/05-x2` (c0cc5f0; review
-ruling 86: accept after a fix round). In flight: B3 (`wip/05-b3` a28619a, the rope payload starts at its static
-stretch; ruling 87), E8 (`wip/05-e8`, a rope segment taut within the step; its first run died in an API outage at
-its final build, a handoff run finishes it), X2d (`wip/05-x2`, the X2 fix round part one; ruling 88). Next: B3 with
-E8 reviewed together and merged into `wip/05-x2`; X2e (part two: margins and missed steps in the report); X2
-verification and landing; then the gate (reference tier on both adapters, Opus invariant audit, Fable gate review,
-gate report; the MuJoCo removal commit follows the owner's retirement decision). Briefs of record
+rulings 71, 72, 75, 79); structural damping as design data (D2 to D2d, X1h; rulings 78, 80). X2 (the suite on native by default, G16, one batch, the retirement check; X2 to X2h, N5, B3, E8; rulings 83 to 97)
+landed at 66d8b26 on 2026-11-14: verified on the branch at ctest debug-sanitize 622 of 622, Python 4722 passed and 89
+xfail in the fast tier (874 s), 36 passed and 4 xfail in the long-run tier (3558 s), lint, format, types and imports
+clean; invariant audit clean. The native adapter is the default; the rope taut-set rule (E8) is in the engine; the
+misses of record against the bridge are the four G10 entries; G12 and G15 are recorded, not passed (rulings 64, 81,
+82). Next: the gate (reference tier on both adapters, Opus invariant audit, Fable gate review, gate report; briefs
+`gate-reference-validator.md`, `gate-invariant-audit.md`, `review-m3-gate.md`); the MuJoCo removal commit follows the
+owner's retirement decision. Briefs of record
 in `docs/briefs/round-05/`; worktrees `../MechatronicsSimulator-05-<letter>`. Round 4's rulings and gate report
 are below for reference; round 4's cost rows are in `docs/cost-log-archive.md`.
 

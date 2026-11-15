@@ -140,3 +140,4 @@ type live in the root `CLAUDE.md` dispatch table once measured.
 | 2026-11-14 | M3-X2h X2g merged, native baseline after E8 (15 values moved, 4 G10 misses left), in-motion demonstration, ACC-032 confirmed (wip/05-x2 1e614d5); ruling 96 | module-writer (opus) | 146K | 70 calls |
 | 2026-11-14 | M3 re-review: X2f, X2g, X2h (wip/05-x2 1e614d5): accept all, 3 minor to close-out, stall-event finding; ruling 97 | Fable review (general-purpose), resumed | 71K | 12 calls |
 | 2026-11-14 | X2 branch invariant audit before landing (c0cc5f0..1e614d5): clean, one optional minor on the run-cache key | invariant-auditor (sonnet) | 33K | 7 calls |
+| 2026-11-14 | X2 branch full verification before landing (ctest debug-sanitize 622, fast tier 4722 passed in 874 s, long tier 36 passed in 3558 s, lints) and the landing merge (66d8b26) | inline | ~10K | 6 calls |

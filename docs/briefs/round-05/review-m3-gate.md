@@ -1,7 +1,7 @@
 # Gate review: milestone 3
 
 Reviewer: Fable (general-purpose), fresh. Read-only; call cap 45. Checkout `/home/tex/dev/MechatronicsSimulator` on
-`round/05-milestone-3` at the X2 landing commit LANDING_HEAD. This is the milestone gate, not a diff review: the stage
+`round/05-milestone-3` at the X2 landing commit 66d8b26. This is the milestone gate, not a diff review: the stage
 reviews of record (E1 with E2, M with D, N, I1 with R, I2, E3 to E7g, I3 to I5d, D2 to D2d, X1a to X1h, X2 to X2h,
 N5, B3 with E8) and their audits are in `docs/cost-log.md` rows and the briefs under `docs/briefs/round-05/`; the
 reference-validator's report (both adapters) and the Opus invariant audit are given to you in the prompt. Read

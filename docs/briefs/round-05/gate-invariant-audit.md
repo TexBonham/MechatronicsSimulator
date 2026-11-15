@@ -2,7 +2,7 @@
 
 Agent: invariant-auditor, model Opus (the gate overrides the frontmatter). Read-only; call cap 14. Checkout
 `/home/tex/dev/MechatronicsSimulator` on `round/05-milestone-3`; the diff is the whole round, `git diff cf5c74f
-LANDING_HEAD` (cf5c74f is main at the round's cut). Audit against the nine invariants and R-18 with emphasis on:
+66d8b26` (cf5c74f is main at the round's cut). Audit against the nine invariants and R-18 with emphasis on:
 invariant 1 (the controller never sees true state: the native adapter, the integrity party, the new scoring
 quantities read the record, never the engine), 2 (nothing gantry-specific in code: `mechsim/**`, `core/**`,
 `tests/conftest.py`; the test-local weaker stepper part of ruling 95 lives in a test, not the catalog), 3 (every
