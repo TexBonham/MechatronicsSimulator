@@ -8,7 +8,7 @@
 # at the recorded shaft speed less the recorded shaft load torque, minimum and its time; brief M3-X2e). Their limits
 # are the physics, not tuning: a sizing case passes when no motor loses a step (the final count is 0 within a quarter
 # step, half a step identifying a whole count uniquely) and every margin stays positive. Both judge the span between
-# rest samples from the last rest at or before `integrity.evaluate_from` (9 s) to the final sample (ruling 93): the
+# rest samples from the last rest at or before `integrity.evaluate_from` (1 s since brief M3-GV, 9 s before) to the final sample (ruling 93): the
 # lift belt starts unstretched and its release transient is milestone 4's static start, so the steps lost and the
 # least margin before that rest are a before-span note per motor in the report, not a verdict. The acceptance test keeps the a-priori demand below as its cross-check (ACC-031).
 #
@@ -40,7 +40,7 @@ design:
 controller_mode: native
 seed: 16
 integrity:
-  evaluate_from: 9 s
+  evaluate_from: 1 s
 open_parameters:
   - name: payload_mass
     dimension: "[mass]"

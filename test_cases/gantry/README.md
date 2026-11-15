@@ -7,20 +7,18 @@ milestone 2 shipped G1 to G11, G13 and G14 on the bridge, whose values of record
 
 One start for every case, derived once and not adjusted to any result: a native run starts from straight rails and
 the release rings for a few loaded time constants of the slowest rail, so integrity results (peaks, safety factors,
-tier 1 crossings, the validity flag, rope snap) count from five of them, rounded up to a whole second. From the
-figures every run prints: rail_x stated ratio zeta_0 = 0.01 at its unloaded first mode f_0 = 49.6973 Hz
-(omega_0 = 312.26 rad/s), realised zeta_r = 0.0042905 on its loaded mode (the lowest any case prints). Stiffness-
-proportional damping gives zeta = beta omega / 2 for every mode, so the loaded mode is omega_c = omega_0 zeta_r /
-zeta_0 = 133.97 rad/s and its time constant tau = 1 / (zeta_r omega_c) = zeta_0 / (zeta_r^2 omega_0) = 1.740 s
-(rail_y: zeta_r = 0.0072418, 0.607 s). Five tau = 8.70 s: `integrity.evaluate_from: 9 s` in G2 to G15. G1 ends at
-2 s and cannot carry it (a start past the last sample is an error, TST-044); its run on native records no tier 1
-crossing. What a case loses: integrity during its first 9 s is not judged (homing ends by 5.25 s; G12 and G15 move
-from 8 s, so their first second of the 2 s acceleration ramp is not judged, the second second at the same
-acceleration is). Motion criteria keep their own windows. Before it, G5 and G6 cross tier 1 on the release at 0.011 to
-0.022 s (rail_x and rail_y), recorded as `integrity_before_evaluation` events. On native the same transient
-carries the payload rope above its 5000 N breaking tension (6011 N at 0.012 s, 26229 N at its peak before 9 s); the
-start holds the snap back. Without it G5's rope snaps at 0.012 s, the load cell reads empty (7 counts against 3308
-at 5.5 kg), `lift 0.4` is accepted and the lift ends at 0.4001 m (M3-X2c; that was N5's first G5 result).
+tier 1 crossings, the validity flag, rope snap) count from five of them, rounded up to a whole second. Stiffness-
+proportional damping gives zeta = beta omega / 2 for every mode, so a member stated zeta_0 at its unloaded first mode
+omega_0 and realised zeta_r on its loaded mode has omega_c = omega_0 zeta_r / zeta_0 and time constant tau = 1 /
+(zeta_r omega_c) = zeta_0 / (zeta_r^2 omega_0). Re-derived by brief M3-GV from the sourced 2040 rails (zeta_0 = 0.02),
+from the figures every run prints (the case payload on its rope is not counted, so every case prints the same):
+rail_x f_0 = 902.104 Hz (omega_0 = 5668.09 rad/s), zeta_r = 0.00565055 (carried 1.68236 kg), omega_c = 1601.39
+rad/s, tau = 0.1105 s; rail_y f_0 = 400.379 Hz (omega_0 = 2515.66 rad/s), zeta_r = 0.00822979 (carried 0.917467 kg),
+omega_c = 1035.17 rad/s, tau = 0.1174 s, now the slowest. Five tau = 0.587 s: `integrity.evaluate_from: 1 s` in G2 to
+G16. G1 ends at 2 s and could now carry it; it has no `evaluate_from` field and none is added (the start is edited only
+where it is a case field). Before brief M3-GV (placeholder PETG rails, zeta_0 = 0.01, rail_x f_0 = 49.6973 Hz, zeta_r =
+0.0042905, tau = 1.740 s) the start was 9 s. What a case loses: integrity during its first second is not judged (the
+release transient); homing, the moves and the stops all count. Motion criteria keep their own windows.
 
 | Case | Requirements doc test | Criteria (spec rows) |
 |---|---|---|

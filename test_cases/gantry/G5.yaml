@@ -104,7 +104,7 @@ end:
   at: 26 s
   max_duration: 26 s
 integrity:
-  evaluate_from: 9 s
+  evaluate_from: 1 s
 criteria:
   - name: lift_up_refused
     check: event

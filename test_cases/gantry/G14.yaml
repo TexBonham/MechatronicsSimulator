@@ -252,7 +252,7 @@ end:
   at: 20 s
   max_duration: 20 s
 integrity:
-  evaluate_from: 9 s
+  evaluate_from: 1 s
 criteria:
   - name: no_overlap_x
     check: no_overlap
