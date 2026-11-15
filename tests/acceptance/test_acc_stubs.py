@@ -1032,17 +1032,6 @@ def _g15_reproduced(member: str, flagged: bool, verdict: bool | None, column: in
 
 
 @pytest.mark.req("ACC-029")
-@pytest.mark.xfail(
-    strict=True,
-    raises=AssertionError,
-    reason="placeholder rail section and PETG strength (gantry team): rail_x's safety factor is 1.424, 1.414, 1.280 "
-    "at 10, 20, 40 substeps (16.549 s, when the E-stop drops the lift onto its lower limit; 9.616 s at 40) against the "
-    "1.5 minimum (13.71 MPa on the 40 x 40 mm, 2e-8 m^4 placeholder section; the stop raises rail_x's root moment from "
-    "7.0 to 9.6 N m); and rail_y is not valid from 8.31 s at every step size run (dynamic ratio 2.76, 3.63, 4.11 at "
-    "10, 20, 40 substeps, against 2.04: the trolley starts 24 mm from rail_y's support; rulings 69, 78), so its "
-    "safety factor is not evaluated; the 20 and 40 substep verdicts are the gate report's hand record (G15_RECORD), "
-    "which a 10-substep pass alone cannot change",
-)
 @pytest.mark.long_run
 def test_acc_029(native_gantry: dict[str, tuple[RunResult, CoreDriver]]) -> None:
     """Reference design (gantry), G15: under maximum acceleration with rated load and an E-stop with a
@@ -1055,6 +1044,16 @@ def test_acc_029(native_gantry: dict[str, tuple[RunResult, CoreDriver]]) -> None
     it, ENG-052); each peak stress at least the continuum static stress less the chain's 2 percent; the case's
     safety-factor criteria pass, also when scaled; ruling 73 (b) against the hand record of 20 and 40 substeps
     (`_g15_reproduced`); no tier 1 crossing; the load case exported beside the archive.
+
+    Converted by brief M3-GV2 (ruling 99 (b)): passes on the sourced 2040 aluminium rails (stiffer and lighter, neither
+    rail flagged). The strict expected failure's reason, kept as history:
+    placeholder rail section and PETG strength (gantry team): rail_x's safety factor is 1.424, 1.414, 1.280 at 10,
+    20, 40 substeps (16.549 s, when the E-stop drops the lift onto its lower limit; 9.616 s at 40) against the 1.5
+    minimum (13.71 MPa on the 40 x 40 mm, 2e-8 m^4 placeholder section; the stop raises rail_x's root moment from
+    7.0 to 9.6 N m); and rail_y is not valid from 8.31 s at every step size run (dynamic ratio 2.76, 3.63, 4.11 at
+    10, 20, 40 substeps, against 2.04: the trolley starts 24 mm from rail_y's support; rulings 69, 78), so its
+    safety factor is not evaluated; the 20 and 40 substep verdicts are the gate report's hand record (G15_RECORD),
+    which a 10-substep pass alone cannot change
     """
     result, _ = native_gantry["G15"]
     assert result.metadata is not None
@@ -1093,15 +1092,6 @@ def test_acc_029(native_gantry: dict[str, tuple[RunResult, CoreDriver]]) -> None
 
 
 @pytest.mark.req("ACC-030")
-@pytest.mark.xfail(
-    strict=True,
-    raises=AssertionError,
-    reason="rail_y is not valid from 8.31 s at every step size run (dynamic ratio 2.76, 3.63, 4.11 at 10, 20, 40 "
-    "substeps against 2.04; rulings 69, 78: placeholder rails and belts at the fixed 0.01 damping), so its "
-    "deflection criteria are not evaluated; rail_x passes at every step size (peak 1.134, 1.141, 1.119 mm; scaled by "
-    "2.04 over its ratio 2.25, 1.91, 1.46 mm; settled 1.0806 mm against 1.0977 mm); the 20 and 40 substep verdicts "
-    "are the gate report's hand record (G15_RECORD), which a 10-substep pass alone cannot change",
-)
 @pytest.mark.long_run
 def test_acc_030(native_gantry: dict[str, tuple[RunResult, CoreDriver]]) -> None:
     """Reference design (gantry), G15: under the same worst cases, member deflection shall stay under the
@@ -1114,6 +1104,14 @@ def test_acc_030(native_gantry: dict[str, tuple[RunResult, CoreDriver]]) -> None
     actual loads and the worst-case static carried deflection, not the mid-travel static value), at least the static
     value less the chain's 2 percent, and under the target, also when scaled by 2.04 over the member's peak dynamic
     ratio (ruling 73 (a)); ruling 73 (b) against the hand record (`_g15_reproduced`).
+
+    Converted by brief M3-GV2 (ruling 99 (b)): passes on the sourced 2040 aluminium rails (stiffer and lighter, neither
+    rail flagged). The strict expected failure's reason, kept as history:
+    rail_y is not valid from 8.31 s at every step size run (dynamic ratio 2.76, 3.63, 4.11 at 10, 20, 40 substeps
+    against 2.04; rulings 69, 78: placeholder rails and belts at the fixed 0.01 damping), so its deflection
+    criteria are not evaluated; rail_x passes at every step size (peak 1.134, 1.141, 1.119 mm; scaled by 2.04 over
+    its ratio 2.25, 1.91, 1.46 mm; settled 1.0806 mm against 1.0977 mm); the 20 and 40 substep verdicts are the
+    gate report's hand record (G15_RECORD), which a 10-substep pass alone cannot change
     """
     result, _ = native_gantry["G15"]
     assert result.metadata is not None
