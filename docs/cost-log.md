@@ -141,3 +141,4 @@ type live in the root `CLAUDE.md` dispatch table once measured.
 | 2026-11-14 | M3 re-review: X2f, X2g, X2h (wip/05-x2 1e614d5): accept all, 3 minor to close-out, stall-event finding; ruling 97 | Fable review (general-purpose), resumed | 71K | 12 calls |
 | 2026-11-14 | X2 branch invariant audit before landing (c0cc5f0..1e614d5): clean, one optional minor on the run-cache key | invariant-auditor (sonnet) | 33K | 7 calls |
 | 2026-11-14 | X2 branch full verification before landing (ctest debug-sanitize 622, fast tier 4722 passed in 874 s, long tier 36 passed in 3558 s, lints) and the landing merge (66d8b26) | inline | ~10K | 6 calls |
+| 2026-11-14 | Gate: Opus invariant audit of round 5 (cf5c74f..66d8b26): no violations, 2 optional minors; invariant 3 and traceability confirmed by the verification run instead (its test waited on the lock) | invariant-auditor (opus) | 48K | 16 calls |
