@@ -81,6 +81,14 @@ team gives its own. Derivations in `test_cases/gantry/README.md`; the catalog's 
 | Load amplifier | `avia_hx711_class`: gain 128 (design 483.398, see README), 80 SPS, 5 V | HX711, https://e2e.ti.com/cfs-file/__key/communityserver-discussions-components-files/73/HX711.pdf: "gain of 128 or 64 ... ±20mV or ±40mV ... 5V", "Selectable 10SPS or 80SPS", settling 400 / 50 ms | replaceable; bandwidth, output full scale, mass, current placeholder |
 | Fasteners | 8.23 kN per mount (one M5 8.8) | Engineering ToolBox ISO 898-1, https://www.engineeringtoolbox.com/metric-bolts-minimum-ultimate-tensile-proof-loads-d_2026.html: M5, 14.2 mm², proof 8230 N, ultimate 11350 N | replaceable; count owed |
 
+Design finding, lift belt (ruling 99 (e), brief M3-GV2): the lift belt carries (5.2207 kg design load with rope and end
+fitting + 0.4064 kg carriage, hook and cell) x (9.81 + 0.05) m/s^2 = 55.5 N at G15's design load, 63.5 N on the lift
+sizing rule (6.438 kg, Motors row), against the Gates GT2 6 mm recommended working tension of 26.22 N (111 N per inch
+of 2M PowerGrip GT2, proportioned directly, the Gates summary's note 6). The same Gates figure gives 39.3 N at 9 mm,
+52.4 N at 12 mm and 65.6 N at 15 mm (3 percent over 63.5 N): no GT2 width up to 12 mm covers it and 15 mm has no
+margin, so no part is substituted; the 6 mm belt stays, flagged, and the belt width or a multi-fall lift is the gantry
+team's call. The ultimate strength (1261 N at 6 mm) is far above it: a working-life finding, not a breakage.
+
 Not sourced, kept as flagged placeholders: the linear encoder (no magnetic strip datasheet could be fetched; the
 firmware's 60 000 counts/m would change with it), the rope end fitting mass, rope damping, belt and part masses not
 published, the steppers' viscous damping, the amplifier's filter, the impact check parameters, the encoder mismatch
