@@ -146,3 +146,4 @@ type live in the root `CLAUDE.md` dispatch table once measured.
 | 2026-11-14 | Gate review: milestone 3 at 66d8b26: pass with owner confirmations; retirement criterion 2 not met (four G10 misses), removal plan additions, M4 carry list, cost 17.1M against 8.0M (review-m3-gate.md) | Fable review (general-purpose) | 171K | 28 calls |
 | 2026-11-15 | Gate decisions recorded (1b, 2a, batch), briefs X2i and GV written and dispatched, ruling 98 | inline | ~25K | 8 calls |
 | 2026-11-15 | M3-GV real components in the gantry slots: rails, steppers, belt, cable, cell sourced; start 1 s; G15 safety factors pass; NEMA 17 lift undersized; 18 tests pin old values (wip/05-gv 8f4cb9f); ruling 99 | module-writer (opus) | 226K | 98 calls |
+| 2026-11-15 | M3-X2i G10 remainder explained from both archives (homing settle term), E9 bounded and published (wip/05-x2i 5a0aef9); ruling 100 | module-writer (opus) | 226K | 110 calls |

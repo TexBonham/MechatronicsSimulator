@@ -1,8 +1,8 @@
 # Review: M3-X2i (G10's remainder from both archives; the E9 release artefact bounded and published)
 
 Reviewer: Fable (general-purpose), fresh. Read-only; spec and diff only; never the writer's report; no builds or
-runs; call cap 25. Worktree `/home/tex/dev/MechatronicsSimulator-05-x2i`, branch `wip/05-x2i`, head X2I_HEAD, diff
-`git -C <worktree> diff 708a734 X2I_HEAD` (skip brief files, `docs/queue.md`). Brief `docs/briefs/round-05/m3-x2i.md`;
+runs; call cap 25. Worktree `/home/tex/dev/MechatronicsSimulator-05-x2i`, branch `wip/05-x2i`, head 5a0aef9, diff
+`git -C <worktree> diff 708a734 5a0aef9` (skip brief files, `docs/queue.md`). Brief `docs/briefs/round-05/m3-x2i.md`;
 rulings 38, 39, 47, 90, 94, 96 and the owner's gate decision 1b in `/home/tex/dev/MechatronicsSimulator/docs/queue.md`;
 rows ENG-044 (or the transmission row the writer edited), PHY-024, SIG-033, the firmware's encoder-mismatch rows.
 
