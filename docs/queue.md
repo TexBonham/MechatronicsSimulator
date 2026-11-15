@@ -152,8 +152,9 @@ Numbers of record at the landing: reference tier C++ 61 of 61 under the sanitize
 stubs, the pendulum period identical on both adapters (1.159849 s against 1.1596536 closed form); ctest debug-sanitize
 622 of 622; Python 4722 passed and 89 xfail (fast tier, 874 s) and 36 passed and 4 xfail (long tier, 3558 s); lint,
 format, types, imports clean; Opus invariant audit of the round clean (two optional minors); pre-landing Sonnet audit
-clean. CI on the round branch at 66d8b26: firmware green on both runners, python and python-windows green, python-long
-and the three cpp jobs still running when this report was written; the gate commit waits for green.
+clean. CI on the round branch at 66d8b26: green on all three workflows and every job (firmware and firmware-windows; python,
+python-windows and python-long; cpp g++, cpp clang++ and cpp-windows), confirmed 2026-11-14 evening. The gate's CI
+condition is met.
 
 Retirement (ADR 0004), for the owner's decision. Criterion 1 met: PHY-023 on native, PHY-021 passes, native against
 bridge pose 0.0 and reaction 2e-4 N under 1.9e-3. Criterion 2 not met: four misses of record, all G10, asserted exactly
