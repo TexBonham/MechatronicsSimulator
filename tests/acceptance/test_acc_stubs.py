@@ -1118,6 +1118,8 @@ G16_ROTOR = {"nema17_class_generic": 54e-7, "nema23_class_generic": 280e-7}
 # both ends.
 G16_LIFT_CRUISE = (8.2, 8.65)
 G16_X_CRUISE = (17.15, 18.6)
+# G16's `integrity.evaluate_from`: the sizing criteria judge from the last rest at or before it (rulings 91, 93).
+G16_EVALUATION_START = 9.0
 G16_WINDOWS = {"lift_motor": (6.0, 15.0), "x_motor": (15.0, 26.0), "y_motor": (15.0, 26.0)}
 
 
@@ -1191,8 +1193,10 @@ def test_acc_031(g16: list[tuple[RunResult, CoreDriver]]) -> None:
     the lift and the step train ringing the lightly damped belts on x and y, ruling 81) is printed, not bounded.
 
     The report's own margin (`torque_margin_<motor>`, SCO-032: the part's curve at the recorded shaft speed less the
-    recorded shaft load torque, its minimum over the run) is asserted against this derivation: it names the run's part,
-    passes exactly when positive, is negative when the derivation's margin is, and (lift and x, which have a cruise
+    recorded shaft load torque, its minimum over the span from the last rest at or before 9 s, rulings 91, 93) is
+    asserted against this derivation: it names the run's part, passes exactly when positive, is negative when the
+    derivation's margin is and positive otherwise (every derived margin here is positive, the NEMA 17 lift's about
+    +0.053 N m), and (lift and x, which have a cruise
     window) is at most T(w_min) - (cruise - m a c / eta), T(w_min) the curve at the least shaft speed in the cruise
     window. That bound is one-sided and derived, not fitted: the run's minimum is at most the margin at the cruise
     sample of largest load; that load is at least the window mean, which lies within m a c / eta of the cruise load
@@ -1233,6 +1237,8 @@ def test_acc_031(g16: list[tuple[RunResult, CoreDriver]]) -> None:
             if margin < 0.0:
                 assert lost, f"{motor} {part}: margin {margin} N m and no lost step shown"
                 assert measured < 0.0
+            else:
+                assert measured > 0.0, f"{motor} {part}: margin over the span {measured} N m"
             if motor == "lift_motor":
                 window = (times >= G16_LIFT_CRUISE[0]) & (times <= G16_LIFT_CRUISE[1])
                 mean = float(np.mean(torque[window]))
@@ -1295,7 +1301,8 @@ def _g16_missed(driver: CoreDriver, motor: str, holding: float) -> tuple[Any, An
     """Missed full steps of `motor` at every sample: commanded angle (the signed sum of the step pin's microsteps)
     less the rotor's travel, in full steps, less the drive's own lead. A pull-out re-syncs the commanded angle to the
     step nearest the rotor (SIG-033), so what is left after the lead is a whole number of steps; the lead is the sine
-    law's inverse at the drive torque read back, (2 / pi) asin(tau / T_hold) full steps."""
+    law's inverse at the drive torque read back, (2 / pi) asin(tau / T_hold) full steps; the count relative to the
+    first sample (SCO-031)."""
     view = driver.recording()
     pin = G16_DRIVERS[motor]
     steps = np.asarray(view.series(f"signal:{pin}.step").values, dtype=np.float64)
@@ -1304,7 +1311,8 @@ def _g16_missed(driver: CoreDriver, motor: str, holding: float) -> tuple[Any, An
     commanded = np.cumsum(steps * sense) * G16_MICROSTEP
     times, torque = _g16_torque(driver, motor)
     lead = 2.0 / math.pi * np.arcsin(np.clip(torque / holding, -1.0, 1.0))
-    return times, (commanded - (rotor - rotor[0])) / G16_FULL_STEP - lead
+    raw = (commanded - (rotor - rotor[0])) / G16_FULL_STEP - lead
+    return times, raw - raw[0]
 
 
 def _g16_stalls(driver: CoreDriver, motor: str) -> list[float]:
@@ -1329,8 +1337,13 @@ def test_acc_032(g16: list[tuple[RunResult, CoreDriver]]) -> None:
     and no motor loses a step from the first move to the end. The tolerance on the count is not set (ACC-032 row): the
     counts are printed with the recorded stall events of each motor.
 
-    The report's own count (`missed_steps_<motor>`, SCO-031, final) is asserted against this derivation: it names the
-    run's part, rounds to the same whole count, and equals the test's final value within 1e-6 steps. Both are the same
+    The report's own count (`missed_steps_<motor>`, SCO-031, final) judges the span from the last rest at or before
+    the 9 s evaluation start (rulings 91, 93; for the lift the rest before its first move, so its move is judged
+    whole): it names the run's part, is 0 for every motor and part (every stall event precedes the rest), and equals
+    the test's count at the end less its count at that rest within 1e-6 steps. The steps lost before the rest are on
+    the report's before-span note, which must give the test's count at the rest and, for a lift motor that must lose
+    steps by the bound above, at least one step and a negative least margin before it (the snatch load on the shaft
+    exceeds the holding torque, which no point of the curve exceeds). Both are the same
     quantity from the same samples with the same constants (the catalog's 1.8 degree step, 16 microsteps, holding
     torque); they differ only in summation order over at most 26 000 samples of commanded steps, whose rounding is
     below 26 000 x 2.2e-16 relative of a few thousand steps, about 1e-8 steps."""
@@ -1346,29 +1359,59 @@ def test_acc_032(g16: list[tuple[RunResult, CoreDriver]]) -> None:
         for motor in G16_MOTORS:
             part = parts[motor]
             times, missed = _g16_missed(driver, motor, G16_HOLDING[part])
+            line = _g16_before_line(result, motor, part)
+            rest_time, lost, least, least_time = _g16_before_values(line)
+            rest = int(np.argmin(np.abs(times - rest_time)))
             before = float(missed[int(np.searchsorted(times, G16_FIRST_MOVE)) - 1])
+            at_rest = float(missed[rest])
             after = float(missed[-1])
             stalls = _g16_stalls(driver, motor)
             print(
                 f"G16 sweep {result.score.sweep}: {motor} {part}: missed full steps {before:.4f} before the first "
-                f"move, {after:.4f} at the end; stall events at {stalls}; release snatch {snatch:.3f} N, lift demand "
-                f"bound {bound:.4f} N m against holding {G16_HOLDING[part]} N m"
+                f"move, {at_rest:.4f} at the span's rest {rest_time} s, {after:.4f} at the end; stall events at "
+                f"{stalls}; release snatch {snatch:.3f} N, lift demand bound {bound:.4f} N m against holding "
+                f"{G16_HOLDING[part]} N m"
             )
+            print(f"  note: {line}")
             reported, measured = _g16_reported(result, f"missed_steps_{motor}", part)
-            print(f"  report: missed steps {measured:.6f} at {reported.worst_time} s ({reported.status})")
-            assert abs(measured - after) <= 1e-6
-            count = round(after)
-            assert round(measured) == count
-            assert (reported.status == "pass") == (count == 0)
+            print(f"  report: missed steps {measured:.6f} over the span ({reported.status})")
+            assert rest_time <= G16_EVALUATION_START
+            assert abs(measured - (after - at_rest)) <= 1e-6
+            assert round(measured) == 0
+            assert reported.status == "pass"
+            assert all(time < rest_time for time in stalls)
             assert abs(before - round(before)) <= 0.25
-            assert abs(after - count) <= 0.25
-            assert round(before) == count
+            assert abs(at_rest - round(at_rest)) <= 0.25
+            assert round(before) == round(at_rest)
+            # The note prints 6 significant digits: within 5e-6 of a count near 1 (1e-5 allows the rounding).
+            assert abs(lost - at_rest) <= 1e-5
+            assert least_time < rest_time
             if motor == "lift_motor" and bound > G16_HOLDING[part]:
-                assert abs(count) >= 1, f"{motor} {part}: demand bound {bound} N m and no missed step"
+                assert abs(round(at_rest)) >= 1, f"{motor} {part}: demand bound {bound} N m and no missed step"
+                assert least < 0.0
             else:
-                assert count == 0
+                assert round(at_rest) == 0
             seen.add((motor, part))
     assert seen == {(motor, part) for motor in G16_MOTORS for part in G16_AVAILABLE}
+
+
+def _g16_before_line(result: RunResult, motor: str, part: str) -> str:
+    """The report's before-span note for `motor` (SCO-031, SCO-032, rulings 91, 93)."""
+    head = f"motor '{motor}' (part {part}): before the rest at "
+    found = [line for line in result.score.notes if line.startswith(head)]
+    assert len(found) == 1, result.score.notes
+    return found[0]
+
+
+def _g16_before_values(line: str) -> tuple[float, float, float, float]:
+    """The span's rest time (s), the count there, the least margin before it (N m) and its time (s)."""
+    pattern = (
+        r"before the rest at (\S+) s \(evaluation start 9 s\), missed steps (\S+?)[ ,].*"
+        r"least torque margin (\S+) N m at (\S+) s;"
+    )
+    match = re.search(pattern, line)
+    assert match is not None, line
+    return tuple(float(match.group(index)) for index in range(1, 5))  # type: ignore[return-value]
 
 
 # ===== ACC-033 to ACC-034 ===================================================
