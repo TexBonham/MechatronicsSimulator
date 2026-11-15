@@ -83,7 +83,8 @@ parts:
   - name: avia_hx711_class
     type: load_cell_amplifier
     tier: ideal
-    description: Avia Semiconductor HX711 bridge front end (24-bit ADC, channel A gain 128 or 64), as the analog type allows.
+    description: Avia Semiconductor HX711 bridge front end (24-bit ADC, channel A gain 128 or 64), as the analog type 
+      allows.
     source: >-
       REPLACEABLE sourced part (brief M3-GV; URLs in docs/gantry-team-inputs.md). HX711 datasheet: 24-bit converter,
       channel A gain 128 or 64 (full-scale differential input +-0.5 AVDD / gain, +-20 mV at 128 with AVDD 5 V), output

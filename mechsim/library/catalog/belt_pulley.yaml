@@ -84,7 +84,8 @@ parts:
   - name: gates_gt2_2mr_6mm_20t
     type: belt_pulley
     tier: rigid
-    description: Gates PowerGrip GT2 2MR belt, 6 mm wide, on a 20-tooth GT2 pulley (2 mm pitch, 12.70 mm pitch diameter).
+    description: Gates PowerGrip GT2 2MR belt, 6 mm wide, on a 20-tooth GT2 pulley (2 mm pitch, 12.70 mm pitch 
+      diameter).
     source: >-
       REPLACEABLE sourced part (brief M3-GV; URLs in docs/gantry-team-inputs.md). Gates Synchronous Belt Data Summary
       (17611-T): 2M PowerGrip GT2 per 1.00 in width, average belt tensile modulus 18,000 lbf per unit strain,
