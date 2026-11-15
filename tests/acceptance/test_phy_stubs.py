@@ -258,29 +258,41 @@ def gantry_misses() -> list[str]:
 #   Ruled out: the stepper's viscous damping (SIG-033 publishes a disabled drive with D = 0; the reduced model needs
 #   none), the belt's modal damping (4.03 N s/m on the stretch rate, 0.01 of critical), the brake's engagement (the
 #   same 20 ms on both adapters; it only ends the fall).
-# G10 stall_fault (8 ms) and slip_fault (20 ms), FINDING (prediction under 70 percent of the observed). The x belt's
-#   stretch under the drive torque at the fault, 0.0316 N m / c = 4.96 N on 1e5 N/m = 0.0496 mm (recorded rotor
-#   to carriage 0.048 mm), starts the mismatch that much ahead; at the threshold it grows at the commanded speed
-#   (stall: 28.2 mm/s) or at 0.3 of it (slip: 10.5 mm/s), a crossing 1.7 ms (stall) and 4.7 ms (slip) earlier,
-#   and the event, detection + v / a with v still rising at a, moves twice that: 3.4 ms and 9.4 ms predicted
-#   against 8 ms and 20 ms observed. The crossings recomputed from the archives (rest reference) move 2 ms and 5 ms,
-#   as predicted; the rest of the event shift is not explained (a homing latch three quanta apart, G2, is a
-#   candidate not shown).
+# G10 stall_fault (8 ms) and slip_fault (20 ms), EXPLAINED (brief M3-X2i: the firmware's mismatch rebuilt from both
+#   archives). The firmware (FW-020) compares the x encoder's counts since the homing latch, floor(x / 16.67 um)
+#   less its value at the latch, with the steps issued since, x 60000 / 80000, faults over 120 counts, begins its
+#   stop at 0.05 m/s^2 and latches the fault when the profile reaches zero, so the event is detection + v / a.
+#   Rebuilt mismatch, native against the bridge (counts; continuous, from the recorded x joint and step pins):
+#   (1) homing settle: the counts are zeroed at the latch; afterwards the native carriage settles 71.0 um (stall
+#       run) and 72.7 um (slip run, the re-home) back as the belt lets go of the homing drive's tension (5.12 N,
+#       0.051 mm of stretch at the latch), the bridge's rigid belt 22.9 and 26.0 um: 2.89 and 2.80 counts ahead.
+#   (2) drive stretch (M3-X2d's term): the x belt under the drive, 0.0499 mm at 8.499 and 30.499 s: 2.99 counts.
+#       Offset at the fault's start: 5.93 counts (stall) and 5.85 (slip), (1) + (2) and 0.05 counts of rotor lag.
+#   (3) coast: the stalled carriage coasts 253.8 um on native, 253.3 um on the bridge (-0.02 counts); under the
+#       slip the carriage speed differs slightly (+0.26 counts by the crossing). Offset at the crossing 5.91 and 6.11.
+#   Crossing shift = offset / the mismatch's growth rate (the commanded less the carriage speed: stall 28.9 mm/s =
+#   1.73 counts/ms; slip 0.3 x 35.3 mm/s = 0.64 counts/ms): continuous crossings 8.5777 against 8.5812 s (3.44 ms)
+#   and 30.7040 against 30.7139 s (9.93 ms); the integer counts cross at ticks 8578, 8582 and 30705, 30715.
+#   (4) stop phase: v / a with v still rising at a, so a detection earlier by d stops d sooner: 575 against 579 ms
+#       and 702 against 712 ms observed, the crossing shift again. Predicted lead 2 x 3.44 = 6.9 ms and 2 x 9.93 =
+#       19.9 ms against 8 and 20 ms (86 and 99 percent; the remainder the integer count and tick quantisation, the
+#       observed shifts 2 x 4 and 2 x 10 ticks). M3-X2d's recomputed 2 and 5 ms used a rest reference that drops
+#       term (1). A model difference (compliant against rigid x belt at the homing latch), not an engine fault.
 # G10 stall_rehomed (14 ms) and slip_carriage_stopped (0.73 mm), consequences of the two above: the re-home starts
 #   from the earlier stall stop (8 ms) plus a homing on native 2 ms shorter (G2 ready); the slip stop starts
 #   earlier, and the commanded stop distance moves 2 v per second of detection: 2 x 0.036 m/s x 10 ms = 0.72 mm.
 MISSES_OF_RECORD: dict[str, str] = {
     "G10 slip_carriage_stopped: 0.0211615 m on the bridge, 0.0204295 m on native, tolerance 0.0002 m (x axis)": (
-        "the slip stop starts 10 ms earlier (slip_fault): 2 v x 10 ms = 0.72 mm; consequence of a finding"
+        "the slip stop starts 10 ms earlier (slip_fault): 2 v x 10 ms = 0.72 mm; consequence of slip_fault"
     ),
     "G10 slip_fault: event at 31.427 s on the bridge, 31.407 s on native, tolerance 0.003 s (three ticks)": (
-        "finding: x belt stretch 0.0496 mm predicts 9.4 ms of the 20 ms"
+        "explained: homing settle 2.80 + drive stretch 2.99 + slip coast 0.26 counts, crossing 9.93 ms, event 19.9 ms"
     ),
     "G10 stall_fault: event at 9.161 s on the bridge, 9.153 s on native, tolerance 0.003 s (three ticks)": (
-        "finding: x belt stretch 0.0496 mm predicts 3.4 ms of the 8 ms"
+        "explained: homing settle 2.89 + drive stretch 2.99 - coast 0.02 counts, crossing 3.44 ms, event 6.9 ms"
     ),
     "G10 stall_rehomed: event at 12.044 s on the bridge, 12.03 s on native, tolerance 0.003 s (three ticks)": (
-        "the re-home follows the stall stop 8 ms earlier and a homing 2 ms shorter; consequence of a finding"
+        "the re-home follows the stall stop 8 ms earlier and a homing 2 ms shorter; consequence of stall_fault"
     ),
 }
 
@@ -290,7 +302,8 @@ MISSES_OF_RECORD: dict[str, str] = {
     strict=True,
     reason=(
         "not met (ruling 83, owner decision at the gate): the four misses of record, MISSES_OF_RECORD, all G10: "
-        "stall_fault and slip_fault a finding, stall_rehomed and slip_carriage_stopped its consequences"
+        "stall_fault and slip_fault explained (brief M3-X2i), stall_rehomed and slip_carriage_stopped their "
+        "consequences"
     ),
 )
 def test_phy_024() -> None:
