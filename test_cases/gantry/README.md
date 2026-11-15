@@ -69,3 +69,24 @@ test_phy_stubs.py`, `MISSES_OF_RECORD`; a companion test asserts the list exactl
 `baseline.yaml`: placeholder-geometry baselines for G1 to G16 on the native adapter (statuses of record on the draft
 gantry), until CAD. `bridge_baselines/<case>.yaml`: the bridge's values of record for G1 to G11, G13 and G14,
 generated once on 2026-11-14 and never regenerated (PHY-025; the native baseline is compared with them, PHY-024).
+
+Native baseline regenerated whole after E8 (brief M3-X2h; `mechsim suite test_cases/gantry --write-baseline`, the
+tree holding E8, the rope taut within the step): 99 entries, no status changed, no entry added or removed. 15
+entries changed value, every one in a case whose payload hangs on the rope (G5, G6, G7, G9, G12, G15), cause E8's
+taut-set rule; 84 changed only in their run hashes (archive and case hashes; G16's case hash from its header
+comment). G16's values, regenerated after E8 by M3-X2f, did not move.
+
+| Entry | Before (pre-E8) | After | Cause |
+|---|---|---|---|
+| G7 `hook_held` | 1.14624 mm at 12.044 s | 1.82075 mm at 12.050 s | E8: the rope takes up again after the slack at 12.030 s, so the brake stops the payload too (M3-X2g model 1.811 mm) |
+| G9 `load_held` | 1.14618 mm at 12.024 s | 1.82062 mm at 12.030 s | E8, as G7 |
+| G7 `resumed_x`, `resumed_y` | 400.01833, 250.01060 mm | 400.01961, 250.01478 mm | E8: the hanging payload's swing after the hold, under 5 um |
+| G5 `lift_up_ignored` | 0.21761 um | 0.22108 um | E8 |
+| G5 `lowered` | 99.60571 mm | 99.60519 mm | E8, under 1 um |
+| G6 `lift_stopped`, `set_down` | 208.84585, 49.95560 mm | 208.84338, 49.95313 mm | E8, under 3 um |
+| G12 `estop_swing_x` | 0.0449999 rad | 0.0450813 rad | E8: the rope's swing |
+| G12 `move_swing_x`, `move_swing_y` | 0.0131140, 0.0105620 rad | 0.0130845, 0.0104670 rad | E8; `move_swing_x` worst 1 ms earlier |
+| G12 `move_settle_x` | 5.208 s | 5.207 s | E8, one tick |
+| G15 `deflection_rail_x` | 1.13384 mm at 16.548 s | 1.12699 mm at 16.550 s | E8: the hanging design load on the rail |
+| G15 `settled_deflection_rail_x` | 1.080564 mm | 1.080562 mm | E8 |
+| G15 `safety_factor_rail_x` | 1.42435 (fail) | 1.43609 (fail) | E8; the status stays fail (G12 limits not set, ADR 0009) |
