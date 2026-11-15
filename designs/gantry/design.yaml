@@ -555,7 +555,7 @@ joints:
 components:
   - name: x_motor
     type: stepper_behavioral
-    part: nema23_class_generic
+    part: stepperonline_23hs22_2804s
     mechanical:
       - mount: face
         body: frame
@@ -588,7 +588,7 @@ components:
         body: rail_y
   - name: y_motor
     type: stepper_behavioral
-    part: nema23_class_generic
+    part: stepperonline_23hs22_2804s
     mechanical:
       - mount: face
         body: rail_y
@@ -621,7 +621,7 @@ components:
         body: trolley
   - name: lift_motor
     type: stepper_behavioral
-    part: nema23_class_generic
+    part: stepperonline_23hs22_2804s
     mechanical:
       - mount: face
         body: trolley

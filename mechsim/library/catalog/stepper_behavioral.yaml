@@ -136,3 +136,66 @@ parts:
       - {speed: "600 rpm", torque: "0.95 N*m"}
       - {speed: "1200 rpm", torque: "0.60 N*m"}
       - {speed: "1800 rpm", torque: "0.35 N*m"}
+  - name: stepperonline_17hs19_2004s1
+    type: stepper_behavioral
+    tier: behavioral
+    description: StepperOnline 17HS19-2004S1, NEMA 17, 1.8 degree, 48 mm body, 2.0 A bipolar.
+    source: >-
+      REPLACEABLE sourced part (brief M3-GV; URLs in docs/gantry-team-inputs.md). StepperOnline drawing rev 8.1.2025:
+      2.00 A/phase, 1.60 ohm, 3.00 mH, holding torque 0.59 N m, 1.8 deg, rotor inertia 82 g cm^2 (the distributor page
+      gives 1.4 ohm: the drawing is used); mass 390 g from the distributor page (the drawing leaves it blank). Curve:
+      the published pull-out graph "17HS19-2004S pull out torque (2A, 24V half step)", read by eye at its plotted
+      points (about 1 N cm); it has no 0 rpm point and ends at 750 rpm, so LIB-034's 0 rpm point is the holding torque
+      (the graph's low-speed plateau is 0.42 to 0.43 N m) and no torque is available above 750 rpm. max_voltage is the
+      graph's 24 V drive supply, not a rated maximum; viscous_damping is not published and stays the generic NEMA 17
+      placeholder.
+    values:
+      mass: "0.39 kg"
+      step_angle: "1.8 deg"
+      holding_torque: "0.59 N*m"
+      rotor_inertia: "82 g*cm**2"
+      viscous_damping: "2e-3 N*m*s"
+      rated_current: "2.0 A"
+      max_voltage: "24 V"
+      phase_resistance: "1.6 ohm"
+      phase_inductance: "3.0 mH"
+    placeholders: [viscous_damping, max_voltage]
+    torque_speed_curve:
+      - {speed: "0 rpm", torque: "0.59 N*m"}
+      - {speed: "60 rpm", torque: "0.30 N*m"}
+      - {speed: "90 rpm", torque: "0.42 N*m"}
+      - {speed: "180 rpm", torque: "0.43 N*m"}
+      - {speed: "300 rpm", torque: "0.42 N*m"}
+      - {speed: "450 rpm", torque: "0.39 N*m"}
+      - {speed: "600 rpm", torque: "0.33 N*m"}
+      - {speed: "750 rpm", torque: "0.23 N*m"}
+  - name: stepperonline_23hs22_2804s
+    type: stepper_behavioral
+    tier: behavioral
+    description: StepperOnline 23HS22-2804S, NEMA 23, 1.8 degree, 56 mm body, 2.8 A bipolar.
+    source: >-
+      REPLACEABLE sourced part (brief M3-GV; URLs in docs/gantry-team-inputs.md). StepperOnline drawing: 2.80 A/phase,
+      0.90 ohm, 2.50 mH, holding torque 1.26 N m, 1.8 deg, rotor inertia 300 g cm^2, 0.70 kg, rated voltage 2.5 V.
+      Curve: the published pull-out graph "(2.5A/P 24V half step)", taken below the 2.8 A rating, read by eye at its
+      plotted points (about 1 N cm); it has no 0 rpm point and ends at 900 rpm, so LIB-034's 0 rpm point is the
+      holding torque (the graph's lowest point is 0.81 N m at 75 rpm) and no torque is available above 900 rpm.
+      max_voltage is the graph's 24 V drive supply, not a rated maximum; viscous_damping is not published and stays the
+      generic NEMA 23 placeholder.
+    values:
+      mass: "0.70 kg"
+      step_angle: "1.8 deg"
+      holding_torque: "1.26 N*m"
+      rotor_inertia: "300 g*cm**2"
+      viscous_damping: "8e-3 N*m*s"
+      rated_current: "2.8 A"
+      max_voltage: "24 V"
+      phase_resistance: "0.9 ohm"
+      phase_inductance: "2.5 mH"
+    placeholders: [viscous_damping, max_voltage]
+    torque_speed_curve:
+      - {speed: "0 rpm", torque: "1.26 N*m"}
+      - {speed: "75 rpm", torque: "0.81 N*m"}
+      - {speed: "150 rpm", torque: "0.76 N*m"}
+      - {speed: "300 rpm", torque: "0.70 N*m"}
+      - {speed: "600 rpm", torque: "0.43 N*m"}
+      - {speed: "900 rpm", torque: "0.215 N*m"}
