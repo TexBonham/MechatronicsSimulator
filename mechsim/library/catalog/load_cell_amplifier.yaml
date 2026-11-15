@@ -80,3 +80,23 @@ parts:
       supply_voltage: "5 V"
       supply_current: "1.5 mA"
     placeholders: [mass, gain, output_full_scale, bandwidth, supply_voltage, supply_current]
+  - name: avia_hx711_class
+    type: load_cell_amplifier
+    tier: ideal
+    description: Avia Semiconductor HX711 bridge front end (24-bit ADC, channel A gain 128 or 64), as the analog type allows.
+    source: >-
+      REPLACEABLE sourced part (brief M3-GV; URLs in docs/gantry-team-inputs.md). HX711 datasheet: 24-bit converter,
+      channel A gain 128 or 64 (full-scale differential input +-0.5 AVDD / gain, +-20 mV at 128 with AVDD 5 V), output
+      rate 10 or 80 SPS, settling 400 or 50 ms after power-up, reset, channel or gain change. The type is an analog
+      amplifier into the MCU's ADC; the HX711's digital output is not in the schema (finding, brief M3-GV), so a design
+      states the gain that gives its ADC the firmware's scale. Not published, kept as placeholders: the digital filter's
+      bandwidth (the datasheet does not describe the filter; 2 Hz is ruling 35's placeholder), output_full_scale (the
+      placeholder chip's 3.3 V ADC reference), mass, supply_current.
+    values:
+      mass: "5 g"
+      gain: "128"
+      output_full_scale: "3.3 V"
+      bandwidth: "2 Hz"
+      supply_voltage: "5 V"
+      supply_current: "1.5 mA"
+    placeholders: [mass, output_full_scale, bandwidth, supply_current]

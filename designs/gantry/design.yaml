@@ -89,11 +89,11 @@ open_parameters:
     dimension: choice
     owed_by: gantry team
     note: >-
-      Weight sensor part; PLACEHOLDER load_cell_5kg_generic on the hook reading the case payload, through load_amp
-      (gain 241.8 so the firmware's 600 counts per kg holds with the 12-bit 3.3 V placeholder ADC). No weight sensor
-      declared by the gantry team (2026-11-11); G5 and G6 need one or another overload detection.
-
-    default: "load_cell_5kg_generic"
+      Weight sensor part; REPLACEABLE sourced TAL220B 5 kg cell (brief M3-GV) on the hook reading the case payload,
+      through an HX711-class load_amp (gain 483.398 so the firmware's 600 counts per kg holds with the 12-bit 3.3 V
+      placeholder ADC). No weight sensor declared by the gantry team (2026-11-11); G5 and G6 need one or another
+      overload detection.
+    default: "tal220b_5kg"
   - name: deflection_target_mode
     dimension: choice
     owed_by: gantry team
@@ -795,14 +795,15 @@ components:
     mechanical:
       - mount: attach
         body: hook
-  # PLACEHOLDER load cell chain (open parameter load_cell_type): no weight sensor declared by the gantry team
-  # (2026-11-11); G5 and G6 need one or another overload detection. The cell reads the reaction at the case payload's
-  # fixed joint to the hook (DES-043 senses.joint_reaction, ruling 24); the amplifier gain 241.8 makes 1 kg read 600
-  # ADC counts on the placeholder chip (2e-3 V/kg x 241.8 x 4096 / 3.3 V), so the 5.5 kg overweight payload (3300
-  # counts) stays inside the 12-bit range, which at 1000 counts/kg ended at 4.1 kg, under the 5.216 kg limit.
+  # REPLACEABLE sourced load cell chain (brief M3-GV, owner decision 4; no weight sensor declared by the gantry team
+  # 2026-11-11): a TAL220B 5 kg cell through an HX711-class front end. The cell reads the reaction at the case payload's
+  # fixed joint to the hook (DES-043 senses.joint_reaction, ruling 24). The HX711's 24-bit digital output is not in the
+  # schema (finding), so load_amp states the gain that gives the placeholder chip's 12-bit 3.3 V ADC the firmware's
+  # 600 counts per kg: 1.0 mV/V x 5 V / 5 kg = 1e-3 V/kg, gain = 600 x 3.3 / 4096 / 1e-3 = 483.398 (README); 5.5 kg
+  # reads 3300 counts, full scale 6.83 kg; zero 0 counts (the ideal cell has no offset).
   - name: load_cell
     type: load_cell
-    part: load_cell_5kg_generic
+    part: tal220b_5kg
     mechanical:
       - mount: body
         body: hook
@@ -810,12 +811,10 @@ components:
       joint_reaction: payload
   - name: load_amp
     type: load_cell_amplifier
-    part: load_cell_amplifier_generic
-    # PLACEHOLDER bandwidth 2 Hz (ruling 35): the lift-start force transient must not read as an overload; the gantry
-    # team owes the real front end or overload filtering.
+    part: avia_hx711_class
+    # The part's bandwidth is ruling 35's 2 Hz placeholder (the HX711 datasheet does not describe its filter).
     overrides:
-      gain: "241.8"
-      bandwidth: "2 Hz"
+      gain: "483.398"
 
     mechanical:
       - mount: board

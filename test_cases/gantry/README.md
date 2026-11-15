@@ -68,6 +68,18 @@ joints (SimScale's table, which cites no origin; bolted steel at low amplitude 0
 fixed in advance. At the 1 ms default step both first modes are unresolved (x = 5.67 and 2.52); G12 and G15 run at 100
 microseconds (x = 0.567, 0.252).
 
+Load cell chain. TAL220B 5 kg (1.0 mV/V rated output, 5 V excitation, ultimate overload 150 percent = 73.575 N)
+through an HX711-class front end (gain 128 or 64, 10 or 80 SPS; RATE high, 80 SPS, is chosen for the overload
+detection's latency). The cell gives 1.0e-3 x 5 V / 5 kg = 1e-3 V/kg; the firmware's 600 counts per kg on the
+placeholder chip's 12-bit, 3.3 V ADC needs a gain of 600 x 3.3 / 4096 / 1e-3 = 483.398 (5.5 kg reads 3300 counts, full
+scale 4096 / 600 = 6.83 kg), zero 0 counts. The HX711's own 24-bit digital path (where its gain of 128 would apply) is
+not in the schema, a finding. G6's bound re-derived (ruling 35): the detection latency is one sample at 80 SPS (12.5
+ms), the front end's first-order rise from the rated 4.536 kg reading to the 5.216 kg limit after the step to 5.5 kg
+(tau = 1 / (2 pi 2 Hz) = 79.6 ms; the HX711 datasheet does not describe its digital filter, so 2 Hz stays ruling 35's
+placeholder; its 50 ms settling at 80 SPS is from power-up, reset or a channel or gain change, not a step response),
+t = tau ln(0.964 / 0.284) = 97.3 ms, and GANTRY_OVERLOAD_TICKS 2 ms: 111.8 ms, 0.1 m/s x 0.1118 s = 1.12 cm, so the
+bound stays 0.1 + 0.0112 + 0.1 m = 21.1 cm; `G6.yaml` is unchanged.
+
 ## What runs where (INV-020, brief M3-X2d)
 
 The acceptance checks of G2 to G16 read whole native runs of 30 to 130 s each and carry the `long_run` marker: CI
