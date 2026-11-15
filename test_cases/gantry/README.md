@@ -133,6 +133,12 @@ changed, all G15: `safety_factor_rail_x` fail -> pass (1.43609 -> 37.9641), `saf
 | G2, G3, G12 to G16 | `ready` 5.245 -> 5.246 s (G2, G3), 5.218 to 5.222 -> 5.224 to 5.226 s elsewhere; final positions within 0.03 um | homing on the new motors and belts |
 | G1, G4, G13 | hold bands 52.0 -> 40.1 um (G1), G4 and G13 at 1e-13 m and below | start-up settling on the stiffer drive |
 
+Native baseline regenerated whole by brief M3-GV2 (the G15 settled targets re-derived, three design comments fixed so
+the design hash changed; one run, 2026-11-15): 99 entries, none added or removed; 2 statuses changed, G15
+`settled_deflection_rail_x` and `settled_deflection_rail_y` fail -> pass (measured unchanged, 1.45415e-5 and 5.22721e-5
+m, now against their closed-form targets 1.4541401e-5 and 5.2288134e-5 m); no measured value moved; 97 entries changed
+only in run hashes (the design hash and G15's case hash). The writer drops the file's `note`; it is restored by hand.
+
 `baseline.yaml`: placeholder-geometry baselines for G1 to G16 on the native adapter (statuses of record on the draft
 gantry), until CAD. `bridge_baselines/<case>.yaml`: the bridge's values of record for G1 to G11, G13 and G14,
 generated once on 2026-11-14 and never regenerated (PHY-025; the native baseline is compared with them, PHY-024).

@@ -44,8 +44,9 @@ open_parameters:
     dimension: choice
     owed_by: gantry team
     note: >-
-      Material and process of the printed bodies (frame, rails, trolley, lift carriage, hook): PETG, 3D printed
-      lengthwise (print direction along the rail), gantry team 2026-11-11. The petg_printed record's mechanical
+      Material and process of the printed bodies (frame, trolley, lift carriage, hook): PETG, 3D printed lengthwise
+      (print direction along the rail), gantry team 2026-11-11. The rails are a REPLACEABLE sourced 2040 aluminium
+      extrusion since brief M3-GV (owner decision 4), named on the rail bodies. The petg_printed record's mechanical
       properties stay PLACEHOLDER datasheet values (wide spread) until the team gives them. Scope: printed bodies only;
       the motor shafts (x_motor_shaft, y_motor_shaft, lift_motor_shaft) are bought steel parts, PLACEHOLDER
       bearing_steel_52100 machined, and the belt pulleys are catalog parts (belt_pulley.yaml), until the CAD.
@@ -228,7 +229,7 @@ environment:
       offset: 0 m
 # PLACEHOLDER GEOMETRY until the gantry team's CAD arrives (DES open parameter cad_model).
 # Every body below is a box or cylinder of printed PETG (body_materials, gantry team 2026-11-11; build direction along
-# each rail, along z elsewhere), except the motor shafts, machined steel (placeholder; body_materials covers printed
+# z), except the rails (sourced 2040 aluminium extrusion, declared mass, brief M3-GV) and the motor shafts, machined steel (placeholder; body_materials covers printed
 # bodies only), with mass properties computed from it, and every joint placement, motor axis, joint friction, damping
 # and backlash and rail section is a stand-in chosen only so the rigid gantry builds. Gantry team
 # sizes (2026-11-11): workspace x 0.5 m, workspace y 0.5 m, lift travel 0.5 m, rails 0.5 m each, so each rail spans
@@ -640,8 +641,8 @@ components:
       - name: lift_driver.enable
         pin: enable
         direction: consumes
-  # The lift is belt-driven like X and Y (gantry team 2026-11-11: no lead screw on any axis), the same placeholder part
-  # family (40 mm/turn; efficiency, stiffness and max tension flagged in the catalog); GANTRY_STEPS_PER_M_LIFT is
+  # The lift is belt-driven like X and Y (gantry team 2026-11-11: no lead screw on any axis), the same sourced Gates GT2
+  # part (40 mm/turn; brief M3-GV; its working tension is exceeded on the lift, a design finding, ruling 99 (e)); GANTRY_STEPS_PER_M_LIFT is
   # 3200 microsteps / 0.04 m = 80 000. Ruling 26's 8 mm lead is moot for the gantry.
   - name: lift_belt
     type: belt_pulley
