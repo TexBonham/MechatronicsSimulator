@@ -149,3 +149,4 @@ type live in the root `CLAUDE.md` dispatch table once measured.
 | 2026-11-15 | M3-X2i G10 remainder explained from both archives (homing settle term), E9 bounded and published (wip/05-x2i 5a0aef9); ruling 100 | module-writer (opus) | 226K | 110 calls |
 | 2026-11-15 | M3 review: X2i (wip/05-x2i 5a0aef9): accept after a wording-only fix round, 2 minor, 1 low; bridge can be retired; ruling 101 | Fable review (general-purpose) | 116K | 19 calls |
 | 2026-11-15 | X2i wording fix round applied inline (b6df0c7), mypy re-check | inline | ~15K | 5 calls |
+| 2026-11-15 | X2i full verification (ctest debug-sanitize 625, fast tier 4723 passed, long tier 37 passed, lints) and landing (04df6df); traceability regenerated after the wording round | inline | ~12K | 7 calls |
