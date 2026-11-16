@@ -83,6 +83,8 @@ _DESIGN_FILE = "inputs/design_file"
 _TEST_CASE_FILE = "inputs/test_case_file"
 
 
+# An archive written before the attribute existed was a bridge run; archives of the retired bridge still read and
+# never need the engine (ruling 17, ADR 0004), so the reader keeps its name.
 DEFAULT_PHYSICS_ADAPTER = "mujoco"
 PHYSICS_ADAPTERS = ("mujoco", "native")
 
@@ -248,7 +250,7 @@ def write_archive(
     columns: Mapping[str, Columns] | None = None,
 ) -> None:
     """Write one run archive; an existing file at `path` is replaced. `extra` lands as root attrs `meta_<key>` in key
-    order: run metadata a caller keeps beside the identity (run id, end reason, bridge approximations). `columns`
+    order: run metadata a caller keeps beside the identity (run id, end reason, adapter approximations). `columns`
     labels index-column series (REC-018) over any labels the recording carries."""
     series_map = label_series(recording.series, columns or {})
     with h5py.File(path, "w", libver=("v110", "v110"), track_order=False) as h5:

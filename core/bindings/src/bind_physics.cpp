@@ -16,7 +16,6 @@
 #include "mechsim/kernel/physics_adapter.hpp"
 #include "mechsim/kernel/physics_types.hpp"
 #include "mechsim/kernel/time.hpp"
-#include "mechsim/physics/mujoco/mujoco_adapter.hpp"
 #include "mechsim/physics/native/native_adapter.hpp"
 
 namespace py = pybind11;
@@ -253,12 +252,6 @@ void bind_adapter(py::module_& m) {
              py::arg("body"))
         .def("set_transmission_slip", &PhysicsAdapter::set_transmission_slip, py::arg("transmission"),
              py::arg("fraction"));
-
-    py::class_<physics::mujoco::MujocoAdapter, PhysicsAdapter, py::smart_holder>(
-        m, "MujocoAdapter", "MuJoCo behind the PhysicsAdapter interface (PHY-014, ADR 0014); load the translation's MJCF.")
-        .def(py::init<>())
-        .def("integrator", &physics::mujoco::MujocoAdapter::integrator)
-        .def("timestep", &physics::mujoco::MujocoAdapter::timestep);
 
     py::class_<physics::native::DrivenSchemeDecayRecord, py::smart_holder>(
         m, "DrivenSchemeDecayRecord", "The native run's largest scheme decay per driven joint, shared; outlives the adapter.")

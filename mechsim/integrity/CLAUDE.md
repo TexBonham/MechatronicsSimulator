@@ -29,7 +29,7 @@ regenerate with `uv run python -m mechsim.integrity.config --write-schema`, neve
   entry's nodes: `segments`, plus node 0 when `ends` is simply_supported); table key `bodies` is the exact published
   count, required by the party when any member has nodes. A rigid member with only some end-load series recorded is
   an `IntegrityError` (partial recording).
-- Deflection from the recorded node poses times the load factor (ruling 28); a member without nodes (bridge, rigid) is a NaN row flagged `deflection_not_evaluated` with a note; impact rows flag `impact_margin_below_minimum`.
+- Deflection from the recorded node poses times the load factor (ruling 28); a member without nodes (a rigid build) is a NaN row flagged `deflection_not_evaluated` with a note; impact rows flag `impact_margin_below_minimum`.
 - Fastener ratings from configuration only in milestone 3 (catalog grade ratings owed, ruling 27).
 - Table values at the design load (recorded loads times 1 + allowance from the design file, INT-019), factor 1 when the case carries it (TST-043).
 - Strength adds `CarriedReads.bound` (detail `unresolved_moment`, `unresolved_stress`, `unresolved_note`) only where the rule of ruling 75 does not resolve a cluster; fatigue reads `member_sections`, impact `member_normal_stress` (ruling 72).

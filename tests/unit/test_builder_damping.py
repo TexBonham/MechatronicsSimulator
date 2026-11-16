@@ -13,7 +13,6 @@ from mechsim.builder import BuildError, BuildResult, structure
 from mechsim.design.schema import Design, FlexibleMember, OpenValue
 from mechsim.library.registry import default_registry
 from mechsim.physics.driven import driven_mass
-from mechsim.physics.mujoco.prepare import prepare_model as prepare_bridge
 from mechsim.physics.native.translate import translate
 from mechsim.physics.neutral import PhysicsModel
 from tests.reference.test_transmission_damping import (
@@ -200,15 +199,6 @@ def test_the_native_line_prints_zeta_d_and_the_time_constant_of_a_damped_belt() 
         item for item in undamped.report if item.startswith("transmission 'belt': compliant")
     )
     assert undamped.document["transmissions"][0]["damping"] == 0.0
-
-
-@pytest.mark.req("PHY-037")
-def test_the_bridge_keeps_its_rigid_belt_line_and_names_an_ignored_damping() -> None:
-    damped = prepare_bridge(belt_model(17.0), None, 1e-3).report
-    plain = prepare_bridge(belt_model(0.0), None, 1e-3).report
-    assert any("treated as rigid (milestone 1); its damping " in line for line in damped)
-    assert any(line.endswith("treated as rigid (milestone 1)") for line in plain)
-    assert not any("its damping" in line for line in plain)
 
 
 @pytest.mark.req("BLD-041")

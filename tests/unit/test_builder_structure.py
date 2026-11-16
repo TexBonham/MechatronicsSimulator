@@ -424,6 +424,7 @@ def _world(
 
 @pytest.mark.req("BLD-032")
 @pytest.mark.req("BLD-036")
+@pytest.mark.req("BLD-039")
 @pytest.mark.parametrize("starts", [None, {"x_axis": 0.1, "y_axis": 0.2, "lift_axis": 0.3}])
 def test_payload_hangs_on_its_rope_straight_at_its_static_stretch_from_the_start_pose(
     starts: dict[str, float] | None,

@@ -289,7 +289,7 @@ def test_box_sphere_capsule_and_open_sizes() -> None:
 
 @pytest.mark.req("VIE-016")
 def test_replay_works_without_the_engine(tmp_path: Path) -> None:
-    """A real P1 archive replays through the shipped reader with the core extension and MuJoCo unimportable."""
+    """A real P1 archive replays through the shipped reader with the core extension unimportable."""
     from mechsim.facade.service import Facade, default_services
 
     case = ROOT / "test_cases" / "pendulum" / "P1_period.yaml"
@@ -302,7 +302,7 @@ import sys
 
 class Block:
     def find_spec(self, name, path=None, target=None):
-        if name.startswith("mechsim._core") or name == "mujoco":
+        if name.startswith("mechsim._core"):
             raise ImportError("engine blocked: " + name, name=name)
         return None
 
@@ -320,7 +320,7 @@ angle = facade.value_at(handle.run_id, "joint:pivot.position", 0.0)
 assert angle.t == 0.001 and abs(angle.value - 0.05) <= {ONE_STEP_BOUND!r}
 assert facade.probe(handle.run_id, "body", "link").columns[6].name == "vx"
 assert facade.geometry(handle.run_id).bodies[0]["body"] == "link"
-assert not any(name.startswith("mechsim._core") for name in sys.modules) and "mujoco" not in sys.modules
+assert not any(name.startswith("mechsim._core") for name in sys.modules)
 print("replayed", handle.samples)
 """
     result = subprocess.run(

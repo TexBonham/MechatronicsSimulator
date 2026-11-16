@@ -2,8 +2,8 @@
 
 One pybind11 module, `mechsim._core_ext` (ADR 0005), imported through `mechsim/_core.py` (raises
 `CoreNotBuiltError` naming the build step if the module is missing). Target `_core_ext`; links `mechsim_engine`,
-`mechsim_controller` (-> signals -> kernel), `mechsim_integrity`, `mechsim_physics_mujoco` (libmujoco installed next to the extension in
-`mechsim/`, found through `INSTALL_RPATH $ORIGIN`; the build tree keeps its own RPATH). pybind11 v3.0.1 via FetchContent; `MECHSIM_BUILD_BINDINGS` (ON).
+`mechsim_controller` (-> signals -> kernel), `mechsim_integrity`, `mechsim_physics_native`; no shared library ships beside the extension
+(the MuJoCo bridge and its libmujoco were retired, ADR 0004). pybind11 v3.0.1 via FetchContent; `MECHSIM_BUILD_BINDINGS` (ON).
 
 ## Build
 
@@ -18,10 +18,10 @@ One pybind11 module, `mechsim._core_ext` (ADR 0005), imported through `mechsim/_
 | File | Binds |
 |---|---|
 | `bindings.hpp` | `bind_*` declarations; `call_override<R>(self, name, args...)` (takes the GIL, Python error -> C++); `party_fault_object`; `rethrow_as_cpp` |
-| `factories.hpp/.cpp` | `make_kernel(RunConfig)` (CoSimKernel); name registries `make_physics_adapter(name)`, `make_controller_runtime(name, rate)`, `*_names()`; adapters "mujoco", "native" (`core/physics/native/`), "null"; runtimes "null" |
+| `factories.hpp/.cpp` | `make_kernel(RunConfig)` (CoSimKernel); name registries `make_physics_adapter(name)`, `make_controller_runtime(name, rate)`, `*_names()`; adapters "native" (`core/physics/native/`), "null"; runtimes "null" |
 | `errors.cpp` | Python exception classes and the translator |
 | `bind_kernel.cpp` | `Rate`, `Seconds`, `Duration`, `SimTime`, `lcm`, `period_in_ticks`, `ticks_at`, `to_seconds`; `RunConfig`, `SolverConfig`, `DriftThresholds`, `ControllerMode`; `EndCondition(end_time, stop=None)`, `RunOutcome`, `RunReport` (`fault` -> `PartyFault` or None); `Party` (trampoline); `Kernel`, `NullKernel`, `make_kernel` |
-| `bind_physics.cpp` | Neutral physics types (`TransmissionState` + `PowerFlow`, `PayloadState`); `PreparedModel`; `PhysicsAdapter` (trampoline; optional `set_transmission_slip`), `MujocoAdapter` (+ `integrator`, `timestep`), `NativeAdapter` (+ `integrator`, `timestep`, `driven_scheme_decay()` -> [(joint, decay)], `scheme_decay_record()` -> `DrivenSchemeDecayRecord` (shared values, `values()` a copy; take it before `PhysicsParty` takes the adapter, read it after the run); `make_physics_adapter("native")` returns it), `NullPhysicsAdapter`; `physics_adapter_step(adapter)` (C++ call path); `EfficiencyDampingRecord.values()` [(transmission, ratio, time)] and `NativeAdapter.efficiency_damping_record()` (E9, brief M3-X2i) |
+| `bind_physics.cpp` | Neutral physics types (`TransmissionState` + `PowerFlow`, `PayloadState`); `PreparedModel` (`engine_artifact` kept, empty: no shipped adapter takes one); `PhysicsAdapter` (trampoline; optional `set_transmission_slip`), `NativeAdapter` (+ `integrator`, `timestep`, `driven_scheme_decay()` -> [(joint, decay)], `scheme_decay_record()` -> `DrivenSchemeDecayRecord` (shared values, `values()` a copy; take it before `PhysicsParty` takes the adapter, read it after the run); `make_physics_adapter("native")` returns it), `NullPhysicsAdapter`; `physics_adapter_step(adapter)` (C++ call path); `EfficiencyDampingRecord.values()` [(transmission, ratio, time)] and `NativeAdapter.efficiency_damping_record()` (E9, brief M3-X2i) |
 | `bind_recorder.cpp` | `TickRecord`, `SeriesSample`, `RecordedEvent`, `SubscriptionId`; row dict physics adds `joint_positions`, `joint_drive_torques` [{joint, torque}], `payloads` [{body, carrier (-1 world), attached, force}]; `RecorderSink` (trampoline), `NullRecorderSink`, `BufferedRecorderSink` (`subscribe`, `drain_dicts`, `drain_arrays`, `pending`) |
 | `bind_signals.cpp` | `PeripheralMode`, `PinBinding`, `PinBindingTable`, `PowerRail`, name checks; `FailureMode` (+ power_loss), `FailureInjection`, `validate_injection`; `SignalComponent` (= `PythonSlowPathComponent`, trampoline; + `joint_drives()`, `take_notes()`), `NullSignalComponent`, `SignalTable`, `signal_component_tick` |
 | `bind_controller.cpp` | Channel constants; `PinInputs`, `PinOutputs`, `EventLogEntry`, `FirmwareImage`; `ControllerRuntime`, `NullControllerRuntime`, `make_controller_runtime` |

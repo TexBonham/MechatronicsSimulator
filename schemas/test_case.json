@@ -888,14 +888,11 @@
     },
     "PhysicsSettings": {
       "additionalProperties": false,
-      "description": "The run configuration's physics section (TST-040): `adapter` selects the physics adapter, `native` by default\n(round 5 ruling 1, M3-X2; the bridge `mujoco` is the non-default, ruling 41); `--set physics.adapter=<name>`\noverrides it. `substeps` (TST-042, rulings 21, 49): engine\nsteps per physics step on the native adapter, each h / substeps, the control tick unchanged; above one on the\nbridge the run fails.",
+      "description": "The run configuration's physics section (TST-040): `adapter` selects the physics adapter, `native` the only\none since the MuJoCo bridge was retired (ADR 0004); a case or `--set physics.adapter=mujoco` is refused naming\nthe retired adapter. `substeps` (TST-042, rulings 21, 49): engine steps per physics step, each h / substeps, the\ncontrol tick unchanged.",
       "properties": {
         "adapter": {
+          "const": "native",
           "default": "native",
-          "enum": [
-            "mujoco",
-            "native"
-          ],
           "title": "Adapter",
           "type": "string"
         },

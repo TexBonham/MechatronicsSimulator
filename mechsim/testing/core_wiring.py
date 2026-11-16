@@ -19,9 +19,9 @@ A0 = 1 / (J + m c^2), J the shaft body's axial inertia (the rotor inertia, BLD-0
 child body and every body below it (a payload fixed to the carrier included, ruling 24), c the transmission's metres
 per radian (lead / 2 pi for a lead screw, the pulley radius for a belt): the shaft's inverse inertia at the reference
 configuration with the driven mass reflected rigidly onto it. The layer combines the brake's drive with the motor's on
-that joint as parallel springs (SIG-020, ruling 23) and the bridge applies it through its shaft reflection. On a
+that joint as parallel springs (SIG-020, ruling 23). On a
 revolute joint driven by no transmission the brake torque applies as given and A0 is not set. A brake on any other
-joint (a transmission's driven joint, which the bridge cannot hold, or any prismatic joint) is a WiringError naming
+joint (a transmission's driven joint, whose one drive is the transmission's, or any prismatic joint) is a WiringError naming
 the brake and the joint (ruling 29). A payload welded to a carrier (mid-run attach or release) is a
 separate free body and enters no m.
 
@@ -709,7 +709,7 @@ def signal_layer(
     payloads: Sequence[str] = (),
     case_payload: str | None = None,
 ) -> tuple[Any, dict[str, float], dict[str, str], int]:
-    """A brake the bridge cannot carry (on a transmission's driven joint: the translation emits no drive there,
+    """A brake that cannot be carried (on a transmission's driven joint, whose one drive is the transmission's,
     PHY-034) ends the build with an error naming the brake and the joint (invariant 7, ruling 29)."""
     places, dofs = joint_places(model)
     chip = design_chip(build)
@@ -821,7 +821,7 @@ def undrivable_brake(instance: InstanceWiring, model: PhysicsModel) -> str | Non
         return None
     return (
         f"brake '{instance.name}': cannot be applied on joint '{instance.acts_on}': it is driven by transmission "
-        f"'{driven[instance.acts_on]}' and the MuJoCo bridge carries no second drive there (PHY-034); joint "
+        f"'{driven[instance.acts_on]}' and its transmission's drive is the one drive there (PHY-034); joint "
         f"'{instance.acts_on}' would be unheld while its motor is off, so the brake belongs on the shaft joint"
     )
 

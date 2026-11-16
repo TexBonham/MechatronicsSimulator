@@ -27,6 +27,7 @@ from pydantic import (
     GetJsonSchemaHandler,
     ValidationError,
     WithJsonSchema,
+    field_validator,
     model_validator,
 )
 from pydantic.json_schema import JsonSchemaValue
@@ -236,23 +237,44 @@ class Rates(StrictModel):
         return self
 
 
-PhysicsAdapterName = Literal["mujoco", "native"]
-MUJOCO_ADAPTER: PhysicsAdapterName = "mujoco"
+PhysicsAdapterName = Literal["native"]
 NATIVE_ADAPTER: PhysicsAdapterName = "native"
 DEFAULT_PHYSICS_ADAPTER: PhysicsAdapterName = NATIVE_ADAPTER
-PHYSICS_ADAPTERS: tuple[PhysicsAdapterName, ...] = (MUJOCO_ADAPTER, NATIVE_ADAPTER)
+PHYSICS_ADAPTERS: tuple[PhysicsAdapterName, ...] = (NATIVE_ADAPTER,)
+RETIRED_ADAPTERS = ("mujoco",)
 ADAPTER_SETTING = "physics.adapter"
 
 
+def adapter_refusal(adapter: str) -> str | None:
+    """Why `adapter` cannot run (TST-040, invariant 7): a retired adapter is named as retired, any other unknown name
+    lists the known ones; None for a known adapter."""
+    if adapter in PHYSICS_ADAPTERS:
+        return None
+    if adapter in RETIRED_ADAPTERS:
+        return (
+            f"{ADAPTER_SETTING} {adapter!r}: the MuJoCo bridge was retired (ADR 0004, milestone 3); "
+            f"use {NATIVE_ADAPTER!r}"
+        )
+    return f"{ADAPTER_SETTING} {adapter!r}: unknown adapter, expected one of {', '.join(PHYSICS_ADAPTERS)}"
+
+
 class PhysicsSettings(StrictModel):
-    """The run configuration's physics section (TST-040): `adapter` selects the physics adapter, `native` by default
-    (round 5 ruling 1, M3-X2; the bridge `mujoco` is the non-default, ruling 41); `--set physics.adapter=<name>`
-    overrides it. `substeps` (TST-042, rulings 21, 49): engine
-    steps per physics step on the native adapter, each h / substeps, the control tick unchanged; above one on the
-    bridge the run fails."""
+    """The run configuration's physics section (TST-040): `adapter` selects the physics adapter, `native` the only
+    one since the MuJoCo bridge was retired (ADR 0004); a case or `--set physics.adapter=mujoco` is refused naming
+    the retired adapter. `substeps` (TST-042, rulings 21, 49): engine steps per physics step, each h / substeps, the
+    control tick unchanged."""
 
     adapter: PhysicsAdapterName = DEFAULT_PHYSICS_ADAPTER
     substeps: int = Field(default=1, ge=1)
+
+    @field_validator("adapter", mode="before")
+    @classmethod
+    def _known_adapter(cls, value: object) -> object:
+        if isinstance(value, str):
+            refusal = adapter_refusal(value)
+            if refusal is not None:
+                raise ValueError(refusal)
+        return value
 
 
 class IntegritySettings(StrictModel):

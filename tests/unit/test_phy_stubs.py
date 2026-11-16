@@ -9,7 +9,6 @@ from typing import Any
 import pytest
 
 from mechsim import _core as core
-from mechsim.physics.mujoco.prepare import prepare_model as prepare_bridge
 from mechsim.physics.native.prepare import prepare_model as prepare_native
 from mechsim.physics.neutral import PhysicsModel, from_yaml
 from mechsim.testing.baseline import load_baseline
@@ -113,66 +112,6 @@ def test_phy_004() -> None:
     assert len(rig.outputs().ropes) == 1
 
 
-@pytest.mark.req("PHY-006")
-def test_phy_006() -> None:
-    """The adapter interface shall accept injected physical faults: transmission slip and payload change.
-
-    Through the binding on the MuJoCo adapter, with the committed translation fixtures. Slip: the lead screw
-    (c = 0.008 / 2 pi) under a shaft drive whose rest advances 0.01 rad per step for 10 steps with s = 0.5 loses
-    s * 9 * 0.01 = 0.045 rad (the first rest only starts tracking). Payload: 2 kg welded to a fixed hook carries a
-    force near m g; doubled, it carries near 2 m g; released, it falls and reports no carrier; a wrong carrier or a
-    fraction outside [0, 1] is an AdapterError. The exact closed-form checks are the C++ reference tests [PHY-006].
-    """
-    fixtures = Path(__file__).resolve().parents[2] / "core" / "physics" / "mujoco" / "tests" / "fixtures"
-
-    def load(name: str) -> Any:
-        adapter = core.make_physics_adapter("mujoco")
-        adapter.load(core.PreparedModel("", (fixtures / name).read_text(encoding="utf-8"), "0.1.0"), core.Rate(1000))
-        return adapter
-
-    screw = load("lead_screw.xml")
-    screw.set_transmission_slip(0, 0.5)
-    for k in range(10):
-        inputs = core.PhysicsInputs()
-        inputs.joint_drives = [core.JointDrive(0, 0.01 * k, 20.0, 0.01, True)]
-        screw.set_inputs(inputs)
-        screw.step()
-    state = screw.outputs().transmissions[0]
-    assert state.slipping
-    assert state.slip == pytest.approx(0.045, rel=1e-12)
-    for fraction in (-0.1, 1.5, math.nan):
-        with pytest.raises(core.AdapterError):
-            screw.set_transmission_slip(0, fraction)
-    with pytest.raises(core.AdapterError):
-        screw.set_transmission_slip(1, 0.1)
-
-    payload = load("payload.xml")
-    weight = 2.0 * 9.81
-    for _ in range(200):
-        payload.step()
-    held = payload.outputs().payloads[0]
-    assert (held.body, held.carrier, held.attached) == (1, 0, True)
-    assert held.force[2] == pytest.approx(weight, rel=1e-6)
-    payload.set_payload_mass(1, 4.0)
-    for _ in range(200):
-        payload.step()
-    assert payload.outputs().payloads[0].force[2] == pytest.approx(2.0 * weight, rel=1e-6)
-    with pytest.raises(core.AdapterError):
-        payload.set_payload_attachment(1, 1)
-    height = payload.outputs().bodies[1].position[2]
-    payload.release_load(1)
-    for _ in range(10):
-        payload.step()
-    released = payload.outputs().payloads[0]
-    assert not released.attached
-    assert released.carrier == core.kWorldBody
-    assert released.force == [0.0, 0.0, 0.0]
-    assert payload.outputs().bodies[1].position[2] < height
-    payload.set_payload_attachment(1, 0)
-    payload.step()
-    assert payload.outputs().payloads[0].attached
-
-
 @pytest.mark.req("PHY-007")
 def test_phy_007() -> None:
     """Every adapter that carries milestone 3 or later shall publish live member end-loads every tick."""
@@ -230,19 +169,15 @@ def _neutral_values(value: Any, path: str, found: list[str]) -> None:
 
 
 @pytest.mark.req("PHY-012")
-@pytest.mark.parametrize("adapter", ["mujoco", "native"])
+@pytest.mark.parametrize("adapter", ["native"])
 def test_phy_012(adapter: str) -> None:
     """The only model type that crosses into an adapter shall be the engine-neutral physics model, and the only values
     that cross out shall be neutral types: load takes a PreparedModel (the neutral model's translation) and nothing
     else; every value under outputs() is a kernel type or a builtin, never an engine type."""
     physics = core.make_physics_adapter(adapter)
     model = from_yaml(PENDULUM)
-    if adapter == "native":
-        native = prepare_native(model, None, 1e-3)
-        prepared = core.PreparedModel(native.model_json, "", native.version)
-    else:
-        bridge = prepare_bridge(model, None, 1e-3)
-        prepared = core.PreparedModel(bridge.neutral_json, bridge.mjcf, bridge.version)
+    native = prepare_native(model, None, 1e-3)
+    prepared = core.PreparedModel(native.model_json, "", native.version)
     with pytest.raises(TypeError):
         physics.load(model, core.Rate(1000))
     physics.load(prepared, core.Rate(1000))
@@ -340,12 +275,8 @@ def _faller(adapter: str, hz: int) -> Any:
     ]
     model = PhysicsModel.model_validate(data)
     physics = core.make_physics_adapter(adapter)
-    if adapter == "native":
-        native = prepare_native(model, None, 1.0 / hz)
-        physics.load(core.PreparedModel(native.model_json, "", native.version), core.Rate(hz))
-    else:
-        bridge = prepare_bridge(model, None, 1.0 / hz)
-        physics.load(core.PreparedModel(bridge.neutral_json, bridge.mjcf, bridge.version), core.Rate(hz))
+    native = prepare_native(model, None, 1.0 / hz)
+    physics.load(core.PreparedModel(native.model_json, "", native.version), core.Rate(hz))
     return physics
 
 
@@ -353,9 +284,9 @@ def _faller(adapter: str, hz: int) -> Any:
 def test_phy_031() -> None:
     """Integrator choice and step size shall be per-adapter configuration, and no adapter shall change another
     adapter's configuration: three adapters loaded side by side at 1000, 400 and 250 Hz each keep their own rate and
-    fall by their own step's closed form. Semi-implicit Euler under constant g: v_n = -g n h exactly (the bridge
-    integrates the free fall the same way); after n steps the speed names the step the adapter used."""
-    adapters = [("native", 1000), ("native", 400), ("mujoco", 250)]
+    fall by their own step's closed form. Semi-implicit Euler under constant g: v_n = -g n h exactly; after n steps
+    the speed names the step the adapter used."""
+    adapters = [("native", 1000), ("native", 400), ("native", 250)]
     loaded = [(_faller(name, hz), hz) for name, hz in adapters]
     for _ in range(10):
         for physics, _hz in loaded:
@@ -367,7 +298,7 @@ def test_phy_031() -> None:
 
 
 @pytest.mark.req("PHY-032")
-@pytest.mark.parametrize("adapter", ["mujoco", "native"])
+@pytest.mark.parametrize("adapter", ["native"])
 def test_phy_032(adapter: str) -> None:
     """An adapter shall advance simulated time only on a step call and shall not read wall-clock time: outputs,
     health and inputs leave the step count and the state alone, and two runs with a pause between steps of one of

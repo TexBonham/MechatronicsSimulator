@@ -1081,9 +1081,8 @@ structural:
   deflection_target: ${deflection_target_mode}
   minimum_safety_factor: ${minimum_safety_factor}
 # The payload rope (ADR 0016, ruling 2): one PLACEHOLDER 0.3 m steel rope from the hook to the case payload. Its load
-# end is the case payload, placed at run time (BLD-032): on the native adapter the run hangs the payload on the rope
-# (top face centre, the rope's rest length below the hook point); the mujoco bridge models no rope and keeps the
-# payload fixed to the hook, swinging on hook_swing, with an approximation line saying so.
+# end is the case payload, placed at run time (BLD-032): the run hangs the payload on the rope (top face centre, the
+# rope's rest length below the hook point).
 ropes:
   - name: payload_rope
     part: rope_3mm_steel_generic

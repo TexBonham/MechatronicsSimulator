@@ -6,7 +6,6 @@ from __future__ import annotations
 import csv
 import hashlib
 import json
-import math
 from fractions import Fraction
 from pathlib import Path
 
@@ -20,7 +19,6 @@ from mechsim.record.export import export_csv, export_json
 from mechsim.record.layout import MEMBER_SERIES, ROPE_MAX_TENSION, ROPE_SERIES, ROPE_TENSION, Columns
 from mechsim.record.reader import Kinematics, RecordArchiveReader, RecordingView
 from mechsim.record.tick import (
-    BodyState,
     MemberEndLoads,
     PhysicsOutputs,
     RecordedEvent,
@@ -29,7 +27,7 @@ from mechsim.record.tick import (
     TickRecord,
     Wrench,
 )
-from mechsim.testing.core_driver import DriverError, RecordArchiver, member_frame_loads
+from mechsim.testing.core_driver import RecordArchiver
 from mechsim.testing.driver import (
     INTEGRITY_KIND,
     INTEGRITY_SOURCE,
@@ -250,31 +248,3 @@ def test_run_metadata_without_structural_fields_reads_back_empty(rows: list[Tick
     RecordArchiver(tmp_path).write(path, RecordingView(recorder.recording(), Kinematics((), (), ())), _metadata())
     read, _ = RecordArchiveReader().open(path)
     assert (read.members, read.material_overrides, read.variation, read.integrity) == ((), None, None, None)
-
-
-@pytest.mark.req("REC-004")
-def test_bridge_member_wrenches_are_rotated_into_the_member_frame() -> None:
-    # Member 0 rooted on body 1, placed with no rotation; body 1 turned +90 degrees about world z, q = (cos 45, 0, 0,
-    # sin 45): the member x axis is world +y, member y is world -x. A world force (0, 5, 0) is axial: (5, 0, 0) in
-    # the member frame; a world moment (1, 0, 0) is -1 about member y: (0, -1, 0). Member 1 rooted on the world with
-    # placement turned 180 degrees about x, q = (0, 1, 0, 0): world (0, 2, 3) reads (0, -2, -3).
-    half = math.sqrt(0.5)
-    record = TickRecord(
-        time=0,
-        physics=PhysicsOutputs(
-            bodies=(BodyState(), BodyState(orientation=(half, 0.0, 0.0, half))),
-            members=(
-                MemberEndLoads(Wrench((1.0, 0.0, 0.0), (0.0, 5.0, 0.0)), Wrench((0.0, 0.0, 7.0), (0.0, 0.0, 0.0))),
-                MemberEndLoads(Wrench((0.0, 2.0, 3.0), (0.0, 0.0, 0.0)), Wrench()),
-            ),
-        ),
-    )
-    rotated = member_frame_loads(record, ((1, (1.0, 0.0, 0.0, 0.0)), (-1, (0.0, 1.0, 0.0, 0.0))))
-    first, second = rotated.physics.members
-    assert first.start.force == pytest.approx((5.0, 0.0, 0.0), abs=1e-12)
-    assert first.start.moment == pytest.approx((0.0, -1.0, 0.0), abs=1e-12)
-    assert first.end.moment == pytest.approx((0.0, 0.0, 7.0), abs=1e-12)
-    assert second.start.moment == pytest.approx((0.0, -2.0, -3.0), abs=1e-12)
-    assert member_frame_loads(TickRecord(time=0), ()) == TickRecord(time=0)
-    with pytest.raises(DriverError, match="2 member end-loads for 1 lumped members"):
-        member_frame_loads(record, ((1, (1.0, 0.0, 0.0, 0.0)),))

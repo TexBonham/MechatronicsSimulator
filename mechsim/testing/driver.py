@@ -83,7 +83,7 @@ class EndSpec:
 @dataclass(frozen=True)
 class RunReport:
     """How a run ended (KER RunReport plus the reason); `error` names the party and cause on a run error;
-    `approximations` are the physics bridge's translation report lines (ADR 0003, invariant 7); `notes` are report
+    `approximations` are the physics adapter's translation report lines (ADR 0003, invariant 7); `notes` are report
     lines that are not approximations (the integrity halt line, INT-026)."""
 
     reason: EndReason
@@ -156,8 +156,8 @@ class BuildResult(Protocol):
 
 
 class Builder(Protocol):
-    """Builds the design for the run's physics adapter (`physics.adapter`, TST-040): the bridge builds lumped
-    members rigid until X2 (ruling 29), the native adapter as the design states them."""
+    """Builds the design for the run's physics adapter (`physics.adapter`, TST-040): members as the design states
+    them; a retired adapter is refused."""
 
     def __call__(self, design: Design, adapter: str = "native") -> BuildResult: ...
 

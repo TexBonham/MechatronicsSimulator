@@ -28,10 +28,6 @@ from tests.conftest import CaseRuns
 PENDULUM_CASE = ROOT / "test_cases" / "pendulum" / "P1_period.yaml"
 GANTRY_CASES = ROOT / "test_cases" / "gantry"
 _VIEWS: dict[str, CoreDriver] = {}
-BRIDGE = {"physics.adapter": "mujoco"}
-# Cases whose acceptance runs stay on the bridge, each with its reason; empty since brief M3-X2c (G5 and G6 run on
-# native once brief M3-N5 let the adapter change the mass of a rope-hung payload).
-BRIDGE_RUNS: tuple[str, ...] = ()
 
 
 # ===== Fixtures and helpers =================================================
@@ -59,39 +55,15 @@ def _cached(case_runs: CaseRuns, case: str, bindings: dict[str, str] | None) -> 
 def gantry(case_runs: CaseRuns) -> dict[str, RunResult]:
     """G1 to G14 (G12 is `native_gantry`'s), each once and on first use, through the real stack (gantry design,
     builder, the default native adapter, kernel, signal layer, native gantry firmware, recorder, scoring); placeholder
-    defaults for every open parameter (DES-044); `BRIDGE_RUNS` (now none) on the bridge. Runs come from the session
+    defaults for every open parameter (DES-044). Runs come from the session
     cache (`tests/conftest.py`), so a case another module also reads runs once. A case whose run errors fails its own
     tests (`_passes`), not every case's. The fast tier reads only G1 here; the acceptance checks of G2 to G11, G13 and
     G14 are full native runs of 40 to 130 s each and carry the long-run marker (brief M3-X2d)."""
 
     def run(case: str) -> RunResult:
-        bindings = None
-        if case in BRIDGE_RUNS:
-            bindings = BRIDGE
-        return _cached(case_runs, case, bindings)
+        return _cached(case_runs, case, None)
 
     return _Runs(run)
-
-
-@pytest.fixture(scope="module")
-def bridge_gantry(case_runs: CaseRuns) -> dict[str, RunResult]:
-    """The milestone 2 cases on the MuJoCo bridge (`physics.adapter: mujoco`, TST-040), each once and on first use,
-    for the bridge's own requirement (PHY-016) while the bridge stays (ADR 0004); session-cached like `gantry`."""
-
-    def run(case: str) -> RunResult:
-        result, _ = case_runs.get(GANTRY_CASES / f"{case}.yaml", BRIDGE)
-        assert result.report is not None, result.score
-        return result
-
-    return _Runs(run)
-
-
-@pytest.fixture(scope="module")
-def bridge_g7(case_runs: CaseRuns) -> RunResult:
-    """G7 on the bridge, for the bridge's own rope stand-in (BLD-039); session-cached."""
-    result, _ = case_runs.get(GANTRY_CASES / "G7.yaml", BRIDGE)
-    assert result.report is not None, result.score
-    return result
 
 
 def _criterion(result: RunResult, name: str) -> Any:
@@ -549,22 +521,6 @@ def test_acc_024(gantry: dict[str, RunResult]) -> None:
     The target at 10 s is refused; homing starts after `home` at 10.5 s.
     """
     _passes(gantry["G11"], "target_refused", "rehoming")
-
-
-@pytest.mark.req("BLD-039")
-def test_bridge_keeps_the_rope_payload_on_its_carrier_with_one_line(bridge_g7: RunResult) -> None:
-    """G7 on the bridge (milestone 2, a 2 kg payload attached to the hook from the start, the design's integrity file
-    present): the line is emitted only for a case payload (G3 has none), so G7's payload on payload_rope stays fixed
-    to the hook with one stand-in line naming the rope and the carrier, tier 1 is reported not evaluated, and the
-    case still passes (on the default native adapter the payload hangs on the rope)."""
-    result = bridge_g7
-    assert result.report is not None
-    lines = result.report.approximations
-    stand_in = [line for line in lines if line.startswith("payload rope 'payload_rope': not modeled")]
-    assert len(stand_in) == 1
-    assert "fixed to 'hook'" in stand_in[0]
-    assert any(line.startswith("integrity tier 1: not evaluated on this adapter") for line in lines)
-    assert result.score.status == "pass"
 
 
 # ===== ACC-025 to ACC-028 ===================================================
@@ -1608,7 +1564,7 @@ def test_acc_033(tmp_path: Path) -> None:
 
     Closed form (P1_period.yaml): I = m L^2 / 3 = 1/12 kg m^2, m = 1 kg, g = 9.81 m/s^2, d = 0.25 m give
     T0 = 1.1582031 s; zeta = 0.05 gives T_d = 1.1596536 s. Tolerance 0.1 percent (ACC-033 row, PHY-028), scored by
-    the case's own criterion through the real stack: YAML case, builder, MuJoCo bridge, kernel, recorder, scoring.
+    the case's own criterion through the real stack: YAML case, builder, native adapter, kernel, recorder, scoring.
     """
     result = run_case(PENDULUM_CASE, core_services(), None, tmp_path)
     assert result.report is not None
@@ -1906,22 +1862,6 @@ def test_acc_045() -> None:
 
 
 # ===== PHY-016 ==============================================================
-@pytest.mark.req("PHY-016")
-@pytest.mark.long_run
-def test_phy_016(bridge_gantry: dict[str, RunResult]) -> None:
-    """The MuJoCo adapter shall carry the milestone 2 acceptance cases, G5 to G11, G13 and G14.
-
-    Each case runs on the MuJoCo bridge (`physics.adapter: mujoco`; the native adapter is the default since M3-X2)
-    through the whole stack without a run error and every criterion of it passes (the per-requirement tests above
-    assert what each criterion means, on the default adapter).
-    """
-    for case in ("G5", "G6", "G7", "G8", "G9", "G10", "G11", "G13", "G14"):
-        result = bridge_gantry[case]
-        report = result.report
-        assert report is not None, result.score
-        assert not report.errored, f"{case}: {report.error}"
-        failing = [criterion.name for criterion in result.score.criteria if criterion.status != "pass"]
-        assert failing == [], f"{case}: {failing}"
 
 
 # ===== Native references (ACC-037, ACC-039 to ACC-043) =======================

@@ -13,7 +13,6 @@ from typing import Any
 import pytest
 
 from mechsim import _core as core
-from mechsim.physics.mujoco.prepare import prepare_model as prepare_bridge
 from mechsim.physics.native.prepare import prepare_model as prepare_native
 from mechsim.physics.neutral import PhysicsModel, from_yaml
 
@@ -121,12 +120,8 @@ def member() -> PhysicsModel:
 
 def _load(model: PhysicsModel, adapter: str) -> Any:
     physics = core.make_physics_adapter(adapter)
-    if adapter == "native":
-        native = prepare_native(model, None, 1e-3)
-        physics.load(core.PreparedModel(native.model_json, "", native.version), core.Rate(1000))
-    else:
-        bridge = prepare_bridge(model, None, 1e-3)
-        physics.load(core.PreparedModel(bridge.neutral_json, bridge.mjcf, bridge.version), core.Rate(1000))
+    native = prepare_native(model, None, 1e-3)
+    physics.load(core.PreparedModel(native.model_json, "", native.version), core.Rate(1000))
     return physics
 
 
@@ -184,13 +179,9 @@ def _run(model: PhysicsModel, adapter: str, inputs: Callable[[Any, int], None], 
 
 
 CASES = [
-    ("driven", driven, _drive, "mujoco"),
     ("driven", driven, _drive, "native"),
-    ("joint-drive", driven, _joint_drive, "mujoco"),
     ("joint-drive", driven, _joint_drive, "native"),
-    ("member", member, _no_inputs, "mujoco"),
     ("member", member, _no_inputs, "native"),
-    ("contact", contact, _no_inputs, "mujoco"),
     ("contact", contact, _no_inputs, "native"),
     ("rope", rope, _no_inputs, "native"),
 ]
@@ -205,7 +196,7 @@ def test_phy_010_run_twice_bitwise(
     a driven transmission (a varying shaft torque through a compliant belt), a real joint drive on that shaft
     toward a moving rest (disabled every 97th tick), a lumped cantilever (end-loads and node poses), a contact case
     (a tilted box landing on the floor, friction and per-corner contacts) and a rope case (a swinging load whose rope
-    snaps; the bridge maps no ropes)."""
+    snaps)."""
     first = _run(model(), adapter, inputs, 600)
     second = _run(model(), adapter, inputs, 600)
     assert len(first) == len(second) == 600
@@ -214,6 +205,8 @@ def test_phy_010_run_twice_bitwise(
 
 
 _BRIDGE_MODULES = ("mujoco", "mechsim.physics.mujoco")
+ROOT = Path(__file__).resolve().parents[2]
+_MUJOCO_INCLUDE = re.compile(r'^\s*#\s*include\s*[<"]mujoco', re.MULTILINE)
 
 
 def _is_bridge(module: str) -> bool:
@@ -221,60 +214,65 @@ def _is_bridge(module: str) -> bool:
 
 
 @pytest.mark.req("PHY-026")
-def test_phy_026_no_module_level_import_of_the_bridge() -> None:
-    """After retirement, no runtime code path shall import MuJoCo. Before the removal (ADR 0004, round 5 ruling 1) it
-    holds for the default native adapter: no module under `mechsim/` outside the bridge's own package imports MuJoCo
-    or the bridge at module level (the import graph a native run loads); the one bridge run path imports it inside
-    the function that prepares a bridge run."""
-    offenders = []
-    bridge = ROOT / "mechsim" / "physics" / "mujoco"
+def test_phy_026_nothing_imports_mujoco() -> None:
+    """After retirement, no runtime code path shall import MuJoCo (ADR 0004, retired 2026-11-15): no module in the
+    repository imports MuJoCo or the retired bridge package at any depth, dynamic imports included (the import
+    checker's rule, run over the whole tree), and the bridge package is gone."""
+    sys.path.insert(0, str(ROOT / "tools"))
+    try:
+        import check_imports
+    finally:
+        sys.path.remove(str(ROOT / "tools"))
+    found = check_imports.check_paths([ROOT], ROOT)
+    offenders = [str(violation) for violation in found if "mujoco" in violation.message]
+    assert offenders == []
+    assert not (ROOT / "mechsim" / "physics" / "mujoco").exists()
     for path in sorted((ROOT / "mechsim").rglob("*.py")):
-        if bridge in path.parents:
-            continue
-        for node in ast.parse(path.read_text(encoding="utf-8")).body:
+        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
             names: list[str] = []
             if isinstance(node, ast.Import):
                 names = [alias.name for alias in node.names]
             if isinstance(node, ast.ImportFrom) and node.module is not None and node.level == 0:
                 names = [node.module, *(f"{node.module}.{alias.name}" for alias in node.names)]
             for name in names:
-                if _is_bridge(name):
-                    offenders.append(f"{path.relative_to(ROOT)}:{node.lineno}: {name}")
-    assert offenders == []
+                assert not _is_bridge(name), f"{path.relative_to(ROOT)}:{node.lineno}: {name}"
 
 
 @pytest.mark.req("PHY-026")
-def test_phy_026_a_native_run_loads_no_bridge_module(tmp_path: Path) -> None:
-    """A run on the default adapter through the CLI, in a fresh interpreter, loads no MuJoCo or bridge module (the
-    pendulum release case P1; the C++ bridge stays linked into the extension until the removal commit)."""
+def test_phy_026_a_run_loads_no_mujoco_module(tmp_path: Path) -> None:
+    """A run through the CLI, in a fresh interpreter, loads no MuJoCo or bridge module (the pendulum release case P1)
+    and the extension offers no MuJoCo adapter."""
     script = (
         "import sys\n"
         "from mechsim.cli import main\n"
+        "from mechsim import _core\n"
         f"case = {str(ROOT / 'test_cases' / 'pendulum' / 'P1_period.yaml')!r}\n"
         f"code = main(['run', case, '--out', {str(tmp_path)!r}])\n"
         f"print('LOADED', sorted(m for m in sys.modules if m == 'mujoco' or m.startswith(('mujoco.', "
         f"'mechsim.physics.mujoco'))))\n"
+        "print('ADAPTERS', _core.physics_adapter_names(), hasattr(_core, 'MujocoAdapter'))\n"
         "sys.exit(code)\n"
     )
     result = subprocess.run([sys.executable, "-c", script], capture_output=True, text=True, check=False, cwd=ROOT)
     assert result.returncode == 0, result.stderr
     assert "physics adapter: native" in result.stdout
     assert "LOADED []" in result.stdout
-
-
-ROOT = Path(__file__).resolve().parents[2]
-_MUJOCO_INCLUDE = re.compile(r'^\s*#\s*include\s*[<"]mujoco/', re.MULTILINE)
+    assert "ADAPTERS ['native', 'null'] False" in result.stdout
 
 
 @pytest.mark.req("PHY-011")
-def test_phy_011_mujoco_headers_only_in_the_cpp_adapter() -> None:
-    """C++ side of PHY-011 (ADR 0014); the Python side is the import-boundary checker's test."""
-    allowed = ROOT / "core" / "physics" / "mujoco"
+@pytest.mark.req("PHY-026")
+def test_phy_011_no_mujoco_header_anywhere() -> None:
+    """C++ side of PHY-011 and PHY-026 (ADR 0004): no source under `core/`, `firmware/` or `board_interface/`
+    includes a MuJoCo header, and the stepping adapter's directory is gone; the Python side is the import
+    checker's test."""
     offenders = []
-    for path in sorted((ROOT / "core").rglob("*")):
-        if path.suffix not in {".c", ".cc", ".cpp", ".h", ".hpp"} or allowed in path.parents:
-            continue
-        if _MUJOCO_INCLUDE.search(path.read_text(encoding="utf-8", errors="replace")):
-            offenders.append(path.relative_to(ROOT).as_posix())
+    for top in ("core", "firmware", "board_interface"):
+        for path in sorted((ROOT / top).rglob("*")):
+            if path.suffix not in {".c", ".cc", ".cpp", ".h", ".hpp"} or "build" in path.relative_to(ROOT).parts:
+                continue
+            if _MUJOCO_INCLUDE.search(path.read_text(encoding="utf-8", errors="replace")):
+                offenders.append(path.relative_to(ROOT).as_posix())
     assert offenders == []
-    assert _MUJOCO_INCLUDE.search((allowed / "src" / "mujoco_adapter.cpp").read_text(encoding="utf-8"))
+    assert not (ROOT / "core" / "physics" / "mujoco").exists()
+    assert not (ROOT / "core" / "cmake" / "MuJoCo.cmake").exists()
