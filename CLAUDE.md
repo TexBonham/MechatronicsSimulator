@@ -75,7 +75,7 @@ docs/            adr/ spec/ rulings/ queue.md cost-log.md
 | Agent | `.claude/agents/<name>.md`, Agents table below | First run logged, reference size recorded |
 | Tolerance | `docs/spec/<module>.md` only (T4) | Reviewed spec edit; never edit the test alone |
 | Run the suite | `uv run pytest` | All tiers green, stubs xfail |
-| Run the C++ build | Iterate: `cmake --preset debug`, `cmake --build --preset debug`, `ctest --preset debug`; before a gate: the same with `debug-sanitize`; shared builds through `tools/locked_build.sh` (`-L reference` = reference tier) | Clean, green |
+| Run the C++ build | Iterate: `cmake --preset debug`, `cmake --build --preset debug`, `ctest --preset debug`; before a landing: `debug-sanitize` with `-LE reference` (the reference label runs at the gate and in CI, W-08); shared builds through `tools/locked_build.sh` (`-L reference` = reference tier; `run` takes the lock for the extension sync only) | Clean, green |
 
 ## Test conventions
 
