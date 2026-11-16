@@ -14,6 +14,7 @@ from typing import Any
 
 import numpy as np
 import pytest
+from ruamel.yaml import YAML
 
 import mechsim.integrity.service as integrity_service
 from mechsim.cli import default_services, main
@@ -32,6 +33,11 @@ CRITERION = """  - name: safety_factor_rail_x
 """
 BRIDGE = "physics:\n  adapter: mujoco\n"
 ORIGINAL = ("motor_power_off", "x_no_steps", "y_no_steps", "lift_no_steps")
+
+
+def _evaluate_from() -> str:
+    """G8's `integrity.evaluate_from` as the case states it (the suite's derived start, ruling 99 (a))."""
+    return str(YAML(typ="safe", pure=True).load(G8.read_text(encoding="utf-8"))["integrity"]["evaluate_from"])
 
 
 def _run(case: Path, out: Path) -> str:
@@ -60,7 +66,7 @@ def test_a_bridge_run_reports_rigid_members_not_evaluated_and_scores_its_criteri
     report = _report(tmp_path)
     notes = report["notes"]
     assert isinstance(notes, list)
-    assert notes[0].startswith("integrity evaluation from 9 s (integrity.evaluate_from)")
+    assert notes[0].startswith(f"integrity evaluation from {_evaluate_from()} (integrity.evaluate_from)")
     assert notes[1:] == [
         f"member {member!r}: strength, deflection, buckling, impact not evaluated, the member is built rigid and "
         "the run recorded no end-loads or node poses (rulings 29, 34)"
@@ -91,9 +97,9 @@ def test_the_same_case_on_the_native_adapter_evaluates_every_member(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     # The stub note needs a carried load inside rail_x's clamped root half segment, which G8 reaches only while
-    # homing; the suite's evaluation start (9 s, `test_cases/gantry/README.md`) would exclude it, so this copy judges
-    # from the release as the case did before the start was derived.
-    text = G8.read_text(encoding="utf-8").replace("integrity:\n  evaluate_from: 9 s\n", "")
+    # homing; the suite's evaluation start (`test_cases/gantry/README.md`, read from the case) may exclude it, so this
+    # copy judges from the release as the case did before the start was derived.
+    text = G8.read_text(encoding="utf-8").replace(f"integrity:\n  evaluate_from: {_evaluate_from()}\n", "")
     assert "evaluate_from" not in text
     case = tmp_path / "G8.yaml"
     case.write_text(text, encoding="utf-8")

@@ -14,13 +14,17 @@ checks:
   - check: buckling
   - check: fastener
     parameters:
-      # PLACEHOLDER ratings until the gantry team gives fastener grades and counts (ruling 27; catalog grade ratings
-      # owed, M4): one load rating per mount, the fixed joints holding the frame on the world and rail_x on the frame.
+      # REPLACEABLE sourced ratings (brief M3-GV) until the gantry team gives fastener grades and counts (ruling 27):
+      # one load rating per mount, the fixed joints holding the frame on the world and rail_x on the frame, each the
+      # proof load of ONE M5 x 0.8 ISO 898-1 class 8.8 bolt (steel_8_8 in the library): 8230 N on the 14.2 mm^2 stress
+      # area (580 MPa; minimum ultimate 11350 N), Engineering ToolBox's ISO 898-1 table (docs/gantry-team-inputs.md).
+      # One bolt per mount is the least a mount can have: the bolt count stays owed, so the rating is the lower bound.
       ratings:
-        frame_mount: 2 kN
-        rail_x_mount: 2 kN
+        frame_mount: 8.23 kN
+        rail_x_mount: 8.23 kN
   - check: impact
     parameters:
+      # PLACEHOLDER (brief M3-GV: no published source for the gantry's impact factor, step threshold or window).
       impact_factor: 2.0
       step_threshold: 50 N
       window: 20 ms

@@ -7,20 +7,18 @@ milestone 2 shipped G1 to G11, G13 and G14 on the bridge, whose values of record
 
 One start for every case, derived once and not adjusted to any result: a native run starts from straight rails and
 the release rings for a few loaded time constants of the slowest rail, so integrity results (peaks, safety factors,
-tier 1 crossings, the validity flag, rope snap) count from five of them, rounded up to a whole second. From the
-figures every run prints: rail_x stated ratio zeta_0 = 0.01 at its unloaded first mode f_0 = 49.6973 Hz
-(omega_0 = 312.26 rad/s), realised zeta_r = 0.0042905 on its loaded mode (the lowest any case prints). Stiffness-
-proportional damping gives zeta = beta omega / 2 for every mode, so the loaded mode is omega_c = omega_0 zeta_r /
-zeta_0 = 133.97 rad/s and its time constant tau = 1 / (zeta_r omega_c) = zeta_0 / (zeta_r^2 omega_0) = 1.740 s
-(rail_y: zeta_r = 0.0072418, 0.607 s). Five tau = 8.70 s: `integrity.evaluate_from: 9 s` in G2 to G15. G1 ends at
-2 s and cannot carry it (a start past the last sample is an error, TST-044); its run on native records no tier 1
-crossing. What a case loses: integrity during its first 9 s is not judged (homing ends by 5.25 s; G12 and G15 move
-from 8 s, so their first second of the 2 s acceleration ramp is not judged, the second second at the same
-acceleration is). Motion criteria keep their own windows. Before it, G5 and G6 cross tier 1 on the release at 0.011 to
-0.022 s (rail_x and rail_y), recorded as `integrity_before_evaluation` events. On native the same transient
-carries the payload rope above its 5000 N breaking tension (6011 N at 0.012 s, 26229 N at its peak before 9 s); the
-start holds the snap back. Without it G5's rope snaps at 0.012 s, the load cell reads empty (7 counts against 3308
-at 5.5 kg), `lift 0.4` is accepted and the lift ends at 0.4001 m (M3-X2c; that was N5's first G5 result).
+tier 1 crossings, the validity flag, rope snap) count from five of them, rounded up to a whole second. Stiffness-
+proportional damping gives zeta = beta omega / 2 for every mode, so a member stated zeta_0 at its unloaded first mode
+omega_0 and realised zeta_r on its loaded mode has omega_c = omega_0 zeta_r / zeta_0 and time constant tau = 1 /
+(zeta_r omega_c) = zeta_0 / (zeta_r^2 omega_0). Re-derived by brief M3-GV from the sourced 2040 rails (zeta_0 = 0.02),
+from the figures every run prints (the case payload on its rope is not counted, so every case prints the same):
+rail_x f_0 = 902.104 Hz (omega_0 = 5668.09 rad/s), zeta_r = 0.00565055 (carried 1.68236 kg), omega_c = 1601.39
+rad/s, tau = 0.1105 s; rail_y f_0 = 400.379 Hz (omega_0 = 2515.66 rad/s), zeta_r = 0.00822979 (carried 0.917467 kg),
+omega_c = 1035.17 rad/s, tau = 0.1174 s, now the slowest. Five tau = 0.587 s: `integrity.evaluate_from: 1 s` in G2 to
+G16. G1 ends at 2 s and could now carry it; it has no `evaluate_from` field and none is added (the start is edited only
+where it is a case field). Before brief M3-GV (placeholder PETG rails, zeta_0 = 0.01, rail_x f_0 = 49.6973 Hz, zeta_r =
+0.0042905, tau = 1.740 s) the start was 9 s. What a case loses: integrity during its first second is not judged (the
+release transient); homing, the moves and the stops all count. Motion criteria keep their own windows.
 
 | Case | Requirements doc test | Criteria (spec rows) |
 |---|---|---|
@@ -38,11 +36,58 @@ at 5.5 kg), `lift 0.4` is accepted and the lift ends at 0.4001 m (M3-X2c; that w
 | `G12.yaml` | Load swing after a fast move and after an E-stop at full speed (native, rated load on `payload_rope`, 100 microseconds) | peak swing within `swing_limit_angle` (ACC-025; the hook-to-payload swing angle, `swing:hook.payload.<axis>`, in the case and the test, against 2 a / g, 7 a / g and 2 a / g + v / sqrt(g L)); settle within `swing_settle_time` (ACC-026; fails on the model's zero swing damping, finding) |
 | `G13.yaml` | Lift command while moving | `lift 0.3` mid-move refused with `fault:busy` and a `refused` event, no lift steps, lift held, move arrives (ACC-027; reject policy is the firmware placeholder) |
 | `G14.yaml` | Fifty rapid-fire and conflicting commands | `no_overlap` on each driver's `motion_start`/`motion_end` (ACC-028, SCO-025); first move's interval within its cruise and slow-zone bounds (SCO-021); malformed refused |
-| `G15.yaml` | Maximum acceleration to mid-travel with the design load, then an E-stop with a swinging load (native, tier 1, no halt) | every member's safety factor at least `minimum_safety_factor` (ACC-029); node-pose deflection under 1 cm (ACC-030); no tier 1 crossing; load case exported |
-| `G16.yaml` | Motor sizing: NEMA 17 against NEMA 23 at the rated load | sweeps of `instance:<motor>.part` (LIB-017), one motor substituted per run, the nominal run all NEMA 23; ready, no `fault:encoder_mismatch`, lifted and arrived within 1 cm; torque margin (`torque_margin:<motor>`, SCO-032) and missed steps (`missed_steps:<motor>`, SCO-031) per motor in the report, margin minimum above 0 and final count 0 within a quarter step, checked by ACC-031 and ACC-032 against their derivations (briefs M3-X2e, M3-X2f): both judged from the last rest at or before the 9 s evaluation start to a final rest (rulings 91, 93), what precedes it on a before-span note per motor; on native 2026-11-14 every run passes: nominal lift NEMA 23 least margin +0.873 N m at 7.976 s, x +1.163, y +1.163; lift NEMA 17 +0.0499 N m at 7.792 s, its one step lost at 0.065 s in the start-up transient and its -0.123 N m at 0.022 s on the before-span note (rest at 6.048 s); x and y NEMA 17 +0.337 and +0.339 N m; no motor loses a step within the span) |
+| `G15.yaml` | Maximum acceleration to mid-travel with the design load, then an E-stop with a swinging load (native, tier 1, no halt) | every member's safety factor at least `minimum_safety_factor` (ACC-029); node-pose deflection under 1 cm (ACC-030); no tier 1 crossing; load case exported; since brief M3-GV (2040 rails): safety factors 37.96 and 24.04, peaks 0.0164 and 0.0692 mm, dynamic ratios 1.011 and 1.131, neither flagged; the settled-deflection targets are the 2040 section's closed form since brief M3-GV2 (1.4541401e-5 and 5.2288134e-5 m, derived below; the placeholder section's 1.0976722e-3 and 7.384859e-4 m before), measured 1.45415e-5 and 5.22721e-5 m, pass |
+| `G16.yaml` | Motor sizing: NEMA 17 against NEMA 23 at the rated load | sweeps of `instance:<motor>.part` (LIB-017), one motor substituted per run, the nominal run all NEMA 23; ready, no `fault:encoder_mismatch`, lifted and arrived within 1 cm; torque margin (`torque_margin:<motor>`, SCO-032) and missed steps (`missed_steps:<motor>`, SCO-031) per motor in the report, margin minimum above 0 and final count 0 within a quarter step, checked by ACC-031 and ACC-032 against their derivations (briefs M3-X2e, M3-X2f): both judged from the last rest at or before the 9 s evaluation start to a final rest (rulings 91, 93), what precedes it on a before-span note per motor; on native 2026-11-14 every run passes: nominal lift NEMA 23 least margin +0.873 N m at 7.976 s, x +1.163, y +1.163; lift NEMA 17 +0.0499 N m at 7.792 s, its one step lost at 0.065 s in the start-up transient and its -0.123 N m at 0.022 s on the before-span note (rest at 6.048 s); x and y NEMA 17 +0.337 and +0.339 N m; no motor loses a step within the span). Since brief M3-GV (sourced StepperOnline parts, start 1 s): nominal 23HS22-2804S margins lift +0.4385 N m at 7.927 s, x +0.7177, y +0.7184, no step lost; the 17HS19-2004S1 on x and y passes; on the lift it fails its margin criterion, the sizing result of record (ruling 99 (d), G16's criteria untouched): pull-out at 7.43 s (margin -0.308 N m), 91.6 steps lost, `fault:encoder_mismatch`, not lifted, because the published curve dips to 0.30 N m at 60 rpm (read by eye) against about 0.33 N m of rated-load demand |
 
 Windows derive from the gantry team's values of 2026-11-11 (0.05 m/s^2, 0.1 m/s, 0.02 m/s homing, 10 cm homing travel,
 0.5 m workspace); each case header carries its derivation.
+
+## Sourced components (brief M3-GV, owner decision 4)
+
+Every value below is REPLACEABLE: a published datasheet's figure put in a gantry slot until the gantry team gives its
+own; sources and URLs in `docs/gantry-team-inputs.md`.
+
+Rails. Both rails are a 2040 aluminium T-slot extrusion (Alux 2040 V-slot: A = 285.30 mm^2, I = 45162 mm^4 about the
+40 mm deep axis, 11680 mm^4 about the 20 mm one, 0.761 kg/m) on the library's `aluminium_6063_t5_extrusion` (E = 69
+GPa, rho = 2690 kg/m^3; the datasheet's alloy is 6063 in temper T66, the library holds T5), 40 mm deep vertical, so
+`second_moment_z` (the bending plane, ruling 65) is the deep axis's and `fibre_y` = 20 mm, `fibre_z` = 10 mm. rail_y's
+box is 40 x 60 mm; the same 2040 is used (40 mm vertical as the box, one profile for the frame), the box stays the CAD
+stand-in and the rails declare the extrusion's mass (rho A L = 0.38373 kg each) instead of the solid box's. Per rail,
+L = 0.5 m, E I = 69e9 x 4.5162e-8 = 3116.18 N m^2, rho A = 0.767457 kg/m, calibration load P = 100 N at mid-span:
+
+| Rail | Supports | Midspan deflection | First frequency |
+|---|---|---|---|
+| rail_x | clamped-clamped | P L^3 / (192 E I) = 0.0208923 mm | 4.7300^2 / (2 pi L^2) sqrt(E I / (rho A)) = 907.599 Hz |
+| rail_y | pinned-roller | P L^3 / (48 E I) = 0.0835693 mm | pi / (2 L^2) sqrt(E I / (rho A)) = 400.372 Hz |
+
+The built chains print 902.104 Hz (rail_x, 16 segments, clamped-clamped calibration layout owed, ruling 16) and
+400.379 Hz (rail_y). Damping ratio 0.02 on both rails: the low end of 2 to 7 percent for an assembly with many bolted
+joints (SimScale's table, which cites no origin; bolted steel at low amplitude 0.5 to 2 percent in the same table),
+fixed in advance. At the 1 ms default step both first modes are unresolved (x = 5.67 and 2.52); G12 and G15 run at 100
+microseconds (x = 0.567, 0.252).
+
+G15's settled-deflection targets (ruling 99 (b), brief M3-GV2): the closed form for each rail's section and supports
+at mid-travel under its own weight, its carried weight and the design load, the method of the G15 header, re-derived
+whenever the section changes. E I = 69e9 x 4.5162e-8 = 3116.178 N m^2, w = rho A g = 2690 x 2.853e-4 x 9.81 = 7.528753
+N/m (the section's, not a calibrated chain's), P = (5.2164 kg design load + 0.3 m x 0.011161 kg/m rope + 0.001 kg end
+fitting) g = 51.21554 N, P_c = 1.68236 kg g = 16.50395 N (rail_y and all on it, the engine's carried mass), P_t =
+0.917467 kg g = 9.000351 N (trolley, lift, hook); L = 0.5 m. rail_x (clamped-clamped): w L^4 / (384 E I) + (P_c + P)
+L^3 / (192 E I) = 1.4541401e-5 m (was 1.0976722e-3 m on the placeholder section); rail_y (pinned-roller): 5 w L^4 /
+(384 E I) + (P_t + P) L^3 / (48 E I) = 5.2288134e-5 m (was 7.384859e-4 m). The settled runs before the change read
+1.45415e-5 and 5.22721e-5 m (+0.001 and -0.03 percent). Static moments (P_c + P) L / 8 + w L^2 / 12 = 4.389 N m and
+(P_t + P) L / 4 + w L^2 / 8 = 7.762 N m, stresses M c / I with c = 0.02 m: 1.944 and 3.438 MPa.
+
+Load cell chain. TAL220B 5 kg (1.0 mV/V rated output, 5 V excitation, ultimate overload 150 percent = 73.575 N)
+through an HX711-class front end (gain 128 or 64, 10 or 80 SPS; RATE high, 80 SPS, is chosen for the overload
+detection's latency). The cell gives 1.0e-3 x 5 V / 5 kg = 1e-3 V/kg; the firmware's 600 counts per kg on the
+placeholder chip's 12-bit, 3.3 V ADC needs a gain of 600 x 3.3 / 4096 / 1e-3 = 483.398 (5.5 kg reads 3300 counts, full
+scale 4096 / 600 = 6.83 kg), zero 0 counts. The HX711's own 24-bit digital path (where its gain of 128 would apply) is
+not in the schema, a finding. G6's bound re-derived (ruling 35): the detection latency is one sample at 80 SPS (12.5
+ms), the front end's first-order rise from the rated 4.536 kg reading to the 5.216 kg limit after the step to 5.5 kg
+(tau = 1 / (2 pi 2 Hz) = 79.6 ms; the HX711 datasheet does not describe its digital filter, so 2 Hz stays ruling 35's
+placeholder; its 50 ms settling at 80 SPS is from power-up, reset or a channel or gain change, not a step response),
+t = tau ln(0.964 / 0.284) = 97.3 ms, and GANTRY_OVERLOAD_TICKS 2 ms: 111.8 ms, 0.1 m/s x 0.1118 s = 1.12 cm, so the
+bound stays 0.1 + 0.0112 + 0.1 m = 21.1 cm; `G6.yaml` is unchanged.
 
 ## What runs where (INV-020, brief M3-X2d)
 
@@ -68,6 +113,31 @@ E9) is bounded and published per run as an approximation line (brief M3-X2i; its
 | G10 `stall_fault`, `slip_fault` | 9.161 s, 31.427 s | 9.153 s, 31.407 s | The firmware's mismatch rebuilt from both archives (brief M3-X2i): x encoder counts since the homing latch against the steps issued since, x 0.75, fault over 120 counts at detection + v / a. Native runs ahead by (1) the homing settle: the counts are zeroed at the latch, then the native carriage settles 71.0 and 72.7 um as the compliant belt lets go of the homing tension (5.12 N, 0.051 mm), the rigid bridge 22.9 and 26.0 um: 2.89 and 2.80 counts; (2) the drive's belt stretch, 0.0499 mm: 2.99 counts; (3) the coast: -0.02 counts (stall, 253.8 against 253.3 um), +0.26 counts (slip). Offset at the crossing 5.91 and 6.11 counts, growing at the commanded less the carriage speed (1.73 and 0.64 counts/ms): crossings 3.44 and 9.93 ms earlier (continuous; ticks 8578 against 8582, 30705 against 30715); (4) the stop phase v / a shortens by the same amount, v rising at a (575 against 579 ms, 702 against 712 ms) | Explained: 6.9 ms and 19.9 ms predicted against 8 and 20 ms (86 and 99 percent; the rest count and tick quantisation). A model difference, compliant against rigid x belt at the homing latch, not an engine fault; M3-X2d's 2 and 5 ms used a rest reference that drops term (1). Still misses of record: the event tolerance is 3 ms |
 | G10 `stall_rehomed` | 12.044 s | 12.030 s | Follows the stall stop (8 ms) and a homing 2 ms shorter (G2 `ready`) | Consequence of `stall_fault` |
 | G10 `slip_carriage_stopped` | 21.16 mm | 20.43 mm | The stop starts 10 ms earlier; the commanded stop distance moves 2 v per second of detection, 2 x 0.036 m/s x 10 ms = 0.72 mm | Consequence of `slip_fault` |
+
+Native baseline regenerated whole after brief M3-GV (the sourced parts and the 1 s start; one
+`mechsim suite test_cases/gantry --write-baseline` run, 2026-11-15): 99 entries, none added or removed; 5 statuses
+changed, all G15: `safety_factor_rail_x` fail -> pass (1.43609 -> 37.9641), `safety_factor_rail_y` and
+`deflection_rail_y` error -> pass (24.0354; 6.915e-5 m; rail_y no longer flagged, dynamic ratio 1.131),
+`settled_deflection_rail_x` pass -> fail (1.08056e-3 -> 1.45415e-5 m) and `settled_deflection_rail_y` error -> fail
+(5.22721e-5 m): the stiffer, lighter aluminium rails; the two settled targets are the placeholder section's closed form
+(not this brief's to change). 46 more entries changed value with their status kept; 48 changed only in run hashes.
+
+| Case | Entries moved (before -> after) | Cause |
+|---|---|---|
+| G15 | `deflection_rail_x` 1.12699 -> 0.0163851 mm | 2040 rails: E I 3116 N m^2 against the placeholder's calibrated 64 N m^2 |
+| G16 | margins lift 0.8730 -> 0.4385, x 1.1627 -> 0.7177, y 1.1628 -> 0.7184 N m; missed steps within 7e-4 of a step | the 23HS22-2804S's published curve (0.76 N m at 150 rpm against the placeholder's 1.205) |
+| G12 | `estop_swing_x` 0.045081 -> 0.045452 rad, `move_swing_x` 0.013085 -> 0.012893, `move_swing_y` 0.010467 -> 0.010393, `move_settle_x` 5.207 -> 5.202 s (fail kept) | lighter stainless rope (EA 107 kN, 11.2 g/m), stiffer belts, new motors |
+| G7, G9 | `hook_held` 1.8207 -> 1.8473 mm, `load_held` 1.8206 -> 1.8465 mm; `resumed_x`, `_y` under 9 um | belt 124 kN/m and efficiency 0.98 in the drop before the brake; rope |
+| G5, G6 | `lowered` 99.605 -> 99.692 mm; `lift_stopped` 208.84 -> 209.08 mm (bound 211 mm), `set_down` 49.953 -> 49.988 mm; `lift_up_ignored` 0.22 -> 0.088 um | belt stiffness and efficiency; the load chain reads the same 600 counts/kg |
+| G10 | `stall_fault` 9.153 -> 9.147 s, `stall_rehomed` 12.030 -> 12.022 s, `slip_carriage_stopped` 20.429 -> 20.434 mm | belt 124 kN/m: less stretch under the drive torque, the mismatch crosses earlier |
+| G2, G3, G12 to G16 | `ready` 5.245 -> 5.246 s (G2, G3), 5.218 to 5.222 -> 5.224 to 5.226 s elsewhere; final positions within 0.03 um | homing on the new motors and belts |
+| G1, G4, G13 | hold bands 52.0 -> 40.1 um (G1), G4 and G13 at 1e-13 m and below | start-up settling on the stiffer drive |
+
+Native baseline regenerated whole by brief M3-GV2 (the G15 settled targets re-derived, three design comments fixed so
+the design hash changed; one run, 2026-11-15): 99 entries, none added or removed; 2 statuses changed, G15
+`settled_deflection_rail_x` and `settled_deflection_rail_y` fail -> pass (measured unchanged, 1.45415e-5 and 5.22721e-5
+m, now against their closed-form targets 1.4541401e-5 and 5.2288134e-5 m); no measured value moved; 97 entries changed
+only in run hashes (the design hash and G15's case hash). The writer drops the file's `note`; it is restored by hand.
 
 `baseline.yaml`: placeholder-geometry baselines for G1 to G16 on the native adapter (statuses of record on the draft
 gantry), until CAD. `bridge_baselines/<case>.yaml`: the bridge's values of record for G1 to G11, G13 and G14,

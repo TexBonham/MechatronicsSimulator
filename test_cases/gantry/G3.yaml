@@ -69,7 +69,7 @@ end:
   at: ${run_time}
   max_duration: ${run_time}
 integrity:
-  evaluate_from: 9 s
+  evaluate_from: 1 s
 criteria:
   - name: final_x
     check: value

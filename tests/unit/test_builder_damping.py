@@ -136,10 +136,15 @@ def test_a_carried_mass_lowers_the_first_mode_most_at_the_cantilever_tip() -> No
 
 @pytest.mark.req("DES-047")
 def test_the_gantry_rails_state_the_placeholder_ratio_fixed_in_advance() -> None:
-    """Ruling 78: 0.01 on both rails (loss factor 0.02, the low end for printed PETG), owed by the gantry team."""
+    """Ruling 78: each rail states its modal damping ratio as design data, fixed in advance (since brief M3-GV the
+    sourced 0.02 of a bolted aluminium frame, replaceable), one ratio for the frame: both rails state the same value,
+    above 0 (zero loss is unphysical, ruling 78) and below critical.
+    Read from the design, never a literal (ruling 99)."""
     design = gantry()
     ratios = {body.name: body.flexible.damping_ratio for body in design.bodies if body.flexible is not None}
-    assert ratios == {"rail_x": 0.01, "rail_y": 0.01}
+    assert sorted(ratios) == ["rail_x", "rail_y"]
+    assert ratios["rail_x"] == ratios["rail_y"]
+    assert 0.0 < float(ratios["rail_x"]) < 1.0
 
 
 # ===== Transmissions (LIB-035, BLD-041, PHY-037) ========================

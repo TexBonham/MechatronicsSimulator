@@ -14,6 +14,7 @@ import pytest
 from mechsim import _core as core
 from mechsim.builder.result import BuildResult
 from mechsim.design.schema import Design
+from mechsim.library.registry import default_registry
 from mechsim.physics.mujoco.translate import UnmappableElementError
 from mechsim.physics.neutral import BeltPulley, LeadScrew
 from mechsim.record.archive import RunArchive
@@ -193,7 +194,8 @@ def test_a_brake_the_bridge_cannot_apply_ends_the_build_naming_brake_and_joint()
 @pytest.mark.req("BLD-034")
 def test_every_stepper_gets_its_shaft_body_and_axial_inertia() -> None:
     """The builder sets the shaft body's axial inertia to the rotor inertia (BLD-034), so the value passed is the
-    catalog's 2.8e-5 kg m^2 (the NEMA 23 placeholder, 280 g cm^2) to the round-off of a^T I a over a z axis (one
+    rotor_inertia of the catalog part the design names on each motor (ruling 99 (a): read from the data)
+    to the round-off of a^T I a over a z axis (one
     product and a few zero sums)."""
     built = core_builder(prepare(G3).design)
     assert built.physics is not None
@@ -205,7 +207,9 @@ def test_every_stepper_gets_its_shaft_body_and_axial_inertia() -> None:
         assert params["shaft_body"] == f"{instance.name}_shaft"
         print(f"{instance.name}: rotor {params['rotor_inertia']!r}, shaft {params['shaft_axial_inertia']!r}")
         assert params["shaft_axial_inertia"] == pytest.approx(params["rotor_inertia"], rel=1e-12)
-        assert params["rotor_inertia"] == pytest.approx(2.8e-5, rel=1e-12)
+        assert params["rotor_inertia"] == pytest.approx(
+            default_registry().part(instance.part).values["rotor_inertia"], rel=1e-12
+        )
 
 
 # ===== Approximations and control rate (SCO-013, TST-033) ==============

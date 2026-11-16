@@ -8,7 +8,7 @@
 # at the recorded shaft speed less the recorded shaft load torque, minimum and its time; brief M3-X2e). Their limits
 # are the physics, not tuning: a sizing case passes when no motor loses a step (the final count is 0 within a quarter
 # step, half a step identifying a whole count uniquely) and every margin stays positive. Both judge the span between
-# rest samples from the last rest at or before `integrity.evaluate_from` (9 s) to the final sample (ruling 93): the
+# rest samples from the last rest at or before `integrity.evaluate_from` (1 s since brief M3-GV, 9 s before) to the final sample (ruling 93): the
 # lift belt starts unstretched and its release transient is milestone 4's static start, so the steps lost and the
 # least margin before that rest are a before-span note per motor in the report, not a verdict. The acceptance test keeps the a-priori demand below as its cross-check (ACC-031).
 #
@@ -29,6 +29,9 @@
 # margins about +0.02 N m (NEMA 17) and +0.75 N m (NEMA 23); x and y demand under 0.2 N m on either part. Exact
 # figures: the acceptance test (ACC-031). Pull-out (SIG-033): the behavioral stepper drops steps when the drive
 # torque exceeds the curve at the shaft speed or the lead exceeds two step angles.
+# Parts since brief M3-GV (REPLACEABLE sourced parts): the nominal run is the StepperOnline 23HS22-2804S on every axis,
+# the sweep substitutes the 17HS19-2004S1; at 150 rpm their published curves give 0.76 and 0.4267 N m (linear between
+# the plotted 90 and 180 rpm points) where the derivation above read the placeholders' 1.205 and 0.38.
 id: G16
 title: Motor sizing sweep, NEMA 17 against NEMA 23 at the rated load
 design:
@@ -37,7 +40,7 @@ design:
 controller_mode: native
 seed: 16
 integrity:
-  evaluate_from: 9 s
+  evaluate_from: 1 s
 open_parameters:
   - name: payload_mass
     dimension: "[mass]"
@@ -78,11 +81,11 @@ end:
   max_duration: 26 s
 sweeps:
   - parameter: instance:lift_motor.part
-    values: [nema17_class_generic]
+    values: [stepperonline_17hs19_2004s1]
   - parameter: instance:x_motor.part
-    values: [nema17_class_generic]
+    values: [stepperonline_17hs19_2004s1]
   - parameter: instance:y_motor.part
-    values: [nema17_class_generic]
+    values: [stepperonline_17hs19_2004s1]
 criteria:
   - name: ready_after_homing
     check: event

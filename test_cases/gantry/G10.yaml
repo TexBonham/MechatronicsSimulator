@@ -96,7 +96,7 @@ end:
   at: 35 s
   max_duration: 35 s
 integrity:
-  evaluate_from: 9 s
+  evaluate_from: 1 s
 criteria:
   - name: stall_fault
     check: event
