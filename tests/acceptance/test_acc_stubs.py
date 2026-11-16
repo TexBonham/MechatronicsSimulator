@@ -1542,11 +1542,15 @@ def test_acc_032(g16: list[tuple[RunResult, CoreDriver]]) -> None:
             seen.add((motor, part))
             if _g16_margin(motor, part, masses[motor]) < 0.0:
                 # Ruling 99 (d): a negative derived margin (ACC-031) loses steps in the move: the report counts at
-                # least one in the span and fails, a stall event falls after the span's rest. The drive is disabled at
-                # the fault, so the count at the end is not a whole number of steps and is printed, not rounded.
+                # least one in the span and fails, and the record's count is whole up to the first move and rises by
+                # at least one step after it (a pull-out while stepping is counted, not a stall event, SIG-033). The
+                # drive is disabled at the fault, so the count at the end is not a whole number of steps and is
+                # printed, not rounded.
                 assert measured >= 1.0
                 assert reported.status == "fail"
-                assert any(time > rest_time for time in stalls)
+                assert abs(before - round(before)) <= 0.25
+                assert round(before) == round(at_rest)
+                assert after - before >= 1.0
                 continue
             assert round(measured) == 0
             assert reported.status == "pass"
@@ -1576,7 +1580,7 @@ def _g16_before_line(result: RunResult, motor: str, part: str) -> str:
 def _g16_before_values(line: str) -> tuple[float, float, float, float]:
     """The span's rest time (s), the count there, the least margin before it (N m) and its time (s)."""
     pattern = (
-        r"before the rest at (\S+) s \(evaluation start 9 s\), missed steps (\S+?)[ ,].*"
+        r"before the rest at (\S+) s \(evaluation start [^)]*\), missed steps (\S+?)[ ,].*"
         r"least torque margin (\S+) N m at (\S+) s;"
     )
     match = re.search(pattern, line)
