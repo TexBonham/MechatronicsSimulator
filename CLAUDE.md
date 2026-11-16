@@ -45,7 +45,7 @@ Cost log: `docs/cost-log.md`, archive `docs/cost-log-archive.md`; never in a `CL
 
 ```
 core/            C++ core runtime, one library, own CMake tree
-  engine/ kernel/ signals/ controller/ physics/ (adapters: mujoco/ native/) bindings/ viewer_debug/
+  engine/ kernel/ signals/ controller/ physics/ (adapter: native/; MuJoCo retired, ADR 0004) bindings/ viewer_debug/
 mechsim/         Python package, one subpackage per module
   library/ materials/ design/ builder/ physics/ testing/ record/ integrity/ scoring/ facade/ viewer/
 board_interface/ C header firmware writes against
