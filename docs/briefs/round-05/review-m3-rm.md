@@ -1,8 +1,8 @@
 # Review: M3-RM (the MuJoCo removal commit; ADR 0004 close)
 
 Reviewer: Fable (general-purpose), fresh. Read-only; spec, plan and diff only; never the writer's report; no builds or
-runs; call cap 30. Worktree `/home/tex/dev/MechatronicsSimulator-05-rm`, branch `wip/05-rm`, head RM_HEAD, diff
-`git -C <worktree> diff 63215f2 RM_HEAD --stat` then by file (skip brief files, `docs/queue.md`). Plan of record
+runs; call cap 30. Worktree `/home/tex/dev/MechatronicsSimulator-05-rm`, branch `wip/05-rm`, head de38e39 (the round head b51b28c merged in), diff
+`git -C <worktree> diff b51b28c de38e39 --stat` then by file (the removal's own changes against the round head) (skip brief files, `docs/queue.md`). Plan of record
 `docs/briefs/round-05/mujoco-removal.md` and the gate report's additions in `/home/tex/dev/MechatronicsSimulator/docs/
 queue.md` (Milestone 3 gate report, retirement paragraph); ADR 0004; rows PHY-011, PHY-015, PHY-020 to PHY-026,
 TST-040, INV-020; the owner's gate decision 1b and rulings 99 (c) and 101.
