@@ -604,6 +604,27 @@ def driven_mode_lines(model: PhysicsModel, decays: Sequence[tuple[int, float]]) 
     return tuple(lines)
 
 
+EFFICIENCY_DAMPING_FACTOR = 2.0
+
+
+def efficiency_damping_lines(model: PhysicsModel, values: Sequence[tuple[int, float, float]]) -> tuple[str, ...]:
+    """One line per transmission whose frozen efficiency damping removed, in some step, more than
+    `EFFICIENCY_DAMPING_FACTOR` times the loss it stands for (E9, ruling 94, brief M3-X2i; engine transmission.hpp
+    (iv)): the run's largest ratio abs(omega_end) / max(abs(omega_start), omega_s) and its time."""
+    lines: list[str] = []
+    for index, ratio, time in values:
+        name = model.transmissions[int(index)].name
+        lines.append(
+            f"transmission '{name}': efficiency loss applied as shaft damping frozen at the step's start rate "
+            f"(ruling 47) removed up to {float(ratio):.4g} times the loss it stands for in one step, at "
+            f"t = {float(time):.6g} s (a shaft leaving rest is held back: lag at most 1 + ln(beta^2 a h / omega_s) / "
+            f"ln((1 + beta) / (2 beta)) + 1/2 steps plus a logarithmic tail; flagged above "
+            f"{EFFICIENCY_DAMPING_FACTOR:g}; the end-rate form is milestone 4 item E9; a time before the case's "
+            f"evaluation start is the unloaded start of the belts and rails, ruling 87; PHY-031, ruling 94)"
+        )
+    return tuple(lines)
+
+
 def _transmission(
     transmission: Any, model: PhysicsModel, joints: Mapping[str, int], h: float, report: list[str]
 ) -> dict[str, Any]:

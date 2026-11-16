@@ -2533,6 +2533,13 @@ StepHealth MultibodyProvider::step(Integrator& integrator, State& state) {
         clear_inputs();
         throw;
     }
+    std::vector<std::uint8_t> efficiency_damped(model_.transmissions.size(), 0);
+    for (Eigen::Index i = 0; i < count(model_.transmissions.size()); ++i) {
+        const TransmissionCoupling start = coupling(i, before.q, before.v);
+        if (start.output.in_contact && start.shaft_damping > 0.0) {
+            at(efficiency_damped, i) = 1;
+        }
+    }
     for (Eigen::Index i = 0; i < count(model_.transmissions.size()); ++i) {
         const Transmission& t = at(model_.transmissions, i);
         const Eigen::Index in_q = at(q_offset_, t.input_body);
@@ -2540,6 +2547,14 @@ StepHealth MultibodyProvider::step(Integrator& integrator, State& state) {
     }
     record_outputs(before, state, integrator.config().h);
     outputs_.transmissions = transmission_states(state.q, state.v);
+    for (Eigen::Index i = 0; i < count(model_.transmissions.size()); ++i) {
+        if (at(efficiency_damped, i) == 0) {
+            continue;
+        }
+        const Eigen::Index in_v = at(v_offset_, at(model_.transmissions, i).input_body);
+        const double start_rate = std::max(std::abs(before.v[in_v]), config_.friction_slip_threshold);
+        at(outputs_.transmissions, i).efficiency_damping_ratio = std::abs(state.v[in_v]) / start_rate;
+    }
     for (Eigen::Index r = 0; r < count(lock_impulse_.size()); ++r) {
         const LockRow& row = at(lock_rows_, r);
         at(outputs_.transmissions, row.transmission).lock_torque =

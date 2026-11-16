@@ -54,6 +54,7 @@ from mechsim.physics.native.translate import (
     carried_member_lines,
     carried_validity_lines,
     driven_mode_lines,
+    efficiency_damping_lines,
     member_node_names,
     steps_before,
 )
@@ -534,8 +535,10 @@ class CoreDriver:
             party.model_requests = MODEL_REQUESTS
         decay_record = None
         carried_record = None
+        efficiency_record = None
         if native:
             decay_record = adapter.scheme_decay_record()
+            efficiency_record = adapter.efficiency_damping_record()
             carried_record = adapter.carried_record()
         physics = core.PhysicsParty(adapter, party)
         self._schedule_physics(physics, model)
@@ -576,6 +579,11 @@ class CoreDriver:
         if decay_record is not None:
             decays = [(int(joint), float(decay)) for joint, decay in decay_record.values()]
             self.approximations = (*self.approximations, *driven_mode_lines(model, decays))
+        if efficiency_record is not None:
+            flagged_damping = [
+                (int(index), float(ratio), float(time)) for index, ratio, time in efficiency_record.values()
+            ]
+            self.approximations = (*self.approximations, *efficiency_damping_lines(model, flagged_damping))
         validity: tuple[CarriedValidity, ...] = ()
         if carried_record is not None:
             carried_values = carried_record.values()

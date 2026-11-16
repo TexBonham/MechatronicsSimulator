@@ -38,6 +38,22 @@ struct DrivenSchemeDecayRecord {
     std::vector<DrivenSchemeDecay> values;
 };
 
+// E9 (ruling 94, brief M3-X2i; engine transmission.hpp (iv)): a transmission whose frozen efficiency damping removed,
+// in some engine step, more than kEfficiencyDampingFactor times the loss it stands for; ratio is the run's largest
+// TransmissionOutput::efficiency_damping_ratio, time the end of that step (s). transmission is the neutral index.
+inline constexpr double kEfficiencyDampingFactor = 2.0;
+
+struct EfficiencyDamping {
+    std::size_t transmission = 0;
+    double ratio = 0.0;
+    double time = 0.0;
+};
+
+// The run's EfficiencyDamping values in transmission order, shared like the decay record.
+struct EfficiencyDampingRecord {
+    std::vector<EfficiencyDamping> values;
+};
+
 // Per member, document order (ENG-052, PHY-035): the run's largest carried-joint deflection and the lag's stability
 // at load (the carried joint closest to its boundary: r, omega h; the largest per-step factor), shared like the decay
 // record so it outlives the adapter. A member that carries nothing, or whose parent is fixed across it, holds zeros.
@@ -111,6 +127,9 @@ public:
     [[nodiscard]] std::vector<DrivenSchemeDecay> driven_scheme_decay() const;
     // The same values as a shared record that outlives the adapter; reset by each load.
     [[nodiscard]] std::shared_ptr<const DrivenSchemeDecayRecord> scheme_decay_record() const;
+    // Per transmission whose efficiency damping exceeded kEfficiencyDampingFactor in some engine step since load: the
+    // largest ratio and its time, as a shared record that outlives the adapter; reset by each load (E9).
+    [[nodiscard]] std::shared_ptr<const EfficiencyDampingRecord> efficiency_damping_record() const;
     // Per member, in document order: the largest deflection of a carried joint's foot point over every engine step
     // since load, m (ENG-052: the position error the carried joint ignores; 0 for a member that carries none).
     [[nodiscard]] std::vector<double> carried_deflection() const;
@@ -126,10 +145,12 @@ private:
     static void clear_drives(Engine& e);
     static void set_substep_rests(Engine& e, int sub);
     static void keep_scheme_decay(Engine& e);
+    static void keep_efficiency_damping(Engine& e);
 
     std::vector<std::string> supported_;
     std::unique_ptr<Engine> engine_;
     std::shared_ptr<DrivenSchemeDecayRecord> decay_record_ = std::make_shared<DrivenSchemeDecayRecord>();
+    std::shared_ptr<EfficiencyDampingRecord> efficiency_record_ = std::make_shared<EfficiencyDampingRecord>();
     std::shared_ptr<CarriedRecord> carried_record_ = std::make_shared<CarriedRecord>();
     kernel::PhysicsOutputs empty_;
 };
