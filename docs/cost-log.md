@@ -156,3 +156,4 @@ type live in the root `CLAUDE.md` dispatch table once measured.
 | 2026-11-15 | GV branch full verification (ctest debug-sanitize 622, fast tier 4721 passed and 2 round-trip failures fixed inline, long tier 38 passed, lints) and landing (08cc419) | inline | ~15K | 8 calls |
 | 2026-11-15 | M3-RM MuJoCo removal commit: 25 files deleted, 61 restated, refusal of the retired adapter, enforcement kept, verified on the branch (wip/05-rm eeb681d); ruling 104 | module-writer (opus) | 265K | 131 calls |
 | 2026-11-16 | M3-RM merge of the round head (GV, X2i) on resume: conflicts resolved both ways, filtered suites green (wip/05-rm de38e39) | module-writer (opus), resumed | 22K | 15 calls |
+| 2026-11-16 | M3 review: RM at the merged head (wip/05-rm de38e39): accept, 2 wording minors, 3 low; nothing live names the bridge; ruling 105 | Fable review (general-purpose) | ~150K | 25 calls |
