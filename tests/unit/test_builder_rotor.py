@@ -17,7 +17,8 @@ def test_rotor_inertia_lands_on_the_shaft_body_axis() -> None:
     """Closed form: the placeholder shaft is a solid steel cylinder (bearing_steel_52100; body_materials covers the
     printed bodies only) of radius r = 2.5 mm and length L = 20 mm on the z axis, so m = rho pi r^2 L and
     I_xx = I_yy = m (3 r^2 + L^2) / 12. The shaft body's axial inertia is the rotor inertia (BLD-034): I_zz is set to
-    the NEMA 23 placeholder's J = 280 g cm^2 = 2.8e-5 kg m^2, replacing the cylinder's m r^2 / 2, and only I_zz
+    the rotor_inertia J of the catalog part the design names on that shaft's motor (ruling 99: read from the data),
+    replacing the cylinder's m r^2 / 2, and only I_zz
     changes (the shaft axis is z, I + (J - a^T I a) a a^T). Tolerance: 1e-12 relative, the round-off of a sum of a few
     products of SI floats (BLD-034 row)."""
     registry = default_registry()
@@ -25,12 +26,19 @@ def test_rotor_inertia_lands_on_the_shaft_body_axis() -> None:
     result = build(gantry(), registry, materials, rigid_members=True)
     assert result.physics is not None
     density = materials["bearing_steel_52100"].density.typ
-    r, length, rotor = 2.5e-3, 20e-3, 2.8e-5
+    r, length = 2.5e-3, 20e-3
+    rotors = {
+        f"{item.name}_shaft": registry.part(item.part).values["rotor_inertia"]
+        for item in gantry().components
+        if item.type == "stepper_behavioral"
+    }
     mass = density * math.pi * r * r * length
     transverse = mass * (3.0 * r * r + length * length) / 12.0
     shafts = {body.name: body for body in result.physics.bodies if body.name.endswith("_shaft")}
     assert sorted(shafts) == ["lift_motor_shaft", "x_motor_shaft", "y_motor_shaft"]
+    assert sorted(rotors) == sorted(shafts)
     for name, body in shafts.items():
+        rotor = rotors[name]
         print(f"{name}: izz closed form {rotor:.9e}, built {body.inertia.izz:.9e}")
         assert body.inertia.izz == pytest.approx(rotor, rel=1e-12)
         assert body.inertia.ixy == 0.0

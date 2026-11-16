@@ -226,7 +226,9 @@ def test_phy_025() -> None:
     criterion the case states; nothing under `mechsim/` names the folder, so no suite run writes it."""
     for suite, cases in BRIDGE_BASELINES.items():
         folder = ROOT / "test_cases" / suite / "bridge_baselines"
-        assert sorted(path.stem for path in folder.glob("*.yaml")) == sorted(cases)
+        # The folder also keeps the native baseline at retirement, the fixed other side of PHY-024 (ruling 99 (c)).
+        stems = sorted(path.stem for path in folder.glob("*.yaml") if path.name != "native_at_retirement.yaml")
+        assert stems == sorted(cases)
         for case_id in cases:
             baseline = load_baseline(folder / f"{case_id}.yaml")
             assert {entry.case for entry in baseline.entries} == {case_id}

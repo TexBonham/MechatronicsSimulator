@@ -385,23 +385,29 @@ def test_support_pair_without_a_lumped_form_fails(supports: list[str]) -> None:
 
 @pytest.mark.req("BLD-005")
 def test_belts_become_neutral_transmissions() -> None:
-    """Catalog ratio is travel per shaft turn in SI m/rad: belt pulley radius = 40 mm / 2 pi on every axis, the lift
-    included (gantry team 2026-11-11: no lead screw)."""
-    model = _physics(filled_gantry())
+    """Catalog ratio is travel per shaft turn in SI m/rad: belt pulley radius = the ratio's SI
+    value (40 mm per 2 pi rad) on every axis, the lift
+    included (gantry team 2026-11-11: no lead screw). Ratio, efficiency, stiffness and backlash are the values of the
+    catalog part the design names on each belt (ruling 99 (a): read from the data, never a literal)."""
+    design = filled_gantry()
+    model = _physics(design)
+    registry = default_registry()
+    parts = {item.name: registry.part(item.part).values for item in design.components if item.type == "belt_pulley"}
+    assert sorted(parts) == ["lift_belt", "x_belt", "y_belt"]
     transmissions = {item.name: item for item in model.transmissions}
     belt = transmissions["x_belt"]
     assert isinstance(belt, BeltPulley)
     assert (belt.shaft_joint, belt.driven_joint) == ("x_motor_spin", "x_axis")
-    assert belt.pulley_radius == pytest.approx(0.04 / (2.0 * math.pi), rel=1e-15)
-    assert belt.efficiency == 0.95
-    assert belt.stiffness == 100000.0
-    assert belt.backlash == 0.0
+    assert belt.pulley_radius == pytest.approx(parts["x_belt"]["ratio"], rel=1e-15)
+    assert belt.efficiency == parts["x_belt"]["efficiency"]
+    assert belt.stiffness == parts["x_belt"]["stiffness"]
+    assert belt.backlash == parts["x_belt"].get("backlash", 0.0)
     assert transmissions["y_belt"].driven_joint == "y_axis"
     lift = transmissions["lift_belt"]
     assert isinstance(lift, BeltPulley)
     assert (lift.shaft_joint, lift.driven_joint) == ("lift_motor_spin", "lift_axis")
-    assert lift.pulley_radius == pytest.approx(0.04 / (2.0 * math.pi), rel=1e-15)
-    assert lift.backlash == 0.0
+    assert lift.pulley_radius == pytest.approx(parts["lift_belt"]["ratio"], rel=1e-15)
+    assert lift.backlash == parts["lift_belt"].get("backlash", 0.0)
     assert not any(isinstance(item, LeadScrew) for item in model.transmissions)
 
 

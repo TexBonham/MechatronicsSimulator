@@ -2,7 +2,7 @@
 # Pass: the peak swing angle within its limit (ACC-025) and the swing settled into its band within the settle time
 # (ACC-026), after each. The limit, the settle time and the band are open parameters owed by the gantry team
 # (swing_limit_angle 0.1, swing_settle_time 5 s in the design; swing_settle_band here); the rated load hangs on
-# payload_rope, so the case runs on the native adapter (the bridge models no rope, BLD-032).
+# payload_rope (BLD-032).
 #
 # Swing angle (SCO-030): swing:hook.payload.x and .y, the signed angle from the vertical of the line from the hook's
 # origin (the hook_swing pivot) to the payload's centre, in the vertical planes through world x and world y.
@@ -36,8 +36,8 @@
 # acceleration does not stay within a_max: the firmware commands whole steps of 12.5 micrometres, each ringing the
 # belt mode by q omega^2 (y 1.36 m/s^2 at 52.5 Hz, x 0.25 at the measured 22.6 Hz), 3.32 m/s^2 in y at 8.777 s
 # where the per-tick step-count beat crosses the y belt mode, 0.56 in x (expected failure, ACC-025 row).
-# Evaluation start (brief M3-X1g item 7; since M3-X2 the suite's one start, 9 s, derived in README.md): integrity,
-# the engine's validity flag and the rope's snap count from 9 s (`integrity.evaluate_from`, TST-044), as in G15: the run starts with the rails straight, and the release from
+# Evaluation start (brief M3-X1g item 7; since M3-X2 the suite's one start, 9 s until brief M3-GV, 1 s since, derived in README.md): integrity,
+# the engine's validity flag and the rope's snap count from the start (`integrity.evaluate_from`, TST-044), as in G15: the run starts with the rails straight, and the release from
 # straight (tier 1 crossings at 0.013 s on rail_x and 0.018 s on rail_y) is not a load case; homing ends by 5.25 s
 # and the first move starts at 8 s. This is the correction G15 carries, not a window moved to pass: no criterion
 # here reads a rail. Measured with it (10 substeps, start 9 s, M3-X2b): no tier 1 crossing counts (the release's are
@@ -80,7 +80,7 @@ physics:
   adapter: native
   substeps: 10
 integrity:
-  evaluate_from: 9 s
+  evaluate_from: 1 s
 open_parameters:
   - name: swing_settle_band
     dimension: dimensionless

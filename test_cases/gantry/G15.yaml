@@ -4,8 +4,7 @@
 # target's static or dynamic sense is owed: deflection_target_mode) and its settled value within 2 percent of the
 # closed form, and no tier 1 crossing (a crossing fails a passing case, SCO-015). Tier 1 runs
 # (designs/gantry/integrity.yaml) without halting, so the whole run is scored; the peak member end loads are exported
-# beside the archive as the load case (INT-022). Native adapter only: the bridge builds the rails rigid and evaluates
-# no tier 1 (rulings 29, 34).
+# beside the archive as the load case (INT-022).
 #
 # Design load (ruling 52: the case carries it, tier 1 applies no factor): rated load + 15 percent = 4.536 kg x 1.15 =
 # 5.2164 kg on payload_rope (the rated load is the gantry team's 10 lb; the rule is the design's structural section).
@@ -23,7 +22,7 @@
 # and the member chains on them, the payload on its rope never; rail_x 0.01 / 0.00429 / 0.00429, rail_y 0.01 /
 # 0.00724 / 0.00724; M3-X1f printed 0.00341 and 0.00375 counting the payload). The run
 # starts with the rails straight (no static start); integrity, the engine's validity flag and the deflection criteria
-# count from 8 s; since M3-X2 integrity and the validity flag count from the suite's one evaluation start, 9 s
+# count from 8 s; since M3-X2 integrity and the validity flag count from the suite's one evaluation start, 9 s (1 s since brief M3-GV)
 # (`integrity.evaluate_from`, TST-044; derivation in README.md), the deflection criteria keep their 8 s windows.
 #
 # Oracles (item 1 of brief M3-X1d; E I and w of the calibrated chains: rail_x 64.087 N m^2, 51.641 N/m, 16 segments
@@ -88,7 +87,7 @@ physics:
 integrity:
   halt_on_crossing: false
   design_load_carried: true
-  evaluate_from: 9 s
+  evaluate_from: 1 s
 open_parameters:
   - name: design_load_mass
     dimension: "[mass]"
@@ -166,7 +165,8 @@ criteria:
       start: 14 s
       end: 15 s
     comparison: within
-    target: 1.0976722e-3 m
+    # Closed form on the 2040 section (README, brief M3-GV2; 1.0976722e-3 m on the placeholder section before).
+    target: 1.4541401e-5 m
     relative_limit: "0.02"
   - name: deflection_rail_y
     check: value
@@ -184,5 +184,6 @@ criteria:
       start: 14 s
       end: 15 s
     comparison: within
-    target: 7.384859e-4 m
+    # Closed form on the 2040 section (README, brief M3-GV2; 7.384859e-4 m on the placeholder section before).
+    target: 5.2288134e-5 m
     relative_limit: "0.02"

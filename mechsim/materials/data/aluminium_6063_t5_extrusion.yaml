@@ -4,7 +4,9 @@ name: aluminium_6063_t5_extrusion
 family: aluminium
 grade: 6063-T5
 description: Aluminium alloy extrusion grade typical of structural profiles.
-source: placeholder, typical handbook ranges, no source assigned
+source: Gabrian 6063 aluminium alloy properties sheet 
+  (https://www.gabrian.com/wp-content/uploads/2018/09/6063-Aluminum-Alloy-Properties.pdf), typical values for the T5 and
+  T6 tempers; the Alux 2040 rail datasheet gives T66 (brief M3-GV, replaceable)
 placeholder: true
 wide_spread_default: false
 density:

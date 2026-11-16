@@ -11,6 +11,7 @@ from typing import Any
 import numpy as np
 import pytest
 
+from mechsim.library.registry import default_registry
 from mechsim.scoring.score import LOAD_TORQUE, StepperDrive, available_torque, score_run
 from mechsim.testing.core_driver import core_services
 from mechsim.testing.driver import RunReport, Series
@@ -182,8 +183,11 @@ def test_the_runner_describes_each_stepper_from_the_build_after_part_substitutio
     assert lift.step_angle == pytest.approx(math.radians(1.8), rel=1e-12)
     assert lift.holding_torque == pytest.approx(0.40, rel=1e-12)
     assert lift.torque_speed[1] == pytest.approx((300.0 * 2.0 * math.pi / 60.0, 0.36), rel=1e-12)
-    assert drives["x_motor"].part == "nema23_class_generic"
-    assert drives["x_motor"].holding_torque == pytest.approx(1.26, rel=1e-12)
+    x_part = next(item.part for item in prepared.design.components if item.name == "x_motor")
+    assert drives["x_motor"].part == x_part
+    assert drives["x_motor"].holding_torque == pytest.approx(
+        default_registry().part(x_part).values["holding_torque"], rel=1e-12
+    )
 
 
 @pytest.mark.req("SCO-031")

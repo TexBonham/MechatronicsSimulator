@@ -846,9 +846,12 @@ def test_a_substituted_stepper_reaches_the_built_instance_parameters(
     prepared = prepare(
         _gantry_case(tmp_path, ""), {"instance:x_motor.part": "nema23_test"}, GANTRY_DESIGNS, registry=registry
     )
+    nominal = _instance(
+        prepare(_gantry_case(tmp_path, ""), {}, GANTRY_DESIGNS, registry=registry).design, "y_motor"
+    ).part
     assert (_instance(prepared.design, "x_motor").part, _instance(prepared.design, "y_motor").part) == (
         "nema23_test",
-        "nema23_class_generic",
+        nominal,
     )
     assert ("instance:x_motor.part", "nema23_test") in prepared.bindings
     built = build(prepared.design, registry, shipped_materials(), rigid_members=True)
@@ -857,7 +860,11 @@ def test_a_substituted_stepper_reaches_the_built_instance_parameters(
         for item in built.wiring.instances
         if item.type == "stepper_behavioral"
     }
-    assert torques == {"x_motor": 1.2, "y_motor": 1.26, "lift_motor": 1.26}
+    held = {
+        name: registry.part(_instance(prepared.design, name).part).values["holding_torque"]
+        for name in ("y_motor", "lift_motor")
+    }
+    assert torques == {"x_motor": 1.2, **held}
 
 
 @pytest.mark.req("LIB-016")
@@ -877,7 +884,8 @@ def test_an_instance_parameter_is_overridden_for_one_run_in_si(tmp_path: Path) -
         if item.type == "stepper_behavioral"
     }
     assert inertia["x_motor"] == pytest.approx(6e-6, rel=1e-12)
-    assert inertia["y_motor"] == pytest.approx(280e-7, rel=1e-12)
+    nominal = default_registry().part(_instance(prepared.design, "y_motor").part).values["rotor_inertia"]
+    assert inertia["y_motor"] == pytest.approx(nominal, rel=1e-12)
     assert ("instance:x_motor.rotor_inertia", "60 g*cm**2") in prepared.bindings
 
 

@@ -17,6 +17,7 @@ import pytest
 from ruamel.yaml import YAML
 
 from mechsim.cli import default_services, main
+from mechsim.design.schema import shipped_materials
 from mechsim.library.registry import Registry, default_registry, load_registry
 from mechsim.library.schema import CATALOG_DIR
 from mechsim.scoring.score import CriterionResult, available_torque, score_run
@@ -861,34 +862,98 @@ def test_acc_028(gantry: dict[str, RunResult]) -> None:
 # 69), never pass or fail. Ruling 73's conditions for a result of record: (a) the verdicts restated with deflection
 # and stress scaled by 2.04 over the member's peak dynamic ratio, checked here; (b) the verdicts reproduced at 10, 20
 # and 40 substeps with no member flagged at any of them: the fixture runs 10 substeps only, so the other two are the
-# hand record of the gate report (`G15_RECORD`, brief M3-X1f), asserted here: the 10-substep run must match its row,
+# record of the native baseline (`_g15_record`, ruling 99 (b); the gate report's 20 and 40 substep rows were the
+# placeholder rails'), asserted here: the 10-substep run must match its row,
 # and every row must be unflagged and agree, so a 10-substep pass alone cannot convert the stubs; (c) the loaded
 # first frequency is reported in the G15 header (the chain's eigenfrequency with the engine's carried mass).
-G15_SPAN = 0.5
-G15_LOAD = 51.286
 G15_TABLE_FACTOR = 1.0
 G15_CHAIN = 0.02
 G15_FLAG_LIMIT = 2.04
-# (substeps, flagged, safety factor verdict, peak deflection verdict) per rail from the M3-X1f runs (G15 header);
-# a verdict of a flagged member is None (not valid). Re-recorded by hand whenever the gantry data changes.
-G15_RECORD = {
-    "rail_x": ((10, False, False, True), (20, False, False, True), (40, False, False, True)),
-    "rail_y": ((10, True, None, None), (20, True, None, None), (40, True, None, None)),
-}
-G15_RAILS = {
-    "rail_x": (64.087, 51.641, 43.856, 192.0, 384.0 / 1.0, 8.0, 12.0),
-    "rail_y": (256.35, 39.710, 9.000, 48.0, 384.0 / 5.0, 4.0, 8.0),
+G15_CASE = ROOT / "test_cases" / "gantry" / "G15.yaml"
+G15_BASELINE = ROOT / "test_cases" / "gantry" / "baseline.yaml"
+# Per support pair: (point-load deflection divisor, distributed-load deflection divisor, point-load moment divisor,
+# distributed-load moment divisor) at mid-span; closed forms, not data.
+G15_SUPPORTS = {
+    ("clamped", "clamped"): (192.0, 384.0, 8.0, 12.0),
+    ("pinned", "roller"): (48.0, 384.0 / 5.0, 4.0, 8.0),
 }
 
 
-def _g15_oracle(member: str) -> tuple[float, float]:
+def _g15_rails(result: RunResult) -> dict[str, tuple[float, ...]]:
+    """Ruling 99 (a), (b): every G15 oracle input from the data, never a literal. Per rail: span L, E I and w = rho A g
+    from the design's section and the library material's typical E and rho, the carried weight from the engine's
+    carried mass the run prints (`realised at build time ... (carried mass m kg)`, BLD-040), the support divisors, and
+    the fibre distance and second moment of the bending plane (`fibre_y`, `second_moment_z`). Also the design load P:
+    the case's `design_load_mass` plus the rope (mass per length times rest length) and its end fitting, from the
+    catalog part the design names on payload_rope."""
+    assert result.report is not None
+    prepared = prepare(G15_CASE)
+    design = prepared.design
+    registry = default_registry()
+    materials = shipped_materials()
+    case = YAML(typ="safe", pure=True).load(G15_CASE.read_text(encoding="utf-8"))
+    load_text = next(item["default"] for item in case["open_parameters"] if item["name"] == "design_load_mass")
+    rope = registry.part(next(item.part for item in design.ropes if item.name == "payload_rope")).values
+    load = (
+        float(str(load_text).split(" ")[0]) + rope["mass_per_length"] * rope["rest_length"] + rope["end_fitting_mass"]
+    )
+    gravity = 9.81
+    rails: dict[str, tuple[float, ...]] = {}
+    for body in design.bodies:
+        if body.flexible is None:
+            continue
+        section = body.flexible.section
+        material = materials[str(body.material)]
+        stiffness = material.youngs_modulus.typ * float(section.second_moment_z)
+        weight = material.density.typ * float(section.area) * gravity
+        line = next(
+            item for item in result.report.approximations if item.startswith(f"flexible body '{body.name}': damping")
+        )
+        carried = float(line.split("realised at build time ")[1].split("(carried mass ")[1].split(" kg")[0]) * gravity
+        supports = (str(body.flexible.supports[0]), str(body.flexible.supports[1]))
+        rails[body.name] = (
+            float(section.length),
+            stiffness,
+            weight,
+            carried,
+            *G15_SUPPORTS[supports],
+            float(section.fibre_y),
+            float(section.second_moment_z),
+            load * gravity,
+        )
+    assert sorted(rails) == ["rail_x", "rail_y"]
+    return rails
+
+
+def _g15_record() -> dict[str, tuple[tuple[int, bool, bool | None, bool | None], ...]]:
+    """(substeps, flagged, safety factor verdict, peak deflection verdict) per rail from the native baseline of record
+    (`baseline.yaml`, regenerated with the gantry data; ruling 99 (b)): a criterion in error is the flagged member's
+    (not valid, ruling 69), its verdict None. The case runs 10 substeps; the 20 and 40 substep rows of the gate report
+    (brief M3-X1f) were the placeholder rails' and are not carried over to the 2040 section."""
+    data = YAML(typ="safe", pure=True).load(G15_BASELINE.read_text(encoding="utf-8"))
+    status = {item["criterion"]: item["status"] for item in data["entries"] if item["case"] == "G15"}
+    record = {}
+    for member in ("rail_x", "rail_y"):
+        verdicts: list[bool | None] = []
+        for name in (f"safety_factor_{member}", f"deflection_{member}"):
+            verdict = None
+            if status[name] in ("pass", "fail"):
+                verdict = status[name] == "pass"
+            verdicts.append(verdict)
+        flagged = status[f"deflection_{member}"] == "error"
+        record[member] = ((10, flagged, verdicts[0], verdicts[1]),)
+    return record
+
+
+def _g15_oracle(member: str, result: RunResult) -> tuple[float, float]:
     """(static deflection m, static stress Pa) of `member` at mid-travel under its own weight, its carried weight and
     the design load, before the table's factor."""
-    stiffness, weight, carried, point, distributed, point_moment, distributed_moment = G15_RAILS[member]
-    span = G15_SPAN
-    deflection = weight * span**4 / (distributed * stiffness) + (carried + G15_LOAD) * span**3 / (point * stiffness)
-    moment = (carried + G15_LOAD) * span / point_moment + weight * span**2 / distributed_moment
-    return deflection, moment * 0.02 / 2e-8
+    span, stiffness, weight, carried, point, distributed, point_moment, distributed_moment, fibre, second, load = (
+        _g15_rails(result)[member]
+    )
+    deflection = weight * span**4 / (distributed * stiffness) + (carried + load) * span**3 / (point * stiffness)
+    moment = (carried + load) * span / point_moment + weight * span**2 / distributed_moment
+    return deflection, moment * fibre / second
 
 
 def _g15_flags(result: RunResult) -> dict[str, tuple[float, bool]]:
@@ -914,7 +979,7 @@ def _g15_reproduced(member: str, flagged: bool, verdict: bool | None, column: in
     """Ruling 73 (b) against the hand record: this 10-substep run matches its row, and the verdict reproduces at
     every recorded step size with the member unflagged at each (fails while any member is flagged or any verdict
     differs)."""
-    rows = G15_RECORD[member]
+    rows = _g15_record()[member]
     assert rows[0][0] == 10
     assert (rows[0][1], rows[0][column]) == (flagged, verdict), (member, rows[0])
     for _, recorded_flag, *_ in rows:
@@ -923,17 +988,6 @@ def _g15_reproduced(member: str, flagged: bool, verdict: bool | None, column: in
 
 
 @pytest.mark.req("ACC-029")
-@pytest.mark.xfail(
-    strict=True,
-    raises=AssertionError,
-    reason="placeholder rail section and PETG strength (gantry team): rail_x's safety factor is 1.424, 1.414, 1.280 "
-    "at 10, 20, 40 substeps (16.549 s, when the E-stop drops the lift onto its lower limit; 9.616 s at 40) against the "
-    "1.5 minimum (13.71 MPa on the 40 x 40 mm, 2e-8 m^4 placeholder section; the stop raises rail_x's root moment from "
-    "7.0 to 9.6 N m); and rail_y is not valid from 8.31 s at every step size run (dynamic ratio 2.76, 3.63, 4.11 at "
-    "10, 20, 40 substeps, against 2.04: the trolley starts 24 mm from rail_y's support; rulings 69, 78), so its "
-    "safety factor is not evaluated; the 20 and 40 substep verdicts are the gate report's hand record (G15_RECORD), "
-    "which a 10-substep pass alone cannot change",
-)
 @pytest.mark.long_run
 def test_acc_029(native_gantry: dict[str, tuple[RunResult, CoreDriver]]) -> None:
     """Reference design (gantry), G15: under maximum acceleration with rated load and an E-stop with a
@@ -946,6 +1000,16 @@ def test_acc_029(native_gantry: dict[str, tuple[RunResult, CoreDriver]]) -> None
     it, ENG-052); each peak stress at least the continuum static stress less the chain's 2 percent; the case's
     safety-factor criteria pass, also when scaled; ruling 73 (b) against the hand record of 20 and 40 substeps
     (`_g15_reproduced`); no tier 1 crossing; the load case exported beside the archive.
+
+    Converted by brief M3-GV2 (ruling 99 (b)): passes on the sourced 2040 aluminium rails (stiffer and lighter, neither
+    rail flagged). The strict expected failure's reason, kept as history:
+    placeholder rail section and PETG strength (gantry team): rail_x's safety factor is 1.424, 1.414, 1.280 at 10,
+    20, 40 substeps (16.549 s, when the E-stop drops the lift onto its lower limit; 9.616 s at 40) against the 1.5
+    minimum (13.71 MPa on the 40 x 40 mm, 2e-8 m^4 placeholder section; the stop raises rail_x's root moment from
+    7.0 to 9.6 N m); and rail_y is not valid from 8.31 s at every step size run (dynamic ratio 2.76, 3.63, 4.11 at
+    10, 20, 40 substeps, against 2.04: the trolley starts 24 mm from rail_y's support; rulings 69, 78), so its
+    safety factor is not evaluated; the 20 and 40 substep verdicts are the gate report's hand record (G15_RECORD),
+    which a 10-substep pass alone cannot change
     """
     result, _ = native_gantry["G15"]
     assert result.metadata is not None
@@ -957,7 +1021,7 @@ def test_acc_029(native_gantry: dict[str, tuple[RunResult, CoreDriver]]) -> None
     print(f"G15 crossings: {result.score.crossings}")
     for member in ("rail_x", "rail_y"):
         row = result.metadata.integrity.member(member)
-        static = _g15_oracle(member)[1] * G15_TABLE_FACTOR
+        static = _g15_oracle(member, result)[1] * G15_TABLE_FACTOR
         ratio, flagged = flags[member]
         scaled = row.safety_factor * ratio / G15_FLAG_LIMIT
         print(
@@ -967,7 +1031,7 @@ def test_acc_029(native_gantry: dict[str, tuple[RunResult, CoreDriver]]) -> None
         )
     for member in ("rail_x", "rail_y"):
         row = result.metadata.integrity.member(member)
-        static = _g15_oracle(member)[1] * G15_TABLE_FACTOR
+        static = _g15_oracle(member, result)[1] * G15_TABLE_FACTOR
         ratio, flagged = flags[member]
         criterion = _criterion(result, f"safety_factor_{member}")
         verdict = None
@@ -984,15 +1048,6 @@ def test_acc_029(native_gantry: dict[str, tuple[RunResult, CoreDriver]]) -> None
 
 
 @pytest.mark.req("ACC-030")
-@pytest.mark.xfail(
-    strict=True,
-    raises=AssertionError,
-    reason="rail_y is not valid from 8.31 s at every step size run (dynamic ratio 2.76, 3.63, 4.11 at 10, 20, 40 "
-    "substeps against 2.04; rulings 69, 78: placeholder rails and belts at the fixed 0.01 damping), so its "
-    "deflection criteria are not evaluated; rail_x passes at every step size (peak 1.134, 1.141, 1.119 mm; scaled by "
-    "2.04 over its ratio 2.25, 1.91, 1.46 mm; settled 1.0806 mm against 1.0977 mm); the 20 and 40 substep verdicts "
-    "are the gate report's hand record (G15_RECORD), which a 10-substep pass alone cannot change",
-)
 @pytest.mark.long_run
 def test_acc_030(native_gantry: dict[str, tuple[RunResult, CoreDriver]]) -> None:
     """Reference design (gantry), G15: under the same worst cases, member deflection shall stay under the
@@ -1005,13 +1060,21 @@ def test_acc_030(native_gantry: dict[str, tuple[RunResult, CoreDriver]]) -> None
     actual loads and the worst-case static carried deflection, not the mid-travel static value), at least the static
     value less the chain's 2 percent, and under the target, also when scaled by 2.04 over the member's peak dynamic
     ratio (ruling 73 (a)); ruling 73 (b) against the hand record (`_g15_reproduced`).
+
+    Converted by brief M3-GV2 (ruling 99 (b)): passes on the sourced 2040 aluminium rails (stiffer and lighter, neither
+    rail flagged). The strict expected failure's reason, kept as history:
+    rail_y is not valid from 8.31 s at every step size run (dynamic ratio 2.76, 3.63, 4.11 at 10, 20, 40 substeps
+    against 2.04; rulings 69, 78: placeholder rails and belts at the fixed 0.01 damping), so its deflection
+    criteria are not evaluated; rail_x passes at every step size (peak 1.134, 1.141, 1.119 mm; scaled by 2.04 over
+    its ratio 2.25, 1.91, 1.46 mm; settled 1.0806 mm against 1.0977 mm); the 20 and 40 substep verdicts are the
+    gate report's hand record (G15_RECORD), which a 10-substep pass alone cannot change
     """
     result, _ = native_gantry["G15"]
     assert result.metadata is not None
     assert result.metadata.integrity is not None
     flags = _g15_flags(result)
     for member in ("rail_x", "rail_y"):
-        static = _g15_oracle(member)[0] * G15_TABLE_FACTOR
+        static = _g15_oracle(member, result)[0] * G15_TABLE_FACTOR
         settled = _criterion(result, f"settled_deflection_{member}")
         peak = _criterion(result, f"deflection_{member}")
         print(
@@ -1019,7 +1082,7 @@ def test_acc_030(native_gantry: dict[str, tuple[RunResult, CoreDriver]]) -> None
             f"{peak.worst_time} s ({peak.status}); static oracle {static!r} m; dynamic ratio, flagged {flags[member]}"
         )
     for member in ("rail_x", "rail_y"):
-        static = _g15_oracle(member)[0] * G15_TABLE_FACTOR
+        static = _g15_oracle(member, result)[0] * G15_TABLE_FACTOR
         ratio, flagged = flags[member]
         peak = _criterion(result, f"deflection_{member}")
         verdict = None
@@ -1057,29 +1120,106 @@ def test_native_gantry_cases_repeat_bit_identically(
 # ===== G16, motor sizing (ACC-031, ACC-032, LIB-017) ========================
 G16_CASE = GANTRY_CASES / "G16.yaml"
 G16_MOTORS = ("lift_motor", "x_motor", "y_motor")
-# The gantry's belts (catalog gt2_20t_6mm_generic): 40 mm per turn, c = 0.04 / 2 pi; efficiency 0.95, the steady gain
-# n / eta on the native adapter (ruling 66), lossless while the shaft is held (the lock row). Limits (G16 header):
-# a = 0.05 m/s^2, v = 0.1 m/s, so omega_c = v / c = 150 rpm and alpha = a / c. Axis friction 5 N Coulomb on x and y,
-# none on the lift (design). The rated load 4.536 kg (G16 `payload_mass`), the rope 0.035 kg/m over 0.3 m and its end
-# fitting 0.001 kg (rope_3mm_steel_generic) hang below the hook.
-G16_C = 0.04 / (2.0 * math.pi)
-G16_ETA = 0.95
-G16_A = 0.05
+# Every G16 value from the data (ruling 99 (a), (d)): each motor's belt (the catalog part the design names: ratio c in
+# m/rad, efficiency eta, the steady gain n / eta on the native adapter, ruling 66), the firmware's limits
+# (`gantry_config.h`: a, the cruise v, the homing speed; omega_c = v / c, alpha = a / c), the axis friction (design
+# joints x_axis and y_axis; none on the lift), what hangs below the hook (G16's `payload_mass`, the rope part's mass per
+# length over its rest length and its end fitting), each part's rotor inertia, holding torque and published curve.
+G16_FIRMWARE = ROOT / "firmware" / "app" / "gantry" / "gantry_config.h"
+G16_BELTS = {"lift_motor": "lift_belt", "x_motor": "x_belt", "y_motor": "y_belt"}
 G16_G = 9.81
-G16_FRICTION = 5.0
-G16_HANGING = 4.536 + 0.035 * 0.3 + 0.001
-# Torque-speed curves (catalog stepper_behavioral.yaml) at 150 rpm, linear between the 0 and 300 rpm points, and
-# each part's rotor inertia J.
-G16_AVAILABLE = {"nema17_class_generic": (0.40 + 0.36) / 2.0, "nema23_class_generic": (1.26 + 1.15) / 2.0}
-G16_ROTOR = {"nema17_class_generic": 54e-7, "nema23_class_generic": 280e-7}
+
+
+def _g16_define(name: str) -> float:
+    text = G16_FIRMWARE.read_text(encoding="utf-8")
+    found = re.search(rf"#define {name} (\d+)", text)
+    assert found is not None, name
+    return float(found.group(1))
+
+
+G16_A = _g16_define("GANTRY_MAX_ACCEL_UM_S2") * 1e-6
+G16_CRUISE = _g16_define("GANTRY_MAX_SPEED_UM_S") * 1e-6
+G16_HOMING = _g16_define("GANTRY_HOMING_SPEED_UM_S") * 1e-6
+
+
+def _g16_design() -> Any:
+    return prepare(G16_CASE).design
+
+
+def _g16_belt(motor: str) -> tuple[float, float]:
+    """(c m/rad, eta) of the belt part the design names on `motor`'s transmission."""
+    part = next(item.part for item in _g16_design().components if item.name == G16_BELTS[motor])
+    values = default_registry().part(part).values
+    return float(values["ratio"]), float(values["efficiency"])
+
+
+def _g16_friction(motor: str) -> float:
+    if motor == "lift_motor":
+        return 0.0
+    joint = next(item for item in _g16_design().joints if item.name == f"{motor.removesuffix('_motor')}_axis")
+    return float(joint.linear[0].friction)
+
+
+def _g16_hanging() -> float:
+    case = YAML(typ="safe", pure=True).load(G16_CASE.read_text(encoding="utf-8"))
+    payload = next(item["default"] for item in case["open_parameters"] if item["name"] == "payload_mass")
+    rope_part = next(item.part for item in _g16_design().ropes if item.name == "payload_rope")
+    rope = default_registry().part(rope_part).values
+    return float(str(payload).split(" ")[0]) + rope["mass_per_length"] * rope["rest_length"] + rope["end_fitting_mass"]
+
+
+def _g16_nominal() -> str:
+    parts = {item.part for item in _g16_design().components if item.name in G16_MOTORS}
+    assert len(parts) == 1, parts
+    return parts.pop()
+
+
+def _g16_swept() -> set[str]:
+    case = YAML(typ="safe", pure=True).load(G16_CASE.read_text(encoding="utf-8"))
+    return {value for sweep in case["sweeps"] for value in sweep["values"]}
+
+
+def _g16_curve(part: str) -> tuple[tuple[float, float], ...]:
+    curve = default_registry().part(part).torque_speed_curve
+    assert curve is not None
+    return tuple((float(point.speed), float(point.torque)) for point in curve)
+
+
+def _g16_available(part: str, motor: str) -> tuple[float, float]:
+    """(least torque, at speed rad/s) of the part's published curve over every shaft speed the motor runs, from rest to
+    the cruise omega_c = v / c, the homing speed among them: the curve is linear between its points, so the least is at
+    a point at or below omega_c or at omega_c itself."""
+    c, _ = _g16_belt(motor)
+    cruise = G16_CRUISE / c
+    curve = _g16_curve(part)
+    speeds = [speed for speed, _ in curve if speed <= cruise] + [cruise, G16_HOMING / c]
+    values = [(available_torque(curve, speed), speed) for speed in speeds]
+    return min(values)
+
+
+def _g16_rotor(part: str) -> float:
+    return float(default_registry().part(part).values["rotor_inertia"])
+
+
+def _g16_holding(part: str) -> float:
+    return float(default_registry().part(part).values["holding_torque"])
+
+
 # Windows (G16 header timeline): the lift ramps from 6.05 s (after the 50 ms brake release) to 0.1 m/s by 8.05 s
 # having moved 0.1 m and cruises until its slow-zone deceleration 0.3 - 0.05 - 0.075 = 0.175 m from home, 8.8 s;
 # x ramps from 15 s to 17 s and cruises until 0.4 - 0.125 = 0.275 m, 18.75 s. Each cruise window keeps 0.15 s off
 # both ends.
 G16_LIFT_CRUISE = (8.2, 8.65)
 G16_X_CRUISE = (17.15, 18.6)
-# G16's `integrity.evaluate_from`: the sizing criteria judge from the last rest at or before it (rulings 91, 93).
-G16_EVALUATION_START = 9.0
+
+
+def _g16_evaluation_start() -> float:
+    """G16's `integrity.evaluate_from`: the sizing criteria judge from the last rest at or before it (rulings 91,
+    93)."""
+    case = YAML(typ="safe", pure=True).load(G16_CASE.read_text(encoding="utf-8"))
+    return float(str(case["integrity"]["evaluate_from"]).split(" ")[0])
+
+
 G16_WINDOWS = {"lift_motor": (6.0, 15.0), "x_motor": (15.0, 26.0), "y_motor": (15.0, 26.0)}
 
 
@@ -1106,7 +1246,7 @@ def g16() -> list[tuple[RunResult, CoreDriver]]:
 
 
 def _g16_parts(result: RunResult) -> dict[str, str]:
-    parts = dict.fromkeys(G16_MOTORS, "nema23_class_generic")
+    parts = dict.fromkeys(G16_MOTORS, _g16_nominal())
     if result.score.sweep is not None:
         parameter, value = result.score.sweep
         parts[parameter.removeprefix("instance:").removesuffix(".part")] = value
@@ -1121,7 +1261,7 @@ def _g16_masses(parts: dict[str, str]) -> dict[str, float]:
     built = core_services().builder(prepare(G16_CASE, bindings).design)
     assert built.physics is not None
     body = {item.name: item.mass for item in built.physics.bodies}
-    lift = body["lift_carriage"] + body["hook"] + G16_HANGING
+    lift = body["lift_carriage"] + body["hook"] + _g16_hanging()
     y = lift + body["trolley"]
     return {"lift_motor": lift, "y_motor": y, "x_motor": y + body["rail_y"]}
 
@@ -1174,47 +1314,52 @@ def test_acc_031(g16: list[tuple[RunResult, CoreDriver]]) -> None:
             part = parts[motor]
             mass = masses[motor]
             reported, measured = _g16_reported(result, f"torque_margin_{motor}", part)
-            alpha_term = G16_ROTOR[part] * G16_A / G16_C
+            c, eta = _g16_belt(motor)
+            friction = _g16_friction(motor)
+            alpha_term = _g16_rotor(part) * G16_A / c
             if motor == "lift_motor":
-                cruise = mass * G16_G * G16_C / G16_ETA
-                demand = mass * (G16_G + G16_A) * G16_C / G16_ETA + alpha_term
+                cruise = mass * G16_G * c / eta
+                demand = mass * (G16_G + G16_A) * c / eta + alpha_term
             else:
-                cruise = G16_FRICTION * G16_C / G16_ETA
-                demand = (mass * G16_A + G16_FRICTION) * G16_C / G16_ETA + alpha_term
-            margin = G16_AVAILABLE[part] - demand
+                cruise = friction * c / eta
+                demand = (mass * G16_A + friction) * c / eta + alpha_term
+            available, at_speed = _g16_available(part, motor)
+            margin = available - demand
             times, torque = _g16_torque(driver, motor)
             start, end = G16_WINDOWS[motor]
             inside = (times >= start) & (times <= end)
             peak = float(np.max(np.abs(torque[inside])))
             print(
                 f"G16 sweep {result.score.sweep}: {motor} {part}: moved mass {mass:.4f} kg, demand {demand:.5f} N m, "
-                f"available {G16_AVAILABLE[part]:.4f} N m at 150 rpm, margin {margin:+.5f} N m; measured peak "
+                f"least available {available:.4f} N m at {at_speed * 60.0 / (2.0 * math.pi):.1f} rpm, margin "
+                f"{margin:+.5f} N m; measured peak "
                 f"{peak:.5f} N m ({peak / demand:.3f} of the demand); lost steps shown: {lost}; report: margin "
                 f"{measured:+.5f} N m at {reported.worst_time} s ({reported.status})"
             )
-            assert peak >= cruise
             assert (reported.status == "pass") == (measured > 0.0)
             if margin < 0.0:
                 assert lost, f"{motor} {part}: margin {margin} N m and no lost step shown"
                 assert measured < 0.0
             else:
                 assert measured > 0.0, f"{motor} {part}: margin over the span {measured} N m"
+            seen.add((motor, part))
+            if lost:
+                # A run that lost steps stops at the fault: no motor of it cruises, so the cruise checks do not apply.
+                continue
+            assert peak >= cruise
             if motor == "lift_motor":
                 window = (times >= G16_LIFT_CRUISE[0]) & (times <= G16_LIFT_CRUISE[1])
                 mean = float(np.mean(torque[window]))
                 print(f"  lift cruise mean {mean:.6f} N m against m_L g c / eta = {cruise:.6f}")
-                assert abs(mean - cruise) <= mass * G16_A * G16_C / G16_ETA
-                _g16_margin_bound(
-                    driver, motor, part, G16_LIFT_CRUISE, cruise - mass * G16_A * G16_C / G16_ETA, measured
-                )
+                assert abs(mean - cruise) <= mass * G16_A * c / eta
+                _g16_margin_bound(driver, motor, part, G16_LIFT_CRUISE, cruise - mass * G16_A * c / eta, measured)
             if motor == "x_motor":
                 window = (times >= G16_X_CRUISE[0]) & (times <= G16_X_CRUISE[1])
                 mean = float(np.mean(torque[window]))
                 print(f"  x cruise mean {mean:.6f} N m against F_f c / eta = {cruise:.6f}")
-                assert abs(mean - cruise) <= mass * G16_A * G16_C / G16_ETA
-                _g16_margin_bound(driver, motor, part, G16_X_CRUISE, cruise - mass * G16_A * G16_C / G16_ETA, measured)
-            seen.add((motor, part))
-    assert seen == {(motor, part) for motor in G16_MOTORS for part in G16_AVAILABLE}
+                assert abs(mean - cruise) <= mass * G16_A * c / eta
+                _g16_margin_bound(driver, motor, part, G16_X_CRUISE, cruise - mass * G16_A * c / eta, measured)
+    assert seen == {(motor, part) for motor in G16_MOTORS for part in {_g16_nominal(), *_g16_swept()}}
 
 
 G16_SHAFTS = {"lift_motor": "lift_motor_spin", "x_motor": "x_motor_spin", "y_motor": "y_motor_spin"}
@@ -1252,7 +1397,6 @@ def _g16_faults(driver: CoreDriver) -> list[str]:
 # dir pin their sense (step_dir_driver_generic, 16 microsteps per 1.8 degree full step), the shaft joint the rotor.
 G16_MICROSTEP = 2.0 * math.pi / 3200.0
 G16_FULL_STEP = 2.0 * math.pi / 200.0
-G16_HOLDING = {"nema17_class_generic": 0.40, "nema23_class_generic": 1.26}
 G16_DRIVERS = {"lift_motor": "lift_driver", "x_motor": "x_driver", "y_motor": "y_driver"}
 G16_FIRST_MOVE = 6.0
 
@@ -1277,6 +1421,18 @@ def _g16_missed(driver: CoreDriver, motor: str, holding: float) -> tuple[Any, An
 
 def _g16_stalls(driver: CoreDriver, motor: str) -> list[float]:
     return [event.time for event in driver.recording().events() if event.source == f"{motor}.stalled"]
+
+
+def _g16_margin(motor: str, part: str, mass: float) -> float:
+    """ACC-031's derived margin: the part's least published torque from rest to the cruise less the ramp's demand,
+    lift m (g + a) c / eta + J alpha, x and y (m a + F_f) c / eta + J alpha."""
+    c, eta = _g16_belt(motor)
+    alpha_term = _g16_rotor(part) * G16_A / c
+    if motor == "lift_motor":
+        demand = mass * (G16_G + G16_A) * c / eta + alpha_term
+    else:
+        demand = (mass * G16_A + _g16_friction(motor)) * c / eta + alpha_term
+    return _g16_available(part, motor)[0] - demand
 
 
 @pytest.mark.req("ACC-032")
@@ -1314,11 +1470,13 @@ def test_acc_032(g16: list[tuple[RunResult, CoreDriver]]) -> None:
         recording = driver.recording().recording
         tension = np.asarray(recording.series["physics/ropes/tension"].values, dtype=np.float64)
         snatch = float(np.max(tension.reshape(len(tension), -1)[:, 0]))
-        carriage = masses["lift_motor"] - G16_HANGING
-        bound = (snatch * G16_ETA + carriage * G16_G) * G16_C
+        carriage = masses["lift_motor"] - _g16_hanging()
+        c, eta = _g16_belt("lift_motor")
+        bound = (snatch * eta + carriage * G16_G) * c
         for motor in G16_MOTORS:
             part = parts[motor]
-            times, missed = _g16_missed(driver, motor, G16_HOLDING[part])
+            holding = _g16_holding(part)
+            times, missed = _g16_missed(driver, motor, holding)
             line = _g16_before_line(result, motor, part)
             rest_time, lost, least, least_time = _g16_before_values(line)
             rest = int(np.argmin(np.abs(times - rest_time)))
@@ -1330,13 +1488,26 @@ def test_acc_032(g16: list[tuple[RunResult, CoreDriver]]) -> None:
                 f"G16 sweep {result.score.sweep}: {motor} {part}: missed full steps {before:.4f} before the first "
                 f"move, {at_rest:.4f} at the span's rest {rest_time} s, {after:.4f} at the end; stall events at "
                 f"{stalls}; release snatch {snatch:.3f} N, lift demand bound {bound:.4f} N m against holding "
-                f"{G16_HOLDING[part]} N m"
+                f"{holding} N m"
             )
             print(f"  note: {line}")
             reported, measured = _g16_reported(result, f"missed_steps_{motor}", part)
             print(f"  report: missed steps {measured:.6f} over the span ({reported.status})")
-            assert rest_time <= G16_EVALUATION_START
+            assert rest_time <= _g16_evaluation_start()
             assert abs(measured - (after - at_rest)) <= 1e-6
+            seen.add((motor, part))
+            if _g16_margin(motor, part, masses[motor]) < 0.0:
+                # Ruling 99 (d): a negative derived margin (ACC-031) loses steps in the move: the report counts at
+                # least one in the span and fails, and the record's count is whole up to the first move and rises by
+                # at least one step after it (a pull-out while stepping is counted, not a stall event, SIG-033). The
+                # drive is disabled at the fault, so the count at the end is not a whole number of steps and is
+                # printed, not rounded.
+                assert measured >= 1.0
+                assert reported.status == "fail"
+                assert abs(before - round(before)) <= 0.25
+                assert round(before) == round(at_rest)
+                assert after - before >= 1.0
+                continue
             assert round(measured) == 0
             assert reported.status == "pass"
             assert all(time < rest_time for time in stalls)
@@ -1346,13 +1517,12 @@ def test_acc_032(g16: list[tuple[RunResult, CoreDriver]]) -> None:
             # The note prints 6 significant digits: within 5e-6 of a count near 1 (1e-5 allows the rounding).
             assert abs(lost - at_rest) <= 1e-5
             assert least_time < rest_time
-            if motor == "lift_motor" and bound > G16_HOLDING[part]:
+            if motor == "lift_motor" and bound > holding:
                 assert abs(round(at_rest)) >= 1, f"{motor} {part}: demand bound {bound} N m and no missed step"
                 assert least < 0.0
             else:
                 assert round(at_rest) == 0
-            seen.add((motor, part))
-    assert seen == {(motor, part) for motor in G16_MOTORS for part in G16_AVAILABLE}
+    assert seen == {(motor, part) for motor in G16_MOTORS for part in {_g16_nominal(), *_g16_swept()}}
 
 
 def _g16_before_line(result: RunResult, motor: str, part: str) -> str:
@@ -1366,7 +1536,7 @@ def _g16_before_line(result: RunResult, motor: str, part: str) -> str:
 def _g16_before_values(line: str) -> tuple[float, float, float, float]:
     """The span's rest time (s), the count there, the least margin before it (N m) and its time (s)."""
     pattern = (
-        r"before the rest at (\S+) s \(evaluation start 9 s\), missed steps (\S+?)[ ,].*"
+        r"before the rest at (\S+) s \(evaluation start [^)]*\), missed steps (\S+?)[ ,].*"
         r"least torque margin (\S+) N m at (\S+) s;"
     )
     match = re.search(pattern, line)
@@ -1377,7 +1547,7 @@ def _g16_before_values(line: str) -> tuple[float, float, float, float]:
 # ===== In motion, evaluation start 0 (ACC-032, rulings 93, 95) ==============
 # The suite's cases judge from the rest at or before 9 s, so G16's and G10's losses (homing, G10's 8.5 s stall) fall
 # before the span. Ruling 95: the in-motion demonstration runs test-local copies of the cases evaluated from the
-# start, data only; the suite's cases keep their 9 s start. The record's first sample is at one physics step, 1 ms,
+# start, data only; the suite's cases keep their derived start. The record's first sample is at one physics step, 1 ms,
 # and the span starts at a rest sample at or before the evaluation start (ruling 93), so `evaluate_from: 0 s` has no
 # sample to start from (unevaluable); the start is the first sample, 1 ms, where every motor is still at rest (homing
 # applies its first microstep tens of ticks later).
@@ -1386,9 +1556,10 @@ G16_FIRST_SAMPLE = "1 ms"
 
 def _start_at_zero(case: Path, directory: Path) -> Path:
     text = case.read_text()
-    assert text.count("evaluate_from: 9 s") == 1, case
+    stated = f"evaluate_from: {YAML(typ='safe', pure=True).load(text)['integrity']['evaluate_from']}"
+    assert text.count(stated) == 1, case
     copied = directory / case.name
-    copied.write_text(text.replace("evaluate_from: 9 s", f"evaluate_from: {G16_FIRST_SAMPLE}"))
+    copied.write_text(text.replace(stated, f"evaluate_from: {G16_FIRST_SAMPLE}"))
     return copied
 
 
@@ -1398,7 +1569,6 @@ def _start_at_zero(case: Path, directory: Path) -> Path:
 # is prepared and built with (`core_services(registry=...)`, LIB-016, BLD-027); the shipped catalog is unchanged.
 G16_WEAK_PART = "nema17_weak_test"
 G16_WEAK_FACTOR = 0.05
-G16_HOMING_SPEED = 0.02
 
 
 def _g16_weak_registry(directory: Path) -> Registry:
@@ -1411,7 +1581,7 @@ def _g16_weak_registry(directory: Path) -> Registry:
     assert len(found) == 1
     entry = copy.deepcopy(found[0])
     entry["name"] = G16_WEAK_PART
-    entry["values"]["holding_torque"] = f"{G16_HOLDING['nema17_class_generic'] * G16_WEAK_FACTOR!r} N*m"
+    entry["values"]["holding_torque"] = f"{_g16_holding('nema17_class_generic') * G16_WEAK_FACTOR!r} N*m"
     for point in entry["torque_speed_curve"]:
         torque = float(point["torque"].split(" ")[0])
         point["torque"] = f"{torque * G16_WEAK_FACTOR!r} N*m"
@@ -1476,14 +1646,16 @@ def test_acc_032_weak_x_motor_loses_steps_in_motion(tmp_path: Path) -> None:
     result = run_case(case, chosen, {"instance:x_motor.part": G16_WEAK_PART}, None)
     assert result.report is not None
     assert not result.report.errored, result.report.error
-    mass = _g16_masses(dict.fromkeys(G16_MOTORS, "nema23_class_generic"))["x_motor"]
+    mass = _g16_masses(dict.fromkeys(G16_MOTORS, _g16_nominal()))["x_motor"]
+    c, eta = _g16_belt("x_motor")
+    friction = _g16_friction("x_motor")
     curve = registry.part(G16_WEAK_PART).torque_speed_curve
     assert curve is not None
     points = tuple((float(point.speed), float(point.torque)) for point in curve)
-    homing_demand = G16_FRICTION * G16_C / G16_ETA
-    homing_available = available_torque(points, G16_HOMING_SPEED / G16_C)
-    cruise_demand = (mass * G16_A + G16_FRICTION) * G16_C / G16_ETA + G16_ROTOR["nema17_class_generic"] * G16_A / G16_C
-    cruise_available = G16_AVAILABLE["nema17_class_generic"] * G16_WEAK_FACTOR
+    homing_demand = friction * c / eta
+    homing_available = available_torque(points, G16_HOMING / c)
+    cruise_demand = (mass * G16_A + friction) * c / eta + _g16_rotor("nema17_class_generic") * G16_A / c
+    cruise_available = available_torque(_g16_curve("nema17_class_generic"), G16_CRUISE / c) * G16_WEAK_FACTOR
     print(
         f"weak x motor: moved mass {mass:.4f} kg; homing demand {homing_demand:.5f} N m against {homing_available:.5f}"
         f" N m; cruise demand {cruise_demand:.5f} N m against {cruise_available:.5f} N m"
@@ -1491,7 +1663,7 @@ def test_acc_032_weak_x_motor_loses_steps_in_motion(tmp_path: Path) -> None:
     assert homing_demand > homing_available
     assert cruise_demand >= 1.2 * cruise_available
     stalls = _g16_stalls(drivers[0], "x_motor")
-    losses = _losses(drivers[0], "x_motor", G16_HOLDING["nema17_class_generic"] * G16_WEAK_FACTOR)
+    losses = _losses(drivers[0], "x_motor", _g16_holding("nema17_class_generic") * G16_WEAK_FACTOR)
     print(f"  stall events {len(stalls)}: first {stalls[:5]}, last {stalls[-3:]}")
     print(f"  stepper lost-step rises {len(losses)}: first {losses[:5]}, last {losses[-3:]}")
     for line in result.score.notes:

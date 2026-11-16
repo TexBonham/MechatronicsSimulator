@@ -2,8 +2,8 @@
 
 Reviewer: Fable (general-purpose), fresh. Read-only; data files, sources and diff only; never the writer's report;
 no builds or runs; call cap 30; `WebFetch` allowed to spot-check at most five cited sources. Worktree
-`/home/tex/dev/MechatronicsSimulator-05-gv`, branch `wip/05-gv`, head GV_HEAD, diff `git -C <worktree> diff e97eeb0
-GV_HEAD` (skip brief files, `docs/queue.md`). Brief `docs/briefs/round-05/m3-gv.md`; ruling 98 and the owner's gate
+`/home/tex/dev/MechatronicsSimulator-05-gv`, branch `wip/05-gv`, head 6ce7221, diff `git -C <worktree> diff e97eeb0
+6ce7221` (skip brief files, `docs/queue.md`). Brief `docs/briefs/round-05/m3-gv.md`; ruling 98 and the owner's gate
 decision 4 in `/home/tex/dev/MechatronicsSimulator/docs/queue.md`; `docs/gantry-team-inputs.md` as rewritten; rows
 LIB-016, LIB-017, LIB-020, LIB-034, BLD-019, BLD-041, DES-047, ACC-026, ACC-029, ACC-030, ACC-038, TST-044.
 

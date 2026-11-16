@@ -195,13 +195,20 @@ def differential_misses(bridge: Any, native: Any, cases: dict[str, Any]) -> list
     return misses
 
 
+NATIVE_AT_RETIREMENT = "native_at_retirement.yaml"
+
+
 def gantry_misses() -> list[str]:
     folder = ROOT / "test_cases" / "gantry"
     suite = load_suite_file(folder / "suite.yaml")
     cases = {case.id: case for case in (load_test_case(folder / name) for name in suite.cases)}
-    native = load_baseline(folder / "baseline.yaml")
+    # The comparison of record is frozen (ruling 99 (c)): the native baseline at retirement, never the live
+    # baseline.yaml, which tracks the design.
+    native = load_baseline(folder / "bridge_baselines" / NATIVE_AT_RETIREMENT)
     misses: list[str] = []
     for path in sorted((folder / "bridge_baselines").glob("*.yaml")):
+        if path.name == NATIVE_AT_RETIREMENT:
+            continue
         misses.extend(differential_misses(load_baseline(path), native, cases))
     return sorted(misses)
 
@@ -293,7 +300,8 @@ def test_phy_024() -> None:
     """The MuJoCo retirement check shall pass only when the native adapter matches the reference-design baselines within
     the differential tolerance.
 
-    Each fixed bridge baseline (PHY-025) against the suite's native baseline at the tolerance of the quantity each
+    Each fixed bridge baseline (PHY-025) against the fixed native baseline at retirement
+    (`bridge_baselines/native_at_retirement.yaml`, ruling 99 (c)) at the tolerance of the quantity each
     criterion reads (module header, the differential tolerance row): no miss at all."""
     misses = gantry_misses()
     print("\n".join(misses))

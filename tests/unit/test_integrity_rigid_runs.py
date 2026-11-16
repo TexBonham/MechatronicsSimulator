@@ -12,6 +12,7 @@ from typing import Any
 
 import numpy as np
 import pytest
+from ruamel.yaml import YAML
 
 import mechsim.integrity.service as integrity_service
 from mechsim.cli import default_services, main
@@ -21,6 +22,11 @@ from mechsim.testing.schema import ROOT
 
 G8 = ROOT / "test_cases" / "gantry" / "G8.yaml"
 GANTRY = ROOT / "designs" / "gantry" / "design.yaml"
+
+
+def _evaluate_from() -> str:
+    """G8's `integrity.evaluate_from` as the case states it (the suite's derived start, ruling 99 (a))."""
+    return str(YAML(typ="safe", pure=True).load(G8.read_text(encoding="utf-8"))["integrity"]["evaluate_from"])
 
 
 def _run(case: Path, out: Path) -> str:
@@ -57,9 +63,9 @@ def test_the_same_case_on_the_native_adapter_evaluates_every_member(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     # The stub note needs a carried load inside rail_x's clamped root half segment, which G8 reaches only while
-    # homing; the suite's evaluation start (9 s, `test_cases/gantry/README.md`) would exclude it, so this copy judges
-    # from the release as the case did before the start was derived.
-    text = G8.read_text(encoding="utf-8").replace("integrity:\n  evaluate_from: 9 s\n", "")
+    # homing; the suite's evaluation start (`test_cases/gantry/README.md`, read from the case) may exclude it, so this
+    # copy judges from the release as the case did before the start was derived.
+    text = G8.read_text(encoding="utf-8").replace(f"integrity:\n  evaluate_from: {_evaluate_from()}\n", "")
     assert "evaluate_from" not in text
     case = tmp_path / "G8.yaml"
     case.write_text(text, encoding="utf-8")
