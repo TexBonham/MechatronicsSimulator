@@ -31,9 +31,11 @@ misses of record against the bridge are the four G10 entries; G12 and G15 are re
 82). The gate passed with owner confirmations on 2026-11-15 (gate report below; decisions 1b, 2a, batch confirmed,
 decision 4 on gantry placeholders). X2i landed at 04df6df (G10 explained from both archives, E9 bounded and
 published; rulings 100, 101; verified: ctest debug-sanitize 625 of 625, Python 4723 passed and 89 xfail fast, 37
-passed and 4 xfail long, lints clean). In flight: GV with its fix round GV2 (`wip/05-gv`: real components in the
-gantry's slots, rulings 98, 99), RM (`wip/05-rm`: the MuJoCo removal commit, ADR 0004 close). Next: GV review and
-landing, RM review and landing, round close (W-07), PR to main with a merge commit. Briefs of record
+passed and 4 xfail long, lints clean). GV with GV2 landed at 08cc419 (real, datasheet-backed components in the gantry's slots; rulings 98, 99, 102,
+103; verified on the branch: ctest debug-sanitize 622 of 622, Python 4723 passed and 89 xfail fast after the two round-trip
+fixes, 38 passed and 2 xfail long, lints clean). In flight: RM (`wip/05-rm`: the MuJoCo removal commit, ADR 0004 close).
+Next: RM review, RM merges the round head and lands with the final verification, round close (W-07), PR to main with a
+merge commit. Briefs of record
 in `docs/briefs/round-05/`; worktrees `../MechatronicsSimulator-05-<letter>`. Round 4's rulings and gate report
 are below for reference; round 4's cost rows are in `docs/cost-log-archive.md`.
 

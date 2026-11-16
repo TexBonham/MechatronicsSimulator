@@ -153,3 +153,4 @@ type live in the root `CLAUDE.md` dispatch table once measured.
 | 2026-11-15 | M3-GV2 fix round on resume: tests read the data, G15 targets derived, comparison of record frozen, sizing results re-recorded (wip/05-gv 6ce7221); ruling 102 | module-writer (opus), resumed | 130K | 96 calls |
 | 2026-11-15 | M3 review: GV with GV2 (wip/05-gv 6ce7221): accept after a wording-only fix round, 2 medium for the record, 3 low; 5 sources spot-checked; ruling 103 | Fable review (general-purpose) | 158K | 29 calls |
 | 2026-11-15 | GV wording fix round applied inline | inline | ~12K | 4 calls |
+| 2026-11-15 | GV branch full verification (ctest debug-sanitize 622, fast tier 4721 passed and 2 round-trip failures fixed inline, long tier 38 passed, lints) and landing (08cc419) | inline | ~15K | 8 calls |
