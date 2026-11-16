@@ -78,3 +78,23 @@ PHY-023 to PHY-026 restated as met; TST-040; BLD-033, BLD-039 (rope stand-in); t
 the bridge; ADR 0004 status; ADR 0014 (include boundary); `docs/spec/traceability.md` regenerated. Contracts:
 `core/physics/CLAUDE.md`, `core/bindings/CLAUDE.md`, `mechsim/physics/CLAUDE.md`, `mechsim/testing/CLAUDE.md`
 (bridge lines), root `CLAUDE.md` invariant 5 and the Layout block (`adapters: mujoco/ native/`).
+
+## Inventory (brief M3-RM item 1, 2026-11-15)
+
+`git grep -l -i mujoco` at the brief's base (63215f2): 158 files.
+
+| Class | Files | Action |
+|---|---|---|
+| Bridge packages and their fixtures | 25: `core/physics/mujoco/**` (adapter, tests, 11 MJCF fixtures, contracts), `core/cmake/MuJoCo.cmake`, `mechsim/physics/mujoco/**`, `tests/unit/test_mjcf_translation.py` | Delete; `core/physics/mujoco/HISTORY.md` moves into `core/physics/HISTORY.md` |
+| Fixed baselines (PHY-025) | 15: `test_cases/*/bridge_baselines/*.yaml` | Keep unchanged: their provenance lines name the bridge run that made them |
+| History | 47: `docs/briefs/**`, `docs/rulings/**`, `docs/cost-log*.md`, `docs/queue.md`, the architecture and requirements documents | Keep: records of what was decided and run; not this brief's to edit (queue, cost log) |
+| ADRs | 10 under `docs/adr/` | Keep as decision history, except ADR 0004 (status: implemented, for the owner's review) and ADR 0014 (status line: the bridge half retired); `docs/adr/README.md` rows follow |
+| Restate | 61: build (`core/physics/CMakeLists.txt`, `core/bindings/CMakeLists.txt`, bindings `factories.cpp`, `bind_physics.cpp`), CI (`cpp.yml`), the kernel's `PreparedModel::engine_artifact` comment and the `<mujoco/>` literals in the kernel and native tests (field kept, generic: no shipped adapter takes an artifact and native refuses one), comments in `safety.hpp` and `test_stepper.cpp` (kept as the origin of the 400 envelope, worded as history), `mechsim/physics/__init__.py`, `mechsim/testing/{schema,core_driver,core_wiring}.py`, `mechsim/record/archive.py` (kept: an archive without the attribute was a bridge run and still reads, ruling 17), `schemas/test_case.json`, `tools/check_imports.py`, `designs/gantry/design.yaml` comment, every bridge test listed above, the contracts (`CLAUDE.md` root, `core/`, `core/bindings/`, `core/kernel/`, `mechsim/`, `mechsim/physics/`, `mechsim/record/`, `mechsim/testing/`, `mechsim/viewer/`, `tools/`, `docs/`), READMEs, `.claude/agents/invariant-auditor.md`, `docs/milestones.md`, specs `phy`, `tst`, `bld`, `int`, `inv`, `sig`, `traceability` | Restate in the commit that changes the code they describe (R-18) |
+
+Added to the plan by this inventory (beyond the gate review's additions): `core/signals` `safety.hpp:95` and
+`test_stepper.cpp:106` comments, `docs/spec/sig.md` brake-hold row, `docs/spec/int.md` rigid-build row,
+`mechsim/viewer/CLAUDE.md`, `tools/CLAUDE.md`, `docs/CLAUDE.md`, `core/kernel/CLAUDE.md`, the facade's adapter check
+(`mechsim/facade/service.py` `run_id_of`), the driver's `physics.adapter` check, `tests/unit/test_bindings.py`
+adapter-name list. Kept against the plan: the builder's `rigid_members` option (BLD-033) is a generic build option
+used by the builder and integrity tests and the integrity rigid-note path (not this brief's owner); BLD-033 is
+restated so no adapter selects it, and the option's removal is left to the owner.
