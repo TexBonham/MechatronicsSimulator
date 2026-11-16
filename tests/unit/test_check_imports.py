@@ -34,7 +34,15 @@ ENGINE_MODULES = ("mechsim._core_ext.engine", "mechsim._core.engine", "mechsim.p
 
 def test_rule_table_covers_every_boundary() -> None:
     covered = {module for rule in RULES for module in rule.modules}
-    assert covered == {"mujoco", "mechsim.physics.mujoco", "mechsim.viewer", "tests", *QT_MODULES, *ORACLE_MODULES, *ENGINE_MODULES}
+    assert covered == {
+        "mujoco",
+        "mechsim.physics.mujoco",
+        "mechsim.viewer",
+        "tests",
+        *QT_MODULES,
+        *ORACLE_MODULES,
+        *ENGINE_MODULES,
+    }
 
 
 # ===== mujoco =========================================================================================================

@@ -21,8 +21,8 @@ per radian (lead / 2 pi for a lead screw, the pulley radius for a belt): the sha
 configuration with the driven mass reflected rigidly onto it. The layer combines the brake's drive with the motor's on
 that joint as parallel springs (SIG-020, ruling 23). On a
 revolute joint driven by no transmission the brake torque applies as given and A0 is not set. A brake on any other
-joint (a transmission's driven joint, whose one drive is the transmission's, or any prismatic joint) is a WiringError naming
-the brake and the joint (ruling 29). A payload welded to a carrier (mid-run attach or release) is a
+joint (a transmission's driven joint, whose one drive is the transmission's, or any prismatic joint) is a
+WiringError naming the brake and the joint (ruling 29). A payload welded to a carrier (mid-run attach or release) is a
 separate free body and enters no m.
 
 Firmware event-log entries whose code the design names in `firmware.event_codes` are collected by the runner party
