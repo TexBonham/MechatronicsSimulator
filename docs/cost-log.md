@@ -151,3 +151,5 @@ type live in the root `CLAUDE.md` dispatch table once measured.
 | 2026-11-15 | X2i wording fix round applied inline (b6df0c7), mypy re-check | inline | ~15K | 5 calls |
 | 2026-11-15 | X2i full verification (ctest debug-sanitize 625, fast tier 4723 passed, long tier 37 passed, lints) and landing (04df6df); traceability regenerated after the wording round | inline | ~12K | 7 calls |
 | 2026-11-15 | M3-GV2 fix round on resume: tests read the data, G15 targets derived, comparison of record frozen, sizing results re-recorded (wip/05-gv 6ce7221); ruling 102 | module-writer (opus), resumed | 130K | 96 calls |
+| 2026-11-15 | M3 review: GV with GV2 (wip/05-gv 6ce7221): accept after a wording-only fix round, 2 medium for the record, 3 low; 5 sources spot-checked; ruling 103 | Fable review (general-purpose) | 158K | 29 calls |
+| 2026-11-15 | GV wording fix round applied inline | inline | ~12K | 4 calls |
