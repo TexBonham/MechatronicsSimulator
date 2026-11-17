@@ -32,7 +32,7 @@ Spike references: pendulum and loaded beam. Output: the project's measured cost 
 
 ## MuJoCo adapter retirement criteria (ADR 0004)
 
-Retired on 2026-11-15 at 8251ea7 (brief M3-RM; owner gate decision 1b, its condition met when brief M3-X2i landed).
+Retired on 2026-11-15 at 29a41d0 (brief M3-RM; owner gate decision 1b, its condition met when brief M3-X2i landed).
 Criteria as decided by the owner: criterion 1 met; criterion 2 decided, the four G10 misses below stand as the record
 and E9 (the efficiency-damping release artefact, bounded and published per run) is milestone 4's item. The rows below
 are the record as it stood at the gate.

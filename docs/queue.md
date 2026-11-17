@@ -33,9 +33,11 @@ decision 4 on gantry placeholders). X2i landed at 04df6df (G10 explained from bo
 published; rulings 100, 101; verified: ctest debug-sanitize 625 of 625, Python 4723 passed and 89 xfail fast, 37
 passed and 4 xfail long, lints clean). GV with GV2 landed at 08cc419 (real, datasheet-backed components in the gantry's slots; rulings 98, 99, 102,
 103; verified on the branch: ctest debug-sanitize 622 of 622, Python 4723 passed and 89 xfail fast after the two round-trip
-fixes, 38 passed and 2 xfail long, lints clean). In flight: RM (`wip/05-rm`: the MuJoCo removal commit, ADR 0004 close).
-Next: RM review, RM merges the round head and lands with the final verification, round close (W-07), PR to main with a
-merge commit. Briefs of record
+fixes, 38 passed and 2 xfail long, lints clean). RM landed at 29a41d0 on 2026-11-16: MuJoCo retired (ADR 0004 close, owner decision 1b; rulings 104, 105); the final
+verification on the merged head: ctest debug-sanitize 525 of 525 (without the reference label, W-08), firmware host 92, Python
+4630 passed and 88 xfail fast, 38 passed and 2 xfail long, lints and the import checker clean. Round 5's briefs are all landed.
+Next: round close (W-07: archive the cost rows, sweep the contract files, update the queue and milestones), CI green on the
+round branch, the PR to main with a merge commit for the owner's review. Briefs of record
 in `docs/briefs/round-05/`; worktrees `../MechatronicsSimulator-05-<letter>`. Round 4's rulings and gate report
 are below for reference; round 4's cost rows are in `docs/cost-log-archive.md`.
 
