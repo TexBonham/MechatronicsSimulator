@@ -12,6 +12,7 @@
 | `cost-log.md` | Session cost log; archive in `cost-log-archive.md` |
 | `briefs/` | Dispatch briefs of record, one folder per round (from round 3's integration wave) |
 | `gantry-team-inputs.md` | Every placeholder and open ruling owed by the gantry team, with the file it lives in |
+| `human-test.md` | The owner's hands-on walkthrough of the tool (commands, things to try, known results that are not defects) |
 
 Precedence: the Decisions log wins over the requirements doc; open items live in the architecture doc's Risks and open questions.
 

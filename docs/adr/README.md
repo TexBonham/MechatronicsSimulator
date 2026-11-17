@@ -9,7 +9,7 @@ Decisions log.
 | [0001](0001-own-physics-engine.md) | Own physics engine in C++ | Accepted | R-04, R-07, R-12, R-13 |
 | [0002](0002-collision-and-contact-scope.md) | In-house collision detection and v1 contact scope | Accepted | R-05, R-06 |
 | [0003](0003-neutral-physics-model-and-adapters.md) | Engine-neutral physics model behind adapters | Accepted | R-10, P2, P3, P4 |
-| [0004](0004-mujoco-adapter-lifecycle.md) | MuJoCo adapter as bridge and differential oracle, then retired | Accepted; implemented, retired 2026-11-15 (owner reviews) | R-11 |
+| [0004](0004-mujoco-adapter-lifecycle.md) | MuJoCo adapter as bridge and differential oracle, then retired | Accepted; implemented, retired 2026-11-15 (owner confirmed 2026-11-17) | R-11 |
 | [0005](0005-core-runtime-and-language-split.md) | C++ core runtime, Python application layer, tiered plugins | Accepted | R-08, R-09, R-14 |
 | [0006](0006-headless-core-and-facade.md) | Headless core, single facade, invariant nine | Accepted | R-15 |
 | [0007](0007-front-end.md) | Browser client over a local service, replaceable by a standalone app | Accepted | R-16, R-17 |

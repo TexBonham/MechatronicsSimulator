@@ -1,8 +1,8 @@
 # ADR 0004: MuJoCo adapter as bridge and differential oracle, then retired
 
 Date: 2026-11-02
-Status: Accepted; decision implemented 2026-11-15, the adapter retired (owner gate decision 1b; brief M3-RM; owner
-reviews this status edit)
+Status: Accepted; decision implemented 2026-11-15, the adapter retired (owner gate decision 1b; brief M3-RM; status
+edit confirmed by the owner 2026-11-17)
 Closes rulings: R-11
 Supersedes: Architecture doc, Technology recommendation verdict "MuJoCo for v1"; Repository starting point, "replay in
 MuJoCo's viewer" for milestone 1 (replay per ADR 0006 and ADR 0007)

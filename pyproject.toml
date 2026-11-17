@@ -43,12 +43,15 @@ install.components = ["python"]
 wheel.packages = ["mechsim"]
 
 # uv rebuilds the extension when any of these change (C++ sources are not Python sources it would watch otherwise).
+# Tracked CMake files only: `**/CMakeLists.txt` also matched the FetchContent subbuild under build/python/, which every
+# build rewrites, so every `uv run` rebuilt the extension (found 2026-11-17).
 [tool.uv]
 cache-keys = [
     { file = "pyproject.toml" },
     { file = "core/**/*.cpp" },
     { file = "core/**/*.hpp" },
-    { file = "**/CMakeLists.txt" },
+    { file = "CMakeLists.txt" },
+    { file = "core/**/CMakeLists.txt" },
 ]
 
 [tool.ruff]
