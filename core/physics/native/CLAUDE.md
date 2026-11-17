@@ -7,7 +7,7 @@ Implements `kernel::PhysicsAdapter` over `engine::MultibodyProvider` + `SemiImpl
 
 | Call | Does |
 |---|---|
-| `load(PreparedModel, rate)` | Parses `neutral_model_json` = the engine model document (`src/json.hpp` reader, format `mechsim-native-1`, written by `mechsim/physics/native/translate.py`); `engine_artifact` must be empty; refuses element kinds outside `supported_elements()` (21: the bridge's 20 + `rope`); every body index range-checked (`body_index`, ParseError naming the field); optional `substeps` (engine steps per adapter step, h = 1 / (rate substeps), default 1; written by `translate(..., substeps)`); joint `friction` (empty when all zero), `lower`/`upper` (null = open) into the engine joint (ENG-013, ENG-014); a start coordinate past a bound by more than the drift threshold is refused (ruling 43); builds bodies, constraints, `add_lumped_beam`, transmissions, `add_rope` (end points at the start configuration), contact model, starts, payload welds (a payload follows its carrier's start); h = 1 / rate; any failure `AdapterError(0, ...)` |
+| `load(PreparedModel, rate)` | Parses `neutral_model_json` = the engine model document (`src/json.hpp` reader, format `mechsim-native-1`, written by `mechsim/physics/native/translate.py`); `engine_artifact` must be empty; refuses element kinds outside `supported_elements()` (21 kinds, `rope` included); every body index range-checked (`body_index`, ParseError naming the field); optional `substeps` (engine steps per adapter step, h = 1 / (rate substeps), default 1; written by `translate(..., substeps)`); joint `friction` (empty when all zero), `lower`/`upper` (null = open) into the engine joint (ENG-013, ENG-014); a start coordinate past a bound by more than the drift threshold is refused (ruling 43); builds bodies, constraints, `add_lumped_beam`, transmissions, `add_rope` (end points at the start configuration), contact model, starts, payload welds (a payload follows its carrier's start); h = 1 / rate; any failure `AdapterError(0, ...)` |
 | `step()` | `substeps` engine steps (the tick's inputs re-applied before each after the first, then cleared with the engine drives, so a tick without `set_inputs` applies none; substep s of S applies the drive law blended from the previous tick's (K, D, rest) to this tick's at f = (s + 1) / S (K, D linear, K rest linear; equal K: the rest interpolated), the last at this tick's exactly, a joint undriven last tick at this tick's throughout (ruling 49); health: max drift and iterations); `EngineError` -> `AdapterError(steps, "engine: ...")` (PHY-009); gathers every engine step's events into `outputs().model_changes` and `events()`, each once (ruling 40) |
 | `set_inputs()` | Body wrenches on neutral bodies or member nodes (index in the published body list); generalized forces in neutral DOF order (free joints linear first; engine angular first), shaft DOFs through `set_shaft_torque`; body wrenches; joint drives (revolute/prismatic, one per joint, finite, >= 0): the previous tick's engine drives cleared (`clear_joint_drive`), each enabled one set with `set_joint_drive(joint, 0, rest, K, D)` (additive on the model spring, rest = end-of-step rest, ruling 42); engine refusals -> `AdapterError` |
 | `outputs()` | Neutral bodies, then member node bodies (member node poses follow the neutral bodies, PHY-003) (`node_bodies`: each member's chain root to tip; X1 names `<member>.node<k>`); shaft joint force = `shaft_load_torque` (PHY-033); constraints neutral only; contact bodies outside the neutral list -> `kWorldBody`; members in the member root frame (ruling 24); ropes `tension` = load end, `max_tension` = largest segment, `slack` = load end zero; `model_changes` = pending spring changes, then the engine's (spring events skipped: listed by the entry with the spring index); transmissions `slip` = slip offset / n; joint drive torque K (rest - q') - D v' |
@@ -39,19 +39,22 @@ characters in strings are ParseErrors; nesting capped at 64 levels; empty or tru
 | Section | File | Line |
 |---|---|---|
 | Supported elements | src/native_adapter.cpp | 38 |
+| End supported elements | src/native_adapter.cpp | 65 |
 | Helpers | src/native_adapter.cpp | 69 |
 | Joint extras | src/native_adapter.cpp | 238 |
 | Engine | src/native_adapter.cpp | 325 |
-| Adapter (load) | src/native_adapter.cpp | 421 |
+| Adapter | src/native_adapter.cpp | 421 |
 | Inputs | src/native_adapter.cpp | 873 |
 | Step and outputs | src/native_adapter.cpp | 1043 |
 | Mid-run changes | src/native_adapter.cpp | 1336 |
 | Fixtures and helpers | tests/test_native_adapter.cpp | 32 |
-| Joint drives | tests/test_native_adapter.cpp | 215 |
-| Friction and limits | tests/test_native_adapter.cpp | 272 |
-| Transmissions | tests/test_native_adapter.cpp | 412 |
-| Drives through transmissions | tests/test_native_adapter.cpp | 661 |
-| Payloads and mid-run changes (rope-hung payloads) | tests/test_native_adapter.cpp | 1106 |
-| Members and ropes | tests/test_native_adapter.cpp | 1304 |
-| Model change events | tests/test_native_adapter.cpp | 1493 |
+| Load and step | tests/test_native_adapter.cpp | 136 |
+| Joint drives (PHY-034) | tests/test_native_adapter.cpp | 215 |
+| Friction and limits (PHY-027, PHY-030; engine ENG-013, ENG-014) | tests/test_native_adapter.cpp | 272 |
+| Transmissions (PHY-006, PHY-018, PHY-033) | tests/test_native_adapter.cpp | 412 |
+| Energy through a limit, a belt and a drive hand-off (PHY-034, ruling 49; ENG-013) | tests/test_native_adapter.cpp | 478 |
+| Drives through transmissions (PHY-034, ruling 39; PHY-006, PHY-018) | tests/test_native_adapter.cpp | 661 |
+| Payloads and mid-run changes (PHY-006, PHY-008) | tests/test_native_adapter.cpp | 1106 |
+| Members and ropes (PHY-004, PHY-007) | tests/test_native_adapter.cpp | 1304 |
+| Model change events (PHY-008, ruling 40) | tests/test_native_adapter.cpp | 1493 |
 | JSON reader | tests/test_native_adapter.cpp | 1679 |

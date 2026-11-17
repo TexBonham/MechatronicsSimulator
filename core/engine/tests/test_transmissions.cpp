@@ -30,6 +30,7 @@ using mechsim::engine::Transmission;
 using mechsim::engine::TransmissionOutput;
 using mechsim::engine::TransmissionType;
 
+// ===== Models and settling bound ===========================================
 // Every model here is a shaft (body 0, Revolute about z, inertia J, q[0] = theta) and an output (body 1, q[1] = x),
 // both on the world, so H = diag(J, m) and the transmission is the only coupling (transmission.hpp holds the model).
 //
@@ -47,6 +48,7 @@ using mechsim::engine::TransmissionType;
 //   1e-6 relative   backlash probe force past the edge (rounding of E against delta = 1e-6 b/2)
 //   transient 1e-20 by the spectral radius, at most 20 000 settling steps
 
+// ===== Settling helpers ====================================================
 namespace {
 
 constexpr double gravity = 9.81;
@@ -124,6 +126,7 @@ bool close(double measured, double target, double tolerance) {
 
 }  // namespace
 
+// ===== Belt and screw statics ==============================================
 TEST_CASE("belt-driven carriage holds a hanging mass at force = torque / r", "[ENG-043][ENG-048]") {
     // Vertical carriage m on a belt of radius r, shaft torque tau = m g r. Momentum-like p = J omega + r m xdot
     // changes per step by h (tau - r m g) = 0 (the coupling enters with [1, r] . a = g - r = 0 at eta = 1), so the
@@ -227,6 +230,7 @@ TEST_CASE("published shaft load torque and joint forces equal the hand-computed 
     REQUIRE(std::find(seen.begin(), seen.end(), PowerFlow::Backward) != seen.end());
 }
 
+// ===== Energy and efficiency ===============================================
 namespace {
 
 struct EnergyCase {
@@ -322,6 +326,7 @@ TEST_CASE("lead screw forward and backward efficiencies scale the delivered ener
     check_energy({TransmissionType::LeadScrew, 0.01, 0.8, 0.6, 2000.0, 1e-4});
 }
 
+// ===== Gear pair ===========================================================
 TEST_CASE("gear pair maps speed by the ratio and reverses direction", "[ENG-045]") {
     // Input J_in at omega0, output J_out at rest, n = -1/N. J_in omega + n J_out omega_out is conserved (the
     // coupling enters as [1, n] . a = 0 at eta = 1), so after the coupling mode decays omega_out = n omega_f with
@@ -391,6 +396,7 @@ TEST_CASE("gear pair multiplies the shaft torque by the ratio at the output", "[
     REQUIRE(close(state.q[1], -ratio * tau / k_out, rel));
 }
 
+// ===== Slip ================================================================
 TEST_CASE("slip fraction is reproduced on a constant-speed drive", "[ENG-043][ENG-046]") {
     // Shaft at omega0 drives a free carriage through a belt slipping sigma. J omega + n m xdot is conserved (the
     // reaction keeps the full radius), and the coupling settles where dE/dt = n_eff omega - xdot = 0, so
@@ -471,6 +477,7 @@ TEST_CASE("slip is zero by default and a mid-run change takes effect at the next
     }
 }
 
+// ===== Backlash ============================================================
 TEST_CASE("backlash dead band width is reproduced exactly", "[ENG-043][ENG-045]") {
     // Static: x = 0, s = 0, so E = n theta. F = 0 for |E| <= b/2 and k (|E| - b/2) beyond, on both sides: the band
     // is [-b/2, b/2], width b. Probes at b/2 (1 -+ 1e-6). Past the edge F = k delta, delta = 1e-6 b/2; E carries
@@ -535,6 +542,7 @@ TEST_CASE("carriage stays put until the shaft has taken up half the backlash", "
     REQUIRE(onset <= 0.5 * t.backlash + t.ratio * omega * h * (1.0 + 1e-12));
 }
 
+// ===== Back-driving ========================================================
 TEST_CASE("a lead screw without self-locking is back-driven by the load", "[ENG-044]") {
     // eta = 1 both ways: y = J theta + n m x obeys y'' = -n m g exactly, the coupling cancelling as [1, n] . a = 0.
     // Semi-implicit Euler from rest: ydot_k = -k h n m g, y_N = -h^2 n m g N (N + 1) / 2, exact to rounding.
@@ -563,6 +571,7 @@ TEST_CASE("a lead screw without self-locking is back-driven by the load", "[ENG-
     REQUIRE(provider.outputs().transmissions.at(0).power_flow == PowerFlow::Backward);
 }
 
+// ===== Repeatability and validation ========================================
 TEST_CASE("transmission runs are bitwise identical when repeated", "[ENG-043][ENG-046][ENG-048]") {
     Transmission t;
     t.ratio = 0.015;
@@ -594,6 +603,7 @@ TEST_CASE("transmission runs are bitwise identical when repeated", "[ENG-043][EN
     REQUIRE(runs[0] == runs[1]);
 }
 
+// ===== Invalid parameters ==================================================
 TEST_CASE("invalid transmission parameters are rejected with the cause", "[ENG-043][ENG-044][ENG-045][ENG-046]") {
     const auto rejects = [](const Transmission& t, const Body& out) {
         REQUIRE_THROWS_AS(MultibodyProvider(pair_model(out, t, Eigen::Vector3d::Zero())), InvalidModelError);

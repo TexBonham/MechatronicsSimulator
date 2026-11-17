@@ -1,6 +1,6 @@
 # mechsim/physics/: contract
 
-Adapter `native/` (`adapter.py`: re-export skeleton until PHY-020; the only Python importer of `_core_ext.engine`); `neutral.py` is the engine-neutral model (ADR 0003). The MuJoCo bridge `mujoco/` was retired (ADR 0004).
+Adapter `native/` (`_engine.py`: the only Python importer of `_core_ext.engine`, invariant 5); `neutral.py` is the engine-neutral model (ADR 0003).
 
 ## neutral.py
 
@@ -29,18 +29,19 @@ Names `^[a-z][a-z0-9_]*$` (catalog pattern); "world" reserved.
 Regenerate after any model change: `uv run python -m mechsim.physics.neutral --write-schema` (staleness test
 `tests/invariant/test_schema_physics_model.py`). Example: `schemas/examples/physics_model.pendulum.yaml`.
 
-## Section index, `neutral.py`
+## Section index
 
-| Section | Line |
-|---|---|
-| Field types | 32 |
-| Run configuration | 174 |
-| Joints | 204 |
-| Bodies and collision shapes | 292 |
-| Constraints | 419 |
-| Contacts | 449 |
-| Lumped members | 474 |
-| Transmissions | 518 |
-| Signals and structural members | 562 |
-| Physics model | 605 |
-| Files and schema | 732 |
+| Section | File | Line |
+|---|---|---|
+| Field types | neutral.py | 32 |
+| Run configuration | neutral.py | 183 |
+| Joints | neutral.py | 213 |
+| Bodies and collision shapes | neutral.py | 301 |
+| Constraints | neutral.py | 428 |
+| Contacts | neutral.py | 458 |
+| Lumped members | neutral.py | 483 |
+| Transmissions | neutral.py | 550 |
+| Ropes and fastenings | neutral.py | 601 |
+| Signals and structural members | neutral.py | 635 |
+| Physics model | neutral.py | 679 |
+| Files and schema | neutral.py | 847 |

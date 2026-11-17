@@ -139,38 +139,13 @@ Load releases (constraint, rope or payload weld, requested or by snap) go throug
 `LoadReleased` + source. `outputs().events` is overwritten every step: a caller running several steps per tick
 collects the events after each step.
 
-## Section index, `src/multibody_provider.cpp`
-
-| Section | Line |
-|---|---|
-| Helpers | 43 |
-| Construction | 304 |
-| Kinematics | 399 |
-| Dynamics | 471 |
-| Transmissions | 712 |
-| Constraints | 864 |
-| Members, ropes and model changes | 1100 |
-| Inputs and outputs | 2380 |
-
-## Section index, `src/collision.cpp`
-
-| Section | Line |
-|---|---|
-| Shapes | 16 |
-| Broad phase | 180 |
-| Closed forms | 243 |
-| GJK | 415 |
-| EPA | 583 |
-| Narrow phase | 744 |
-
 ## Collision and contact (ADR 0002, ENG-016 to ENG-021)
 
 Broad phase: all-pairs AABB in geometry order (plane unbounded). Narrow phase in-house, no library (ENG-018):
 closed forms for sphere-sphere, sphere-capsule, capsule-capsule, sphere-box and every shape against a plane (one
 contact per penetrating feature: box corners, hull vertices, capsule caps, 4 rim points per cylinder cap); GJK + EPA
 (`CollisionLimits`: tolerance 1e-12 m, GJK cap 64, EPA cap 128) for the rest, one contact. Point = midpoint of the
-witness points. Box-box and hull-hull carry one witness point in milestone 3 (a box on a box tips; payload-on-floor
-uses the per-corner plane form), ruling 23. Empty = no contact only for a geometric answer (separated, touching,
+witness points. Box-box and hull-hull carry one witness point (a box on a box tips; payload-on-floor uses the per-corner plane form), ruling 23. Empty = no contact only for a geometric answer (separated, touching,
 GJK separating within tolerance, flat Minkowski difference); GJK/EPA cap exhaustion or a degenerate EPA face before tolerance throws
 `SolverNonConvergenceError` (rethrown by `evaluate` with the step time).
 Provider: `set_contact_model(ContactModel)` validates (planes only on the world); `evaluate` adds per contact
@@ -178,7 +153,7 @@ G^T F, G^T K_s G, G^T D_s G (G = J_b(p) - J_a(p)); same-body and excluded pairs 
 `outputs().contacts` at the step's start state, force on body a; joint outputs include contact and weld loads.
 Payload (ENG-035): `set_body_mass(b, m)` (inertia scaled), `set_attachment(body, carrier, attached, q, f = 1 kHz)`
 weld as implicit 6-DOF spring-damper at the payload com captured from q; `attachments()`, `outputs().payloads`.
-Weld is milestone 3 scope: becomes a six-row fixed loop constraint with disable (ruling 23). Attach and mass
+Attach and mass
 change push `PayloadAttached` / `PayloadMass` into the next step's `outputs().events`; release (attached false) goes
 through `release_load(Payload, body)`: `LoadReleased`, index the carrier left; no held weld throws.
 
@@ -204,3 +179,60 @@ lever-rule chain value `tests/carried_helpers.hpp`.
 ## Conventions
 
 SI, units per field (ENG-004) No threads, unordered containers or fast-math in the step path (ENG-023).
+
+## Section index
+
+| Section | File | Line |
+|---|---|---|
+| Shapes | src/collision.cpp | 16 |
+| Broad phase | src/collision.cpp | 180 |
+| Closed forms | src/collision.cpp | 243 |
+| GJK | src/collision.cpp | 415 |
+| EPA | src/collision.cpp | 583 |
+| Narrow phase | src/collision.cpp | 744 |
+| Helpers | src/multibody_provider.cpp | 43 |
+| Construction | src/multibody_provider.cpp | 304 |
+| Kinematics | src/multibody_provider.cpp | 399 |
+| Dynamics | src/multibody_provider.cpp | 471 |
+| Transmissions | src/multibody_provider.cpp | 712 |
+| Constraints | src/multibody_provider.cpp | 864 |
+| Members, ropes and model changes | src/multibody_provider.cpp | 1100 |
+| Inputs and outputs | src/multibody_provider.cpp | 2380 |
+| Work and validity | tests/test_carried_validity.cpp | 45 |
+| Two-member finding (ruling 69) | tests/test_carried_validity.cpp | 337 |
+| Loaded frequency and carried drive | tests/test_carried_validity.cpp | 465 |
+| Flag definition (rulings 74, 77) | tests/test_carried_validity.cpp | 522 |
+| ENG-016 detection | tests/test_contact.cpp | 31 |
+| ENG-017 unsupported geometry | tests/test_contact.cpp | 200 |
+| ENG-020 soft contact | tests/test_contact.cpp | 268 |
+| ENG-035 payload change | tests/test_contact.cpp | 396 |
+| Travel limits | tests/test_joint_limits.cpp | 74 |
+| Joint friction | tests/test_joint_limits.cpp | 508 |
+| Joint drive | tests/test_joint_limits.cpp | 651 |
+| Zero-stretch coupling and starts on a bound | tests/test_joint_limits.cpp | 965 |
+| ENG-019 closed-form contact set | tests/test_reference_contact.cpp | 38 |
+| ENG-021 rest and hard stop | tests/test_reference_contact.cpp | 185 |
+| Chain construction | tests/test_rope.cpp | 36 |
+| Tension law | tests/test_rope.cpp | 141 |
+| Attachment damping and friction | tests/test_rope.cpp | 190 |
+| Winch and slack | tests/test_rope.cpp | 245 |
+| Snap | tests/test_rope.cpp | 287 |
+| Snap evaluation start | tests/test_rope.cpp | 346 |
+| Snap evaluation start by step count | tests/test_rope.cpp | 459 |
+| Release and payload mass | tests/test_rope.cpp | 502 |
+| Settling and tolerances | tests/test_transmission_locking.cpp | 32 |
+| Belt efficiency | tests/test_transmission_locking.cpp | 117 |
+| Static sag and creep | tests/test_transmission_locking.cpp | 166 |
+| Self-locking screw | tests/test_transmission_locking.cpp | 278 |
+| Self-locking hold and lift | tests/test_transmission_locking.cpp | 323 |
+| Unloaded screw | tests/test_transmission_locking.cpp | 600 |
+| Models and settling bound | tests/test_transmissions.cpp | 33 |
+| Settling helpers | tests/test_transmissions.cpp | 51 |
+| Belt and screw statics | tests/test_transmissions.cpp | 129 |
+| Energy and efficiency | tests/test_transmissions.cpp | 233 |
+| Gear pair | tests/test_transmissions.cpp | 329 |
+| Slip | tests/test_transmissions.cpp | 399 |
+| Backlash | tests/test_transmissions.cpp | 480 |
+| Back-driving | tests/test_transmissions.cpp | 545 |
+| Repeatability and validation | tests/test_transmissions.cpp | 574 |
+| Invalid parameters | tests/test_transmissions.cpp | 606 |

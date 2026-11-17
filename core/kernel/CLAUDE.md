@@ -15,7 +15,7 @@ EventLogEntry, channel constants, PowerRail, payload kinds) that signals and con
 | `kernel.hpp` | `Kernel`: `register_party`, `set_end_triggers(EndTriggers{at_time, on_signal, party_state})`, `run(EndCondition{end_time, stop}, sink) -> RunReport{outcome, base_rate, end_time, ticks, fault, end_reason, step_counts}`, `now`, `config`; `NullKernel` |
 | `cosim_kernel.hpp` | `CoSimKernel(RunConfig)`, `coupling()`; `splitmix64_next`, `derive_child_seeds` |
 | `physics_party.hpp` | `PhysicsPartyConfig{name, rate, inputs, drift, model_requests}`; `ModelChangeRequest{kind, index, value}`, `ModelChangeRequests{sequence, requests}` (kind `ModelChangeRequests`): with `model_requests` set the party consumes that name and applies each new sequence once, in order, through `set_spring_offset/_stiffness`, `disable_constraint`, `release_load` before its next step (other kinds: KernelConfigError; unset: unwired, KER-028); `PayloadMass{kg}`, `PayloadCarrier{body}`; `PhysicsParty(unique_ptr<PhysicsAdapter>, config)`: role physics, publishes `<name>.outputs`, sums the `inputs` PhysicsInputs payloads (forces summed, wrenches and joint drives concatenated; two drives on one joint in a tick: KernelConfigError, KER-027), faults on non-convergence or drift > max(thresholds) (KER-016); `schedule_slip(transmission, start, end, fraction)`, `schedule_payload_change(payload, tick, PayloadMass or PayloadCarrier)`; `record` fills `row.physics`, the fault events and one `RecordedEvent{t, "physics", "model_change", model_change_detail(e)}` per `model_changes` entry, once per step (`<kind> <source> <index> value <shortest value>`, ruling 26) |
-| `null_party.hpp` | `NullParty(name, rate)`: a do-nothing party (kernel tests); the tier 1 slot is `core/integrity/` `IntegrityParty` from M3 |
+| `null_party.hpp` | `NullParty(name, rate)`: a do-nothing party (kernel tests); the tier 1 slot is `core/integrity/` `IntegrityParty` |
 | `physics_types.hpp` | `kWorldBody` (contact body index of the world; payload carrier once released); `PhysicsOutputs{steps, bodies, joints, constraints, contacts, members, ropes, transmissions (+ `slip`), joint_positions, joint_drive_torques, payloads, model_changes}`, `RopeTension{tension (load end), max_tension, slack}`, `ModelChangeEvent{kind, source, index, value}` (`ModelChangeKind`: SpringOffset, SpringStiffness, ConstraintDisabled, LoadReleased, RopeSnapped, PayloadAttached, PayloadMass; `ModelChangeSource`: Spring, Constraint, Rope, Payload; each delivered in one tick only, ruling 40), `PayloadState{body, carrier, attached, force}`, `PhysicsInputs{generalized_forces, body_wrenches, joint_drives}`, `JointDrive{joint, rest, stiffness, damping, enabled}`, `JointDriveTorque{joint, torque}`, `PhysicsHealth{drift, converged, iterations, steps, physics_rate}` |
 | `physics_adapter.hpp` | `PhysicsAdapter`: `supported_elements()`, `load(PreparedModel{json, engine_artifact, design_version}, physics_rate)` (`engine_artifact` generic, empty for every shipped adapter), `reset()`, `step()`, `outputs()`, `health()`, `set_inputs()`, mid-run `set_spring_offset/_stiffness`, `disable_constraint`, `release_load`, `set_payload_mass`, `set_payload_attachment` (release: `set_payload_attachment(p, kWorldBody)`, index based), `set_transmission_slip(transmission, fraction)` (default refuses: no slip model); `AdapterError(step, cause)` |
 | `tick_record.hpp` | `TickRecord{time, physics, pin_signals, rails, actuator_efforts, controller_state, events, coupling}` |
@@ -59,11 +59,6 @@ physics step, last, stamped at the step's end.
   inside a callback apply from the next row.
 - No unordered containers, threads or wall clock.
 
-## `tests/test_cosim_kernel.cpp` lines
-
-Ordering and rates 110; coupling 327; end conditions 451; config errors 552; faults 591; seeds and
-determinism 716; streaming and triggers 824.
-
 ## Scheduled physics faults (KER-023, `PhysicsParty`)
 
 Known before t = 0, in kernel ticks. Slip: `set_transmission_slip(t, fraction)` before the first step at or after
@@ -86,10 +81,20 @@ boundaries (`tests/test_physics_party.cpp`, 1 kHz physics with a 500 Hz controll
 
 | Section | File | Line |
 |---|---|---|
+| Registration | src/cosim_kernel.cpp | 53 |
+| Preparation before t = 0 | src/cosim_kernel.cpp | 74 |
+| Tick loop | src/cosim_kernel.cpp | 199 |
+| Ordering and rates | tests/test_cosim_kernel.cpp | 108 |
+| Coupling exchange | tests/test_cosim_kernel.cpp | 325 |
+| End conditions | tests/test_cosim_kernel.cpp | 449 |
+| Rate and registration configuration errors | tests/test_cosim_kernel.cpp | 550 |
+| Faults | tests/test_cosim_kernel.cpp | 589 |
+| Seeds and determinism | tests/test_cosim_kernel.cpp | 714 |
+| Recorder streaming and trigger support | tests/test_cosim_kernel.cpp | 822 |
 | Fixtures | tests/test_physics_party.cpp | 31 |
 | Exchange and config errors | tests/test_physics_party.cpp | 129 |
 | Scheduling (KER-023) | tests/test_physics_party.cpp | 293 |
 | Fault fixtures | tests/test_physics_party.cpp | 345 |
 | Scheduled faults | tests/test_physics_party.cpp | 397 |
 | Model change events (ruling 26, ruling 40) | tests/test_physics_party.cpp | 570 |
-| Model change requests (KER-028; `CountingAdapter` entries log and list once) | tests/test_physics_party.cpp | 615 |
+| Model change requests (KER-028, ruling 40) | tests/test_physics_party.cpp | 615 |

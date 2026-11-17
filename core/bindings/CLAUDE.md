@@ -2,8 +2,7 @@
 
 One pybind11 module, `mechsim._core_ext` (ADR 0005), imported through `mechsim/_core.py` (raises
 `CoreNotBuiltError` naming the build step if the module is missing). Target `_core_ext`; links `mechsim_engine`,
-`mechsim_controller` (-> signals -> kernel), `mechsim_integrity`, `mechsim_physics_native`; no shared library ships beside the extension
-(the MuJoCo bridge and its libmujoco were retired, ADR 0004). pybind11 v3.0.1 via FetchContent; `MECHSIM_BUILD_BINDINGS` (ON).
+`mechsim_controller` (-> signals -> kernel), `mechsim_integrity`, `mechsim_physics_native`; no shared library ships beside the extension pybind11 v3.0.1 via FetchContent; `MECHSIM_BUILD_BINDINGS` (ON).
 
 ## Build
 
@@ -91,5 +90,5 @@ New kernel: point `make_kernel` in `factories.cpp` at it. New adapter or runtime
 |---|---|---|
 | Parameter readers | src/bind_cosim.cpp | 50 |
 | Coupling values | src/bind_cosim.cpp | 118 |
-| Signal components | src/bind_cosim.cpp | 195 |
-| Module binding | src/bind_cosim.cpp | 348 |
+| Signal components | src/bind_cosim.cpp | 198 |
+| Module binding | src/bind_cosim.cpp | 351 |

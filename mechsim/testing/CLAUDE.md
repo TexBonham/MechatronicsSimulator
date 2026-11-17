@@ -22,13 +22,13 @@ Examples: `test_cases/gantry/G1.yaml` to `G15.yaml` (draft design; G12 and G15 o
 |---|---|
 | prepare | validate case (TST-009), design version before build (TST-011), `cross_check`, resolve `${}` by `resolve_open_values`: `--set`, then the case's `parameters`, then the parameter's `default` (TST-039, DES-044; dimension-checked), substitute in case and design, any `${}` left is an error; `instance:<name>.<parameter>` / `instance:<name>.part` entries of `--set` (wins) and `parameters` go to `apply_instance_overrides` (checked by `Registry.parameter_override` / `substitute_part`, `Services.registry` or the shipped one; design validated with that registry) and into `Prepared.bindings` -> `RunMetadata.bindings` (LIB-016, LIB-017) |
 | substeps | `physics.substeps` (TST-042, rulings 21, 49): integer >= 1, default 1, engine steps per physics step (h / substeps), rates and rows unchanged; `RunConfig.physics_substeps` |
-| adapter | `physics.adapter` (TST-040): case field `physics: {adapter}` (`native`, the only adapter; `mujoco` refused by `adapter_refusal` naming the retired bridge, ADR 0004, invariant 7), `--set physics.adapter=<name>` wins; `RunConfig.physics_adapter`, `RunMetadata.physics_adapter`, archive root attr; `Builder(design, adapter)`: `core_builder` refuses a retired adapter and builds members flexible; run id gains `-<adapter>` off the default (none now; the fixed bridge baselines keep `-mujoco`); nothing imports MuJoCo (PHY-026); no environment variable |
+| adapter | `physics.adapter` (TST-040): case field `physics: {adapter}` (`native`, the only adapter; `mujoco` refused by `adapter_refusal` naming the retired bridge, ADR 0004, invariant 7), `--set physics.adapter=<name>` wins; `RunConfig.physics_adapter`, `RunMetadata.physics_adapter`, archive root attr; `Builder(design, adapter)`: `core_builder` refuses a retired adapter and builds members flexible; run id gains `-<adapter>` off the default; nothing imports MuJoCo (PHY-026); no environment variable |
 | driver order | `load(build, case)`, `configure(RunConfig)`, `set_initial_state`, `reported_controller_state` (firmware designs; mismatch is an error), `schedule_command`/`schedule_fault`, `run(EndSpec) -> RunReport`, `recording()` |
 | timing | times to 12 significant digits, then the next base tick; base = lcm(physics, control); fault active start <= n < end; `end.at`, `max_duration` on a tick |
 | seeds | `SeedSequence(seed).spawn` over `BuildResult.module_instances` in registration order (D1) |
 | faults | sensor_*, motor_stall, power_loss (target = rail), estop_press -> signals; slip, payload_change -> physics; controller_freeze -> controller |
 | variations | variation k: seed `variation_seed(case seed, k)` (SeedSequence child, 64 bits) is the run seed and draws each parameter from `default_rng(seed)` about its nominal; run id `<case>-variation-seed<seed>`; `RunMetadata.variation`, `CaseScore.variation`; suite file `sweeps` run after each case's, suite `variations` for a case without its own |
-| results | every run scored (`CaseScore`; `stepper_drives(build)` gives scoring each stepper's part, catalog data, driver and transmission, SCO-031, SCO-032; scoring judges them from the last rest at or before the case's `integrity.evaluate_from`, rulings 91, 93, the one evaluation start a case states; `core_services(root, registry)` builds and checks the run against `registry`, LIB-016, BLD-027); `Services.integrity` (none until I1) attaches `IntegrityResults` to metadata and scoring; metadata `members` from `BuildResult.members`, `material_overrides` from the design's `materials.overrides`; pre-t0 errors `ran=False`; a `RunnerError`/`DriverError` from `driver.run` -> `run_failed` (TST-023; `CoreDriver.run` types every binding, translation and wiring error as `DriverError`, cause kept); `RunReport.approximations` = the bridge report (SCO-013); `RunMetadata.control_rate` = the run config's, archived (base rate without a controller); archive `<out>/<run_id>.h5` when an `Archiver` and `out_dir` are given |
+| results | every run scored (`CaseScore`; `stepper_drives(build)` gives scoring each stepper's part, catalog data, driver and transmission, SCO-031, SCO-032; scoring judges them from the last rest at or before the case's `integrity.evaluate_from`, rulings 91, 93, the one evaluation start a case states; `core_services(root, registry)` builds and checks the run against `registry`, LIB-016, BLD-027); `Services.integrity` attaches `IntegrityResults` to metadata and scoring; metadata `members` from `BuildResult.members`, `material_overrides` from the design's `materials.overrides`; pre-t0 errors `ran=False`; a `RunnerError`/`DriverError` from `driver.run` -> `run_failed` (TST-023; `CoreDriver.run` types every binding, translation and wiring error as `DriverError`, cause kept); `RunReport.approximations` = the translation report (SCO-013); `RunMetadata.control_rate` = the run config's, archived (base rate without a controller); archive `<out>/<run_id>.h5` when an `Archiver` and `out_dir` are given |
 | integrity | `core_services` wires the driver with its `designs_root` (INT-023, INT-031) and `Services.integrity = IntegrityService(designs_root)` (INT-022): `integrity.yaml` beside the design file (`<designs_root>/<name>/`, ruling 27); absent, the hook returns None and the run carries no table; an `IntegrityError` fails the run (`run_failed`); report and load case written beside the archive |
 | suites | `run_suite(path)`: a `suite.yaml` (or a folder holding one) gives name, cases in its order, design (each case must match) and baseline (a case naming another is an error, TST-008); a folder without one: `case_files` (YAML with `criteria`, natural order), the baseline the cases name, else the folder's `baseline.yaml`. Nominal run plus each sweep value (`instance:` sweeps bind as overrides); `SuiteRun.baseline` = next baseline, `.diff` = `regression_diff` (TST-027); a baseline that fails to load or names another suite is a `SuiteRun.errors` line |
 
@@ -66,11 +66,12 @@ Examples: `test_cases/gantry/G1.yaml` to `G15.yaml` (draft design; G12 and G15 o
 
 | Section | File | Line |
 |---|---|---|
-| Rows | core_driver.py | 116 |
-| Driver | core_driver.py | 259 |
-| Member frames | core_driver.py | 791 |
-| Archives | core_driver.py | 861 |
-| Services (+ rope snap gate) | core_driver.py | 964 |
+| Diff | baseline.py | 130 |
+| Files and schema | baseline.py | 182 |
+| Rows | core_driver.py | 139 |
+| Driver | core_driver.py | 282 |
+| Archives | core_driver.py | 917 |
+| Services | core_driver.py | 1037 |
 | Errors and runner state | core_wiring.py | 105 |
 | Runner party | core_wiring.py | 159 |
 | Joint places and inertia | core_wiring.py | 249 |
@@ -80,22 +81,21 @@ Examples: `test_cases/gantry/G1.yaml` to `G15.yaml` (draft design; G12 and G15 o
 | Controller build | core_wiring.py | 580 |
 | Signal layer | core_wiring.py | 700 |
 | Event and operator wiring | core_wiring.py | 808 |
-| Timing | runner.py | 108 |
-| Loading and resolution | runner.py | 136 |
-| Timelines | runner.py | 391 |
-| Runs | runner.py | 518 |
-| Variations | runner.py | 773 |
-| Suites | runner.py | 903 |
-| Quantities of any dimension | schema.py | 97 |
-| Header | schema.py | 194 |
-| Initial state | schema.py | 218 |
-| Commands and faults | schema.py | 292 |
-| End condition | schema.py | 429 |
-| Pass criteria | schema.py | 461 |
-| Sweeps and variations | schema.py | 726 |
-| Test case | schema.py | 773 |
-| Cross-check against the design | schema.py | 839 |
-| Suite file | schema.py | 1148 |
-| Files and schema | schema.py | 1224 |
-| Diff | baseline.py | 130 |
-| Files and schema | baseline.py | 182 |
+| Structural results | driver.py | 221 |
+| Timing | runner.py | 114 |
+| Loading and resolution | runner.py | 142 |
+| Timelines | runner.py | 404 |
+| Runs | runner.py | 533 |
+| Variations | runner.py | 881 |
+| Suites | runner.py | 1011 |
+| Quantities of any dimension | schema.py | 119 |
+| Header | schema.py | 216 |
+| Initial state | schema.py | 310 |
+| Commands and faults | schema.py | 384 |
+| End condition | schema.py | 521 |
+| Pass criteria | schema.py | 553 |
+| Sweeps and variations | schema.py | 834 |
+| Test case | schema.py | 881 |
+| Cross-check against the design | schema.py | 949 |
+| Suite file | schema.py | 1267 |
+| Files and schema | schema.py | 1343 |

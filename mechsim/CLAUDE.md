@@ -58,3 +58,11 @@ Checked by the invariant tier's import-boundary test.
 | `integrity/` | `integrity/CLAUDE.md`; runner hook `integrity.service.IntegrityService`, config `integrity.yaml` beside the design |
 | `scoring/` | `scoring/CLAUDE.md` |
 | `facade/` | `facade/CLAUDE.md` |
+
+## Section index
+
+| Section | File | Line |
+|---|---|---|
+| validate | cli.py | 39 |
+| run, suite, replay | cli.py | 64 |
+| serve | cli.py | 127 |

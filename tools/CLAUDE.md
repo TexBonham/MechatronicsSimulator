@@ -21,15 +21,15 @@ Rules (`RULES`):
 - `--root PATH`: repository root (default: parent of `tools/`)
 - Exit 0: clean. Exit 1: violations, or a stale matrix without `--write`. Exit 2: usage error.
 
-## Section index, `traceability.py`
+## Section index
 
 | Section | File | Line |
 |---|---|---|
-| Data model | `tools/traceability.py` | 40 |
-| File helpers | `tools/traceability.py` | 89 |
-| Spec parsing | `tools/traceability.py` | 129 |
-| Python citations | `tools/traceability.py` | 240 |
-| C++ citations | `tools/traceability.py` | 334 |
-| Checks | `tools/traceability.py` | 473 |
-| Matrix | `tools/traceability.py` | 518 |
-| CLI | `tools/traceability.py` | 592 |
+| Data model | traceability.py | 40 |
+| File helpers | traceability.py | 89 |
+| Spec parsing | traceability.py | 129 |
+| Python citations | traceability.py | 240 |
+| C++ citations | traceability.py | 334 |
+| Checks | traceability.py | 473 |
+| Matrix | traceability.py | 518 |
+| CLI | traceability.py | 592 |

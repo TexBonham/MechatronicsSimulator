@@ -30,7 +30,7 @@ Cost log: `docs/cost-log.md`, archive `docs/cost-log-archive.md`; never in a `CL
 
 | Constant | Value | Scope | Source |
 |---|---|---|---|
-| Physics step | 1 ms default, run configuration | Both adapters; own engine per ADR 0013 | P2, ENG-002 |
+| Physics step | 1 ms default, run configuration | Native adapter; own engine per ADR 0013 | P2, ENG-002 |
 | Control tick | 1 kHz, equal to physics step | Gantry default, data not code; unequal rates supported | C4 |
 | Design-load rule | Rated load + 15% (hoist, trolley) | Gantry example; rule is per design | Requirements, Physics |
 | Rated load | not set | Gantry; owed by gantry team | Rulings, still open |
@@ -126,13 +126,18 @@ Detail: `docs/milestones.md`.
 
 | Phase | Content |
 |---|---|
-| 0a, 0c, 0b | Rulings and ADRs; scaffolding, agents, hooks, CI; specs and stubs: done |
-| Spike | Engine packages 1, 2a, 2b: done |
-| 1 | Contracts, schemas, facade protocol: done |
-| M1 | Gantry G1-G4 and pendulum P1 on the real stack, MuJoCo bridge, native firmware: done, gate passed 2026-11-05 |
 | M2 | Gantry milestone 2 on the real stack (round 4 closed); gate pending owner review 2026-11-11 |
 | M3-M5 | Requirements doc milestone plan |
 
 ## Decisions
 
-Decisions log rows 1-47 in the architecture doc; ADRs in `docs/adr/`. A new decision gets both.
+Decisions log rows 1-51 in the architecture doc; ADRs in `docs/adr/`. A new decision gets both.
+
+## Section index
+
+| Section | File | Line |
+|---|---|---|
+| designs and runs | web/app.js | 61 |
+| replay | web/app.js | 125 |
+| probes | web/app.js | 350 |
+| wiring | web/app.js | 381 |

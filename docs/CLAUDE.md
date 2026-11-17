@@ -2,7 +2,7 @@
 
 | Path | Holds |
 |---|---|
-| `Mechatronic Simulator — Architecture and Technology Recommendation.md` | Founding architecture doc; Decisions log rows 1-44; invariants; layout; Risks |
+| `Mechatronic Simulator — Architecture and Technology Recommendation.md` | Founding architecture doc; Decisions log rows 1-51; invariants; layout; Risks |
 | `Mechatronic Simulator — Requirements.md` | Gantry reference design, G1-G16, acceptance criteria, milestone plan |
 | `adr/` | Architecture decision records; index in `adr/README.md` |
 | `spec/` | One spec per module, numbered requirements (ADR 0008; written in phase 0b) |
@@ -36,12 +36,6 @@ Process rulings W-01 to W-07 are not ADRs; they stay in `rulings/`.
 | Behavior changes | Cite requirement IDs; spec edit in the same commit |
 | Review | Stage review rejects behavior not covered by the spec as edited |
 
-Spec template layout: phase 0b.
-
 ## Writers
 
 Only the coordinating session writes `cost-log.md` and `queue.md` (W-05, W-07). Agents, worktrees and other machines never do. No `CLAUDE.md` holds cost-log rows.
-
-## Contracts
-
-Empty until phase 1.

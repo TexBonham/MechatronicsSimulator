@@ -48,6 +48,7 @@ CriterionStatus = Literal["pass", "fail", "error"]
 CaseStatus = Literal["pass", "fail", "error"]
 
 
+# ===== Errors and result types ==============================================
 class ScoringError(ValueError):
     """Scoring could not produce what was asked (for example a baseline from a run without an archive)."""
 
@@ -212,6 +213,7 @@ def _before_lines(case: Case, steppers: _StepperView, report: RunReport) -> tupl
     return tuple(lines)
 
 
+# ===== Structural and swing views ===========================================
 STRUCTURAL_KINDS = ("safety_factor", "deflection")
 SWING_KIND = "swing"
 _AXES = {"x": (1.0, 0.0, 0.0), "y": (0.0, 1.0, 0.0), "z": (0.0, 0.0, 1.0)}
@@ -405,6 +407,7 @@ class _StructuralView:
         return Series((time,), (value,), unit)
 
 
+# ===== Steppers =============================================================
 STEPPER_KINDS = ("missed_steps", "torque_margin")
 LOAD_TORQUE = "physics/transmissions/shaft_load_torque"
 
@@ -634,6 +637,7 @@ class _StepperView:
         return [float(row[column]) for row in stored.values]
 
 
+# ===== Not valid, crossings and approximations ==============================
 def _not_valid_after(record: CarriedValidity, times: Sequence[float], values: Sequence[float]) -> list[float]:
     """The history with every sample inside the not-valid interval NaN (SCO-029)."""
     out: list[float] = []
@@ -700,6 +704,7 @@ def _layer_approximations(recording: RecordView) -> tuple[str, ...]:
     return tuple(lines)
 
 
+# ===== Case scoring =========================================================
 def not_run(
     case: Case | None, case_id: str, design: DesignRef, seed: int, error: str, sweep: tuple[str, str] | None = None
 ) -> CaseScore:
@@ -742,6 +747,7 @@ def _case_status(results: Sequence[CriterionResult]) -> CaseStatus:
     return "pass"
 
 
+# ===== Criterion evaluation =================================================
 def _evaluate(criterion: Any, recording: RecordView, limit: str) -> CriterionResult:
     if isinstance(criterion, ValueCriterion):
         return _value(criterion, recording, limit)

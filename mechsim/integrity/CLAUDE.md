@@ -41,3 +41,24 @@ regenerate with `uv run python -m mechsim.integrity.config --write-schema`, neve
   `write_beside` after the archive is written.
 - Facade: `integrity_results(run_id)`, `load_case(run_id, format)` (FAC-013); `validate` file kind `integrity`.
 - `report_json()` keys: `checks`, `cycle_counts`, `load_factor`, `notes`, `table` (R's `to_json`).
+
+## Section index
+
+| Section | File | Line |
+|---|---|---|
+| Stress from end loads | beam.py | 43 |
+| End conditions and frequency | beam.py | 83 |
+| Quaternions and node deflection | beam.py | 121 |
+| Node moments | beam.py | 204 |
+| Moment under a carried load (rulings 71, 75) | beam.py | 254 |
+| Member stress and sections | beam.py | 547 |
+| Peak and mount stress | beam.py | 661 |
+| Section and series readers | inputs.py | 41 |
+| Member axes and node chains | inputs.py | 108 |
+| Spring offsets | inputs.py | 201 |
+| Body count and poses | inputs.py | 266 |
+| Run inputs | inputs.py | 325 |
+| Carried loads, ropes and joints | inputs.py | 431 |
+| Material view | plugin.py | 57 |
+| Run inputs | plugin.py | 105 |
+| Results | plugin.py | 343 |

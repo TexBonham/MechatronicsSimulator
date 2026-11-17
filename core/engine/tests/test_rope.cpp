@@ -33,6 +33,7 @@ using mechsim::engine::StepConfig;
 using mechsim::engine::test::add_bob;
 using mechsim::engine::test::gravity;
 
+// ===== Chain construction ==================================================
 // Rope chain unit behaviour (ENG-047, ADR 0016) and its load release (ENG-034). Exact or 1e-9 relative values, each
 // derived where it is asserted.
 
@@ -137,6 +138,7 @@ TEST_CASE("a rope whose nodes are not built by add_rope is rejected by the provi
     REQUIRE_THROWS_AS(MultibodyProvider(model), InvalidModelError);
 }
 
+// ===== Tension law =========================================================
 // T = k (d - l) + c d_dot when d > l and positive, else 0.
 TEST_CASE("a rope segment pulls only when stretched", "[ENG-047]") {
     const Eigen::Vector3d a = Eigen::Vector3d::Zero();
@@ -185,6 +187,7 @@ TEST_CASE("a taut segment adds axial and geometric stiffness", "[ENG-047]") {
     REQUIRE((terms.force + tension * n).cwiseAbs().maxCoeff() <= 1e-12);
 }
 
+// ===== Attachment damping and friction =====================================
 // Ruling 14: bob at (0, 0, -L) moving at u along x on a slack single segment. omega_rel = n x v / L = (0, -u / L, 0),
 // tau = -(c + f / max(|u| / L, w)) omega_rel with w the friction slip threshold (MultibodyConfig, 1e-4 rad/s): above
 // w the force on the bob (tau x n) / L is -(c u / L^2 + f sign(u) / L) along x, the full Coulomb value, and D_xx gets
@@ -239,6 +242,7 @@ TEST_CASE("a non-positive friction slip threshold is rejected", "[ENG-047]") {
     REQUIRE_THROWS(MultibodyProvider(model, config));
 }
 
+// ===== Winch and slack =====================================================
 // Gravity off, ends 0.9 m apart on a 1 m rope: every segment is slack, nothing moves, every tension is exactly 0.
 // Winching to 0.8 m makes the chain taut; at rest the series tension is EA (d - r) / r = 12.5 N in every segment.
 // Settling: c_seg = damping / l ~ 2 sqrt(k_seg m_node), the slowest (overdamped) axial decay about k / c = 50 /s,
@@ -280,6 +284,7 @@ TEST_CASE("a slack rope carries zero tension and a winch makes it taut", "[ENG-0
     REQUIRE_THROWS_AS(provider.set_rope_rest_length(1, 1.0), InvalidModelError);
 }
 
+// ===== Snap ================================================================
 // Snap within one step. Bob M = 1 kg on a 1 m, N = 2 rope, EA = 1e8 N, hung at its static stretch: tension g M.
 // A step load F = 10 N down: backward Euler on the bob-on-rope mode (omega h = sqrt(EA / (L M)) h = 10) moves the bob
 // (omega h)^2 / (1 + (omega h)^2) = 100 / 101 of the way to the new static stretch in one step, so the end-of-step
@@ -338,6 +343,7 @@ TEST_CASE("a load above the breaking tension snaps the rope within one step", "[
     REQUIRE_THROWS_AS(provider.release_rope(0), InvalidModelError);
 }
 
+// ===== Snap evaluation start ===============================================
 // The snap's evaluation start (INT-031, ruling 75; rope.hpp, Snap). Bob M = 1 kg on a 1 m, N = 2 rope, EA = 1e4 N
 // (omega h = sqrt(EA / (L M)) h = 0.1 at 1 ms), mu = 1e-4 kg/m, released from straight (the rope unstretched,
 // tension 0) under gravity. Backward Euler's step response of the bob-on-rope mode peaks at n theta = pi, theta =
@@ -450,6 +456,7 @@ TEST_CASE("a rope does not snap before the snap's evaluation start and snaps fro
     REQUIRE(provider.outputs().ropes[0].held_tension == held);
 }
 
+// ===== Snap evaluation start by step count =================================
 // The snap's evaluation start by step count (rope.hpp, Snap): the first judged step is n = ceil(start / h - 1e-9). A
 // bob hung at its static stretch with a breaking tension below g M exceeds it in every step, so the rope snaps in step
 // n exactly and stays attached for the n steps before: start / h for 0.01 s and 8 s at 1 ms and 0.1 ms, 2 for
@@ -492,6 +499,7 @@ TEST_CASE("a rope's snap evaluation start is a whole number of steps, rounded up
     }
 }
 
+// ===== Release and payload mass ============================================
 TEST_CASE("a rope released on request lets its load go and lists the release", "[ENG-034][ENG-047]") {
     MultibodyModel model;
     model.gravity = Eigen::Vector3d(0.0, 0.0, -gravity);

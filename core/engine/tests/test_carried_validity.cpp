@@ -42,6 +42,7 @@ using mechsim::engine::test::pinned_chain_transfer;
 using mechsim::engine::test::settling_steps;
 using mechsim::engine::test::start_state;
 
+// ===== Work and validity ===================================================
 // The pair's work and the validity flag (ENG-052, brief M3-E7c; derivation in member_loads.hpp, Work and validity).
 //
 // Rigs: the pinned-pinned steel bar of carried_helpers (1 m, 10 mm square, 8 segments) on the world, gravity off, a
@@ -333,6 +334,7 @@ TEST_CASE("carried validity: an impulse-like load is forgotten, and a matched re
     CHECK(flagged <= late + (3.0 * x));
 }
 
+// ===== Two-member finding (ruling 69) ======================================
 namespace {
 
 // The finding's shape (ruling 69): member A on the world carries a frame T (fixed to the world at A's midspan, on
@@ -460,6 +462,7 @@ TwoRun run_two(double h, double duration, double a_stiffness_scale = 1.0, double
 
 }  // namespace
 
+// ===== Loaded frequency and carried drive ==================================
 TEST_CASE("carried validity: loaded, the carrying member's frequency drops as the one-mode estimate and B's ringing "
           "no longer pumps it",
           "[ENG-052]") {
@@ -516,6 +519,7 @@ TEST_CASE("carried validity: a member driven through another carried member at i
     CHECK_FALSE(apart.carrying.unresolved);
 }
 
+// ===== Flag definition (rulings 74, 77) ====================================
 // The gate of the flag's definition (briefs M3-E7f, M3-E7g, rulings 74, 77; member_loads.hpp, Definition). The
 // pinned-pinned bar under gravity (-y, 9.81) carries a 1 kg carriage standing at s0 = L / 4, released from straight,
 // node damping at 0.1 of carried_helpers' critical setting (D = 0.1 beta K, beta = 2 / omega_rig: zeta_p omega_p =

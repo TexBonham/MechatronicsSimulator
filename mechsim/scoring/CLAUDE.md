@@ -46,5 +46,11 @@ nothing.
 
 | Section | File | Line |
 |---|---|---|
-| Criteria | score.py | 113 |
-| Suite, baseline and report | score.py | 548 |
+| Errors and result types | score.py | 51 |
+| Criteria | score.py | 117 |
+| Structural and swing views | score.py | 216 |
+| Steppers | score.py | 410 |
+| Not valid, crossings and approximations | score.py | 640 |
+| Case scoring | score.py | 707 |
+| Criterion evaluation | score.py | 750 |
+| Suite, baseline and report | score.py | 1032 |

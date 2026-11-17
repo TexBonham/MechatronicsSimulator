@@ -110,11 +110,17 @@ column first, float64 little-endian; one sample means `t_start == t_end` (FAC-01
 
 | Section | File | Line |
 |---|---|---|
-| Frames and messages | server.py | 84 |
-| Listener and connections | server.py | 190 |
-| Facade server | server.py | 227 |
-| Static files | server.py | 469 |
-| Serve entry point | server.py | 518 |
-| Result models | service.py | 99 |
-| Helpers | service.py | 348 |
-| Facade | service.py | 438 |
+| Base models | protocol.py | 54 |
+| Request payloads | protocol.py | 72 |
+| Response payloads | protocol.py | 178 |
+| Event payloads | protocol.py | 197 |
+| Messages | protocol.py | 255 |
+| Schema | protocol.py | 458 |
+| Frames and messages | server.py | 86 |
+| Listener and connections | server.py | 193 |
+| Facade server | server.py | 230 |
+| Static files | server.py | 474 |
+| Serve entry point | server.py | 523 |
+| Result models | service.py | 101 |
+| Helpers | service.py | 386 |
+| Facade | service.py | 476 |

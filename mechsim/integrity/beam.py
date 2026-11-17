@@ -40,6 +40,7 @@ _K = {
 }
 
 
+# ===== Stress from end loads ================================================
 def axial(loads: Wrenches) -> FloatArray:
     """Internal axial force (rows, 2) at the start and end, tension positive."""
     return np.stack((-loads.start_force[:, 0], loads.end_force[:, 0]), axis=1)
@@ -79,6 +80,7 @@ def fibre_histories(loads: Wrenches, section: SectionProperties) -> list[FloatAr
     return out
 
 
+# ===== End conditions and frequency =========================================
 def end_conditions(member: MemberInputs) -> tuple[str, str]:
     """(start, end) condition: the support at 0 and at L (roller as pinned), `free` without one; an interior support
     is an error for the closed forms that need end conditions."""
@@ -116,6 +118,7 @@ def first_frequency(member: MemberInputs) -> float:
     return lam * lam / (2.0 * math.pi * section.length**2) * math.sqrt(stiffness)
 
 
+# ===== Quaternions and node deflection ======================================
 def _rotate(q: FloatArray, v: FloatArray) -> FloatArray:
     """Rotate v (rows, 3) by unit quaternions q (rows, 4), w first."""
     w = q[:, :1]
@@ -198,6 +201,7 @@ def _bending_angle(previous: FloatArray, current: FloatArray) -> FloatArray:
     return result
 
 
+# ===== Node moments =========================================================
 def node_moments(
     member: MemberInputs, bodies: BodyPoses, offsets: FloatArray | None = None
 ) -> tuple[FloatArray, FloatArray]:
@@ -540,6 +544,7 @@ def carried_reads(
     return CarriedReads(values, positions, found, bound, tuple(sorted(causes)))
 
 
+# ===== Member stress and sections ===========================================
 def member_normal_stress(
     loads: Wrenches,
     section: SectionProperties,
@@ -653,6 +658,7 @@ def member_sections(
     return out
 
 
+# ===== Peak and mount stress ================================================
 def peak(values: FloatArray, times: FloatArray) -> tuple[float, float]:
     """Largest value of a (rows,) or (rows, k) array and the time of its row (the first on a tie); (0, t0) when
     empty."""

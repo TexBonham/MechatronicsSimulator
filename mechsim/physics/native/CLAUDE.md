@@ -33,11 +33,11 @@ Stepping is `core/physics/native/`. The only Python importer of `mechsim._core_e
 | `contact` | null without `contacts`; geometries (world -1), material pairs, exclusions + parent-child pairs on non-free joints, slip velocity 1e-4 |
 | `payloads`, `starts` | Body indices; a shaft starts at its driven start / n |
 
-## Section index, `translate.py`
+## Section index
 
-| Section | Line |
-|---|---|
-| Joints | 141 |
-| Shapes and contacts | 242 |
-| Members, ropes and transmissions | 324 |
-| Model | 598 |
+| Section | File | Line |
+|---|---|---|
+| Joints | translate.py | 146 |
+| Shapes and contacts | translate.py | 247 |
+| Members, ropes and transmissions | translate.py | 329 |
+| Model | translate.py | 707 |

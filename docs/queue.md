@@ -36,8 +36,9 @@ passed and 4 xfail long, lints clean). GV with GV2 landed at 08cc419 (real, data
 fixes, 38 passed and 2 xfail long, lints clean). RM landed at 29a41d0 on 2026-11-16: MuJoCo retired (ADR 0004 close, owner decision 1b; rulings 104, 105); the final
 verification on the merged head: ctest debug-sanitize 525 of 525 (without the reference label, W-08), firmware host 92, Python
 4630 passed and 88 xfail fast, 38 passed and 2 xfail long, lints and the import checker clean. Round 5's briefs are all landed.
-Next: round close (W-07: archive the cost rows, sweep the contract files, update the queue and milestones), CI green on the
-round branch, the PR to main with a merge commit for the owner's review. Briefs of record
+CI on the landing commit 3e1cd90: green on all three workflows and every job, confirmed 2026-11-17 (the cpp run took
+2 h 37 min, the Windows debug test step 2 h 18 min; noted under Next item 2). Round close prepared 2026-11-16 (cost
+rows archived: 150 rows, about 19.9M tokens; contract files swept; this queue); the PR to main waits for the owner's review of the close commit and the PR text. Briefs of record
 in `docs/briefs/round-05/`; worktrees `../MechatronicsSimulator-05-<letter>`. Round 4's rulings and gate report
 are below for reference; round 4's cost rows are in `docs/cost-log-archive.md`.
 
@@ -298,21 +299,34 @@ parameters (M3 housekeeping). `docs/gantry-team-inputs.md` contradicts itself on
 
 ## Next
 
-1. Wave 2 reviews (A2 with B, F1 alone), merge-backs, then wave 3: F2 (after F1) and X1 (merges `wip/04-e`, binds the
-   load cell, amplifier, E-stop status, brake and heartbeat channels, event-code table, payload in the neutral model,
-   fault routing through B's scheduling; G5 to G8). Then X2, X3, the gate.
-2. Owner ruling 2026-11-05: the implicit joint drive stays while the MuJoCo bridge is the physics carrier; the
-   question of how the stepper hold is applied (drive input versus the own engine's implicit springs, ADR 0013) is
-   re-decided when the native adapter replaces the bridge (PHY-020, ADR 0004 retirement).
-3. Contract files over 4 500 characters after the sweep (core/bindings 6.7K, mechsim/testing 6.4K, core/kernel 6.2K, firmware 4.9K, core/physics/mujoco 4.8K, core/signals 4.7K, core/engine 4.6K): current contract text, split or accept at the milestone 2 close.
-4. Owed from reviews (round 5, R re-review 2026-11-11): the design's explicit section form (`area` plus one
-   `second_moment`) lacks `second_moment_y`, `fibre_y`, `fibre_z`, so the stress overlay refuses such members;
-   acceptable while every shipped placeholder is a shape (ruling 6); X1 adds the fields.
-   FAC-013 acceptance conformance stub stays: a flexible bridge run of a pendulum with one lumped member diverges
-   (MuJoCo QACC NaN clamped-free, constraint drift pinned-roller) while the facade path works; X1 converts it on the
-   native adapter with the gantry integrity file (ruling 29).
-5. Owed from reviews: two actuators on one shaft (builder sums rotor inertias, SIG-037 then refuses); PHY-020 native
-   adapter and PHY-021 differential tolerance; mypy lambda note at tests/acceptance/test_acc_stubs.py:30.
+1. PR to main from `round/05-milestone-3`: merge commit, never rebase (round 4 PR #6 is the precedent). The PR text is
+   drafted; the owner reads it, the ADR 0004 and 0014 status edits and Decisions log row 51, and the round-close
+   commit before it opens. Cut `round/06-milestone-4` fresh from main after it lands.
+2. Round 6 plan (milestone 4) for sign-off, assembled from the gate report's carry list and the close-out list below:
+   CAD import and FEA load export; the static start (belts and rails loaded at t = 0, ruling 87) so the evaluation start
+   can go; two-way coupling and the rope-hung payload's effect on the rail (rulings 65, 69, 70); the second-order
+   integrator tier (ruling 21) and E9 proper (the efficiency loss at the step's end rate by one re-solve); I2C and SPI
+   peripheral modes and the Renode transport (round 4 ruling 2, ADR C6); tier 2's buckling collapse and fastener break
+   (ADR 0010); bearing life and the build-time rules (ADR 0009); engine step performance (a 26 s gantry case runs in 80
+   to 110 s; the Windows debug test step, `-LE reference`, took 2 h 18 min on the landing commit against 44 to 84 min
+   on the four pushes before it, so the whole cpp run took 2 h 37 min: profile the unoptimised MSVC tests with it);
+   pytest-xdist for the long tier and the batch feeding the acceptance fixtures (W-08 d) at the first gate.
+3. Close-out list (small, owner's call whether before or inside round 6): SIG-033 stall event raised only on a tick with
+   no commanded microstep (a pull-out while stepping makes no event); SCO-031 `_span_start` at or before the first
+   sample; SCO-032 wording (a driver is required); TST-027 `--write-baseline` drops the baseline's note; the builder's
+   `rigid_members` option (no run selects it; delete or keep); two integrity docstrings naming the bridge
+   (`mechsim/integrity/inputs.py:135`, `checks/deflection.py:3`); the C++ include regex's positive firing case (PHY-011,
+   PHY-026); the run cache's content hash (ruling 97); the HX711 digital output's schema field; the payload's identity as
+   a document field and the two-rope release (ruling 84); ENG-052's moment channel and travel check (ruling 68).
+4. Owed by the gantry team, now with sourced stand-ins (`docs/gantry-team-inputs.md`, every row a value, a source and
+   a "replaceable" flag): the lift belt's overload (55 to 64 N against GT2 6 mm's 26 N working tension; 15 mm covers it);
+   the 17HS19 curve's 60 rpm point read by eye (the sizing result rests on it); the encoder, the rope end fitting, the
+   HX711 filter, stepper damping and max voltage, impact parameters and firmware timing still placeholders; the
+   printed-PETG rails the team named against the aluminium extrusion the suite now runs on; swing damping (G12's settle
+   fails without it); the 2 mm mismatch threshold that drives G10's timing.
+5. Owner confirmations pending from this close: ADR 0004 status (retired) and ADR 0014 status; Decisions log row 51;
+   ruling 73 (b) as amended by ruling 103; rulings 99 (b) and (c) (derived G15 targets; the frozen comparison of
+   record); W-08.
 
 ## Milestone 1 rulings (owner, 2026-11-04)
 

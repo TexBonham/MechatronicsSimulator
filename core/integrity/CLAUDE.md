@@ -34,9 +34,12 @@ check rules rows "Tier 1 party" to "Tier 2 rope snap".
 
 | Section | File | Line |
 |---|---|---|
-| Fixtures | tests/test_integrity_party.cpp | 35 |
-| Crossing oracles (INT-023, INT-024; node-pose deflection, INT-006) | tests/test_integrity_party.cpp | 159 |
-| Events, halt and determinism | tests/test_integrity_party.cpp | 329 |
-| Yield requests (INT-028; at-limit boundary, INT-024) | tests/test_integrity_party.cpp | 399 |
-| Limits table | tests/test_integrity_party.cpp | 528 |
-| Cantilever on the native adapter (yield oracle, additivity) | tests/test_integrity_native.cpp | 33 |
+| Cantilever on the native adapter | tests/test_integrity_native.cpp | 33 |
+| Fixtures | tests/test_integrity_party.cpp | 37 |
+| Crossing oracles (INT-023, INT-024) | tests/test_integrity_party.cpp | 168 |
+| Moment under a carried load (ruling 71; INT-005, INT-023) | tests/test_integrity_party.cpp | 403 |
+| Events, halt and determinism (INT-024, INT-026, INT-027) | tests/test_integrity_party.cpp | 637 |
+| Yield requests (INT-028) | tests/test_integrity_party.cpp | 754 |
+| Limits table | tests/test_integrity_party.cpp | 951 |
+| Validity from a neutral source (rulings 75, 79; INT-026) | tests/test_integrity_party.cpp | 1087 |
+| Own weight under a carried couple (ruling 79; INT-005) | tests/test_integrity_party.cpp | 1180 |

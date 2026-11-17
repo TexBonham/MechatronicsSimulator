@@ -38,6 +38,7 @@ BODY_POSITION = "physics/bodies/position"
 BODY_ORIENTATION = "physics/bodies/orientation"
 
 
+# ===== Section and series readers ===========================================
 def section_properties(section: Any) -> SectionProperties:
     """Both bending axes (ruling 25): I_z is the section's `second_moment_of_area`, I_y `second_moment_y`, c_y
     `fibre_y`, c_z `fibre_z`. A section missing any y-axis field is evaluated single-axis (ruling 25 fallback):
@@ -104,6 +105,7 @@ def _series_reader(recording: RecordView) -> Any:
     return read
 
 
+# ===== Member axes and node chains ==========================================
 def member_axes(build: Any) -> dict[str, tuple[float, float, float]]:
     """Member x axis (start to end) in its parent body's frame, from the lumped member's placement, the rotation the
     recorder's member frame uses (ruling 24); keyed by structural member name. A member without a lumped record
@@ -196,6 +198,7 @@ def _carried_places(lumped: Any, bodies: tuple[Any, ...], index: Mapping[str, in
     return tuple(out)
 
 
+# ===== Spring offsets =======================================================
 SPRING_OFFSET_EVENT = "spring_offset spring "
 SPRINGS_PER_JOINT = {"revolute": 1, "prismatic": 1, "planar": 3, "fixed": 0, "spherical": 0, "free": 0}
 
@@ -260,6 +263,7 @@ def spring_offsets(
     return out
 
 
+# ===== Body count and poses =================================================
 def recorded_body_count(model: Any) -> int:
     """Neutral bodies plus every lumped member's node bodies: what a native run publishes per sample."""
     total = len(tuple(getattr(model, "bodies", ())))
@@ -318,6 +322,7 @@ def body_names(series: Mapping[str, Any]) -> tuple[str, ...]:
     return tuple(str(name) for name in getattr(series[BODY_POSITION], "names", ()))
 
 
+# ===== Run inputs ===========================================================
 def run_inputs(
     build: Any, recording: RecordView, materials: Mapping[str, MaterialView], design_load_carried: bool = False
 ) -> RunInputs:
@@ -423,6 +428,7 @@ def _bodies(
     return poses
 
 
+# ===== Carried loads, ropes and joints ======================================
 def carried_loads(
     model: Any, series: Mapping[str, Any], rows: int, names: tuple[str, ...] = ()
 ) -> dict[str, tuple[CarriedLoad, ...]]:

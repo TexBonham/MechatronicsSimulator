@@ -26,16 +26,6 @@ Component types and shipped catalog (LIB). Schema `schemas/component.json` from 
 | `CatalogPart` | resolved part, SI floats; only via `CatalogPart.resolve(entry, type, overrides=None)` |
 | `CatalogFile.resolved_parts()` | every part resolved at file validation; `component_type(name)` lookup |
 
-## Section index
-
-| Section | File | Line |
-|---|---|---|
-| Parameters | schema.py | 111 |
-| Facets | schema.py | 202 |
-| ComponentType | schema.py | 275 |
-| CatalogPart | schema.py | 383 |
-| CatalogFile | schema.py | 553 |
-
 ## Rules
 
 - No default means required in every part whose tier includes the parameter.
@@ -58,3 +48,13 @@ Component types and shipped catalog (LIB). Schema `schemas/component.json` from 
   part), `hook` (end_effector; mounts attach and rope), `rope` (category rope; `ROPE_PARAMETERS` axial_stiffness,
   damping (strain-rate, N s), mass_per_length, breaking_tension, rest_length are required; breaking_tension in tier
   `breaking`). Plugins point at `mechsim.builder.structure`.
+
+## Section index
+
+| Section | File | Line |
+|---|---|---|
+| Parameters | schema.py | 111 |
+| Facets | schema.py | 202 |
+| ComponentType | schema.py | 275 |
+| CatalogPart | schema.py | 383 |
+| CatalogFile | schema.py | 553 |

@@ -29,6 +29,7 @@ using mechsim::engine::TransmissionCoupling;
 using mechsim::engine::TransmissionOutput;
 using mechsim::engine::TransmissionType;
 
+// ===== Settling and tolerances =============================================
 // Regularised efficiency switch (ruling 47) and the self-locking screw row (ruling 48); the model and its derivation
 // are in transmission.hpp. Models: shaft(s) on the world (Revolute about z, q[0] = theta), output on the world.
 //
@@ -113,6 +114,7 @@ Transmission lossy_belt() {
 
 }  // namespace
 
+// ===== Belt efficiency =====================================================
 TEST_CASE("belt efficiency gain passes linearly through n inside the threshold shaft speed", "[ENG-043][ENG-045]") {
     // Hand formulas (transmission.hpp, ruling 47) at a stretch E = 1e-4 m (F = k E = 10 N, L = -n F < 0): at and
     // above omega_s the explicit gain is n / eta_f (omega > 0, P < 0) or n eta_b (omega < 0, P > 0) bit for bit, the
@@ -161,6 +163,7 @@ TEST_CASE("belt efficiency gain passes linearly through n inside the threshold s
     REQUIRE(std::abs(rest.shaft_damping - 0.2 * n * f / omega_s) <= 1e-12 * 0.2 * n * f / omega_s);
 }
 
+// ===== Static sag and creep ================================================
 namespace {
 
 struct SagRun {
@@ -272,6 +275,7 @@ TEST_CASE("belt and gear regularised efficiency run is bitwise identical when re
     }
 }
 
+// ===== Self-locking screw ==================================================
 namespace {
 
 // Vertical self-locking lead screw: lead 4 mm (n = 4e-3 / 2 pi), eta_f 0.4, eta_b 0.3, k = 1e6 N/m, coupling damping
@@ -316,6 +320,7 @@ double screw_n() {
 
 }  // namespace
 
+// ===== Self-locking hold and lift ==========================================
 TEST_CASE("self-locking screw holds a hanging load with no motor torque for 10 s", "[ENG-044]") {
     // Zero drive, T L = 0: the row is present and the static gain n applies, so the load torque n m g back-drives
     // the shaft in the solve and the row binds, setting omega to 0 exactly: theta never moves, at J = 1e-5 (where the
@@ -592,6 +597,7 @@ TEST_CASE("a self-locking screw lift, stop and hold is bitwise identical when re
     REQUIRE(run() == run());
 }
 
+// ===== Unloaded screw ======================================================
 namespace {
 
 // Unloaded screw for ruling 55: gravity off, lead 2 pi / 256 so that n = 1 / 256 exactly (a power of two: n theta

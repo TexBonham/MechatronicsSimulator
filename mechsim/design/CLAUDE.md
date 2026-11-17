@@ -49,21 +49,20 @@ adc_input, pulse_output, uart_rx, uart_tx; READ_MODES and WRITE_MODES in `schema
   ports may be shared.
 - Mass cross-check: an error equal to the tolerance passes.
 
+## Open
+
+Importers (M4); physical wire properties (a later component type).
+
 ## Section index
 
 | Section | File | Line |
 |---|---|---|
+| Mass cross-check | cad.py | 99 |
 | Open values | schema.py | 113 |
 | Bodies | schema.py | 264 |
-| Joints | schema.py | 742 |
-| Components | schema.py | 833 |
-| Power, environment, firmware, messages, ropes | schema.py | 920 |
-| Design | schema.py | 1174 |
-| Cross-reference checks | schema.py | 1232 |
-| Files and schema | schema.py | 1790 |
-
-Chip file tests: `tests/unit/test_chip_schema.py`.
-
-## Open
-
-Importers (M4); physical wire properties (a later component type).
+| Joints | schema.py | 754 |
+| Components | schema.py | 845 |
+| Power, environment, firmware, messages | schema.py | 932 |
+| Design | schema.py | 1186 |
+| Cross-reference checks | schema.py | 1244 |
+| Files and schema | schema.py | 1802 |

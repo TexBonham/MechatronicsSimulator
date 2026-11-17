@@ -4,7 +4,7 @@ Model builder (BLD, ADR 0003). Failures raise `BuildError(failures)` listing all
 
 `build(design, registry, materials, *, chips=None, supported_elements=None, adapter="any", step_importer=None,
 base=None, blob=None, rigid_members=False) -> BuildResult`. `supported_elements` None accepts all; `blob` defaults
-to source_hash, zeros when unset; `rigid_members` builds flexible bodies rigid, member list kept (BLD-033; no run selects it since the bridge retired).
+to source_hash, zeros when unset; `rigid_members` builds flexible bodies rigid, member list kept (BLD-033).
 
 ## BuildResult (`result.py`)
 
@@ -36,9 +36,6 @@ to source_hash, zeros when unset; `rigid_members` builds flexible bodies rigid, 
 `chain_deflection`, `chain_first_frequency`, `loaded_first_frequency`, `node_damping`, `lowest_carried_frequency`, `calibrate` -> `CalibrationScales`, `load_point`, `fastenings`,
 `member_mounts`, `rope_element`, `lumped_section`; the linearized engine chain in hinge angles, numpy/scipy);
 `run_damping.py` (`stated_ratios(build, registry)` -> name to the ratio the data states; `run_damping_lines(built, run, payload, stated)` -> one line per damped member and transmission of a native run: stated exactly as stated, realised at build time on the build's model, realised in this run on the run's model (end fitting `<payload>_shackle`) plus the case payload when its carrier is in the subtree; BLD-040, BLD-041, PHY-037, ruling 80); `physics.transmission_values(component, registry)` (a transmission's resolved part values, the one source of its stated `damping_ratio`); `wiring.py`; `result.py`.
-
-| Section | File | Line |
-|---|---|---|
 
 ## Rules
 
@@ -82,9 +79,15 @@ Loops as constraints (BLD-004), clamped-clamped calibration layout; full couplin
 
 | Section | File | Line |
 |---|---|---|
-| Checks | physics.py | 106 |
-| Bodies and joints | physics.py | 307 |
-| Overlap | physics.py | 433 |
-| Lumped members | physics.py | 489 |
-| Transmissions and signals | physics.py | 766 |
-| Physics model | physics.py | 936 |
+| Checks | physics.py | 107 |
+| Bodies and joints | physics.py | 308 |
+| Overlap | physics.py | 434 |
+| Lumped members | physics.py | 490 |
+| Transmissions and signals | physics.py | 767 |
+| Physics model | physics.py | 948 |
+| Structural damping | structure.py | 108 |
+| Instances | wiring.py | 30 |
+| Pin bindings | wiring.py | 132 |
+| Rails | wiring.py | 179 |
+| Operator link and chip | wiring.py | 257 |
+| Wiring table | wiring.py | 346 |

@@ -54,3 +54,12 @@ metadata key `material_overrides` (`METADATA_KEY`, brief R).
 ## Open
 
 Strength axes model for printed parts is owed by the owner (cos^2 blend placeholder). S-N curves carry no spread.
+
+## Section index
+
+| Section | File | Line |
+|---|---|---|
+| Spreads | schema.py | 66 |
+| Fatigue | schema.py | 183 |
+| Processes | schema.py | 206 |
+| Material | schema.py | 256 |

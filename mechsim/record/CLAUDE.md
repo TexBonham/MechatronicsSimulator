@@ -61,9 +61,12 @@ types. `reader.py` imports `mechsim.testing.driver` and `.runner` types (no cycl
 
 | Section | File | Line |
 |---|---|---|
-| Run records | archive.py | 85 |
-| Repository and tool identity | archive.py | 157 |
-| HDF5 helpers | archive.py | 179 |
-| Writer | archive.py | 233 |
-| Value conversions | archive.py | 294 |
-| Reader | archive.py | 322 |
+| Run records | archive.py | 92 |
+| Repository and tool identity | archive.py | 167 |
+| HDF5 helpers | archive.py | 189 |
+| Writer | archive.py | 243 |
+| Value conversions | archive.py | 307 |
+| Reader | archive.py | 335 |
+| Kinematics | reader.py | 44 |
+| Record view | reader.py | 184 |
+| Archive reader | reader.py | 353 |
