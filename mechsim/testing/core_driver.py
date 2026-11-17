@@ -2,7 +2,8 @@
 the archive writer and reader the runner and the CLI use (TST-033, L8).
 
 `CoreDriver.run` prepares the neutral model for the physics adapter the run configuration names (`physics.adapter`
-of the case or `--set`, TST-040; `mujoco` by default until X2; `native` is the own engine, PHY-020), translation
+of the case or `--set`, TST-040; `native`, the own engine, is the only one since the MuJoCo bridge was retired,
+ADR 0004), translation
 report kept (ADR 0003); `run` builds
 a co-simulation kernel with the physics party and records every row through an in-memory sink into
 `mechsim.record.Recorder`. Joint coordinates and poses are derived from the recorded body poses with the model's
@@ -37,12 +38,10 @@ from mechsim.integrity.table import window_note
 from mechsim.integrity.tier1 import (
     BEFORE_EVALUATION_KIND,
     MODEL_REQUESTS,
-    NOT_EVALUATED,
     PARTY,
     Tier1Service,
     Tier1Setup,
     first_springs,
-    tier1_enabled,
     trace_notes,
 )
 from mechsim.library.registry import Registry, default_registry
@@ -122,11 +121,11 @@ from mechsim.testing.schema import (
     DEFAULT_PHYSICS_ADAPTER,
     DESIGNS_ROOT,
     NATIVE_ADAPTER,
-    PHYSICS_ADAPTERS,
     ROOT,
     Case,
     InitialState,
     Quantity,
+    adapter_refusal,
     case_payload_body,
 )
 
@@ -304,18 +303,6 @@ ROPE_SNAP_OFF = (
     "integrity tier 2 rope snap: off, no rope_snap entry in integrity.yaml (INT-031, ruling 53): the breaking "
     "tension of rope '{}' is not enforced during the run"
 )
-BRIDGE_NODE_POSES = (
-    "member node poses: none recorded on the mujoco bridge, which builds members rigid (BLD-033, ruling 29); the body "
-    "series name the neutral bodies only, the native adapter adds <member>.node<k> (PHY-003)"
-)
-
-
-def payload_stand_in_line(rope: NeutralRope, carrier: str) -> str:
-    """The bridge's approximation line for a case payload whose design rope it does not model (BLD-032)."""
-    return (
-        f"payload rope '{rope.name}': not modeled on the mujoco bridge; the case payload is fixed to '{carrier}' "
-        "(the design's suspension joints stand in for the rope swing); the native adapter hangs it on the rope"
-    )
 
 
 class CoreDriver:
@@ -396,8 +383,9 @@ class CoreDriver:
                 f"base rate {config.base_rate} Hz must equal the physics rate {config.physics_rate} Hz (milestone 1 "
                 "runs the controller at the physics rate)"
             )
-        if config.physics_adapter not in PHYSICS_ADAPTERS:
-            raise DriverError(f"physics.adapter {config.physics_adapter!r}: one of {', '.join(PHYSICS_ADAPTERS)}")
+        refusal = adapter_refusal(config.physics_adapter)
+        if refusal is not None:
+            raise DriverError(refusal)
         self.adapter = config.physics_adapter
         self._config = config
 
@@ -421,7 +409,7 @@ class CoreDriver:
         starts: dict[str, float] = {}
         for joint in state.joints:
             if _si(joint.velocity, joint.joint) != 0.0:
-                raise DriverError(f"joint '{joint.joint}': a non-zero start velocity has no bridge input yet")
+                raise DriverError(f"joint '{joint.joint}': a non-zero start velocity has no adapter input yet")
             starts[joint.joint] = _si(joint.position, joint.joint)
         self._starts = starts
 
@@ -471,16 +459,11 @@ class CoreDriver:
         payloads: dict[str, str] = {}
         integrity = self._integrity_config()
         model, snap_lines = _rope_snap_gate(model, integrity)
-        native = self.adapter == NATIVE_ADAPTER
-        stand_in: tuple[str, ...] = ()
         fitting_lines: tuple[str, ...] = ()
         if self._payload is not None:
             name, carrier, mass, _ = self._payload
             fixed = self._payload_fixed()
             rope = self._payload_rope(name)
-            if rope is not None and not native:
-                stand_in = (payload_stand_in_line(rope, carrier),)
-                rope = None
             if rope is not None and not fixed:
                 raise DriverError(f"payload '{name}': hangs on rope '{rope.name}'; a mid-run release has no rope form")
             fitting: float | None = None
@@ -493,28 +476,19 @@ class CoreDriver:
                 raise DriverError(str(failure)) from failure
             if not fixed:
                 payloads[name] = carrier
-        if config.physics_substeps > 1 and not native:
-            raise DriverError(f"physics.substeps {config.physics_substeps}: only the native adapter substeps (TST-042)")
         step = float(1 / config.physics_rate)
         tier1: Tier1Setup | None = None
         springs: tuple[int, ...] | None = None
-        if native:
-            prepared_native = prepare_native_model(model, self._starts, step, payloads, config.physics_substeps)
-            self.approximations = (f"physics adapter: {NATIVE_ADAPTER}", *prepared_native.report)
-            prepared = core.PreparedModel(prepared_native.model_json, "", prepared_native.version)
-            document = json.loads(prepared_native.model_json)
-            if self._evaluate_from() > 0.0:
-                document["carried_evaluation_start"] = self._evaluate_from()
-                document["rope_snap_evaluation_start"] = self._evaluate_from()
-                prepared = core.PreparedModel(json.dumps(document), "", prepared_native.version)
-            tier1 = self._tier1_setup(model, document)
-            springs = self._first_springs(document)
-        else:
-            artifacts = _prepare_bridge(model, self._starts, step, payloads)
-            self.approximations = (*artifacts.report, *stand_in)
-            prepared = core.PreparedModel(artifacts.neutral_json, artifacts.mjcf, artifacts.version)
-            if integrity is not None and tier1_enabled(integrity):
-                self.approximations = (*self.approximations, NOT_EVALUATED)
+        prepared_native = prepare_native_model(model, self._starts, step, payloads, config.physics_substeps)
+        self.approximations = (f"physics adapter: {NATIVE_ADAPTER}", *prepared_native.report)
+        prepared = core.PreparedModel(prepared_native.model_json, "", prepared_native.version)
+        document = json.loads(prepared_native.model_json)
+        if self._evaluate_from() > 0.0:
+            document["carried_evaluation_start"] = self._evaluate_from()
+            document["rope_snap_evaluation_start"] = self._evaluate_from()
+            prepared = core.PreparedModel(json.dumps(document), "", prepared_native.version)
+        tier1 = self._tier1_setup(model, document)
+        springs = self._first_springs(document)
         self.approximations = (*self.approximations, *snap_lines)
         adapter = core.make_physics_adapter(self.adapter)
         rate = _rate(config.physics_rate)
@@ -533,13 +507,9 @@ class CoreDriver:
             party.inputs = ["signals.physics_inputs"]
         if tier1 is not None and tier1.yield_offset:
             party.model_requests = MODEL_REQUESTS
-        decay_record = None
-        carried_record = None
-        efficiency_record = None
-        if native:
-            decay_record = adapter.scheme_decay_record()
-            efficiency_record = adapter.efficiency_damping_record()
-            carried_record = adapter.carried_record()
+        decay_record = adapter.scheme_decay_record()
+        efficiency_record = adapter.efficiency_damping_record()
+        carried_record = adapter.carried_record()
         physics = core.PhysicsParty(adapter, party)
         self._schedule_physics(physics, model)
         kernel.register_party(physics)
@@ -573,9 +543,7 @@ class CoreDriver:
         for subscriber in self._subscribers:
             sink.subscribe(subscriber)
         report = kernel.run(core.EndCondition(_seconds(stop, config.base_rate)), sink)
-        bodies = tuple(body.name for body in model.bodies)
-        if native:
-            bodies = (*bodies, *member_node_names(model))
+        bodies = (*(body.name for body in model.bodies), *member_node_names(model))
         if decay_record is not None:
             decays = [(int(joint), float(decay)) for joint, decay in decay_record.values()]
             self.approximations = (*self.approximations, *driven_mode_lines(model, decays))
@@ -594,12 +562,7 @@ class CoreDriver:
             )
             validity = carried_validity(model, carried_values)
         not_valid = flagged(validity)
-        if not native and self._build is not None and len(self._build.members) > 0:
-            self.approximations = (*self.approximations, BRIDGE_NODE_POSES)
         recorder = Recorder(config.base_rate, model_columns(model, sorted(payloads)), bodies)
-        frames = member_frames(model)
-        if native:
-            frames = ()
         decoded: list[RowEvent] = []
         if self._runner is not None:
             decoded = [RowEvent(tick, "controller", kind, detail) for tick, kind, detail in self._runner.events]
@@ -618,14 +581,12 @@ class CoreDriver:
             record = _canonical_crossings(
                 tick_record(row, {row_tick: due}), not_valid, float(Fraction(row_tick) / config.base_rate)
             )
-            if not native:
-                record = member_frame_loads(record, frames)
-            if native and row_tick - 1 < held_steps:
+            if row_tick - 1 < held_steps:
                 for index, tension in enumerate(record.physics.ropes[: len(held)]):
                     held[index] = max(held[index], tension.max_tension)
             recorder.write_row(record)
         self.approximations = (*self.approximations, *held_rope_lines(model, held, self._evaluate_from()))
-        if native and self._build is not None and self._build.physics is not None:
+        if self._build is not None and self._build.physics is not None:
             stated = stated_ratios(self._build, default_registry())
             lines = run_damping_lines(self._build.physics, model, self._payload, stated)
             self.approximations = (*self.approximations, *lines)
@@ -914,18 +875,6 @@ def carried_validity(model: PhysicsModel, values: Sequence[tuple[Any, ...]]) -> 
     return tuple(out)
 
 
-def _prepare_bridge(model: PhysicsModel, starts: Mapping[str, float], step: float, payloads: Mapping[str, str]) -> Any:
-    """The bridge's translation, imported only by a run on the bridge so that a run on the default native adapter
-    never loads it (PHY-026); its start-state and unmappable-element errors become `DriverError` as before."""
-    from mechsim.physics.mujoco.prepare import StartStateError, prepare_model
-    from mechsim.physics.mujoco.translate import UnmappableElementError
-
-    try:
-        return prepare_model(model, starts, step, payloads)
-    except (StartStateError, UnmappableElementError) as error:
-        raise DriverError(str(error)) from error
-
-
 def model_columns(model: PhysicsModel, payloads: Sequence[str] = ()) -> dict[str, Columns]:
     """Column labels of the index-column series from the neutral model (REC-018, ruling 18): joints in body order
     (prismatic m and N, revolute and the rest rad and N m), transmissions and payload bodies by name."""
@@ -963,76 +912,6 @@ def model_columns(model: PhysicsModel, payloads: Sequence[str] = ()) -> dict[str
         for path in ROPE_SERIES:
             columns[path] = Columns(ropes)
     return columns
-
-
-# ===== Member frames ====================================================
-
-
-def _rotate(q: Quat, v: Vec) -> Vec:
-    w, x, y, z = q
-    tx = 2.0 * (y * v[2] - z * v[1])
-    ty = 2.0 * (z * v[0] - x * v[2])
-    tz = 2.0 * (x * v[1] - y * v[0])
-    return (
-        v[0] + w * tx + (y * tz - z * ty),
-        v[1] + w * ty + (z * tx - x * tz),
-        v[2] + w * tz + (x * ty - y * tx),
-    )
-
-
-def _multiply(a: Quat, b: Quat) -> Quat:
-    aw, ax, ay, az = a
-    bw, bx, by, bz = b
-    return (
-        aw * bw - ax * bx - ay * by - az * bz,
-        aw * bx + ax * bw + ay * bz - az * by,
-        aw * by - ax * bz + ay * bw + az * bx,
-        aw * bz + ax * by - ay * bx + az * bw,
-    )
-
-
-def _conjugate(q: Quat) -> Quat:
-    return (q[0], -q[1], -q[2], -q[3])
-
-
-def member_frames(model: PhysicsModel) -> tuple[tuple[int, Quat], ...]:
-    """Per lumped member, in neutral order: the index of its parent body (-1 for world) and its root frame's
-    orientation in the parent frame (x along the member, ruling 24)."""
-    index = {body.name: position for position, body in enumerate(model.bodies)}
-    frames: list[tuple[int, Quat]] = []
-    for member in model.lumped_members:
-        parent = index.get(member.parent, -1)
-        q = member.orientation
-        frames.append((parent, (float(q[0]), float(q[1]), float(q[2]), float(q[3]))))
-    return tuple(frames)
-
-
-def member_frame_loads(record: TickRecord, frames: Sequence[tuple[int, Quat]]) -> TickRecord:
-    """The bridge publishes member end-loads along world axes; ENG-030 states them in the member frame (x from the
-    start to the end node, y and z the section's principal axes; ruling 24). Each wrench is rotated by the inverse
-    of the member root frame's world orientation, the parent body's recorded orientation times the member's placement;
-    the root frame stands for the member frame while the deflection is small. The native adapter publishes the member
-    frame directly (the engine's member root frame axes, ENG-030), so `CoreDriver` applies this on the bridge only and
-    never twice."""
-    members = record.physics.members
-    if len(members) == 0:
-        return record
-    if len(members) != len(frames):
-        raise DriverError(f"{len(members)} member end-loads for {len(frames)} lumped members")
-    bodies = record.physics.bodies
-    loads: list[MemberEndLoads] = []
-    for loads_of, (parent, placement) in zip(members, frames, strict=True):
-        world = placement
-        if parent >= 0:
-            world = _multiply(bodies[parent].orientation, placement)
-        inverse = _conjugate(world)
-        loads.append(
-            MemberEndLoads(
-                Wrench(_rotate(inverse, loads_of.start.moment), _rotate(inverse, loads_of.start.force)),
-                Wrench(_rotate(inverse, loads_of.end.moment), _rotate(inverse, loads_of.end.force)),
-            )
-        )
-    return replace(record, physics=replace(record.physics, members=tuple(loads)))
 
 
 # ===== Archives =========================================================
@@ -1160,13 +1039,15 @@ def _rope_snap_gate(model: PhysicsModel, integrity: IntegrityConfig | None) -> t
 
 def core_builder(design: Design, adapter: str = DEFAULT_PHYSICS_ADAPTER, registry: Registry | None = None) -> CoreBuild:
     """The run's catalog (`registry`, default the shipped one; LIB-016) and the shipped chips, the shipped materials
-    with the design's overrides (MAT-020); lumped members rigid on the bridge until X2 (BLD-033, ruling 29), flexible
-    as the design states them on the native adapter."""
-    rigid = adapter != NATIVE_ADAPTER
+    with the design's overrides (MAT-020); members flexible as the design states them. `adapter` is checked
+    (TST-040: a retired adapter is refused by name) and otherwise does not shape the build."""
+    refusal = adapter_refusal(adapter)
+    if refusal is not None:
+        raise DriverError(refusal)
     if registry is None:
         registry = default_registry()
     try:
-        return build(design, registry, design_materials(design), rigid_members=rigid)
+        return build(design, registry, design_materials(design))
     except (BuildError, DesignError, MaterialError) as error:
         raise DriverError(str(error)) from error
 

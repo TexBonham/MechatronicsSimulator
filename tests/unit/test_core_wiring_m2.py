@@ -19,7 +19,6 @@ from mechsim.builder import BuildError
 from mechsim.builder.payload import PAYLOAD_CLEARANCE, PAYLOAD_EDGE, with_payload
 from mechsim.design.chip import shipped_chips
 from mechsim.library.registry import default_registry
-from mechsim.physics.mujoco.prepare import prepare_model
 from mechsim.testing import core_wiring
 from mechsim.testing.core_driver import CoreDriver, core_builder, model_columns
 from mechsim.testing.runner import Services, prepare, run_case
@@ -101,23 +100,6 @@ def test_payload_body_refusals(built: object, name: str, carrier: str, mass: flo
         with_payload(built.physics, name, carrier, mass)  # type: ignore[attr-defined]
 
 
-@pytest.mark.req("BLD-036")
-def test_payload_follows_its_carrier_to_the_start_configuration() -> None:
-    bridge = core_builder(prepare(G3).design, "mujoco")
-    model = with_payload(bridge.physics, "payload", "hook", 1.0)  # type: ignore[arg-type]
-    plain = prepare_model(model, {}, 0.001, {"payload": "hook"}).mjcf
-    lifted = prepare_model(model, {"lift_axis": 0.1}, 0.001, {"payload": "hook"}).mjcf
-    import xml.etree.ElementTree as ET
-
-    def z(text: str) -> float:
-        for body in ET.fromstring(text).iter("body"):
-            if body.get("name") == "payload":
-                return float(body.get("pos", "0 0 0").split()[2])
-        raise KeyError("payload")
-
-    assert z(lifted) - z(plain) == pytest.approx(0.1, abs=1e-12)
-
-
 @pytest.mark.req("BLD-035")
 @pytest.mark.req("SIG-020")
 def test_brake_on_the_lift_motor_shaft_reflects_the_lifted_mass(built: object) -> None:
@@ -144,7 +126,7 @@ def test_brake_on_the_lift_motor_shaft_reflects_the_lifted_mass(built: object) -
 @pytest.mark.req("BLD-035")
 @pytest.mark.req("SIG-020")
 def test_a_brake_off_a_revolute_shaft_joint_is_a_wiring_error(built: object) -> None:
-    """Ruling 29: a brake on a transmission's driven joint (the bridge holds no second drive there) or on any other
+    """Ruling 29: a brake on a transmission's driven joint (its transmission holds the one drive there) or on any other
     non-revolute joint ends the build with an error naming the brake and the joint."""
     model = built.physics  # type: ignore[attr-defined]
     places, _ = core_wiring.joint_places(model)

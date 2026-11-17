@@ -22,36 +22,17 @@ from tests.conftest import CaseRuns
 ROOT = Path(__file__).resolve().parents[2]
 
 
-@pytest.mark.req("PHY-015")
-@pytest.mark.xfail(strict=True, reason="stub")
-def test_phy_015() -> None:
-    """The MuJoCo adapter shall carry the milestone 1 acceptance cases, G1 to G4 and the pendulum."""
-    raise NotImplementedError
-
-
 @pytest.mark.req("PHY-023")
 @pytest.mark.long_run
 def test_phy_023() -> None:
     """The MuJoCo retirement check shall pass only when the native adapter passes the whole analytical suite.
 
-    The check enumerates the reference tier (`tests/reference`) and runs it on the native adapter in a fresh
-    interpreter: every adapter-parametrized test must have a native variant, the bridge's own variants (`mujoco` in the
-    test id) are the only ones left out, and the run must end with no failure and no error. Strict expected failures
+    Met at retirement (ADR 0004, 2026-11-15) and kept as the native adapter's standing check: the whole reference tier
+    (`tests/reference`), every test on the native adapter (the only one), runs in a fresh interpreter and must end with
+    no failure and no error. Strict expected failures
     are unconverted stubs, not results, and are listed by the run (PHY-023 row)."""
-    collect = subprocess.run(
-        [sys.executable, "-m", "pytest", "tests/reference", "--collect-only", "-q", "-p", "no:cacheprovider"],
-        capture_output=True,
-        text=True,
-        check=False,
-        cwd=ROOT,
-    )
-    assert collect.returncode == 0, collect.stdout
-    ids = [line for line in collect.stdout.splitlines() if "::" in line]
-    bridge_only = [item for item in ids if "mujoco" in item]
-    for item in bridge_only:
-        assert item.replace("mujoco", "native") in ids, item
     run = subprocess.run(
-        [sys.executable, "-m", "pytest", "tests/reference", "-q", "-k", "not mujoco", "-p", "no:cacheprovider"],
+        [sys.executable, "-m", "pytest", "tests/reference", "-q", "-p", "no:cacheprovider"],
         capture_output=True,
         text=True,
         check=False,

@@ -93,8 +93,8 @@ bound stays 0.1 + 0.0112 + 0.1 m = 21.1 cm; `G6.yaml` is unchanged.
 
 The acceptance checks of G2 to G16 read whole native runs of 30 to 130 s each and carry the `long_run` marker: CI
 runs them, the G16 sweep and the G1 to G16 batch (ACC-036) in the Linux `python-long` job only. The main Linux and
-Windows jobs run G1 (ACC-001, 002), G3 (run-twice determinism) and G8 (FW-025) end to end on native, G7 on the
-bridge (BLD-039) and the pendulum. A case several test modules read runs once per session (`tests/conftest.py`).
+Windows jobs run G1 (ACC-001, 002), G3 (run-twice determinism) and G8 (FW-025) end to end on native and the pendulum
+(the bridge's G7 run retired with it, ADR 0004). A case several test modules read runs once per session (`tests/conftest.py`).
 
 ## Native against the bridge (PHY-024, brief M3-X2d)
 

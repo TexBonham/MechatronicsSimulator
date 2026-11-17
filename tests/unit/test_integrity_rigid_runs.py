@@ -1,7 +1,5 @@
-"""A gantry milestone 2 case with `designs/gantry/integrity.yaml` present, end to end through the CLI: on the bridge
-(members built rigid, ruling 29) the run and its criteria are unaffected, the members' end-load and node-pose checks
-are reported not evaluated with one line each, and a criterion reading one is an unevaluable error (rulings 34, 60);
-on the native adapter the same case evaluates every member."""
+"""A gantry milestone 2 case with `designs/gantry/integrity.yaml` present, end to end through the CLI: the native
+adapter evaluates every member (the bridge's rigid-member run was retired with it, ADR 0004)."""
 
 from __future__ import annotations
 
@@ -24,15 +22,6 @@ from mechsim.testing.schema import ROOT
 
 G8 = ROOT / "test_cases" / "gantry" / "G8.yaml"
 GANTRY = ROOT / "designs" / "gantry" / "design.yaml"
-CRITERION = """  - name: safety_factor_rail_x
-    check: value
-    quantity: safety_factor:rail_x
-    statistic: minimum
-    comparison: at_least
-    limit: "1.5"
-"""
-BRIDGE = "physics:\n  adapter: mujoco\n"
-ORIGINAL = ("motor_power_off", "x_no_steps", "y_no_steps", "lift_no_steps")
 
 
 def _evaluate_from() -> str:
@@ -50,29 +39,6 @@ def _report(out: Path) -> dict[str, object]:
     (path,) = out.glob("*.integrity.json")
     data: dict[str, object] = json.loads(path.read_text(encoding="utf-8"))
     return data
-
-
-@pytest.mark.req("INT-005", "INT-006", "SCO-029")
-def test_a_bridge_run_reports_rigid_members_not_evaluated_and_scores_its_criteria(tmp_path: Path) -> None:
-    text = G8.read_text(encoding="utf-8").replace("\ncriteria:\n", "\ncriteria:\n" + CRITERION)
-    case = tmp_path / "G8.yaml"
-    case.write_text(text.replace("controller_mode: native\n", "controller_mode: native\n" + BRIDGE), encoding="utf-8")
-    out = _run(case, tmp_path)
-    assert "run error" not in out
-    for name in ORIGINAL:
-        assert f"  pass  {name}:" in out
-    assert "  error safety_factor_rail_x:" in out
-    assert "safety_factor:rail_x: not evaluated by integrity" in out
-    report = _report(tmp_path)
-    notes = report["notes"]
-    assert isinstance(notes, list)
-    assert notes[0].startswith(f"integrity evaluation from {_evaluate_from()} (integrity.evaluate_from)")
-    assert notes[1:] == [
-        f"member {member!r}: strength, deflection, buckling, impact not evaluated, the member is built rigid and "
-        "the run recorded no end-loads or node poses (rulings 29, 34)"
-        for member in ("rail_x", "rail_y")
-    ]
-    assert list(tmp_path.glob("*.load_case.json")) == []
 
 
 def _stub_bound(inputs: RunInputs, member: str) -> float:

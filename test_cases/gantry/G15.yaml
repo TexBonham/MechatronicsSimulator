@@ -4,8 +4,7 @@
 # target's static or dynamic sense is owed: deflection_target_mode) and its settled value within 2 percent of the
 # closed form, and no tier 1 crossing (a crossing fails a passing case, SCO-015). Tier 1 runs
 # (designs/gantry/integrity.yaml) without halting, so the whole run is scored; the peak member end loads are exported
-# beside the archive as the load case (INT-022). Native adapter only: the bridge builds the rails rigid and evaluates
-# no tier 1 (rulings 29, 34).
+# beside the archive as the load case (INT-022).
 #
 # Design load (ruling 52: the case carries it, tier 1 applies no factor): rated load + 15 percent = 4.536 kg x 1.15 =
 # 5.2164 kg on payload_rope (the rated load is the gantry team's 10 lb; the rule is the design's structural section).

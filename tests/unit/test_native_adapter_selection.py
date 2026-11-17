@@ -45,15 +45,11 @@ def test_the_default_adapter_is_native() -> None:
 
 
 @pytest.mark.req("TST-040")
-@pytest.mark.parametrize("adapter", ["mujoco", "native"])
-def test_each_value_from_the_case_and_from_set(tmp_path: Path, adapter: str) -> None:
+def test_the_one_value_from_the_case_and_from_set(tmp_path: Path) -> None:
+    adapter = "native"
     written = _case_with(tmp_path, f"physics:\n  adapter: {adapter}")
     assert prepare(written, designs_root=DESIGNS_ROOT).case.physics.adapter == adapter
     assert prepare(P1, {"physics.adapter": adapter}).case.physics.adapter == adapter
-    other = "native"
-    if adapter == "native":
-        other = "mujoco"
-    assert prepare(written, {"physics.adapter": other}).case.physics.adapter == other
     driver = CoreDriver()
     driver.load(core_builder(prepare(P1).design), prepare(P1).case)
     driver.configure(_config(adapter))
@@ -72,6 +68,21 @@ def test_an_unknown_adapter_is_a_validation_error_naming_the_field(tmp_path: Pat
         driver.configure(_config("bullet"))
 
 
+@pytest.mark.req("TST-040", "PHY-026")
+def test_the_retired_bridge_is_refused_by_name_from_the_case_from_set_and_at_the_driver(tmp_path: Path) -> None:
+    """Invariant 7: a document or override naming `mujoco` is an error naming the retired adapter, never a silent
+    run on another adapter."""
+    retired = r"physics\.adapter 'mujoco': the MuJoCo bridge was retired \(ADR 0004, milestone 3\); use 'native'"
+    with pytest.raises(RunnerError, match=retired):
+        prepare(P1, {"physics.adapter": "mujoco"})
+    with pytest.raises(RunnerError, match=retired):
+        prepare(_case_with(tmp_path, "physics:\n  adapter: mujoco"))
+    driver = CoreDriver()
+    driver.load(core_builder(prepare(P1).design), prepare(P1).case)
+    with pytest.raises(DriverError, match=retired):
+        driver.configure(_config("mujoco"))
+
+
 @pytest.mark.req("TST-040")
 def test_the_environment_does_not_select_the_adapter(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("MECHSIM_PHYSICS_ADAPTER", "mujoco")
@@ -88,15 +99,15 @@ def test_the_run_id_carries_a_non_default_adapter_only() -> None:
     plain = run_id(case, None)
     assert plain == f"{case.id}-seed{case.seed}"
     assert run_id(case, None, None, "native") == plain
-    assert run_id(case, None, None, "mujoco") == f"{plain}-mujoco"
-    assert run_id(case, (0, 1), "2", "mujoco") == f"{case.id}-seed{case.seed}-sweep0-1-2-mujoco"
+    assert run_id(case, None, None, "chrono") == f"{plain}-chrono"
+    assert run_id(case, (0, 1), "2", "chrono") == f"{case.id}-seed{case.seed}-sweep0-1-2-chrono"
     assert variation_run_id(case.id, 9) == f"{case.id}-variation-seed9"
-    assert variation_run_id(case.id, 9, "mujoco") == f"{case.id}-variation-seed9-mujoco"
+    assert variation_run_id(case.id, 9, "chrono") == f"{case.id}-variation-seed9-chrono"
 
 
 @pytest.mark.req("TST-040", "REC-013")
-@pytest.mark.parametrize("adapter", ["mujoco", "native"])
-def test_the_adapter_round_trips_through_the_archive(tmp_path: Path, adapter: str) -> None:
+def test_the_adapter_round_trips_through_the_archive(tmp_path: Path) -> None:
+    adapter = "native"
     services = Services(ShortDriver, core_builder, RecordArchiver(DESIGNS_ROOT))
     result = run_case(P1, services, {"physics.adapter": adapter}, out_dir=tmp_path)
     assert result.report is not None
@@ -106,14 +117,13 @@ def test_the_adapter_round_trips_through_the_archive(tmp_path: Path, adapter: st
     assert result.metadata is not None
     assert result.metadata.physics_adapter == adapter
     assert result.archive is not None
-    assert result.archive.name.endswith("-mujoco.h5") == (adapter == "mujoco")
+    assert result.archive.name == f"{result.metadata.run_id}.h5"
     with RunArchive(result.archive) as archive:
         assert archive.identity.physics_adapter == adapter
     read, _ = RecordArchiveReader().open(result.archive)
     assert read.physics_adapter == adapter
     assert read.run_id == result.metadata.run_id
-    native_line = any(line == "physics adapter: native" for line in result.report.approximations)
-    assert native_line == (adapter == "native")
+    assert "physics adapter: native" in result.report.approximations
 
 
 @pytest.mark.req("TST-040")

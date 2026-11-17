@@ -7,7 +7,7 @@
 | `adr/` | Architecture decision records; index in `adr/README.md` |
 | `spec/` | One spec per module, numbered requirements (ADR 0008; written in phase 0b) |
 | `rulings/` | Planning rulings, the handoff records for ADRs |
-| `milestones.md` | Milestones 1-5, engine packages, MuJoCo retirement criteria, open values |
+| `milestones.md` | Milestones 1-5, engine packages, MuJoCo retirement criteria and record (retired 2026-11-15), open values |
 | `queue.md` | Dispatch queue and next brief |
 | `cost-log.md` | Session cost log; archive in `cost-log-archive.md` |
 | `briefs/` | Dispatch briefs of record, one folder per round (from round 3's integration wave) |

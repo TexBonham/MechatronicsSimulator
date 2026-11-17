@@ -4,7 +4,7 @@ Model builder (BLD, ADR 0003). Failures raise `BuildError(failures)` listing all
 
 `build(design, registry, materials, *, chips=None, supported_elements=None, adapter="any", step_importer=None,
 base=None, blob=None, rigid_members=False) -> BuildResult`. `supported_elements` None accepts all; `blob` defaults
-to source_hash, zeros when unset; `rigid_members` builds flexible bodies rigid, member list kept (BLD-033).
+to source_hash, zeros when unset; `rigid_members` builds flexible bodies rigid, member list kept (BLD-033; no run selects it since the bridge retired).
 
 ## BuildResult (`result.py`)
 
@@ -71,7 +71,7 @@ Neutral quantities are written `repr(value) unit` in SI, validated once. Element
   fastener entry (`fastener`, `<body>_<kind>[_<index>]`); `PhysicsModel.fastening_index(name)`. Not an element kind.
 - Ropes (BLD-032): a design rope with both ends on bodies becomes a neutral `Rope`; a `to` end at a case payload is
   a note, not an element, and is listed in `payload_ropes`; the native run hangs the case payload on it
-  (`with_payload(..., rope=, starts=)`, M3-X1a), the bridge keeps the payload fixed to its carrier with a line.
+  (`with_payload(..., rope=, starts=)`, M3-X1a).
 - Reference tests: `tests/reference/lumped_beam_support.py` steps the built lumped member on `_engine` (tests only).
 
 ## Later

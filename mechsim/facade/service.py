@@ -36,7 +36,7 @@ from mechsim.scoring.score import (
 from mechsim.testing.baseline import BaselineDiff, baseline_text
 from mechsim.testing.driver import ArchiveReader, RecordView, RunMetadata
 from mechsim.testing.runner import RunResult, Services, run_case, run_id, run_suite
-from mechsim.testing.schema import ADAPTER_SETTING, DESIGNS_ROOT, PHYSICS_ADAPTERS, ROOT, CaseError, load_test_case
+from mechsim.testing.schema import ADAPTER_SETTING, DESIGNS_ROOT, ROOT, CaseError, adapter_refusal, load_test_case
 from mechsim.viewer import (
     ANGLE_UNIT,
     STRESS_UNIT,
@@ -608,13 +608,9 @@ class Facade:
         adapter: str = loaded.physics.adapter
         if sets is not None and ADAPTER_SETTING in sets:
             adapter = sets[ADAPTER_SETTING]
-        if adapter not in PHYSICS_ADAPTERS:
-            raise FacadeError(
-                "validation_failed",
-                f"{ADAPTER_SETTING}: unknown adapter {adapter!r}, expected one of {', '.join(PHYSICS_ADAPTERS)}",
-                "TST-040",
-                ADAPTER_SETTING,
-            )
+        refusal = adapter_refusal(adapter)
+        if refusal is not None:
+            raise FacadeError("validation_failed", refusal, "TST-040", ADAPTER_SETTING)
         return run_id(loaded, None, None, adapter)
 
     def _check_identity(self, case: Path, designs_root: Path, seed: int | None, mode: str | None) -> None:

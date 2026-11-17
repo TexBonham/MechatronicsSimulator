@@ -1118,9 +1118,8 @@ structural:
   minimum_safety_factor: ${minimum_safety_factor}
 # The payload rope (ADR 0016, ruling 2): one 0.3 m rope from the hook to the case payload, the REPLACEABLE sourced
 # 1/16 in 7x19 stainless part (brief M3-GV; its damping, length and end fitting mass stay placeholders). Its load
-# end is the case payload, placed at run time (BLD-032): on the native adapter the run hangs the payload on the rope
-# (top face centre, the rope's rest length below the hook point); the mujoco bridge models no rope and keeps the
-# payload fixed to the hook, swinging on hook_swing, with an approximation line saying so.
+# end is the case payload, placed at run time (BLD-032): the run hangs the payload on the rope (top face centre, the
+# rope's rest length below the hook point).
 ropes:
   - name: payload_rope
     part: rope_1_16in_7x19_304

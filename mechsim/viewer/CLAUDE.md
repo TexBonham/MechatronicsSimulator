@@ -17,4 +17,4 @@ only by `mechsim/facade/` and tests. Writes no files (VIE-017); needs no engine 
 ## Tests
 
 `tests/unit/test_viewer.py` (VIE-002 to VIE-011, VIE-014 to VIE-017; VIE-016 runs a subprocess with `mechsim._core`
-and `mujoco` blocked). VIE-001 and VIE-012 stay stubs for the browser client (`tests/unit/test_vie_stubs.py`).
+blocked). VIE-001 and VIE-012 stay stubs for the browser client (`tests/unit/test_vie_stubs.py`).

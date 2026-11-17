@@ -30,7 +30,7 @@ from mechsim.physics.neutral import PhysicsModel, from_yaml
 from mechsim.record.archive import RunArchive, write_archive
 from mechsim.record.stream import Recorder
 from mechsim.record.tick import BodyState
-from mechsim.testing.core_driver import BRIDGE_NODE_POSES, CoreDriver, RecordArchiver, core_builder
+from mechsim.testing.core_driver import CoreDriver, RecordArchiver, core_builder
 from mechsim.testing.driver import EndSpec, RunReport
 from mechsim.testing.runner import Services, prepare, run_case
 from mechsim.testing.schema import DESIGNS_ROOT
@@ -301,7 +301,6 @@ def test_a_flexible_design_on_native_records_named_node_pose_series(tmp_path: Pa
     lines = [line for line in result.report.approximations if line.startswith("driven joint '")]
     assert len(lines) > 0
     assert all("x = omega h = " in line for line in lines)
-    assert BRIDGE_NODE_POSES not in result.report.approximations
 
 
 @pytest.mark.req("PHY-003", "PHY-012", "REC-018")
@@ -342,14 +341,3 @@ def test_a_recorded_mid_node_reads_back_at_the_chain_static_deflection(tmp_path:
 
 def translate_names() -> tuple[str, ...]:
     return member_node_names(beam_model("free", 8, 0.0))
-
-
-@pytest.mark.req("PHY-003", "PHY-021")
-def test_the_same_design_on_the_bridge_records_no_node_series_and_says_so(tmp_path: Path) -> None:
-    result, model = _archive_run(tmp_path, "mujoco")
-    with RunArchive(result.archive) as archive:
-        position = archive.series("physics/bodies/position")
-    assert position.names == tuple(body.name for body in model.bodies)
-    assert not any(".node" in name for name in position.names)
-    assert BRIDGE_NODE_POSES in result.report.approximations
-    assert not any(line.startswith("driven joint '") for line in result.report.approximations)

@@ -9,7 +9,7 @@ One compiled library, one pybind11 binding (R-08, ADR 0005). Own CMake tree.
 | `signals/` | Built-in signal components: sensors, front-ends, rails, safety hardware, operator link, pin bindings |
 | `controller/` | Controller runtimes: native shim, Renode bridge |
 | `integrity/` | Tier 1 integrity party: member stress, buckling, deflection, fastener load per tick; tier 2 yield requests (ADR 0010) |
-| `physics/` | `PhysicsAdapter` implementations: `mujoco/` (MuJoCo C API), `native/` (own engine) (ADR 0014); stubs |
+| `physics/` | `PhysicsAdapter` implementations: `native/` (own engine) (ADR 0014); the MuJoCo bridge retired (ADR 0004) |
 | `bindings/` | pybind11 binding exposing the core runtime to Python |
 | `viewer_debug/` | Minimal immediate-mode C++ window for engine development (ADR 0007) |
 
@@ -50,7 +50,7 @@ Physics publishes live member end-loads every tick and accepts mid-run model cha
 |---|---|
 | Python | Python enters only through `bindings/` |
 | Qt | Invariant 9; display code only in `viewer_debug/` |
-| MuJoCo | Only in `core/physics/mujoco/` (stepping) and `mechsim/physics/mujoco/` (translation) (ADR 0014) |
+| MuJoCo | Retired (ADR 0004): no include anywhere, enforced by CI and the invariant tier (PHY-011, PHY-026) |
 | Reference collision library | Test-only differential oracle, never linked into the core runtime (ADR 0002) |
 
 ## Contracts

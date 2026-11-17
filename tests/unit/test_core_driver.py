@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import math
-import xml.etree.ElementTree as ET
 from dataclasses import replace
 from fractions import Fraction
 from pathlib import Path
@@ -12,9 +11,6 @@ from typing import Any
 import pytest
 
 from mechsim import _core as core
-from mechsim.physics.mujoco.prepare import StartStateError, prepare_model
-from mechsim.physics.mujoco.translate import UnmappableElementError
-from mechsim.physics.neutral import BeltPulley, LeadScrew
 from mechsim.record import Recorder, RunArchive, archives_identical
 from mechsim.record.tick import CouplingSample, RecordError, TickRecord
 from mechsim.testing.core_driver import (
@@ -29,7 +25,7 @@ from mechsim.testing.core_driver import (
 from mechsim.testing.driver import EndSpec, RunConfig, RunMetadata, ScheduledCommand, ScheduledFault
 from mechsim.testing.runner import prepare
 from mechsim.testing.schema import DESIGNS_ROOT, ROOT, InitialState, JointState
-from tests.unit.test_builder_support import gantry, pendulum
+from tests.unit.test_builder_support import pendulum
 from tests.unit.test_record_support import BASE_RATE, finished, identity, synthetic_rows
 
 P1 = ROOT / "test_cases" / "pendulum" / "P1_period.yaml"
@@ -267,51 +263,3 @@ def test_services_wire_the_real_driver() -> None:
     services = core_services()
     assert isinstance(services.driver(), CoreDriver)
     assert isinstance(services.archiver, RecordArchiver)
-
-
-def _self_locking_lift(transmissions: tuple[Any, ...]) -> tuple[Any, ...]:
-    """The lift belt swapped for a self-locking lead screw of the same travel per turn: the gantry has had no lead
-    screw since 2026-11-11, and a self-locking screw is the element the MuJoCo bridge cannot map."""
-    swapped = []
-    for item in transmissions:
-        if isinstance(item, BeltPulley) and item.name == "lift_belt":
-            data = item.model_dump()
-            data.pop("pulley_radius")
-            data.update(
-                {"type": "lead_screw", "lead": f"{2.0 * math.pi * item.pulley_radius!r} m", "self_locking": True}
-            )
-            swapped.append(LeadScrew.model_validate(data))
-        else:
-            swapped.append(item)
-    return tuple(swapped)
-
-
-@pytest.mark.req("TST-038")
-def test_prepared_model_keeps_the_report_and_places_starts_exactly() -> None:
-    """ADR 0003: the gantry's belts are finite-stiffness transmissions the bridge maps rigid, so the report
-    is not empty. A slide start shifts the child body along its axis by the start and sets `ref`; the shift is
-    exact (one product of SI floats)."""
-    built = core_builder(gantry(), "mujoco").physics
-    assert built is not None
-    assert [item.backlash for item in built.transmissions] == [0.0, 0.0, 0.0]
-    locked = _self_locking_lift(built.transmissions)
-    with pytest.raises(UnmappableElementError, match="self-locking"):
-        prepare_model(built.model_copy(update={"transmissions": locked}))
-    physics = built
-    plain = prepare_model(physics)
-    assert len(plain.report) > 0
-    placed = prepare_model(physics, {"x_axis": 0.3})
-    assert placed.report == plain.report
-    root = ET.fromstring(placed.mjcf)
-    body = next(element for element in root.iter("body") if element.get("name") == "rail_y")
-    joint = next(element for element in body.findall("joint") if element.get("name") == "x_axis")
-    assert joint.get("ref") == "0.3"
-    position = [float(value) for value in (body.get("pos") or "").split()]
-    original = next(element for element in ET.fromstring(plain.mjcf).iter("body") if element.get("name") == "rail_y")
-    before = [float(value) for value in (original.get("pos") or "").split()]
-    assert position[0] - before[0] == pytest.approx(0.3, abs=1e-15)
-    assert position[1:] == before[1:]
-    with pytest.raises(StartStateError, match="reflected shaft"):
-        prepare_model(physics, {"x_motor_spin": 0.1})
-    with pytest.raises(StartStateError, match="spherical"):
-        prepare_model(physics, {"hook_swing": 0.1})

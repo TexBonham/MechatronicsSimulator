@@ -1,6 +1,6 @@
 """Clamped-clamped members reach the own engine (BLD-017, BLD-018; rulings 16, 29, 31, 32): the neutral end value,
 the builder's segment defaults and calibration floor, the translation's `clamped` ends, the native build flexible and
-the bridge build rigid, and the member node names (X1)."""
+a retired adapter refused, and the member node names (X1)."""
 
 from __future__ import annotations
 
@@ -15,7 +15,7 @@ from mechsim.design.schema import shipped_materials
 from mechsim.library.registry import default_registry
 from mechsim.physics.native import translate
 from mechsim.physics.neutral import PhysicsModel
-from mechsim.testing.core_driver import core_builder
+from mechsim.testing.core_driver import DriverError, core_builder
 from mechsim.testing.runner import prepare
 from mechsim.testing.schema import ROOT
 from tests.unit.test_builder_structure import CALIBRATION, _bar
@@ -90,19 +90,18 @@ def test_the_translation_emits_the_engines_clamped_ends() -> None:
 
 
 @pytest.mark.req("BLD-033", "TST-040")
-def test_the_native_build_is_flexible_and_the_bridge_build_rigid() -> None:
+def test_the_build_is_flexible_and_a_retired_adapter_is_refused() -> None:
     design = prepare(G3).design
     native = core_builder(design, "native")
-    bridge = core_builder(design, "mujoco")
     assert native.physics is not None
-    assert bridge.physics is not None
-    assert len(bridge.physics.lumped_members) == 0
+    with pytest.raises(DriverError, match="'mujoco': the MuJoCo bridge was retired"):
+        core_builder(design, "mujoco")
     ends = {
         member.structural_member: (member.root, member.end, member.segments) for member in native.physics.lumped_members
     }
     assert ends["rail_x"] == ("clamped", "clamped", 16)
     assert ends["rail_y"] == ("pinned", "roller", 8)
-    assert [member.name for member in native.members] == [member.name for member in bridge.members]
+    assert len(native.members) == len(native.physics.lumped_members)
 
 
 @pytest.mark.req("BLD-017")

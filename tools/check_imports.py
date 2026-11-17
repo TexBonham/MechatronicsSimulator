@@ -22,7 +22,7 @@ class Rule:
 
     A module matches when its dotted name equals an entry of ``modules`` or starts with that entry plus a dot. A file
     location matches a prefix when its repository-relative POSIX path starts with it. An empty ``allowed_under`` means
-    the module is allowed everywhere except under ``forbidden_under``.
+    the module is allowed everywhere except under ``forbidden_under``; the prefix ``""`` forbids it anywhere.
     """
 
     modules: tuple[str, ...]
@@ -33,10 +33,10 @@ class Rule:
 
 RULES: tuple[Rule, ...] = (
     Rule(
-        modules=("mujoco",),
-        allowed_under=("mechsim/physics/mujoco/",),
-        forbidden_under=(),
-        reason="MuJoCo stays behind its adapter (invariant 5)",
+        modules=("mujoco", "mechsim.physics.mujoco"),
+        allowed_under=(),
+        forbidden_under=("",),
+        reason="the MuJoCo bridge was retired (ADR 0004, PHY-026)",
     ),
     Rule(
         modules=("PySide6", "PySide2", "PyQt5", "PyQt6", "OpenGL", "pyqtgraph", "tkinter", "vispy", "glfw", "pygame"),
@@ -104,6 +104,8 @@ def is_allowed(rule: Rule, location: str) -> bool:
 def describe(rule: Rule) -> str:
     if rule.allowed_under:
         where = "allowed only under " + ", ".join(rule.allowed_under)
+    elif "" in rule.forbidden_under:
+        where = "forbidden anywhere"
     else:
         where = "forbidden under " + ", ".join(rule.forbidden_under)
     return f"{where}: {rule.reason}"

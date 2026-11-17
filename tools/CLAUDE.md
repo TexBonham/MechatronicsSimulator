@@ -7,7 +7,7 @@ Stdlib Python checkers (3.12 floor), run by the tests and `tools/hooks/`.
 `python3 tools/check_imports.py [--root ROOT] [paths...]`. Parses with `ast`, dynamic imports included. Exit 1 on any violation, else 0.
 
 Rules (`RULES`):
-- `mujoco`: only under `mechsim/physics/mujoco/` (invariant 5)
+- `mujoco`, `mechsim.physics.mujoco`: forbidden anywhere (prefix `""`), the bridge retired (ADR 0004, PHY-026)
 - Qt, PySide, PyQt, OpenGL, tkinter, vispy, glfw, pygame, pyqtgraph: only under `mechsim/viewer/` (invariant 9)
 - `hppfcl`, `fcl`, `pycollision`: only under `tests/` (R-05)
 - `mechsim.viewer`: only under `mechsim/viewer/`, `mechsim/facade/` (the facade serves it, VIE-014; ruling 15) and `tests/` (invariant 9)

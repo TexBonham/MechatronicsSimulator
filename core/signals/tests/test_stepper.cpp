@@ -103,8 +103,8 @@ TEST_CASE("The torque-speed table interpolates linearly and gives nothing above 
 namespace {
 
 // The physics stub: a shaft on a frictionless bearing, J theta'' = K (rest - theta) - D omega - load, with the
-// stepper's drive applied implicitly (backward Euler: the spring and damper at the step's end state, as the MuJoCo
-// bridge's soft equality solves them), so no omega h limit. load is a constant external torque on the shaft (gravity
+// stepper's drive applied implicitly (backward Euler: the spring and damper at the step's end state, as every
+// adapter's joint drive solves them), so no omega h limit. load is a constant external torque on the shaft (gravity
 // through a transmission), positive against the + axis. It publishes the joint coordinate and the drive torque
 // K (rest - theta) - D omega it applied, as physics does (PHY-034). For this linear scheme the energy
 // J omega^2 / 2 + K (theta - theta_s)^2 / 2 about the static angle theta_s never grows, so from rest the shaft never

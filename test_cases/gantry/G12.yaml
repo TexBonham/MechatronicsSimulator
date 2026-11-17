@@ -2,7 +2,7 @@
 # Pass: the peak swing angle within its limit (ACC-025) and the swing settled into its band within the settle time
 # (ACC-026), after each. The limit, the settle time and the band are open parameters owed by the gantry team
 # (swing_limit_angle 0.1, swing_settle_time 5 s in the design; swing_settle_band here); the rated load hangs on
-# payload_rope, so the case runs on the native adapter (the bridge models no rope, BLD-032).
+# payload_rope (BLD-032).
 #
 # Swing angle (SCO-030): swing:hook.payload.x and .y, the signed angle from the vertical of the line from the hook's
 # origin (the hook_swing pivot) to the payload's centre, in the vertical planes through world x and world y.

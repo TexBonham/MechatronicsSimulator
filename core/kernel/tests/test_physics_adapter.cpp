@@ -34,7 +34,7 @@ std::unique_ptr<PhysicsAdapter> loaded_adapter() {
 TEST_CASE("The null adapter loads a prepared model once and keeps its version and rate", "[PHY-001]") {
     NullPhysicsAdapter adapter;
     CHECK_FALSE(adapter.loaded());
-    adapter.load(PreparedModel{"{}", "<mujoco/>", "1.2.3"}, Rate(500));
+    adapter.load(PreparedModel{"{}", "<artifact/>", "1.2.3"}, Rate(500));
     CHECK(adapter.loaded());
     CHECK(adapter.design_version() == "1.2.3");
     CHECK(adapter.health().physics_rate == Rate(500));

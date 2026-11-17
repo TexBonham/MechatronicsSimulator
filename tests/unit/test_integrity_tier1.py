@@ -30,7 +30,6 @@ from mechsim.integrity.tier1 import (
     BEFORE_EVALUATION_KIND,
     FORMAT,
     MODEL_REQUESTS,
-    NOT_EVALUATED,
     PARTY,
     YIELD_RULE,
     Tier1Service,
@@ -535,14 +534,6 @@ def test_without_tier_1_no_party_is_registered(tmp_path: Path) -> None:
     assert off.report.approximations == result.report.approximations
 
 
-@pytest.mark.req("INT-023")
-def test_the_bridge_registers_no_party_and_says_so(tmp_path: Path) -> None:
-    result, driver = gantry_run(tmp_path, "mujoco", mount_config())
-    assert driver.integrity_trace is None
-    assert integrity_events(driver) == []
-    assert NOT_EVALUATED in result.report.approximations
-
-
 @pytest.mark.req("INT-024", "INT-025", "REC-010", "SCO-015")
 def test_a_native_crossing_is_one_integrity_event_and_fails_the_case(tmp_path: Path) -> None:
     result, driver = gantry_run(tmp_path, "native", mount_config())
@@ -711,9 +702,9 @@ class _CountingService(Tier1Service):
 
 
 @pytest.mark.req("INT-023")
-def test_the_bridge_never_builds_the_limits_table(tmp_path: Path) -> None:
-    """Ruling 34: tier 1 runs on the native adapter only, so a table error (an unrated fastener) cannot fail a bridge
-    run, which carries the not-evaluated line instead; the same configuration on the native adapter is a run error."""
+def test_a_limits_table_error_is_a_run_error(tmp_path: Path) -> None:
+    """Ruling 34: a table error (an unrated fastener) is a run error on the native adapter, the only adapter since
+    the bridge's retirement (ADR 0004)."""
     services_of: list[_CountingService] = []
 
     def factory() -> CoreDriver:
@@ -721,11 +712,6 @@ def test_the_bridge_never_builds_the_limits_table(tmp_path: Path) -> None:
         services_of.append(service)
         return ShortDriver(tier1=service)
 
-    bridge = run_case(G1, Services(factory, core_builder, None), {"physics.adapter": "mujoco"})
-    assert bridge.report is not None
-    assert not bridge.report.errored
-    assert NOT_EVALUATED in bridge.report.approximations
-    assert services_of[-1].tables == 0
     native = run_case(G1, Services(factory, core_builder, None), {"physics.adapter": "native"})
     assert native.score.status == "error"
     assert native.score.error is not None
@@ -832,13 +818,13 @@ def test_the_rope_snap_gate_reaches_the_run_and_its_report_through_the_driver(tm
         assert f"  approximation: {off}" in report_text(SuiteScore("s", result.score.design, (result.score,)))
 
 
-ADAPTER_INCLUDE = re.compile(r'^\s*#\s*include\s*[<"](mechsim/physics/|mujoco/)', re.MULTILINE)
+ADAPTER_INCLUDE = re.compile(r'^\s*#\s*include\s*[<"]mechsim/physics/', re.MULTILINE)
 
 
 @pytest.mark.req("INT-026", "INT-023")
 def test_the_integrity_package_and_its_binding_include_no_adapter_header() -> None:
     """Invariant 5 (ruling 79): the party reads the engine's flag through `ValiditySource`, which the physics binding
-    fills; neither the integrity library's sources and headers nor its binding include an adapter or MuJoCo header (the
+    fills; neither the integrity library's sources and headers nor its binding include an adapter header (the
     integration test `core/integrity/tests/test_integrity_native.cpp` runs the party beside the native adapter and is
     not part of the library)."""
     files = [

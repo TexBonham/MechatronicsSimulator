@@ -1,5 +1,5 @@
 """Physics substeps (TST-042, rulings 21, 49): `physics.substeps` sets the native adapter's engine steps per physics
-step, leaving the physics and control rates unchanged; above one on the bridge the run fails."""
+step, leaving the physics and control rates unchanged."""
 
 from __future__ import annotations
 
@@ -66,12 +66,10 @@ def test_a_substep_count_below_one_or_not_an_integer_is_a_validation_error_namin
 
 
 @pytest.mark.req("TST-042")
-def test_native_lines_state_the_substep_and_the_bridge_refuses_substeps() -> None:
+def test_native_lines_state_the_substep() -> None:
     lines = _short_run("native", 4).approximations
     assert any("at 0.00025 s" in line for line in lines), lines
     assert not any("at 0.001 s" in line for line in lines)
     assert any("at 0.001 s" in line for line in _short_run("native", 1).approximations)
-    with pytest.raises(DriverError) as raised:
+    with pytest.raises(DriverError, match="the MuJoCo bridge was retired"):
         _short_run("mujoco", 2)
-    assert str(raised.value) == "physics.substeps 2: only the native adapter substeps (TST-042)"
-    assert _short_run("mujoco", 1).reason == "end_time"

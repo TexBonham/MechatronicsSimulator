@@ -138,7 +138,7 @@ void drive(NativeAdapter& adapter, double rest, double stiffness, double damping
 TEST_CASE("native adapter: load refuses an artifact, a second load and unknown elements", "[PHY-001][PHY-019]") {
     NativeAdapter adapter;
     const Doc doc = slider(1.0);
-    CHECK_THROWS_AS(adapter.load(PreparedModel{doc.text(), "<mujoco/>", "1.0.0"}, Rate(1000)), AdapterError);
+    CHECK_THROWS_AS(adapter.load(PreparedModel{doc.text(), "<artifact/>", "1.0.0"}, Rate(1000)), AdapterError);
     Doc unknown = slider(1.0);
     unknown.elements = R"(["body", "joint.prismatic", "tendon"])";
     CHECK_THROWS_AS(load(adapter, unknown), AdapterError);

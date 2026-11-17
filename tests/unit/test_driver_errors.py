@@ -3,7 +3,6 @@ stepper's rotor inertia checked from the Python side (SIG-037, BLD-034), the arc
 
 from __future__ import annotations
 
-import math
 from dataclasses import replace
 from fractions import Fraction
 from pathlib import Path
@@ -15,8 +14,6 @@ from mechsim import _core as core
 from mechsim.builder.result import BuildResult
 from mechsim.design.schema import Design
 from mechsim.library.registry import default_registry
-from mechsim.physics.mujoco.translate import UnmappableElementError
-from mechsim.physics.neutral import BeltPulley, LeadScrew
 from mechsim.record.archive import RunArchive
 from mechsim.scoring.score import SuiteScore, report_text
 from mechsim.testing import core_driver, core_wiring
@@ -28,7 +25,6 @@ from mechsim.testing.schema import DESIGNS_ROOT, ROOT
 G3 = ROOT / "test_cases" / "gantry" / "G3.yaml"
 P1 = ROOT / "test_cases" / "pendulum" / "P1_period.yaml"
 TICKS = 5
-BRIDGE = {"physics.adapter": "mujoco"}
 
 
 class ShortDriver(CoreDriver):
@@ -56,30 +52,6 @@ def _run_failed(result: RunResult, *fragments: str) -> None:
     text = report_text(SuiteScore("s", score.design, (score,)))
     assert "ended: run_error, no recording" in text
     assert f"error: {score.error}" in text
-
-
-def _self_locking_lift(transmissions: tuple[Any, ...]) -> tuple[Any, ...]:
-    """The lift belt swapped for a self-locking lead screw of the same travel per turn: the gantry has had no lead
-    screw since 2026-11-11, and a self-locking screw is the element the MuJoCo bridge cannot map."""
-    swapped = []
-    for item in transmissions:
-        if isinstance(item, BeltPulley) and item.name == "lift_belt":
-            data = item.model_dump()
-            data.pop("pulley_radius")
-            data.update(
-                {"type": "lead_screw", "lead": f"{2.0 * math.pi * item.pulley_radius!r} m", "self_locking": True}
-            )
-            swapped.append(LeadScrew.model_validate(data))
-        else:
-            swapped.append(item)
-    return tuple(swapped)
-
-
-def _lashed(design: Design, adapter: str = "native") -> BuildResult:
-    built = core_builder(design, adapter)
-    assert built.physics is not None
-    locked = _self_locking_lift(built.physics.transmissions)
-    return built.model_copy(update={"physics": built.physics.model_copy(update={"transmissions": locked})})
 
 
 def _off_inertia(design: Design, adapter: str = "native") -> BuildResult:
@@ -114,18 +86,6 @@ def _prepared_driver(case: Path, builder: Any = core_builder, bindings: dict[str
 
 
 @pytest.mark.req("TST-023")
-@pytest.mark.req("PHY-019")
-def test_an_unmappable_design_is_a_driver_error_and_a_run_error_score() -> None:
-    """A bridge test (PHY-019): the self-locking screw is the element only the bridge cannot map, so the run is
-    on the bridge by `physics.adapter` (TST-040)."""
-    driver = _prepared_driver(G3, _lashed, BRIDGE)
-    with pytest.raises(DriverError, match="self-locking") as raised:
-        driver.run(EndSpec(max_tick=TICKS, at_tick=TICKS))
-    assert isinstance(raised.value.__cause__, UnmappableElementError)
-    _run_failed(run_case(G3, _services(_lashed), BRIDGE), "self-locking")
-
-
-@pytest.mark.req("TST-023")
 def test_a_failing_adapter_load_is_a_driver_error_and_a_run_error_score(monkeypatch: pytest.MonkeyPatch) -> None:
     class Refusing:
         def load(self, prepared: Any, rate: Any) -> None:
@@ -141,7 +101,7 @@ def test_a_failing_adapter_load_is_a_driver_error_and_a_run_error_score(monkeypa
 
 @pytest.mark.req("TST-023")
 def test_a_duplicate_party_name_is_a_driver_error_and_a_run_error_score(monkeypatch: pytest.MonkeyPatch) -> None:
-    physics = core.PhysicsParty(core.make_physics_adapter("mujoco"), core.PhysicsPartyConfig()).name()
+    physics = core.PhysicsParty(core.make_physics_adapter("native"), core.PhysicsPartyConfig()).name()
 
     class Clashing(core_wiring.RunnerParty):  # type: ignore[misc]
         def name(self) -> str:
@@ -165,9 +125,9 @@ def test_a_shaft_inertia_off_the_rotor_inertia_is_refused_by_the_signal_layer() 
     _run_failed(run_case(G3, _services(_off_inertia)), "x_motor", "shaft body 'x_motor_shaft'", "SIG-037")
 
 
-def _brake_on_the_lift_axis(design: Design, adapter: str = "mujoco") -> BuildResult:
-    """The lift brake moved from the motor shaft joint to the belt-driven lift_axis, where the bridge carries no
-    second drive (PHY-034)."""
+def _brake_on_the_lift_axis(design: Design, adapter: str = "native") -> BuildResult:
+    """The lift brake moved from the motor shaft joint to the belt-driven lift_axis, where its transmission's drive
+    is the one drive (PHY-034)."""
     built = core_builder(design)
     instances = []
     for instance in built.wiring.instances:
@@ -179,7 +139,7 @@ def _brake_on_the_lift_axis(design: Design, adapter: str = "mujoco") -> BuildRes
 
 
 @pytest.mark.req("TST-023", "BLD-035")
-def test_a_brake_the_bridge_cannot_apply_ends_the_build_naming_brake_and_joint() -> None:
+def test_a_brake_on_a_driven_joint_ends_the_build_naming_brake_and_joint() -> None:
     """Round 4 ruling 29 (invariant 7): an error, never a note and an unheld joint."""
     driver = _prepared_driver(G3, _brake_on_the_lift_axis)
     with pytest.raises(DriverError, match="brake 'lift_brake': cannot be applied on joint 'lift_axis'"):
@@ -216,17 +176,16 @@ def test_every_stepper_gets_its_shaft_body_and_axial_inertia() -> None:
 
 
 @pytest.mark.req("SCO-013")
-def test_bridge_approximations_reach_the_report_the_score_and_the_suite_text(tmp_path: Path) -> None:
-    """ADR 0003: the gantry's belts and screw are finite-stiffness transmissions the bridge maps rigid, so its
-    translation report holds lines; each reaches the run report, the score and the printed text. A bridge test: both
-    runs are on the bridge by `physics.adapter` (TST-040)."""
+def test_approximations_reach_the_report_the_score_and_the_suite_text(tmp_path: Path) -> None:
+    """ADR 0003: the native adapter's translation report holds lines (the adapter's name first); each reaches the
+    run report, the score and the printed text."""
     services = Services(ShortDriver, core_builder, RecordArchiver(DESIGNS_ROOT))
-    result = run_case(G3, services, BRIDGE, out_dir=tmp_path)
+    result = run_case(G3, services, out_dir=tmp_path)
     assert result.report is not None
     assert not result.report.errored, result.report.error
     lines = result.report.approximations
     assert len(lines) > 0
-    assert any("stiffness" in line for line in lines)
+    assert lines[0] == "physics adapter: native"
     assert result.score.approximations == lines
     text = report_text(SuiteScore("G3", result.score.design, (result.score,)))
     for line in lines:
@@ -234,9 +193,6 @@ def test_bridge_approximations_reach_the_report_the_score_and_the_suite_text(tmp
     assert result.archive is not None
     read, _ = RecordArchiveReader().open(result.archive)
     assert read.report.approximations == lines
-    pendulum = run_case(P1, _services(), BRIDGE)
-    assert pendulum.score.approximations == ()
-    assert "approximation:" not in report_text(SuiteScore("P1", pendulum.score.design, (pendulum.score,)))
 
 
 @pytest.mark.req("TST-033")
