@@ -16,6 +16,7 @@ import math
 import re
 import sys
 from collections.abc import Callable, Iterator
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Annotated, Any, Literal
 
@@ -27,6 +28,7 @@ from pydantic import (
     Field,
     GetCoreSchemaHandler,
     GetJsonSchemaHandler,
+    PrivateAttr,
     ValidationError,
     ValidationInfo,
     WithJsonSchema,
@@ -39,8 +41,9 @@ from ruamel.yaml import YAML
 
 from mechsim.design.chip import Chip, PeripheralMode, shipped_chips
 from mechsim.library.registry import Registry, RegistryError, default_registry
-from mechsim.library.schema import QuantityParameter, dimensions_equal
-from mechsim.materials.schema import DATA_DIR, Material, load_material_file
+from mechsim.library.schema import ROPE_PARAMETERS, SECTION_PARAMETERS, QuantityParameter, dimensions_equal
+from mechsim.materials.database import MaterialSet
+from mechsim.materials.schema import DATA_DIR, Material, MaterialError, load_material_file
 from mechsim.schema_base import StrictModel, format_errors
 from mechsim.units import parse_quantity
 
@@ -419,23 +422,254 @@ class MassProperties(_Strict):
         return self
 
 
-class Section(_Strict):
-    """Cross-section and span; E and rho come from the body's material."""
+class RectangleShape(_Strict):
+    """Solid rectangle: `height` along the bending direction (member y), `width` across it."""
 
-    area: Area
-    second_moment: SecondMomentOfArea
+    kind: Literal["rectangle"]
+    width: Length
+    height: Length
+
+
+class CircleShape(_Strict):
+    kind: Literal["circle"]
+    diameter: Length
+
+
+class TubeShape(_Strict):
+    kind: Literal["tube"]
+    outer_diameter: Length
+    inner_diameter: Length
+
+
+class RectangularTubeShape(_Strict):
+    """Hollow rectangle of uniform `wall`; `height` along the bending direction."""
+
+    kind: Literal["rectangular_tube"]
+    width: Length
+    height: Length
+    wall: Length
+
+
+SectionShape = Annotated[RectangleShape | CircleShape | TubeShape | RectangularTubeShape, Field(discriminator="kind")]
+
+
+def shape_area_and_moment(shape: SectionShape) -> tuple[float, float]:
+    """Area and second moment of area about the bending axis (member z), SI (DES-033)."""
+    if isinstance(shape, RectangleShape):
+        width, height = _set_floats(shape.width, shape.height)
+        return width * height, width * height**3 / 12.0
+    if isinstance(shape, CircleShape):
+        (diameter,) = _set_floats(shape.diameter)
+        return math.pi * diameter**2 / 4.0, math.pi * diameter**4 / 64.0
+    if isinstance(shape, TubeShape):
+        outer, inner = _set_floats(shape.outer_diameter, shape.inner_diameter)
+        return math.pi * (outer**2 - inner**2) / 4.0, math.pi * (outer**4 - inner**4) / 64.0
+    width, height, wall = _set_floats(shape.width, shape.height, shape.wall)
+    inner_width = width - 2.0 * wall
+    inner_height = height - 2.0 * wall
+    area = width * height - inner_width * inner_height
+    return area, (width * height**3 - inner_width * inner_height**3) / 12.0
+
+
+@dataclass(frozen=True)
+class SectionProperties:
+    """Section properties in the member frame (x along the member, y the bending direction a shape's `height` lies
+    along, z across it; ruling 25), SI: area, second moments about y and z, extreme-fibre distances along y and z,
+    torsion constant, and shear areas along y and z (Cowper's shear coefficients at Poisson ratio 0: 5/6 for a
+    rectangle, 6/7 for a circle, 6 (1 + m^2)^2 / (7 (1 + m^2)^2 + 20 m^2) for a tube of diameter ratio m; the webs
+    for a rectangular tube)."""
+
+    area: float
+    second_moment_y: float
+    second_moment_z: float
+    fibre_y: float
+    fibre_z: float
+    torsion_constant: float
+    shear_area_y: float
+    shear_area_z: float
+
+
+def _rectangle_torsion(long: float, short: float) -> float:
+    """Saint-Venant torsion constant of a solid rectangle, Roark's form: a b^3 (1/3 - 0.21 (b/a) (1 - b^4 / (12 a^4)))
+    with a the long and b the short side (within 4 percent for every aspect ratio)."""
+    ratio = short / long
+    return long * short**3 * (1.0 / 3.0 - 0.21 * ratio * (1.0 - ratio**4 / 12.0))
+
+
+def shape_properties(shape: SectionShape) -> SectionProperties:
+    """`SectionProperties` of a section shape from its dimensions (ruling 25)."""
+    if isinstance(shape, RectangleShape):
+        width, height = _set_floats(shape.width, shape.height)
+        area = width * height
+        shear = 5.0 / 6.0 * area
+        return SectionProperties(
+            area,
+            height * width**3 / 12.0,
+            width * height**3 / 12.0,
+            height / 2.0,
+            width / 2.0,
+            _rectangle_torsion(max(width, height), min(width, height)),
+            shear,
+            shear,
+        )
+    if isinstance(shape, (CircleShape, TubeShape)):
+        if isinstance(shape, CircleShape):
+            (outer,) = _set_floats(shape.diameter)
+            inner = 0.0
+        else:
+            outer, inner = _set_floats(shape.outer_diameter, shape.inner_diameter)
+        area = math.pi * (outer**2 - inner**2) / 4.0
+        moment = math.pi * (outer**4 - inner**4) / 64.0
+        m2 = (inner / outer) ** 2
+        coefficient = 6.0 * (1.0 + m2) ** 2 / (7.0 * (1.0 + m2) ** 2 + 20.0 * m2)
+        shear = coefficient * area
+        return SectionProperties(area, moment, moment, outer / 2.0, outer / 2.0, 2.0 * moment, shear, shear)
+    width, height, wall = _set_floats(shape.width, shape.height, shape.wall)
+    inner_width = width - 2.0 * wall
+    inner_height = height - 2.0 * wall
+    area = width * height - inner_width * inner_height
+    mean_width = width - wall
+    mean_height = height - wall
+    torsion = 4.0 * (mean_width * mean_height) ** 2 * wall / (2.0 * (mean_width + mean_height))
+    return SectionProperties(
+        area,
+        (height * width**3 - inner_height * inner_width**3) / 12.0,
+        (width * height**3 - inner_width * inner_height**3) / 12.0,
+        height / 2.0,
+        width / 2.0,
+        torsion,
+        2.0 * wall * height,
+        2.0 * wall * width,
+    )
+
+
+def _set_floats(*values: float | OpenValue) -> tuple[float, ...]:
+    out: list[float] = []
+    for value in values:
+        if isinstance(value, OpenValue):
+            raise TypeError(f"open section dimension {value} has no area or second moment")
+        out.append(value)
+    return tuple(out)
+
+
+def _shape_problem(shape: SectionShape) -> str | None:
+    if isinstance(shape, RectangleShape):
+        _require_positive(shape.width, "section width")
+        _require_positive(shape.height, "section height")
+    elif isinstance(shape, CircleShape):
+        _require_positive(shape.diameter, "section diameter")
+    elif isinstance(shape, TubeShape):
+        _require_positive(shape.outer_diameter, "section outer_diameter")
+        _require_non_negative(shape.inner_diameter, "section inner_diameter")
+        outer = shape.outer_diameter
+        inner = shape.inner_diameter
+        if isinstance(outer, float) and isinstance(inner, float) and inner >= outer:
+            return "section inner_diameter must be below outer_diameter"
+    else:
+        _require_positive(shape.width, "section width")
+        _require_positive(shape.height, "section height")
+        _require_positive(shape.wall, "section wall")
+        wall, width, height = shape.wall, shape.width, shape.height
+        if (
+            isinstance(wall, float)
+            and isinstance(width, float)
+            and isinstance(height, float)
+            and 2.0 * wall >= min(width, height)
+        ):
+            return "section wall must be below half the smaller of width and height"
+    return None
+
+
+class Section(_Strict):
+    """Cross-section and span (DES-033, ruling 25): a `shape` with its dimensions; or `area` with `second_moment` (the
+    symmetric shorthand: both axes equal, optional `fibre_y` and `fibre_z` together, else evaluated single-axis); or
+    `area` with both axes explicit, `second_moment_y`, `second_moment_z`, `fibre_y`, `fibre_z` (member frame: z the
+    axis of bending along y, so `second_moment_z` is the neutral member's `second_moment_of_area`). E and rho come from
+    the body's material."""
+
+    area: Area | None = None
+    second_moment: SecondMomentOfArea | None = None
+    second_moment_y: SecondMomentOfArea | None = None
+    second_moment_z: SecondMomentOfArea | None = None
+    fibre_y: Length | None = None
+    fibre_z: Length | None = None
+    shape: SectionShape | None = None
     length: Length
 
     @model_validator(mode="after")
     def _positive(self) -> Section:
+        axes = self.second_moment_y is not None or self.second_moment_z is not None
+        fibres = self.fibre_y is not None or self.fibre_z is not None
+        explicit = self.area is not None or self.second_moment is not None or axes or fibres
+        if self.shape is not None and explicit:
+            raise ValueError("section takes a shape or area and second_moment, not both")
+        if self.shape is None:
+            if self.area is None:
+                raise ValueError("section needs a shape, or both area and second_moment")
+            if self.second_moment is not None and axes:
+                raise ValueError("section takes second_moment (both axes equal) or second_moment_y and _z, not both")
+            if self.second_moment is None and not axes:
+                raise ValueError("section needs a shape, or both area and second_moment")
+            if axes and (self.second_moment_y is None or self.second_moment_z is None):
+                raise ValueError("section with explicit axes needs both second_moment_y and second_moment_z")
+            if axes and (self.fibre_y is None or self.fibre_z is None):
+                raise ValueError("section with explicit axes needs both fibre_y and fibre_z")
+            if fibres and (self.fibre_y is None or self.fibre_z is None):
+                raise ValueError("section fibre distances come together: fibre_y and fibre_z")
+        if self.shape is not None:
+            problem = _shape_problem(self.shape)
+            if problem is not None:
+                raise ValueError(problem)
         _require_positive(self.area, "section area")
         _require_positive(self.second_moment, "section second_moment")
+        _require_positive(self.second_moment_y, "section second_moment_y")
+        _require_positive(self.second_moment_z, "section second_moment_z")
+        _require_positive(self.fibre_y, "section fibre_y")
+        _require_positive(self.fibre_z, "section fibre_z")
         _require_positive(self.length, "section length")
         return self
 
+    def properties(self) -> SectionProperties | None:
+        """Full section properties: from the shape, or None for the explicit forms."""
+        if self.shape is None:
+            return None
+        return shape_properties(self.shape)
+
+    def bending_axes(self) -> tuple[float, float, float, float] | None:
+        """SI (I_y, I_z, c_y, c_z) as the file states them: a shape's, the explicit axes, or the shorthand with its
+        fibre distances (I_y = I_z = second_moment); None for the shorthand without fibres (single-axis)."""
+        if self.shape is not None:
+            found = shape_properties(self.shape)
+            return found.second_moment_y, found.second_moment_z, found.fibre_y, found.fibre_z
+        if self.fibre_y is None or self.fibre_z is None:
+            return None
+        if self.second_moment_y is not None and self.second_moment_z is not None:
+            i_y, i_z, c_y, c_z = _set_floats(self.second_moment_y, self.second_moment_z, self.fibre_y, self.fibre_z)
+            return i_y, i_z, c_y, c_z
+        if self.second_moment is None:
+            return None
+        moment, c_y, c_z = _set_floats(self.second_moment, self.fibre_y, self.fibre_z)
+        return moment, moment, c_y, c_z
+
+    def area_and_moment(self) -> tuple[float, float]:
+        """SI area and second moment about z (the bending axis of the lumped chain); raises TypeError while a
+        dimension is open."""
+        if self.shape is not None:
+            return shape_area_and_moment(self.shape)
+        moment = self.second_moment
+        if moment is None:
+            moment = self.second_moment_z
+        if self.area is None or moment is None:
+            raise TypeError("section without area and second_moment")
+        area, value = _set_floats(self.area, moment)
+        return area, value
+
 
 class Calibration(_Strict):
-    """The known deflection under `load` and first natural frequency the lumped member is calibrated to."""
+    """The known deflection under `load` and first natural frequency the lumped member is calibrated to (DES-034).
+
+    `load` is a point load at the free end (clamped-free) or at midspan (any other support pair); `deflection` is
+    the deflection at the load point."""
 
     source: Literal["hand", "fea"]
     load: Force
@@ -457,10 +691,30 @@ SupportCondition = Literal["clamped", "pinned", "roller", "free"]
 
 
 class FlexibleMember(_Strict):
-    section: Section
-    calibration: Annotated[Calibration | OpenValue, BeforeValidator(_choice)]
+    """A flexible member (DES-033). `section` may be omitted when the body's catalog part carries one (LIB-030);
+    `calibration` may be omitted, and the member then uses its section and material as is (BLD-019)."""
+
+    section: Section | None = None
+    calibration: Annotated[Calibration | OpenValue | None, BeforeValidator(_choice)] = None
     supports: list[SupportCondition] = Field(min_length=2, max_length=2, description="root, end")
-    segments: int = Field(default=4, ge=1)
+    segments: int = Field(default=8, ge=1, description="lumped segment count (BLD-018, ruling 17)")
+    carries: list[Name] = Field(
+        default_factory=list,
+        description="joints the member carries (DES-033, ENG-052, ruling 63): each joint's parent is this body, "
+        "the lumped chain's parent; its in-plane load reaches the body through the chain",
+    )
+    damping_ratio: Fraction | None = Field(
+        default=None,
+        description="modal damping ratio of the first bending mode, dimensionless in [0, 1) (DES-047, ruling 78); "
+        "absent: undamped, the member's ringing set by the integration scheme",
+    )
+
+    @model_validator(mode="after")
+    def _damping_ratio(self) -> FlexibleMember:
+        ratio = self.damping_ratio
+        if isinstance(ratio, float) and not (0.0 <= ratio < 1.0):
+            raise ValueError(f"damping_ratio {ratio!r}: a modal damping ratio in [0, 1) (DES-047)")
+        return self
 
 
 class Fastener(_Strict):
@@ -886,6 +1140,49 @@ class Structural(_Strict):
         return self
 
 
+def _origin() -> list[float | OpenValue]:
+    return [0.0, 0.0, 0.0]
+
+
+class RopeEnd(_Strict):
+    """One end of a rope: a point in a design body's frame, or the case payload named here (attached at run time,
+    so that end is not emitted by the builder until the case places the payload)."""
+
+    body: Name | None = None
+    payload: Name | None = None
+    point: LengthVector = Field(default_factory=lambda: _origin())
+
+    @model_validator(mode="after")
+    def _one_target(self) -> RopeEnd:
+        if (self.body is None) == (self.payload is None):
+            raise ValueError("rope end names exactly one of body and payload")
+        return self
+
+
+class Rope(_Strict):
+    """A rope from a catalog part of a rope type (LIB-020), emitted as a lumped chain (BLD-032, ADR 0016)."""
+
+    name: Name
+    part: Name
+    from_end: RopeEnd = Field(alias="from")
+    to_end: RopeEnd = Field(alias="to")
+    segments: int = Field(default=8, ge=1, description="lumped chain segment count (ADR 0016)")
+    rest_length: Length | None = None
+
+    @model_validator(mode="after")
+    def _ends(self) -> Rope:
+        _require_positive(self.rest_length, "rope rest_length")
+        if self.from_end.payload is not None:
+            raise ValueError("a rope's from end is a design body; only its to end may name a case payload")
+        return self
+
+
+class MaterialsConfig(_Strict):
+    """`overrides`: path, relative to the design file, of a materials override file (brief M3-M)."""
+
+    overrides: str | None = None
+
+
 # ===== Design ==========================================================
 
 
@@ -910,6 +1207,9 @@ class Design(_Strict):
     firmware: Firmware | None = None
     operator_messages: list[OperatorMessage] = Field(default_factory=list)
     structural: Structural | None = None
+    ropes: list[Rope] = Field(default_factory=list)
+    materials: MaterialsConfig | None = None
+    _source_dir: Path | None = PrivateAttr(default=None)
 
     @model_validator(mode="after")
     def _cross_check(self, info: ValidationInfo) -> Design:
@@ -920,9 +1220,19 @@ class Design(_Strict):
         chips: dict[str, Chip] | None = None
         if isinstance(context, dict) and isinstance(context.get("chips"), dict):
             chips = context["chips"]
-        errors = cross_check(self, registry, shipped_materials(), chips)
+        base: Path | None = None
         if isinstance(context, dict) and isinstance(context.get("base"), Path):
-            errors.extend(check_files(self, context["base"]))
+            base = context["base"]
+            self._source_dir = base
+        errors: list[str] = []
+        try:
+            materials = design_materials(self)
+        except (DesignError, MaterialError) as error:
+            errors.extend(f"materials.overrides: {line}" for line in str(error).splitlines())
+            materials = shipped_materials()
+        errors.extend(cross_check(self, registry, materials, chips))
+        if base is not None:
+            errors.extend(check_files(self, base))
         if len(errors) > 0:
             raise ValueError("\n".join(errors))
         return self
@@ -932,6 +1242,24 @@ class Design(_Strict):
 
 
 # ===== Cross-reference checks ==========================================
+
+
+def design_materials(design: Design) -> dict[str, Material]:
+    """The material records a design builds with: the shipped records with its `materials.overrides` file applied
+    (MAT-016, MAT-020), the path resolved against the design file's folder; shipped records when it names none.
+    Raises DesignError when the design names overrides but was not loaded from a file, MaterialError on a bad file."""
+    overrides = None
+    if design.materials is not None:
+        overrides = design.materials.overrides
+    if overrides is None:
+        return shipped_materials()
+    folder = design._source_dir
+    if folder is None:
+        raise DesignError(f"overrides file {overrides!r} has no design folder to resolve against")
+    path = folder / overrides
+    if not path.is_file():
+        raise DesignError(f"missing materials override file {overrides!r}")
+    return MaterialSet.from_files(path).records()
 
 
 @functools.cache
@@ -1012,6 +1340,7 @@ def cross_check(
     if WORLD in bodies:
         errors.append(f"bodies: {WORLD!r} is reserved")
     _check_joints(design, errors)
+    _check_carries(design, errors)
     for index, component in enumerate(design.components):
         _check_component(f"components[{index}]", component, design, registry, declared, errors)
     _check_signals(design, errors)
@@ -1020,7 +1349,54 @@ def cross_check(
     _check_power(design, registry, errors)
     _check_contact(design, materials, errors)
     _check_messages(design, errors)
+    _check_ropes(design, registry, errors)
     return errors
+
+
+def section_part_values(body: Body, registry: Registry) -> dict[str, float] | None:
+    """The section and material values of the body's catalog part when it carries them all (LIB-030), else None."""
+    reference = body.catalog_part
+    if reference is None or not registry.has_part(reference.part):
+        return None
+    values = registry.part(reference.part).values
+    out: dict[str, float] = {}
+    for name in SECTION_PARAMETERS:
+        value = values.get(name)
+        if not isinstance(value, float):
+            return None
+        out[name] = value
+    return out
+
+
+def _check_flexible(path: str, body: Body, registry: Registry, errors: list[str]) -> None:
+    flexible = body.flexible
+    if flexible is None or flexible.section is not None:
+        return
+    if section_part_values(body, registry) is None:
+        errors.append(
+            f"{path}.flexible.section: no section given and the body's catalog part does not carry "
+            f"{list(SECTION_PARAMETERS)} (DES-033, LIB-030)"
+        )
+
+
+def _check_ropes(design: Design, registry: Registry, errors: list[str]) -> None:
+    bodies = {body.name for body in design.bodies}
+    taken = bodies | {joint.name for joint in design.joints} | {component.name for component in design.components}
+    _duplicates([rope.name for rope in design.ropes], "rope name", errors)
+    for index, rope in enumerate(design.ropes):
+        path = f"ropes[{index}]"
+        if rope.name in taken:
+            errors.append(f"{path}.name: {rope.name!r} is already a body, joint or component name")
+        if not registry.has_part(rope.part):
+            errors.append(f"{path}.part: unknown catalog part {rope.part!r}")
+        else:
+            values = registry.part(rope.part).values
+            missing = [name for name in ROPE_PARAMETERS if not isinstance(values.get(name), float)]
+            if len(missing) > 0:
+                errors.append(f"{path}.part: part {rope.part!r} is not a rope part (missing {missing}, LIB-020)")
+        for key, end in (("from", rope.from_end), ("to", rope.to_end)):
+            if end.body is not None and end.body not in bodies and end.body != WORLD:
+                errors.append(f"{path}.{key}.body: unknown body {end.body!r}")
 
 
 def _check_material(path: str, material: Any, materials: dict[str, Material], errors: list[str]) -> Material | None:
@@ -1033,6 +1409,7 @@ def _check_material(path: str, material: Any, materials: dict[str, Material], er
 
 
 def _check_body(path: str, body: Body, registry: Registry, materials: dict[str, Material], errors: list[str]) -> None:
+    _check_flexible(path, body, registry, errors)
     record = _check_material(f"{path}.material", body.material, materials, errors)
     if record is not None and not isinstance(body.process, OpenValue):
         printed_material = record.process is not None and record.process.kind == "printed"
@@ -1049,6 +1426,28 @@ def _check_body(path: str, body: Body, registry: Registry, materials: dict[str, 
             errors.append(f"{path}.catalog_part.part: unknown catalog part {reference.part!r}")
         elif registry.part(reference.part).type != reference.type:
             errors.append(f"{path}.catalog_part.part: part {reference.part!r} is not of type {reference.type!r}")
+
+
+def _check_carries(design: Design, errors: list[str]) -> None:
+    joints = {joint.name: joint for joint in design.joints}
+    carried_by: dict[str, str] = {}
+    for index, body in enumerate(design.bodies):
+        if body.flexible is None:
+            continue
+        for carried_index, name in enumerate(body.flexible.carries):
+            path = f"bodies[{index}].flexible.carries[{carried_index}]"
+            if name not in joints:
+                errors.append(f"{path}: unknown joint {name!r}")
+                continue
+            if name in carried_by:
+                errors.append(f"{path}: joint {name!r} is already carried by {carried_by[name]!r} (ENG-052)")
+                continue
+            carried_by[name] = body.name
+            if joints[name].parent != body.name:
+                errors.append(
+                    f"{path}: joint {name!r} has parent {joints[name].parent!r}; a carried joint's parent is the "
+                    f"member's own body {body.name!r}, the lumped chain's parent (ENG-052)"
+                )
 
 
 def _check_joints(design: Design, errors: list[str]) -> None:

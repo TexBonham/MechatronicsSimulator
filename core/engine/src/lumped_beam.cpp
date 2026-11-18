@@ -45,6 +45,12 @@ LumpedBeam add_lumped_beam(MultibodyModel& model, const BeamSpec& spec, Eigen::I
     if (spec.segments < 1) {
         throw InvalidModelError(0.0, "beam: segment count must be at least 1");
     }
+    if (spec.ends == BeamEnds::Clamped && spec.segments < BeamSpec::min_clamped_segments) {
+        throw InvalidModelError(0.0, "beam: a clamped far end needs at least " +
+                                         std::to_string(BeamSpec::min_clamped_segments) + " segments, got " +
+                                         std::to_string(spec.segments) +
+                                         " (midspan deflection error -4 / N^2: -6.25 % at 8, -1.56 % at 16)");
+    }
     if (!std::isfinite(spec.node_damping) || spec.node_damping < 0.0) {
         throw InvalidModelError(0.0, "beam: node damping must be finite and not negative");
     }
@@ -66,6 +72,8 @@ LumpedBeam add_lumped_beam(MultibodyModel& model, const BeamSpec& spec, Eigen::I
     const Eigen::Matrix3d rotation = orientation.toRotationMatrix();
 
     const bool pinned = spec.ends == BeamEnds::SimplySupported;
+    const bool roller_end = pinned || spec.ends == BeamEnds::Clamped;
+    beam.pinned_root = pinned;
     Eigen::Index previous = parent;
     double previous_span = 0.0;
     if (pinned) {
@@ -99,7 +107,7 @@ LumpedBeam add_lumped_beam(MultibodyModel& model, const BeamSpec& spec, Eigen::I
         beam.bodies.push_back(previous);
         beam.starts.push_back(start);
     }
-    if (pinned) {
+    if (roller_end) {
         Body roller;
         roller.name = "beam roller";
         roller.parent = parent;
@@ -116,9 +124,15 @@ LumpedBeam add_lumped_beam(MultibodyModel& model, const BeamSpec& spec, Eigen::I
         end.body_a = previous;
         end.body_b = beam.roller;
         end.point_a = Eigen::Vector3d(previous_span, 0.0, 0.0);
+        if (spec.ends == BeamEnds::Clamped) {
+            end.type = ConstraintType::Hinge;
+            end.axis_a = Eigen::Vector3d::UnitX();
+            end.axis_b = Eigen::Vector3d::UnitX();
+        }
         model.constraints.push_back(end);
         beam.roller_constraint = static_cast<Eigen::Index>(model.constraints.size()) - 1;
     }
+    model.members.push_back(beam);
     return beam;
 }
 

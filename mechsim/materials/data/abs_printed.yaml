@@ -23,14 +23,28 @@ yield_strength:
   min: "20 MPa"
   typ: "32 MPa"
   max: "45 MPa"
+  temperature_dependence:
+    - {temperature: "253 K", factor: 1.1}
+    - {temperature: "296 K", factor: 1.0}
+    - {temperature: "363 K", factor: 0.5}
+# min 22 MPa (was 25): printed records keep a wide spread, max >= 2 x min (wide_spread_default, ruling 7;
+# test_shipped_printed_materials_carry_what_the_lookups_need), and 48 MPa / 2 = 24 MPa.
 ultimate_strength:
-  min: "25 MPa"
+  min: "22 MPa"
   typ: "38 MPa"
   max: "48 MPa"
+  temperature_dependence:
+    - {temperature: "253 K", factor: 1.1}
+    - {temperature: "296 K", factor: 1.0}
+    - {temperature: "363 K", factor: 0.5}
 shear_strength:
   min: "10 MPa"
   typ: "22 MPa"
   max: "35 MPa"
+  temperature_dependence:
+    - {temperature: "253 K", factor: 1.1}
+    - {temperature: "296 K", factor: 1.0}
+    - {temperature: "363 K", factor: 0.5}
 sn_curve:
   - {cycles: 1e3, stress_amplitude: "25 MPa"}
   - {cycles: 1e5, stress_amplitude: "15 MPa"}

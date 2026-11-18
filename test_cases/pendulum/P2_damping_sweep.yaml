@@ -1,0 +1,30 @@
+# Pendulum damping sweep (TST-025, SCO-018): P1's rigid pendulum with the pivot's viscous damping swept over damping
+# ratios zeta = 0.02, 0.05 (the design's value), 0.1. With I = m L^2 / 3 = 1/12 kg m^2 and omega0 = 2 pi / T0,
+# T0 = 1.1582031 s, the damping is d = 2 zeta I omega0 = zeta * 0.9041570660012564 N m s/rad, and the damped period
+# T_d = T0 / sqrt(1 - zeta^2) is 1.1584348 s, 1.1596536 s and 1.1640380 s: within 0.5 percent of the nominal
+# 1.1596536 s (0.105, 0 and 0.378 percent away). Eight seconds hold six or more zero crossings at every ratio.
+id: P2
+title: Rigid pendulum period over the pivot damping
+design:
+  name: pendulum
+  version: 0.1.0
+seed: 0
+initial_state:
+  joints:
+    - joint: pivot
+      position: 0.05 rad
+      velocity: 0 rad/s
+end:
+  at: 8 s
+  max_duration: 10 s
+criteria:
+  - name: period
+    check: value
+    quantity: joint:pivot.position
+    statistic: period
+    comparison: within
+    target: 1.1596536 s
+    relative_limit: 0.5 percent
+sweeps:
+  - parameter: joints.pivot.angular.damping
+    values: [0.018083141320025128 N*m*s/rad, 0.04520785330006282 N*m*s/rad, 0.09041570660012564 N*m*s/rad]

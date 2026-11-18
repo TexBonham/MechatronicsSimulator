@@ -14,44 +14,80 @@ to source_hash, zeros when unset; `rigid_members` builds flexible bodies rigid, 
 | `physics` | neutral `PhysicsModel`; None for a draft with open physics (run step stays the 1 ms default) |
 | `wiring` | instances (parameters, emits, consumes, mounts, rails, `senses` `Sensing(joint, payload, joint_reaction, body, position, actuate_above, reversed)`, `acts_on` joint, `torque_speed` ((rad/s, N m), ...) from the part curve; BLD-035), `core_type` (the type's `plugin.cpp`), `length_parameters` (quantity parameters of dimension [length]), bindings (pin, mode, channel), rails, gating, operator_links |
 | `chip` | name, placeholder, bindings, `channels_header` (`channels.h`) |
-| `members`, `lumped` | structural members; `LumpedRecord` (spans, masses, E I / l, calibration) |
+| `members`, `lumped` | structural members (BLD-008: the field brief R records; each with `mounts`, the fixed joints on it); `LumpedRecord` (spans, masses, E I / l of the calibrated section, `calibrated`, recorded calibration, `stiffness_scale`, `mass_scale`) |
 | `pending`, `notes` | open-value paths (sorted); non-fatal notes |
+| `payload_ropes` | neutral `Rope` of each design rope ending at a case payload (`to_body` = the payload's name, `to_point` = the design's point, from the payload's top face centre); empty without physics (BLD-032) |
 
 `to_json()` is canonical: run-twice byte equality (BLD-026).
 
 ## Build order
 
 1. `physics.build_physics`: pending scan, topology (DFS from world), materials, bindings, supports (not rigid);
-   stop on pending; bodies (declared mass, else closed forms in `mass.py`), joints, members, contacts, floor,
-   transmissions, overlap; validate; supported elements.
+   stop on pending; bodies (declared mass, else closed forms in `mass.py`), joints, members (section from the design
+   or the catalog part, calibrated per BLD-019), contacts, floor, transmissions, ropes, fastenings, overlap;
+   validate; supported elements.
 2. `wiring.build_wiring`: rails (power_out wires through safety instances), instances, bindings (channel per mode in
    binding order), operator links, chip checks, `channels.h`.
 
 ## Files
 
-`build.py` (`build`, `module_order`); `payload.py` (`with_payload(model, name, carrier, mass, fixed=False)`, BLD-036: box body below the carrier, a fixed child `<name>_fixed` of it when `fixed` (attached at t = 0, never released, ruling 24), else free under world and welded by the adapter); `physics.py` (`build_physics`, `primitive_mass`, `lumped_record`,
-`element_kinds`); `mass.py` (closed forms, frames, `z_to`); `wiring.py`; `result.py`.
-
-| Section | File | Line |
-|---|---|---|
+`build.py` (`build`, `module_order`); `payload.py` (`with_payload(model, name, carrier, mass, fixed=False, rope=None, starts=None, fitting_mass=None)` (a rope payload needs `fitting_mass`, the rope part's `end_fitting_mass`, LIB-020), BLD-036: box body below the carrier, a fixed child `<name>_fixed` of it when `fixed` (attached at t = 0, never released, ruling 24), else free under world and welded by the adapter; with `rope` (BLD-032) a shackle `<name>_shackle` (`SHACKLE_MASS` 1 g, no shapes) on `<name>_fixed` at the rope's from point, the payload free on `<name>_free` with its top face centre the rest length plus `static_stretch(rope, mass, g)` = (m + mu L / 2) g L / EA below it at the `starts` pose, so every segment starts taut at its static load (brief M3-B3), the rope from the shackle to that point, never welded); `physics.py` (`build_physics`, `primitive_mass`, `lumped_record`,
+`element_kinds`, `member_constants`); `mass.py` (closed forms, frames, `z_to`); `structure.py` (`chain_layout`,
+`chain_deflection`, `chain_first_frequency`, `loaded_first_frequency`, `node_damping`, `lowest_carried_frequency`, `calibrate` -> `CalibrationScales`, `load_point`, `fastenings`,
+`member_mounts`, `rope_element`, `lumped_section`; the linearized engine chain in hinge angles, numpy/scipy);
+`run_damping.py` (`stated_ratios(build, registry)` -> name to the ratio the data states; `run_damping_lines(built, run, payload, stated)` -> one line per damped member and transmission of a native run: stated exactly as stated, realised at build time on the build's model, realised in this run on the run's model (end fitting `<payload>_shackle`) plus the case payload when its carrier is in the subtree; BLD-040, BLD-041, PHY-037, ruling 80); `physics.transmission_values(component, registry)` (a transmission's resolved part values, the one source of its stated `damping_ratio`); `wiring.py`; `result.py`.
 
 ## Rules
 
 Neutral quantities are written `repr(value) unit` in SI, validated once. Element kinds: `body`, `joint.<type>`,
-`shape.<shape>`, `contacts`, `constraint.<type>`, `lumped_member`, `transmission.<type>`.
+`shape.<shape>`, `contacts`, `constraint.<type>`, `lumped_member`, `transmission.<type>`, `rope`.
 
-## Milestone 2 and later
+- Calibration (BLD-019): E scaled by chain deflection / recorded deflection, then rho by (chain omega / recorded
+  omega)^2, both exact on the chain; lumped member only; a scale outside [0.5, 2] adds an approximation note. No
+  calibration: built as is, with a note. Calibrated below `structure.calibration_min_segments` (8; 16 clamped-clamped, rulings 20, 32) or pinned-free: build failure.
+  Clamped-clamped with calibration: a note, calibration chain layout owed (ruling 16). Segments: the design's, else
+  `structure.default_segments` (8; 16 clamped-clamped, BLD-018), always written to the neutral member. Supports:
+  root clamped or pinned, end free, roller or clamped (a clamped end needs a clamped root). Rigid builds calibrate nothing.
+- Structural damping (BLD-040, ruling 78): `physics._member_damping` after the bodies sets each lumped member's
+  `node_damping` = `structure.node_damping(zeta, omega_1, k)` = 2 zeta k / omega_1 (k = E I / l, omega_1 =
+  `structure.loaded_first_frequency` of the calibrated chain, unloaded; derivation in its docstring) with a note (c, k,
+  omega_1, 1 / (zeta omega_1); a carrying member adds `structure.lowest_carried_frequency` over the span and the realised
+  zeta omega_c / omega_1); no ratio or 0: an undamped note. `LumpedRecord` carries `first_frequency`, `damping_ratio`,
+  `node_damping`.
+- Transmission damping (BLD-041): `physics.transmission_damping(zeta, k, m)` = 2 zeta sqrt(k m), m the driven body's
+  subtree mass at build time; written as the neutral transmission's `damping` when the part's `damping_ratio` is above 0.
+- Carried joints (BLD-037, ENG-052): `flexible.carries` joints become `LumpedMember.carries` (their child bodies);
+  `_check_carried_travel` (not rigid) fails a joint whose origin over its travel leaves [0, L] along the member frame x
+  (prismatic between limits, an open limit unbounded; fixed, revolute, spherical at the placement; planar, free never),
+  beyond `TRAVEL_TOLERANCE` (1e-9 m, a placement rotation's rounding).
+- Bending plane (BLD-038, ruling 65): `_check_bending_plane` (not rigid) adds a note per flexible body horizontal at
+  the reference configuration (frame x normal to gravity) with gravity along its frame z (`PLANE_TOLERANCE` 1e-9 on unit
+  vectors): the chain bends about frame z only, so state the frame with y vertical.
+- Materials: callers pass `design.schema.design_materials(design)` (the design's overrides applied, MAT-020).
+- Fastenings (BLD-031): `PhysicsModel.fastenings`, one per fixed joint (`mount`, the joint's name) and per body
+  fastener entry (`fastener`, `<body>_<kind>[_<index>]`); `PhysicsModel.fastening_index(name)`. Not an element kind.
+- Ropes (BLD-032): a design rope with both ends on bodies becomes a neutral `Rope`; a `to` end at a case payload is
+  a note, not an element, and is listed in `payload_ropes`; the native run hangs the case payload on it
+  (`with_payload(..., rope=, starts=)`, M3-X1a).
+- Reference tests: `tests/reference/lumped_beam_support.py` steps the built lumped member on `_engine` (tests only).
 
-Loops as constraints (BLD-004), fasteners as constraints (BLD-031), ropes (BLD-032), lumped calibration (BLD-015
-to 019), mounts in the member list (BLD-008), clamped-clamped beams.
+## Later
+
+Loops as constraints (BLD-004), clamped-clamped calibration layout; full coupling of a carried joint (riding the deflected member, milestone 4).
 
 ## Section index
 
 | Section | File | Line |
 |---|---|---|
-| Checks | physics.py | 80 |
-| Bodies and joints | physics.py | 191 |
-| Overlap | physics.py | 317 |
-| Lumped members | physics.py | 373 |
-| Transmissions and signals | physics.py | 444 |
-| Physics model | physics.py | 580 |
+| Checks | physics.py | 107 |
+| Bodies and joints | physics.py | 308 |
+| Overlap | physics.py | 434 |
+| Lumped members | physics.py | 490 |
+| Transmissions and signals | physics.py | 767 |
+| Physics model | physics.py | 948 |
+| Structural damping | structure.py | 108 |
+| Instances | wiring.py | 30 |
+| Pin bindings | wiring.py | 132 |
+| Rails | wiring.py | 179 |
+| Operator link and chip | wiring.py | 257 |
+| Wiring table | wiring.py | 346 |

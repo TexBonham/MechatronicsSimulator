@@ -6,20 +6,24 @@ protocol error code (FAC-020)."""
 from __future__ import annotations
 
 import bisect
+import math
 import threading
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, Literal
 
-from pydantic import JsonValue
+from pydantic import Field, JsonValue
 
 from mechsim.design.schema import DesignError, validate_design_file, yaml_loader
 from mechsim.facade.decimate import decimate
 from mechsim.facade.files import WRITABLE_KINDS, kind_of_text, validate_file
 from mechsim.facade.live import LiveWiring, RunListener, Subscription, live_factory
 from mechsim.facade.protocol import ErrorCode
+from mechsim.integrity.export import load_case
+from mechsim.integrity.plugin import IntegrityError
 from mechsim.record.archive import RunArchive
+from mechsim.record.validity import CarriedValidity, flagged
 from mechsim.schema_base import StrictModel
 from mechsim.scoring.score import (
     CriterionResult,
@@ -32,8 +36,21 @@ from mechsim.scoring.score import (
 from mechsim.testing.baseline import BaselineDiff, baseline_text
 from mechsim.testing.driver import ArchiveReader, RecordView, RunMetadata
 from mechsim.testing.runner import RunResult, Services, run_case, run_id, run_suite
-from mechsim.testing.schema import DESIGNS_ROOT, ROOT, CaseError, load_test_case
-from mechsim.viewer import ProbeError, ReplayCursor, ReplayError, body_geometry, probe, timeline
+from mechsim.testing.schema import ADAPTER_SETTING, DESIGNS_ROOT, ROOT, CaseError, adapter_refusal, load_test_case
+from mechsim.viewer import (
+    ANGLE_UNIT,
+    STRESS_UNIT,
+    OverlayError,
+    ProbeError,
+    ReplayCursor,
+    ReplayError,
+    body_geometry,
+    down_from_design,
+    member_stress,
+    probe,
+    swing_angle,
+    timeline,
+)
 
 RUN_ERROR_REQUIREMENT = "INV-007"
 CORE_MODULE = "mechsim._core"
@@ -140,6 +157,7 @@ class RunResultSummary(StrictModel):
     report_text: str
     error: RunErrorReport | None
     dry: DrySummary | None
+    notes: list[str] = Field(default_factory=list)
 
 
 class DiffEntry(StrictModel):
@@ -247,6 +265,100 @@ class TimelineResult(StrictModel):
     entries: list[TimelineEntryResult]
 
 
+class MemberStressEntry(StrictModel):
+    member: str
+    area: float = Field(description="Section area, m^2 (the member list's section).")
+    second_moment_y: float = Field(description="Second moment about the member y axis, m^4.")
+    second_moment_z: float = Field(description="Second moment about the member z axis, m^4.")
+    fibre_y: float = Field(description="Extreme-fibre distance along y, m.")
+    fibre_z: float = Field(description="Extreme-fibre distance along z, m.")
+    start: list[float]
+    end: list[float]
+
+
+class MemberStressResult(StrictModel):
+    """Peak normal stress |N| / A + |M_y| c_z / I_y + |M_z| c_y / I_z at each member end per sample, Pa (VIE-010)."""
+
+    run_id: str
+    unit: str
+    times: list[float]
+    members: list[MemberStressEntry]
+
+
+class IntegrityMemberResult(StrictModel):
+    """One member row; a quantity integrity did not evaluate (a member built rigid has no deflection) is an explicit
+    state, the value None and its `_evaluated` flag false, never a NaN in a number field (FAC-013, invariant 7)."""
+
+    member: str
+    peak_stress: float | None = Field(
+        description="Peak stress at the design load, Pa (INT-022); None when not evaluated."
+    )
+    peak_stress_evaluated: bool
+    peak_stress_time: float
+    deflection: float | None = Field(description="Peak deflection, m; None when not evaluated.")
+    deflection_evaluated: bool
+    deflection_time: float
+    safety_factor: float | None = Field(
+        description="Smallest minimum-strength safety factor over the run; None when not evaluated."
+    )
+    safety_factor_evaluated: bool
+    safety_factor_time: float
+    flags: list[str]
+    state: Literal["valid", "not_valid"] = Field(
+        default="valid",
+        description=(
+            "not_valid: the engine flagged the member's one-way carried-load result (rulings 69, 72); its values count "
+            "the samples up to `not_valid_from` and a criterion reading it after then is unevaluable."
+        ),
+    )
+    not_valid_from: float | None = Field(default=None, description="Flag time, s; None while valid.")
+
+
+def _state(member: str, records: dict[str, CarriedValidity]) -> Literal["valid", "not_valid"]:
+    if member in records:
+        return "not_valid"
+    return "valid"
+
+
+def _since(member: str, records: dict[str, CarriedValidity]) -> float | None:
+    if member in records:
+        return records[member].since
+    return None
+
+
+def _evaluated_value(value: float) -> float | None:
+    if math.isnan(value):
+        return None
+    return value
+
+
+class IntegrityResultsResult(StrictModel):
+    """The per-member integrity table the run attached (INT-022, FAC-013)."""
+
+    run_id: str
+    members: list[IntegrityMemberResult]
+
+
+class LoadCaseResult(StrictModel):
+    """The load-case export (FAC-013) as file text in the requested format."""
+
+    run_id: str
+    format: str
+    design_version: str
+    text: str
+
+
+class SwingAngleResult(StrictModel):
+    """Swing angle of a suspended load from the vertical through its attachment per recorded sample, rad (VIE-011)."""
+
+    run_id: str
+    load: str
+    attachment: str
+    unit: str
+    times: list[float]
+    values: list[float]
+
+
 class GeometryResult(StrictModel):
     run_id: str
     bodies: list[dict[str, JsonValue]]
@@ -327,6 +439,7 @@ def _summary(result: RunResult, name: str, dry_run: bool = False) -> RunResultSu
         report_text=report_text(SuiteScore(name, score.design, (score,))),
         error=_error_report(result),
         dry=dry,
+        notes=list(score.notes),
     )
 
 
@@ -484,13 +597,21 @@ class Facade:
             raise FacadeError("not_found", f"{design}: not a <designs>/<name>/design.yaml file", "FAC-010", "design")
         return replace(runner, designs_root=design.resolve().parent.parent)
 
-    def run_id_of(self, case: Path, design: Path | None = None) -> str:
-        """The run id a nominal run of the case gets (`<case id>-seed<seed>`), for subscribing before it starts."""
+    def run_id_of(self, case: Path, design: Path | None = None, sets: Mapping[str, str] | None = None) -> str:
+        """The run id a nominal run of the case gets, for subscribing before it starts: `<case id>-seed<seed>`, with
+        `-<adapter>` on any adapter but the default, the case's own or `physics.adapter` in `sets` (TST-040)."""
         runner = self._runner(design)
         try:
-            return run_id(load_test_case(case, runner.designs_root), None)
+            loaded = load_test_case(case, runner.designs_root)
         except CaseError as error:
             raise FacadeError("validation_failed", str(error), "TST-009", "case") from error
+        adapter: str = loaded.physics.adapter
+        if sets is not None and ADAPTER_SETTING in sets:
+            adapter = sets[ADAPTER_SETTING]
+        refusal = adapter_refusal(adapter)
+        if refusal is not None:
+            raise FacadeError("validation_failed", refusal, "TST-040", ADAPTER_SETTING)
+        return run_id(loaded, None, None, adapter)
 
     def _check_identity(self, case: Path, designs_root: Path, seed: int | None, mode: str | None) -> None:
         """A requested seed or mode must be the case's own; a case that does not load is left to the runner, which
@@ -717,6 +838,102 @@ class Facade:
                 ProbeColumnResult(name=column.name, unit=column.unit, values=list(column.values))
                 for column in found.columns
             ],
+        )
+
+    def member_stress(self, run_id: str) -> MemberStressResult:
+        """VIE-010 overlay, computed in `mechsim.viewer` from the recorded end-loads and the archived member list."""
+        replay = self._replay(run_id)
+        try:
+            found = member_stress(replay.view, replay.metadata.members)
+        except OverlayError as error:
+            raise FacadeError("not_found", f"run {run_id}: {error.args[0]}", "VIE-010", "run_id") from error
+        return MemberStressResult(
+            run_id=run_id,
+            unit=STRESS_UNIT,
+            times=[float(t) for t in replay.view.times()],
+            members=[
+                MemberStressEntry(
+                    member=entry.member,
+                    area=entry.area,
+                    second_moment_y=entry.second_moment_y,
+                    second_moment_z=entry.second_moment_z,
+                    fibre_y=entry.fibre_y,
+                    fibre_z=entry.fibre_z,
+                    start=list(entry.start),
+                    end=list(entry.end),
+                )
+                for entry in found
+            ],
+        )
+
+    def integrity_results(self, run_id: str) -> IntegrityResultsResult:
+        """FAC-013: the per-member table archived with the run; `not_found` when the run carries none."""
+        replay = self._replay(run_id)
+        results = replay.metadata.integrity
+        if results is None:
+            raise FacadeError("not_found", f"run {run_id}: no integrity results", "FAC-013", "run_id")
+        records = flagged(tuple(replay.view.validity))
+        return IntegrityResultsResult(
+            run_id=run_id,
+            members=[
+                IntegrityMemberResult(
+                    member=entry.member,
+                    peak_stress=_evaluated_value(entry.peak_stress),
+                    peak_stress_evaluated=not math.isnan(entry.peak_stress),
+                    peak_stress_time=entry.peak_stress_time,
+                    deflection=_evaluated_value(entry.deflection),
+                    deflection_evaluated=not math.isnan(entry.deflection),
+                    deflection_time=entry.deflection_time,
+                    safety_factor=_evaluated_value(entry.safety_factor),
+                    safety_factor_evaluated=not math.isnan(entry.safety_factor),
+                    safety_factor_time=entry.safety_factor_time,
+                    flags=list(entry.flags),
+                    state=_state(entry.member, records),
+                    not_valid_from=_since(entry.member, records),
+                )
+                for entry in results.members
+            ],
+        )
+
+    def load_case(self, run_id: str, file_format: str) -> LoadCaseResult:
+        """FAC-013: per member end the peak force and moment from the archived end-loads, CSV or JSON for FEA."""
+        replay = self._replay(run_id)
+        metadata = replay.metadata
+        try:
+            found = load_case(
+                replay.view, metadata.members, metadata.design_name, metadata.design_version, metadata.run_id
+            )
+        except IntegrityError as error:
+            raise FacadeError("not_found", f"run {run_id}: {error.args[0]}", "FAC-013", "run_id") from error
+        text = found.to_json()
+        if file_format == "csv":
+            text = found.to_csv()
+        elif file_format != "json":
+            raise FacadeError("invalid_message", f"unknown load-case format {file_format!r}", "FAC-013", "format")
+        return LoadCaseResult(run_id=run_id, format=file_format, design_version=metadata.design_version, text=text)
+
+    def swing_angle(self, run_id: str, load: str, attachment: str) -> SwingAngleResult:
+        """VIE-011 overlay: the load body's swing from the vertical (the archived design's gravity) through the
+        attachment body's origin, or through the world origin for `world`."""
+        replay = self._replay(run_id)
+        try:
+            with RunArchive(replay.archive) as archive:
+                design_file = archive.identity.design_file
+        except (OSError, ValueError, KeyError) as error:
+            raise FacadeError(
+                "not_found", f"run {run_id}: cannot read the design from the archive: {error}", "VIE-011", "run_id"
+            ) from error
+        try:
+            found = swing_angle(replay.view, load, attachment, down=down_from_design(design_file))
+        except OverlayError as error:
+            raise FacadeError("not_found", f"run {run_id}: {error.args[0]}", "VIE-011", "load") from error
+        return SwingAngleResult(
+            run_id=run_id,
+            load=load,
+            attachment=attachment,
+            unit=ANGLE_UNIT,
+            times=[float(t) for t in replay.view.times()],
+            values=list(found.values),
         )
 
     def geometry(self, run_id: str) -> GeometryResult:

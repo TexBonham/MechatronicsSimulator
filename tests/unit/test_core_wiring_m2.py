@@ -18,7 +18,7 @@ from mechsim import _core as core
 from mechsim.builder import BuildError
 from mechsim.builder.payload import PAYLOAD_CLEARANCE, PAYLOAD_EDGE, with_payload
 from mechsim.design.chip import shipped_chips
-from mechsim.physics.mujoco.prepare import prepare_model
+from mechsim.library.registry import default_registry
 from mechsim.testing import core_wiring
 from mechsim.testing.core_driver import CoreDriver, core_builder, model_columns
 from mechsim.testing.runner import Services, prepare, run_case
@@ -45,9 +45,10 @@ def test_payload_body_hangs_below_its_carrier_with_box_inertia(built: object) ->
     assert (body.name, body.parent, body.joint.type) == ("payload", "world", "free")
     assert body.mass == 2.0
     assert body.inertia.ixx == pytest.approx(2.0 * PAYLOAD_EDGE**2 / 6.0, rel=1e-15)
-    # hook origin (0.1, 0.1, 0.34) at the reference configuration; hook box 0.04 m: extent sqrt(3) 0.02.
+    # hook origin (0.1, 0.1, 0.54) at the reference configuration (rail_x 1.2 m up, M3-X1a); hook box 0.04 m: extent
+    # sqrt(3) 0.02.
     drop = math.sqrt(3.0) * 0.02 + PAYLOAD_EDGE / 2.0 + PAYLOAD_CLEARANCE
-    assert body.joint.position == pytest.approx((0.1, 0.1, 0.34 - drop), abs=1e-12)
+    assert body.joint.position == pytest.approx((0.1, 0.1, 0.54 - drop), abs=1e-12)
 
 
 @pytest.mark.req("BLD-036")
@@ -99,22 +100,6 @@ def test_payload_body_refusals(built: object, name: str, carrier: str, mass: flo
         with_payload(built.physics, name, carrier, mass)  # type: ignore[attr-defined]
 
 
-@pytest.mark.req("BLD-036")
-def test_payload_follows_its_carrier_to_the_start_configuration(built: object) -> None:
-    model = with_payload(built.physics, "payload", "hook", 1.0)  # type: ignore[attr-defined]
-    plain = prepare_model(model, {}, 0.001, {"payload": "hook"}).mjcf
-    lifted = prepare_model(model, {"lift_axis": 0.1}, 0.001, {"payload": "hook"}).mjcf
-    import xml.etree.ElementTree as ET
-
-    def z(text: str) -> float:
-        for body in ET.fromstring(text).iter("body"):
-            if body.get("name") == "payload":
-                return float(body.get("pos", "0 0 0").split()[2])
-        raise KeyError("payload")
-
-    assert z(lifted) - z(plain) == pytest.approx(0.1, abs=1e-12)
-
-
 @pytest.mark.req("BLD-035")
 @pytest.mark.req("SIG-020")
 def test_brake_on_the_lift_motor_shaft_reflects_the_lifted_mass(built: object) -> None:
@@ -141,7 +126,7 @@ def test_brake_on_the_lift_motor_shaft_reflects_the_lifted_mass(built: object) -
 @pytest.mark.req("BLD-035")
 @pytest.mark.req("SIG-020")
 def test_a_brake_off_a_revolute_shaft_joint_is_a_wiring_error(built: object) -> None:
-    """Ruling 29: a brake on a transmission's driven joint (the bridge holds no second drive there) or on any other
+    """Ruling 29: a brake on a transmission's driven joint (its transmission holds the one drive there) or on any other
     non-revolute joint ends the build with an error naming the brake and the joint."""
     model = built.physics  # type: ignore[attr-defined]
     places, _ = core_wiring.joint_places(model)
@@ -170,9 +155,12 @@ def test_load_cell_reads_its_payload_and_the_amplifier_the_chip_adc(built: objec
     chip = shipped_chips()["stm32_placeholder"]
     cell = core_wiring.component_parameters(_instances(built)["load_cell"], places, model, ["payload"], chip)  # type: ignore[arg-type]
     assert cell["payload"] == 0
-    assert cell["capacity"] == pytest.approx(49.05)
+    design = {item.name: item for item in built.design.components}  # type: ignore[attr-defined]
+    assert cell["capacity"] == pytest.approx(default_registry().part(design["load_cell"].part).values["capacity"])
     amp = core_wiring.component_parameters(_instances(built)["load_amp"], places, model, ["payload"], chip)  # type: ignore[arg-type]
-    assert (amp["adc_bits"], amp["adc_reference"], amp["gain"]) == (12, pytest.approx(3.3), pytest.approx(241.8))
+    # The design's gain (README: the firmware's 600 counts per kg on the chip's 12-bit, 3.3 V ADC), read from the data.
+    gain = float(design["load_amp"].overrides["gain"])
+    assert (amp["adc_bits"], amp["adc_reference"], amp["gain"]) == (12, pytest.approx(3.3), pytest.approx(gain))
     original: Any = _instances(built)["load_cell"]
     reaction = original.model_copy(
         update={"senses": original.senses.model_copy(update={"joint_reaction": "hook_swing"})}

@@ -58,6 +58,8 @@ faults:
 end:
   at: 12 s
   max_duration: 12 s
+integrity:
+  evaluate_from: 1 s
 criteria:
   - name: limit_fault
     check: event

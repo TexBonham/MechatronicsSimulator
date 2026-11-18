@@ -1,7 +1,10 @@
 """The real simulation driver over the core binding (TST-012, TST-021, TST-036), the record view scoring reads, and
 the archive writer and reader the runner and the CLI use (TST-033, L8).
 
-`CoreDriver.load` prepares the neutral model for the MuJoCo bridge (translation report kept, ADR 0003), `run` builds
+`CoreDriver.run` prepares the neutral model for the physics adapter the run configuration names (`physics.adapter`
+of the case or `--set`, TST-040; `native`, the own engine, is the only one since the MuJoCo bridge was retired,
+ADR 0004), translation
+report kept (ADR 0003); `run` builds
 a co-simulation kernel with the physics party and records every row through an in-memory sink into
 `mechsim.record.Recorder`. Joint coordinates and poses are derived from the recorded body poses with the model's
 kinematics (TST-038): a joint coordinate is zero at the neutral placement; a pose is the body frame's displacement
@@ -12,8 +15,11 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 from collections.abc import Callable, Mapping, Sequence
+from dataclasses import replace
 from fractions import Fraction
+from functools import partial
 from pathlib import Path
 from typing import Any
 
@@ -23,14 +29,39 @@ from mechsim import _core as core
 from mechsim.builder import BuildError, build
 from mechsim.builder.payload import with_payload
 from mechsim.builder.result import BuildResult as CoreBuild
-from mechsim.design.schema import Design, blob_hash, shipped_materials
-from mechsim.library.registry import default_registry
-from mechsim.physics.mujoco.prepare import StartStateError, prepare_model
-from mechsim.physics.mujoco.translate import UnmappableElementError
+from mechsim.builder.run_damping import run_damping_lines, stated_ratios
+from mechsim.design.schema import Design, DesignError, blob_hash, design_materials
+from mechsim.integrity.config import IntegrityConfig
+from mechsim.integrity.plugin import IntegrityError
+from mechsim.integrity.service import IntegrityService
+from mechsim.integrity.table import window_note
+from mechsim.integrity.tier1 import (
+    BEFORE_EVALUATION_KIND,
+    MODEL_REQUESTS,
+    PARTY,
+    Tier1Service,
+    Tier1Setup,
+    first_springs,
+    trace_notes,
+)
+from mechsim.library.registry import Registry, default_registry
+from mechsim.materials.schema import MaterialError
+from mechsim.physics.native.prepare import prepare_model as prepare_native_model
+from mechsim.physics.native.translate import StartStateError as NativeStartStateError
+from mechsim.physics.native.translate import UnmappableElementError as NativeUnmappableElementError
+from mechsim.physics.native.translate import (
+    carried_member_lines,
+    carried_validity_lines,
+    driven_mode_lines,
+    efficiency_damping_lines,
+    member_node_names,
+    steps_before,
+)
 from mechsim.physics.neutral import PhysicsModel
+from mechsim.physics.neutral import Rope as NeutralRope
 from mechsim.record.archive import RunEnd, RunFault, RunIdentity, repository_commit, tool_version
 from mechsim.record.archive import write_archive as write_record_archive
-from mechsim.record.layout import DRIVE_DRIVEN, DRIVE_TORQUE, JOINT_POSITIONS, Columns
+from mechsim.record.layout import DRIVE_DRIVEN, DRIVE_TORQUE, JOINT_POSITIONS, MEMBER_SERIES, ROPE_SERIES, Columns
 from mechsim.record.reader import DriverError as DriverError
 from mechsim.record.reader import JointKinematics as JointKinematics
 from mechsim.record.reader import Kinematics as Kinematics
@@ -55,6 +86,7 @@ from mechsim.record.tick import (
     Wrench,
 )
 from mechsim.record.tick import RecordedEvent as RowEvent
+from mechsim.record.validity import NOT_VALID_KIND, VALIDITY_KEY, CarriedValidity, flagged, validity_json
 from mechsim.testing.core_wiring import (
     OPERATOR_LINK_TYPE,
     WIRED_FAULTS,
@@ -69,17 +101,33 @@ from mechsim.testing.core_wiring import (
     work_directory,
 )
 from mechsim.testing.driver import (
+    INTEGRITY_KIND,
+    MATERIAL_OVERRIDES_KEY,
+    Builder,
     BuildResult,
     EndReason,
     EndSpec,
+    IntegrityCrossing,
     RunConfig,
     RunMetadata,
     RunReport,
     ScheduledCommand,
     ScheduledFault,
+    members_json,
 )
 from mechsim.testing.runner import Services
-from mechsim.testing.schema import DESIGNS_ROOT, ROOT, Case, InitialState, Quantity
+from mechsim.testing.schema import (
+    CASE_PAYLOAD_BODY,
+    DEFAULT_PHYSICS_ADAPTER,
+    DESIGNS_ROOT,
+    NATIVE_ADAPTER,
+    ROOT,
+    Case,
+    InitialState,
+    Quantity,
+    adapter_refusal,
+    case_payload_body,
+)
 
 OPERATOR_EVENT_KINDS = ("operator_status", "operator_command")
 SIGNAL_LAYER_CATEGORIES = ("sensor", "front_end", "actuator", "driver", "power", "safety", "communication")
@@ -181,7 +229,7 @@ def tick_record(row: Any, events: Mapping[int, Sequence[RowEvent]] | None = None
         )
         for m in physics["members"]
     )
-    ropes = tuple(RopeTension(float(r["tension"]), bool(r["slack"])) for r in physics["ropes"])
+    ropes = tuple(RopeTension(float(r["tension"]), bool(r["slack"]), float(r["max_tension"])) for r in physics["ropes"])
     transmissions = tuple(
         TransmissionState(
             float(t["slip"]),
@@ -251,13 +299,33 @@ def _si(amount: object, joint: str) -> float:
     raise DriverError(f"joint '{joint}': start value {amount!r} is not resolved to a quantity")
 
 
+ROPE_SNAP_OFF = (
+    "integrity tier 2 rope snap: off, no rope_snap entry in integrity.yaml (INT-031, ruling 53): the breaking "
+    "tension of rope '{}' is not enforced during the run"
+)
+
+
 class CoreDriver:
     """`SimulationDriver` over the core binding. One driver per run (the runner's factory makes a fresh one)."""
 
-    def __init__(self, subscribers: Sequence[Callable[[Any], None]] = ()) -> None:
+    def __init__(
+        self,
+        subscribers: Sequence[Callable[[Any], None]] = (),
+        designs_root: Path = DESIGNS_ROOT,
+        tier1: Tier1Service | None = None,
+    ) -> None:
         """`subscribers` receive each row as the kernel writes it (REC-019); one that raises is a recorder error,
-        which ends the scoring as a run error and lands in the archive metadata (invariant 7)."""
+        which ends the scoring as a run error and lands in the archive metadata (invariant 7). The physics adapter is
+        the run configuration's `physics.adapter`, set by `configure`. The design's `integrity.yaml` (tier 1 party,
+        INT-023; tier 2 rope snap, INT-031) is read from `<designs_root>/<design name>/`, `designs_root` the shipped
+        `designs/` folder by default; `tier1` replaces that lookup (a `Tier1Service` with its own configuration)."""
         self._subscribers = tuple(subscribers)
+        self._tier1: Tier1Service = Tier1Service(designs_root)
+        if tier1 is not None:
+            self._tier1 = tier1
+        self._case: Case | None = None
+        self.integrity_trace: Any = None
+        self.adapter: str = DEFAULT_PHYSICS_ADAPTER
         self._build: CoreBuild | None = None
         self._model: PhysicsModel | None = None
         self._config: RunConfig | None = None
@@ -280,6 +348,7 @@ class CoreDriver:
             raise DriverError("the design's physics is pending: " + ", ".join(build.pending))
         self._build = build
         self._model = build.physics
+        self._case = case
 
     def reported_controller_state(self) -> Mapping[str, bool | str]:
         """`{"state": name, "fault": name}` at power on, before t = 0, from the design's code tables (DES-045);
@@ -314,43 +383,33 @@ class CoreDriver:
                 f"base rate {config.base_rate} Hz must equal the physics rate {config.physics_rate} Hz (milestone 1 "
                 "runs the controller at the physics rate)"
             )
+        refusal = adapter_refusal(config.physics_adapter)
+        if refusal is not None:
+            raise DriverError(refusal)
+        self.adapter = config.physics_adapter
         self._config = config
 
-    def _sensed_payload(self) -> tuple[str, str] | None:
-        """(payload name, the sensing instance's mounted body) of the first load cell reading a payload."""
+    def _payload_name(self) -> str:
+        """The body name the run gives the case payload: `testing.schema.case_payload_body` over the design's
+        components and the model's joints (SCO-030), so the driver and scoring agree."""
         if self._build is None:
-            return None
+            return CASE_PAYLOAD_BODY
         joints: set[str] = set()
         if self._model is not None:
             joints = {body.joint.name for body in self._model.bodies if body.joint is not None}
-        for instance in self._build.wiring.instances:
-            senses = instance.senses
-            if senses is None:
-                continue
-            name = senses.payload
-            if senses.joint_reaction is not None and senses.joint_reaction not in joints:
-                name = senses.joint_reaction
-            if name is not None:
-                for mount in instance.mounts:
-                    if mount.body is not None:
-                        return name, mount.body
-                raise DriverError(f"load cell '{instance.name}': senses a payload but is mounted on no body")
-        return None
+        return case_payload_body((component.senses for component in self._build.design.components), joints)
 
     def set_initial_state(self, state: InitialState) -> None:
         """The case payload becomes a neutral body (BLD-036) on `initial_state.payload.body`; a case that attaches
         none gets no body, and a load cell reading a payload then has no target and reads zero (A4)."""
-        sensed = self._sensed_payload()
         self._payload = None
         if state.payload is not None and state.payload.attached:
-            name = "payload"
-            if sensed is not None:
-                name = sensed[0]
+            name = self._payload_name()
             self._payload = (name, str(state.payload.body), _si(state.payload.mass, "payload"), True)
         starts: dict[str, float] = {}
         for joint in state.joints:
             if _si(joint.velocity, joint.joint) != 0.0:
-                raise DriverError(f"joint '{joint.joint}': a non-zero start velocity has no bridge input yet")
+                raise DriverError(f"joint '{joint.joint}': a non-zero start velocity has no adapter input yet")
             starts[joint.joint] = _si(joint.position, joint.joint)
         self._starts = starts
 
@@ -387,7 +446,7 @@ class CoreDriver:
             return self._run(end, config, self._model)
         except DriverError:
             raise
-        except (StartStateError, UnmappableElementError) as error:
+        except (NativeStartStateError, NativeUnmappableElementError) as error:
             raise DriverError(str(error)) from error
         except WiringError as error:
             raise DriverError(str(error)) from error
@@ -398,19 +457,40 @@ class CoreDriver:
         """Binding errors (AdapterError, KernelConfigError, SignalConfigError and the rest, all ValueError or
         RuntimeError) escape to `run`, which types them as DriverError with the cause kept (invariant 7)."""
         payloads: dict[str, str] = {}
+        integrity = self._integrity_config()
+        model, snap_lines = _rope_snap_gate(model, integrity)
+        fitting_lines: tuple[str, ...] = ()
         if self._payload is not None:
             name, carrier, mass, _ = self._payload
             fixed = self._payload_fixed()
+            rope = self._payload_rope(name)
+            if rope is not None and not fixed:
+                raise DriverError(f"payload '{name}': hangs on rope '{rope.name}'; a mid-run release has no rope form")
+            fitting: float | None = None
+            if rope is not None:
+                fitting, line = self._fitting(rope.name, name)
+                fitting_lines = (line,)
             try:
-                model = with_payload(model, name, carrier, mass, fixed)
+                model = with_payload(model, name, carrier, mass, fixed, rope, self._starts, fitting)
             except BuildError as failure:
                 raise DriverError(str(failure)) from failure
             if not fixed:
                 payloads[name] = carrier
-        artifacts = prepare_model(model, self._starts, float(1 / config.physics_rate), payloads)
-        self.approximations = artifacts.report
-        adapter = core.make_physics_adapter("mujoco")
-        prepared = core.PreparedModel(artifacts.neutral_json, artifacts.mjcf, artifacts.version)
+        step = float(1 / config.physics_rate)
+        tier1: Tier1Setup | None = None
+        springs: tuple[int, ...] | None = None
+        prepared_native = prepare_native_model(model, self._starts, step, payloads, config.physics_substeps)
+        self.approximations = (f"physics adapter: {NATIVE_ADAPTER}", *prepared_native.report)
+        prepared = core.PreparedModel(prepared_native.model_json, "", prepared_native.version)
+        document = json.loads(prepared_native.model_json)
+        if self._evaluate_from() > 0.0:
+            document["carried_evaluation_start"] = self._evaluate_from()
+            document["rope_snap_evaluation_start"] = self._evaluate_from()
+            prepared = core.PreparedModel(json.dumps(document), "", prepared_native.version)
+        tier1 = self._tier1_setup(model, document)
+        springs = self._first_springs(document)
+        self.approximations = (*self.approximations, *snap_lines)
+        adapter = core.make_physics_adapter(self.adapter)
         rate = _rate(config.physics_rate)
         adapter.load(prepared, rate)
         run_config = core.RunConfig()
@@ -425,9 +505,34 @@ class CoreDriver:
         signals = self._signals()
         if signals:
             party.inputs = ["signals.physics_inputs"]
+        if tier1 is not None and tier1.yield_offset:
+            party.model_requests = MODEL_REQUESTS
+        decay_record = adapter.scheme_decay_record()
+        efficiency_record = adapter.efficiency_damping_record()
+        carried_record = adapter.carried_record()
         physics = core.PhysicsParty(adapter, party)
         self._schedule_physics(physics, model)
         kernel.register_party(physics)
+        halt = False
+        self.integrity_trace = None
+        if tier1 is not None:
+            halt = self._halt()
+            self.approximations = (*self.approximations, *tier1.approximations)
+            settings = core.IntegrityPartyConfig()
+            settings.name = PARTY
+            settings.rate = rate
+            settings.halt_on_crossing = halt
+            start = self._evaluate_from()
+            if start > 0.0:
+                settings.evaluate_from = core.SimTime(math.ceil(Fraction(repr(start)) * config.base_rate))
+                self.approximations = (*self.approximations, window_note(start))
+            self.integrity_trace = core.IntegrityTrace()
+            watcher = core.IntegrityParty(tier1.limits, settings, self.integrity_trace)
+            if carried_record is not None:
+                watcher.watch_validity(carried_record.validity_source())
+            kernel.register_party(watcher)
+            if halt:
+                kernel.set_end_triggers(core.EndTriggers(None, "", PARTY))
         self.labels = {}
         if signals:
             self._register_signals(kernel, config, model, sorted(payloads))
@@ -438,12 +543,33 @@ class CoreDriver:
         for subscriber in self._subscribers:
             sink.subscribe(subscriber)
         report = kernel.run(core.EndCondition(_seconds(stop, config.base_rate)), sink)
-        recorder = Recorder(config.base_rate, model_columns(model, sorted(payloads)))
+        bodies = (*(body.name for body in model.bodies), *member_node_names(model))
+        if decay_record is not None:
+            decays = [(int(joint), float(decay)) for joint, decay in decay_record.values()]
+            self.approximations = (*self.approximations, *driven_mode_lines(model, decays))
+        if efficiency_record is not None:
+            flagged_damping = [
+                (int(index), float(ratio), float(time)) for index, ratio, time in efficiency_record.values()
+            ]
+            self.approximations = (*self.approximations, *efficiency_damping_lines(model, flagged_damping))
+        validity: tuple[CarriedValidity, ...] = ()
+        if carried_record is not None:
+            carried_values = carried_record.values()
+            self.approximations = (
+                *self.approximations,
+                *carried_member_lines(model, carried_values),
+                *carried_validity_lines(model, carried_values),
+            )
+            validity = carried_validity(model, carried_values)
+        not_valid = flagged(validity)
+        recorder = Recorder(config.base_rate, model_columns(model, sorted(payloads)), bodies)
         decoded: list[RowEvent] = []
         if self._runner is not None:
             decoded = [RowEvent(tick, "controller", kind, detail) for tick, kind, detail in self._runner.events]
             decoded.sort(key=lambda event: event.time)
         taken = 0
+        held = [0.0] * len(model.ropes)
+        held_steps = steps_before(self._evaluate_from(), config.physics_rate, config.physics_substeps)
         for row in sink.drain():
             # Rows are stamped at the end of their step (KER-009), so an event of the first controller step (tick 0)
             # has no row of its own: it goes with the first row at or after its tick.
@@ -452,7 +578,18 @@ class CoreDriver:
             while taken < len(decoded) and decoded[taken].time <= row_tick:
                 due.append(decoded[taken])
                 taken += 1
-            recorder.write_row(tick_record(row, {row_tick: due}))
+            record = _canonical_crossings(
+                tick_record(row, {row_tick: due}), not_valid, float(Fraction(row_tick) / config.base_rate)
+            )
+            if row_tick - 1 < held_steps:
+                for index, tension in enumerate(record.physics.ropes[: len(held)]):
+                    held[index] = max(held[index], tension.max_tension)
+            recorder.write_row(record)
+        self.approximations = (*self.approximations, *held_rope_lines(model, held, self._evaluate_from()))
+        if self._build is not None and self._build.physics is not None:
+            stated = stated_ratios(self._build, default_registry())
+            lines = run_damping_lines(self._build.physics, model, self._payload, stated)
+            self.approximations = (*self.approximations, *lines)
         self.subscriber_errors = tuple(str(error) for error in sink.subscriber_errors())
         self._view = RecordingView(
             recorder.recording(),
@@ -461,10 +598,18 @@ class CoreDriver:
             self.labels,
             self._actuators(),
             self._states(),
+            validity,
+            springs,
         )
         reason: EndReason = "max_duration"
         if end.at_tick is not None and end.at_tick <= end.max_tick:
             reason = "end_time"
+        notes: tuple[str, ...] = fitting_lines
+        if tier1 is not None and self.integrity_trace is not None:
+            notes = (*notes, *trace_notes(tier1.limits, self.integrity_trace))
+        if report.end_reason == core.EndReason.party_state:
+            reason = "integrity_halt"
+            notes = (*notes, self._halt_line(int(report.ticks), config.base_rate))
         error: str | None = None
         if report.outcome == core.RunOutcome.run_error:
             reason = "run_error"
@@ -483,8 +628,68 @@ class CoreDriver:
             reason = "run_error"
             error = "; ".join(hook_errors)
         return RunReport(
-            reason, int(report.ticks), config.base_rate, error, tuple(sink_errors), hook_errors, self.approximations
+            reason,
+            int(report.ticks),
+            config.base_rate,
+            error,
+            tuple(sink_errors),
+            hook_errors,
+            self.approximations,
+            notes,
         )
+
+    def _integrity_config(self) -> IntegrityConfig | None:
+        if self._build is None:
+            return None
+        try:
+            return self._tier1.configuration(self._build)
+        except IntegrityError as error:
+            raise DriverError(f"integrity: {error}") from error
+
+    def _tier1_setup(self, model: PhysicsModel, native: Mapping[str, Any]) -> Tier1Setup | None:
+        if self._build is None:
+            return None
+        try:
+            return self._tier1(self._build, model, native)
+        except IntegrityError as error:
+            raise DriverError(f"integrity tier 1: {error}") from error
+
+    @staticmethod
+    def _first_springs(document: Mapping[str, Any]) -> tuple[int, ...] | None:
+        """Each lumped member's first node spring in the prepared native document's order, which run-time bodies
+        shift: tier 2 reads its `model_change` spring offsets by it (INT-028, ruling 72). None when a joint type has
+        no place in the order: tier 2 then refuses a spring offset with that error, and a run without one is
+        unaffected."""
+        try:
+            return tuple(first_springs(document))
+        except IntegrityError:
+            return None
+
+    def _halt(self) -> bool:
+        """The case's `integrity.halt_on_crossing`, false when the case has no integrity section (rulings 4, 50)."""
+        case = self._case
+        if case is not None and case.integrity is not None:
+            return case.integrity.halt_on_crossing
+        return False
+
+    def _evaluate_from(self) -> float:
+        """The case's `integrity.evaluate_from` (s), 0 when the case has no integrity section (TST-044)."""
+        case = self._case
+        if case is not None and case.integrity is not None:
+            return case.integrity.start_seconds()
+        return 0.0
+
+    def _halt_line(self, ticks: int, base_rate: Fraction) -> str:
+        """The report line of a halted run (INT-026, ruling 51): what crossed, by how much, and when."""
+        seconds = float(Fraction(ticks) / base_rate)
+        what = "its first tier 1 crossing"
+        if self.integrity_trace is not None and len(self.integrity_trace.crossings) > 0:
+            first = self.integrity_trace.crossings[0]
+            what = (
+                f"the {first.quantity} of '{first.element}' at {first.value:.12g} against the limit "
+                f"{first.limit:.12g} at {float(Fraction(int(first.time.count())) / base_rate):.12g} s"
+            )
+        return f"integrity halt: the run ended at {seconds:.12g} s on {what} (INT-026)"
 
     def _states(self) -> dict[str, str]:
         if self._build is None or self._build.design.firmware is None:
@@ -507,6 +712,33 @@ class CoreDriver:
         if self._payload is None:
             return None
         return self._payload[0]
+
+    def _payload_rope(self, name: str) -> NeutralRope | None:
+        """The design rope ending at the case payload `name` (BLD-032), if any."""
+        if self._build is None:
+            return None
+        for rope in self._build.payload_ropes:
+            if rope.to_body == name:
+                return rope
+        return None
+
+    def _fitting(self, rope: str, payload: str) -> tuple[float, str]:
+        """The end fitting mass (kg) of the design rope `rope` from its part's `end_fitting_mass` (LIB-020) and the
+        build-note line naming it."""
+        if self._build is None:
+            raise DriverError(f"rope '{rope}': no build")
+        for entry in self._build.design.ropes:
+            if entry.name == rope:
+                part = str(entry.part)
+                value = default_registry().part(part).values["end_fitting_mass"]
+                if not isinstance(value, float):
+                    raise DriverError(f"rope '{rope}': part '{part}' states no end_fitting_mass")
+                line = (
+                    f"rope '{rope}': payload '{payload}' hangs from the end fitting '{payload}_shackle' of "
+                    f"{value!r} kg (part '{part}' end_fitting_mass, LIB-020)"
+                )
+                return value, line
+        raise DriverError(f"rope '{rope}': not a rope of the design")
 
     def _payload_fixed(self) -> bool:
         """Ruling 24: a payload attached at t = 0 that no fault releases is a fixed child of its carrier; a released
@@ -606,6 +838,43 @@ class CoreDriver:
         return self._view
 
 
+def _canonical_crossings(
+    record: TickRecord, not_valid: Mapping[str, CarriedValidity] | None = None, time: float = 0.0
+) -> TickRecord:
+    """Tier 1 crossing events, counted or before the evaluation start (TST-044), with the detail text of
+    `IntegrityCrossing.detail()` (the party writes the same JSON with C++ number formatting). A counted crossing of a
+    member the engine flagged (ruling 69), in a row stamped after the flagged step's start (`time` the row's, s),
+    becomes kind `integrity_not_valid`: recorded, never counted (rulings 69, 72)."""
+    kinds = (INTEGRITY_KIND, BEFORE_EVALUATION_KIND)
+    if not any(event.kind in kinds for event in record.events):
+        return record
+    events = []
+    for event in record.events:
+        if event.kind in kinds:
+            crossing = IntegrityCrossing.parse(event.detail)
+            event = replace(event, detail=crossing.detail())
+            found: CarriedValidity | None = None
+            if not_valid is not None:
+                found = not_valid.get(crossing.member)
+            if event.kind == INTEGRITY_KIND and found is not None and found.covers(time):
+                event = replace(event, kind=NOT_VALID_KIND)
+        events.append(event)
+    return replace(record, events=tuple(events))
+
+
+def carried_validity(model: PhysicsModel, values: Sequence[tuple[Any, ...]]) -> tuple[CarriedValidity, ...]:
+    """The engine's validity record per carrying member (ENG-052, ruling 69) from `CarriedRecord.values()` (document
+    order: ..., work J, force, quasi-static deflection, largest ratio, unresolved, unresolved from s), named by the
+    structural member the integrity table uses."""
+    out: list[CarriedValidity] = []
+    for member, value in zip(model.lumped_members, values, strict=True):
+        if len(member.carries) == 0:
+            continue
+        name = member.structural_member or member.name
+        out.append(CarriedValidity(str(name), bool(value[8]), float(value[9]), float(value[7]), float(value[4])))
+    return tuple(out)
+
+
 def model_columns(model: PhysicsModel, payloads: Sequence[str] = ()) -> dict[str, Columns]:
     """Column labels of the index-column series from the neutral model (REC-018, ruling 18): joints in body order
     (prismatic m and N, revolute and the rest rad and N m), transmissions and payload bodies by name."""
@@ -634,10 +903,24 @@ def model_columns(model: PhysicsModel, payloads: Sequence[str] = ()) -> dict[str
     if len(payloads) > 0:
         for field in ("body", "carrier", "attached", "force"):
             columns[f"physics/payloads/{field}"] = Columns(tuple(payloads))
+    members = tuple(member.structural_member or member.name for member in model.lumped_members)
+    if len(members) > 0:
+        for path in MEMBER_SERIES:
+            columns[path] = Columns(members)
+    ropes = tuple(rope.name for rope in model.ropes)
+    if len(ropes) > 0:
+        for path in ROPE_SERIES:
+            columns[path] = Columns(ropes)
     return columns
 
 
 # ===== Archives =========================================================
+
+
+def _pairs(pairs: tuple[tuple[str, str], ...] | None) -> list[list[str]] | None:
+    if pairs is None:
+        return None
+    return [list(item) for item in pairs]
 
 
 def _case_file(case_hash: str, root: Path) -> bytes:
@@ -680,6 +963,7 @@ class RecordArchiver:
             tool_version=tool_version(),
             design_file=design_file,
             test_case_file=_case_file(metadata.case_hash, self._cases_root),
+            physics_adapter=metadata.physics_adapter,
         )
         fault: RunFault | None = None
         outcome = "end_condition_met"
@@ -700,24 +984,86 @@ class RecordArchiver:
             "states": json.dumps(recording.states, sort_keys=True),
             "sink_errors": json.dumps(list(report.sink_errors)),
             "hook_errors": json.dumps(list(report.hook_errors)),
+            "members": members_json(metadata.members),
+            **_notes_entry(report.notes),
+            "variation": json.dumps(_pairs(metadata.variation)),
         }
+        if metadata.material_overrides is not None:
+            extra[MATERIAL_OVERRIDES_KEY] = metadata.material_overrides.text
+            extra[f"{MATERIAL_OVERRIDES_KEY}_sha256"] = metadata.material_overrides.sha256
+        if metadata.integrity is not None:
+            extra["integrity"] = metadata.integrity.to_json()
+        if len(recording.validity) > 0:
+            extra[VALIDITY_KEY] = validity_json(recording.validity)
         write_record_archive(path, identity, end, recording.recording, extra)
         return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def _notes_entry(notes: tuple[str, ...]) -> dict[str, str]:
+    """Archive key of the run's report notes, written only when there are any so other archives keep their bytes."""
+    if len(notes) == 0:
+        return {}
+    return {"notes": json.dumps(list(notes))}
+
+
+def held_rope_lines(model: PhysicsModel, held: Sequence[float], start: float) -> tuple[str, ...]:
+    """One line per rope whose largest recorded tension over the steps begun before the evaluation start exceeded its
+    breaking tension (INT-031, PHY-036, ruling 75): the engine held that snap back, so the rope did not snap then."""
+    lines: list[str] = []
+    for rope, tension in zip(model.ropes, held, strict=True):
+        if rope.breaking_tension is None or not tension > float(rope.breaking_tension):
+            continue
+        lines.append(
+            f"rope '{rope.name}': before the evaluation start {start:.6g} s its tension reached {tension:.6g} N, above "
+            f"its breaking tension {float(rope.breaking_tension):.6g} N; the engine holds a snap back before the "
+            "start, so the rope did not snap then (INT-031, PHY-036, ruling 75)"
+        )
+    return tuple(lines)
+
+
+def _rope_snap_gate(model: PhysicsModel, integrity: IntegrityConfig | None) -> tuple[PhysicsModel, tuple[str, ...]]:
+    """Rope snap is a tier 2 entry of `integrity.yaml` (INT-031, ruling 53): without it every rope's breaking tension
+    is dropped from the run's model, with one report line per rope that stated one."""
+    if integrity is not None and integrity.rope_snap():
+        return model, ()
+    stated = [rope for rope in model.ropes if rope.breaking_tension is not None]
+    if len(stated) == 0:
+        return model, ()
+    ropes = tuple(rope.model_copy(update={"breaking_tension": None}) for rope in model.ropes)
+    lines = tuple(ROPE_SNAP_OFF.format(rope.name) for rope in stated)
+    return model.model_copy(update={"ropes": ropes}), lines
 
 
 # ===== Services =========================================================
 
 
-def core_builder(design: Design) -> CoreBuild:
-    """The shipped catalog, materials and chips; rigid members (milestone 1 runs rigid, BLD-033)."""
+def core_builder(design: Design, adapter: str = DEFAULT_PHYSICS_ADAPTER, registry: Registry | None = None) -> CoreBuild:
+    """The run's catalog (`registry`, default the shipped one; LIB-016) and the shipped chips, the shipped materials
+    with the design's overrides (MAT-020); members flexible as the design states them. `adapter` is checked
+    (TST-040: a retired adapter is refused by name) and otherwise does not shape the build."""
+    refusal = adapter_refusal(adapter)
+    if refusal is not None:
+        raise DriverError(refusal)
+    if registry is None:
+        registry = default_registry()
     try:
-        return build(design, default_registry(), shipped_materials(), rigid_members=True)
-    except BuildError as error:
+        return build(design, registry, design_materials(design))
+    except (BuildError, DesignError, MaterialError) as error:
         raise DriverError(str(error)) from error
 
 
-def core_services(designs_root: Path = DESIGNS_ROOT) -> Services:
-    """The runner's real services: a fresh `CoreDriver` per run, the builder, the record archiver."""
+def core_services(designs_root: Path = DESIGNS_ROOT, registry: Registry | None = None) -> Services:
+    """The runner's real services: a fresh `CoreDriver` per run, the builder, the record archiver, and integrity
+    over the recording when the design has an `integrity.yaml` beside its design file (INT-022). `registry` (default
+    the shipped catalog) is the run's: overrides are checked and the design is built against it (LIB-016)."""
+    builder: Builder = core_builder
+    if registry is not None:
+        builder = partial(core_builder, registry=registry)
     return Services(
-        driver=CoreDriver, builder=core_builder, archiver=RecordArchiver(designs_root), designs_root=designs_root
+        driver=partial(CoreDriver, designs_root=designs_root),
+        builder=builder,
+        registry=registry,
+        archiver=RecordArchiver(designs_root),
+        designs_root=designs_root,
+        integrity=IntegrityService(designs_root),
     )

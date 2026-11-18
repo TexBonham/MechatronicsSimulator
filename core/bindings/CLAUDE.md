@@ -2,8 +2,7 @@
 
 One pybind11 module, `mechsim._core_ext` (ADR 0005), imported through `mechsim/_core.py` (raises
 `CoreNotBuiltError` naming the build step if the module is missing). Target `_core_ext`; links `mechsim_engine`,
-`mechsim_controller` (-> signals -> kernel), `mechsim_physics_mujoco` (libmujoco installed next to the extension in
-`mechsim/`, found through `INSTALL_RPATH $ORIGIN`; the build tree keeps its own RPATH). pybind11 v3.0.1 via FetchContent; `MECHSIM_BUILD_BINDINGS` (ON).
+`mechsim_controller` (-> signals -> kernel), `mechsim_integrity`, `mechsim_physics_native`; no shared library ships beside the extension pybind11 v3.0.1 via FetchContent; `MECHSIM_BUILD_BINDINGS` (ON).
 
 ## Build
 
@@ -18,15 +17,17 @@ One pybind11 module, `mechsim._core_ext` (ADR 0005), imported through `mechsim/_
 | File | Binds |
 |---|---|
 | `bindings.hpp` | `bind_*` declarations; `call_override<R>(self, name, args...)` (takes the GIL, Python error -> C++); `party_fault_object`; `rethrow_as_cpp` |
-| `factories.hpp/.cpp` | `make_kernel(RunConfig)` (CoSimKernel); name registries `make_physics_adapter(name)`, `make_controller_runtime(name, rate)`, `*_names()`; adapters "mujoco", "null"; runtimes "null" |
+| `factories.hpp/.cpp` | `make_kernel(RunConfig)` (CoSimKernel); name registries `make_physics_adapter(name)`, `make_controller_runtime(name, rate)`, `*_names()`; adapters "native" (`core/physics/native/`), "null"; runtimes "null" |
 | `errors.cpp` | Python exception classes and the translator |
 | `bind_kernel.cpp` | `Rate`, `Seconds`, `Duration`, `SimTime`, `lcm`, `period_in_ticks`, `ticks_at`, `to_seconds`; `RunConfig`, `SolverConfig`, `DriftThresholds`, `ControllerMode`; `EndCondition(end_time, stop=None)`, `RunOutcome`, `RunReport` (`fault` -> `PartyFault` or None); `Party` (trampoline); `Kernel`, `NullKernel`, `make_kernel` |
-| `bind_physics.cpp` | Neutral physics types (`TransmissionState` + `PowerFlow`, `PayloadState`); `PreparedModel`; `PhysicsAdapter` (trampoline; optional `set_transmission_slip`), `MujocoAdapter` (+ `integrator`, `timestep`), `NullPhysicsAdapter`; `physics_adapter_step(adapter)` (C++ call path) |
+| `bind_physics.cpp` | Neutral physics types (`TransmissionState` + `PowerFlow`, `PayloadState`); `PreparedModel` (`engine_artifact` kept, empty: no shipped adapter takes one); `PhysicsAdapter` (trampoline; optional `set_transmission_slip`), `NativeAdapter` (+ `integrator`, `timestep`, `driven_scheme_decay()` -> [(joint, decay)], `scheme_decay_record()` -> `DrivenSchemeDecayRecord` (shared values, `values()` a copy; take it before `PhysicsParty` takes the adapter, read it after the run); `make_physics_adapter("native")` returns it), `NullPhysicsAdapter`; `physics_adapter_step(adapter)` (C++ call path); `EfficiencyDampingRecord.values()` [(transmission, ratio, time)] and `NativeAdapter.efficiency_damping_record()` (E9, brief M3-X2i) |
 | `bind_recorder.cpp` | `TickRecord`, `SeriesSample`, `RecordedEvent`, `SubscriptionId`; row dict physics adds `joint_positions`, `joint_drive_torques` [{joint, torque}], `payloads` [{body, carrier (-1 world), attached, force}]; `RecorderSink` (trampoline), `NullRecorderSink`, `BufferedRecorderSink` (`subscribe`, `drain_dicts`, `drain_arrays`, `pending`) |
 | `bind_signals.cpp` | `PeripheralMode`, `PinBinding`, `PinBindingTable`, `PowerRail`, name checks; `FailureMode` (+ power_loss), `FailureInjection`, `validate_injection`; `SignalComponent` (= `PythonSlowPathComponent`, trampoline; + `joint_drives()`, `take_notes()`), `NullSignalComponent`, `SignalTable`, `signal_component_tick` |
 | `bind_controller.cpp` | Channel constants; `PinInputs`, `PinOutputs`, `EventLogEntry`, `FirmwareImage`; `ControllerRuntime`, `NullControllerRuntime`, `make_controller_runtime` |
 | `bind_cosim.cpp` | Coupling conversions (`coupling_to_python`/`from_python`); `CouplingReader`, `CouplingWriter`, `CouplingTable`; `CoSimKernel` (`set_end_triggers`, `coupling`); `InMemoryRecorderSink`; `PhysicsParty(+Config)` (+ `schedule_slip(transmission, start, end, fraction)`, `schedule_payload_change(payload, tick, *, mass=None, carrier=None)`, exactly one, carrier -1 releases), `ControllerParty(+Config, `latency_ticks`)` (+ `schedule_freeze(start, end)`, `schedule_slowdown(start, end, factor)`); schedule before `register_party`; `ComponentClock`, `derive_child_seed`, `JointCoordinate`, `make_signal_component(type, instance, params)` (table below); `Stage` power, sensor, driver, actuator, front_end; operator types, `make_operator_link`; `SignalLayer` and config types; `ChannelMap` and friends; `NativeControllerRuntime`, `NativeRuntimeConfig`, `build_host_firmware` |
-| `bind_engine.cpp` | Submodule `_core_ext.engine` only: `StepConfig`, `State`, `StepHealth`, `JointType`, `Joint`, `Body`, `LoopConstraint`, `MultibodyModel`, `MultibodyConfig`, outputs, `SemiImplicitEuler`, `MultibodyProvider`; lumped beam `BeamEnds`, `BeamSpec`, `BeamPoint`, `LumpedBeam`, `add_lumped_beam` (model in place), `beam_point` (ENG-022) |
+| `bind_integrity.cpp` | `ModelChangeRequest(kind, index, value)`, `ModelChangeRequests(sequence, requests)` (read-only copy; the `integrity.model_requests` coupling value in a row, digested by the recorder), `IntegrityCrossingRecord`, `IntegrityTrace()` (readonly peaks, `crossings`, `requests`), `IntegrityPartyConfig`, `IntegrityParty(limits_json, config, trace=None)` (ValueError on a malformed table), `check_integrity_limits(json)`; `PhysicsPartyConfig.model_requests` in `bind_cosim.cpp` |
+| `bind_engine.cpp` | Submodule `_core_ext.engine` only: `StepConfig`, `State`, `StepHealth`, `JointType` (+ Translation), `Joint` (+ `lower`, `upper`, `friction`, ENG-013/014), `Body`, `LoopConstraint`, `MultibodyModel` (+ `members`, `ropes`), `MultibodyConfig` (+ `friction_slip_threshold`), outputs (+ `ConstraintOutput.torque`, `RopeOutput`, `MemberOutput`, `ModelChange`, `LoadSource`, `ModelChangeEvent`; `MultibodyOutputs.members`, `ropes`, `events`; `TransmissionOutput.scheme_decay`; `JointOutput.limit_force`, `limit_overshoot`, `friction_creep`, `scheme_decay`), `Rope`, `add_rope` (model in place), `SemiImplicitEuler`, `MultibodyProvider` (+ `set_joint_drive(joint, dof, rest, stiffness, damping)`, `clear_joint_drive(joint, dof)` ENG-051, `set_spring_offset`, `set_spring_stiffness`, `disable_constraint`, `release_load(constraint)`, `release_rope`, `constraint_enabled`, `rope_attached`, `set_rope_rest_length`, `rope_states`); lumped beam `BeamEnds` (+ Clamped), `BeamSpec`, `BeamPoint`, `LumpedBeam` (+ `pinned_root`), `add_lumped_beam` (model in place), `beam_point`, `member_nodes` (ENG-022) |
+| `bind_contact.cpp` | Same submodule: `ContactParameters`, `MaterialPair`, `Geometry`, `ContactModel`, `CollisionLimits`, `ContactPoint`, `PayloadOutput`, `collide(a, b, limits=CollisionLimits())`; adds `ContactOutput.normal`/`depth`, `MultibodyOutputs.payloads`, provider `set_contact_model`, `contact_model`, `contacts`, `set_body_mass`, `set_attachment` (tests `tests/unit/test_engine_bindings.py`) |
 
 ## `make_signal_component` parameters
 
@@ -89,5 +90,5 @@ New kernel: point `make_kernel` in `factories.cpp` at it. New adapter or runtime
 |---|---|---|
 | Parameter readers | src/bind_cosim.cpp | 50 |
 | Coupling values | src/bind_cosim.cpp | 118 |
-| Signal components | src/bind_cosim.cpp | 195 |
-| Module binding | src/bind_cosim.cpp | 348 |
+| Signal components | src/bind_cosim.cpp | 198 |
+| Module binding | src/bind_cosim.cpp | 351 |

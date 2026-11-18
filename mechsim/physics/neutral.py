@@ -119,6 +119,12 @@ Acceleration = Annotated[
 ]
 Inertia = Annotated[float, _validator(units.Inertia), _serializer("kg*m**2"), _schema("inertia", "kg*m**2")]
 Area = Annotated[float, _validator(units.Area), _serializer("m**2"), _schema("[length]**2", "m**2")]
+_MassPerLength = units.quantity_field("[mass] / [length]")
+_StrainRateDamping = units.quantity_field("[mass] * [length] / [time]")
+MassPerLength = Annotated[float, _validator(_MassPerLength), _serializer("kg/m"), _schema("[mass]/[length]", "kg/m")]
+StrainRateDamping = Annotated[
+    float, _validator(_StrainRateDamping), _serializer("N*s"), _schema("[mass]*[length]/[time]", "N*s")
+]
 SecondMomentOfArea = Annotated[
     float, _validator(units.SecondMomentOfArea), _serializer("m**4"), _schema("[length]**4", "m**4")
 ]
@@ -146,6 +152,9 @@ PositiveSecondMoment = Annotated[SecondMomentOfArea, AfterValidator(_positive)]
 
 Number = Annotated[float, Field(strict=True, allow_inf_nan=False)]
 PositiveNumber = Annotated[Number, AfterValidator(_positive)]
+PositiveForce = Annotated[Force, AfterValidator(_positive)]
+PositiveMassPerLength = Annotated[MassPerLength, AfterValidator(_positive)]
+NonNegativeStrainRateDamping = Annotated[StrainRateDamping, AfterValidator(_non_negative)]
 Count = Annotated[int, Field(strict=True)]
 Flag = Annotated[bool, Field(strict=True)]
 Name = Annotated[str, Field(strict=True, pattern=r"^[a-z][a-z0-9_]*$")]
@@ -473,25 +482,36 @@ class ContactModel(_Model):
 
 # ===== Lumped members ===================================================
 
-DEFAULT_SEGMENTS = 4
+DEFAULT_SEGMENTS = 8
 PINNED_ROLLER_SEGMENTS = 8
+CLAMPED_CLAMPED_SEGMENTS = 16
 DEFAULT_ROLLER_MASS_FRACTION = 1e-3
 
 
 class Section(_Model):
-    """Member section and material constants: E, I, rho, A, L."""
+    """Member section and material constants: E, I (about the member z axis, bending along y), rho, A, L; and, for a
+    section given by its shape (ruling 25), the second moment about y, the extreme-fibre distances along y and z, the
+    torsion constant and the shear areas along y and z (member frame: x along the member)."""
 
     elastic_modulus: PositivePressure
     second_moment_of_area: PositiveSecondMoment
     density: PositiveDensity
     area: PositiveArea
     length: PositiveLength
+    second_moment_y: PositiveSecondMoment | None = None
+    fibre_y: PositiveLength | None = None
+    fibre_z: PositiveLength | None = None
+    torsion_constant: PositiveSecondMoment | None = None
+    shear_area_y: PositiveArea | None = None
+    shear_area_z: PositiveArea | None = None
 
 
 class LumpedMember(_Model):
     """Multi-segment lumped beam (R-13) rooted on `parent` at the given placement, along the root frame's x axis.
 
-    `segments` defaults to 4, or 8 for a pinned root with a roller end (ENG-040).
+    `segments` defaults to 8, and to 16 for a clamped-clamped member (rulings 17 and 31: the chain's clamped-clamped
+    deflection error is -4 / N^2). A clamped far end (ruling 16) locks the end rotation and the transverse
+    translation; it needs a clamped root.
     """
 
     name: Name
@@ -500,11 +520,14 @@ class LumpedMember(_Model):
     orientation: Quaternion = _IDENTITY
     section: Section
     root: Literal["clamped", "pinned"]
-    end: Literal["free", "roller"]
+    end: Literal["free", "roller", "clamped"]
     segments: Annotated[Count, Field(ge=1)] = DEFAULT_SEGMENTS
     roller_mass_fraction: PositiveNumber = DEFAULT_ROLLER_MASS_FRACTION
     node_damping: NonNegativeRotationalDamping = 0.0
     structural_member: Name | None = None
+    # Bodies whose joint to `parent` the member carries (ENG-052, ruling 63): their in-plane transverse load and
+    # bending moment reach `parent` through the member's nodes; each a child of `parent`, carried by one member only.
+    carries: tuple[Name, ...] = ()
 
     @model_validator(mode="before")
     @classmethod
@@ -512,13 +535,26 @@ class LumpedMember(_Model):
         pinned_roller = isinstance(data, dict) and data.get("root") == "pinned" and data.get("end") == "roller"
         if pinned_roller and "segments" not in data:
             return {**data, "segments": PINNED_ROLLER_SEGMENTS}
+        clamped_clamped = isinstance(data, dict) and data.get("root") == "clamped" and data.get("end") == "clamped"
+        if clamped_clamped and "segments" not in data:
+            return {**data, "segments": CLAMPED_CLAMPED_SEGMENTS}
         return data
+
+    @model_validator(mode="after")
+    def _clamped_end_needs_clamped_root(self) -> LumpedMember:
+        if self.end == "clamped" and self.root != "clamped":
+            raise ValueError(f"end 'clamped' needs root 'clamped', got root {self.root!r} (ruling 16)")
+        return self
 
 
 # ===== Transmissions ====================================================
 
 
 class _Transmission(_Model):
+    """A compliant transmission: `stiffness` and `damping` act at the output (N/m and N s/m along a prismatic output,
+    N m/rad and N m s/rad about a revolute one), a spring-damper on the stretch from n theta to the driven joint
+    (ENG-043 to ENG-046); damping 0 is undamped (PHY-037)."""
+
     name: Name
     shaft_joint: Name
     driven_joint: Name
@@ -533,6 +569,7 @@ class BeltPulley(_Transmission):
     pulley_radius: PositiveLength
     stiffness: PositiveStiffness
     backlash: NonNegativeLength = 0.0
+    damping: NonNegativeLinearDamping = 0.0
 
 
 class LeadScrew(_Transmission):
@@ -542,6 +579,7 @@ class LeadScrew(_Transmission):
     lead: PositiveLength
     stiffness: PositiveStiffness
     backlash: NonNegativeLength = 0.0
+    damping: NonNegativeLinearDamping = 0.0
     self_locking: Flag = False
 
 
@@ -552,11 +590,46 @@ class GearPair(_Transmission):
     ratio: Annotated[Number, AfterValidator(_nonzero)]
     stiffness: PositiveRotationalStiffness
     backlash: NonNegativeAngle = 0.0
+    damping: NonNegativeRotationalDamping = 0.0
 
 
 Transmission = Annotated[BeltPulley | LeadScrew | GearPair, Field(discriminator="type")]
 
 DRIVEN_JOINT_TYPES: dict[str, str] = {"belt_pulley": "prismatic", "lead_screw": "prismatic", "gear_pair": "revolute"}
+
+
+# ===== Ropes and fastenings =============================================
+
+
+class Rope(_Model):
+    """Lumped rope chain (ADR 0016, BLD-032): `segments` point-mass segments between a point of `from_body` and a
+    point of `to_body` (anchors in each body frame; "world" allowed), tension-only springs EA / l with strain-rate
+    damping `damping` / l per segment of rest length l = rest_length / segments, mass per length, and an optional
+    breaking tension (absent: the rope never snaps, ruling 19)."""
+
+    name: Name
+    from_body: Name
+    from_point: Vector3
+    to_body: Name
+    to_point: Vector3
+    segments: Annotated[Count, Field(ge=1)]
+    axial_stiffness: PositiveForce
+    damping: NonNegativeStrainRateDamping
+    mass_per_length: PositiveMassPerLength
+    rest_length: PositiveLength
+    breaking_tension: PositiveForce | None = None
+
+
+class Fastening(_Model):
+    """A mount (a fixed design joint, `joint` names it) or a fastener set holding `body_b` on `body_a`, addressable
+    by its index in `PhysicsModel.fastenings` so a modeled failure can disable it (BLD-031). Fastening names are
+    their own namespace: a mount takes its joint's name."""
+
+    name: Name
+    kind: Literal["mount", "fastener"]
+    body_a: Name
+    body_b: Name
+    joint: Name
 
 
 # ===== Signals and structural members ===================================
@@ -590,6 +663,7 @@ class StructuralMember(_Model):
     material: Name
     supports: Annotated[tuple[Support, ...], Field(min_length=1)]
     fasteners: tuple[Fastener, ...]
+    mounts: tuple[Name, ...] = ()
 
     @model_validator(mode="after")
     def _supports_on_member(self) -> StructuralMember:
@@ -630,6 +704,15 @@ class PhysicsModel(_Model):
     transmissions: tuple[Transmission, ...] = ()
     signals: SignalInterface = Field(default_factory=SignalInterface)
     structural_members: tuple[StructuralMember, ...] = ()
+    ropes: tuple[Rope, ...] = ()
+    fastenings: tuple[Fastening, ...] = ()
+
+    def fastening_index(self, name: str) -> int:
+        """The index of the named mount or fastener set, the handle an adapter disables it by (BLD-031)."""
+        for index, fastening in enumerate(self.fastenings):
+            if fastening.name == name:
+                return index
+        raise KeyError(f"no fastening '{name}'")
 
     @model_validator(mode="after")
     def _references(self) -> PhysicsModel:
@@ -640,6 +723,7 @@ class PhysicsModel(_Model):
         element_names += [constraint.name for constraint in self.constraints]
         element_names += [member.name for member in self.lumped_members]
         element_names += [transmission.name for transmission in self.transmissions]
+        element_names += [rope.name for rope in self.ropes]
         for name in _duplicates(element_names):
             problems.append(f"duplicate name '{name}'")
         if WORLD in element_names:
@@ -667,8 +751,39 @@ class PhysicsModel(_Model):
                 problems.append(
                     f"lumped member '{member.name}': unknown structural member '{member.structural_member}'"
                 )
+        parents = {body.name: body.parent for body in self.bodies}
+        carried = [name for member in self.lumped_members for name in member.carries]
+        for name in _duplicates(carried):
+            problems.append(f"body '{name}' is carried by more than one lumped member (ENG-052)")
+        for member in self.lumped_members:
+            for name in member.carries:
+                if name not in parents:
+                    problems.append(f"lumped member '{member.name}': unknown carried body '{name}'")
+                elif parents[name] != member.parent:
+                    problems.append(
+                        f"lumped member '{member.name}': carried body '{name}' is a child of '{parents[name]}', "
+                        f"not of the member's parent '{member.parent}' (ENG-052)"
+                    )
         for transmission in self.transmissions:
             problems += _transmission_problems(transmission, joints)
+        for rope in self.ropes:
+            for body_name in (rope.from_body, rope.to_body):
+                if body_name not in bodies:
+                    problems.append(f"rope '{rope.name}': unknown body '{body_name}'")
+            if rope.from_body == rope.to_body:
+                problems.append(f"rope '{rope.name}': both ends on body '{rope.from_body}'")
+        for name in _duplicates(fastening.name for fastening in self.fastenings):
+            problems.append(f"duplicate fastening '{name}'")
+        for fastening in self.fastenings:
+            for body_name in (fastening.body_a, fastening.body_b):
+                if body_name not in bodies:
+                    problems.append(f"fastening '{fastening.name}': unknown body '{body_name}'")
+            if fastening.joint not in joints:
+                problems.append(f"fastening '{fastening.name}': unknown joint '{fastening.joint}'")
+        for structural_member in self.structural_members:
+            for mount in structural_member.mounts:
+                if mount not in joints:
+                    problems.append(f"structural member '{structural_member.name}': unknown mount joint '{mount}'")
         if self.contacts is not None:
             problems += _contact_problems(self.contacts, bodies)
         for name in _duplicates(self.signals.load_torque_joints):

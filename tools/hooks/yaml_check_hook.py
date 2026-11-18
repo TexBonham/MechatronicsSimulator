@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
-"""PostToolUse hook: parse an edited data YAML file under designs/, test_cases/, mechsim/library/ or chips/
-and validate it against schemas/<kind>.json. Expects the Claude Code hook JSON on stdin, shaped like
+"""PostToolUse hook: parse an edited data YAML file under designs/, test_cases/, mechsim/library/, mechsim/materials/
+or chips/ and validate it against schemas/<kind>.json, the kind the CLI's `file_kind` gives (an `integrity.yaml`
+beside a design is an integrity configuration); by location when `file_kind` names none. Expects the Claude Code
+hook JSON on stdin, shaped like
     {"tool_name": "Write", "tool_input": {"file_path": "/abs/or/relative/designs/x.yaml"}, "cwd": "..."}
 Exit 2 on a parse or schema error so the model sees it; exit 0 in every other case."""
 
@@ -43,7 +45,35 @@ def repo_root(path: Path) -> Path:
     return Path(__file__).resolve().parents[2]
 
 
-def kind_for(relative: str) -> str | None:
+SCHEMA_OF = {"case": "test_case", "catalog": "component"}
+
+
+def cli_kind(path: Path) -> str | None:
+    """The schema name of `mechsim.facade.files.file_kind(path)`; None when it names no kind, when mechsim is not
+    importable here, or when the file cannot be read or parsed (`main` then reports the parse error). Any other
+    failure is a defect and surfaces."""
+    try:
+        from ruamel.yaml.error import YAMLError
+
+        from mechsim.facade.files import file_kind
+    except ImportError:
+        return None
+    try:
+        kind = file_kind(path)
+    except (OSError, UnicodeDecodeError, YAMLError):
+        return None
+    if kind is None:
+        return None
+    return SCHEMA_OF.get(kind, kind)
+
+
+def kind_for(relative: str, path: Path | None = None) -> str | None:
+    if not any(relative.startswith(prefix) for prefix, _ in KINDS):
+        return None
+    if path is not None:
+        kind = cli_kind(path)
+        if kind is not None:
+            return kind
     for prefix, kind in KINDS:
         if relative.startswith(prefix):
             if kind == "test_case" and Path(relative).name == "baseline.yaml":
@@ -99,7 +129,7 @@ def main() -> int:
         relative = path.relative_to(root).as_posix()
     except ValueError:
         return 0
-    kind = kind_for(relative)
+    kind = kind_for(relative, path)
     if kind is None:
         return 0
     load = yaml_loader()

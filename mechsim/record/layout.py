@@ -31,6 +31,15 @@ CONSTRAINT_FORCE = "physics/constraints/force"
 JOINT_POSITIONS = "physics/joint_positions"
 DRIVE_TORQUE = "physics/joint_drive_torques/torque"
 DRIVE_DRIVEN = "physics/joint_drive_torques/driven"
+MEMBER_SERIES = (
+    "physics/members/start_moment",
+    "physics/members/start_force",
+    "physics/members/end_moment",
+    "physics/members/end_force",
+)
+ROPE_TENSION = "physics/ropes/tension"
+ROPE_MAX_TENSION = "physics/ropes/max_tension"
+ROPE_SERIES = (ROPE_TENSION, "physics/ropes/slack", ROPE_MAX_TENSION)
 
 AXIS_TIME = {
     TICK_AXIS: ("time/tick", "time/seconds"),
@@ -65,6 +74,7 @@ FIXED_SERIES: tuple[tuple[str, str, str, str], ...] = (
     ("physics/members/end_force", "N", TICK_AXIS, "float64"),
     ("physics/ropes/tension", "N", TICK_AXIS, "float64"),
     ("physics/ropes/slack", "1", TICK_AXIS, "bool"),
+    (ROPE_MAX_TENSION, "N", TICK_AXIS, "float64"),
     ("physics/transmissions/slip", "m or rad", TICK_AXIS, "float64"),
     ("physics/transmissions/slipping", "1", TICK_AXIS, "bool"),
     ("physics/transmissions/shaft_load_torque", "N m", TICK_AXIS, "float64"),
@@ -81,9 +91,21 @@ FIXED_SERIES: tuple[tuple[str, str, str, str], ...] = (
 )
 
 
-# Index-column series (one column per joint coordinate, transmission or payload, model order) that take per-column
-# names and units from the driver (REC-018).
+# Body series (one column per published body): the driver may name their columns, the neutral bodies then the
+# native adapter's member node bodies `<member>.node<k>` (PHY-003, REC-018); unnamed when it does not.
+BODY_SERIES: tuple[str, ...] = (
+    "physics/bodies/position",
+    "physics/bodies/orientation",
+    "physics/bodies/angular_velocity",
+    "physics/bodies/linear_velocity",
+)
+
+
+# Index-column series (one column per joint coordinate, transmission, payload, structural member or rope, model order)
+# that take per-column names and units from the driver (REC-018, REC-004, REC-026).
 COLUMN_SERIES: tuple[str, ...] = (
+    *MEMBER_SERIES,
+    *ROPE_SERIES,
     "physics/transmissions/slip",
     "physics/transmissions/slipping",
     "physics/transmissions/shaft_load_torque",

@@ -23,6 +23,11 @@ types:
         dimension: "[length]"
         default: "0 mm"
         minimum: "0 mm"
+      - name: damping_ratio
+        dimension: dimensionless
+        default: "0"
+        minimum: "0"
+        maximum: "1"
       - name: self_locking
         kind: flag
         default: false
@@ -38,7 +43,7 @@ types:
       - name: rigid
         parameters: [mass, ratio, efficiency, self_locking, slip, max_tension]
       - name: compliant
-        parameters: [stiffness, backlash]
+        parameters: [stiffness, backlash, damping_ratio]
     mechanical:
       mass:
         source: parameter
@@ -76,3 +81,27 @@ parts:
       self_locking: false
       max_tension: "200 N"
     placeholders: [mass, efficiency, stiffness, max_tension]
+  - name: gates_gt2_2mr_6mm_20t
+    type: belt_pulley
+    tier: rigid
+    description: Gates PowerGrip GT2 2MR belt, 6 mm wide, on a 20-tooth GT2 pulley (2 mm pitch, 12.70 mm pitch 
+      diameter).
+    source: >-
+      REPLACEABLE sourced part (brief M3-GV; URLs in docs/gantry-team-inputs.md). Gates Synchronous Belt Data Summary
+      (17611-T): 2M PowerGrip GT2 per 1.00 in width, average belt tensile modulus 18,000 lbf per unit strain,
+      recommended working tension 111 N, minimum total ultimate strength 5338 N; below 1/4 in width proportion directly
+      and reduce the modulus by 18 percent: EA = 18,000 x (6 / 25.4) x 0.82 = 3486.6 lbf = 15.509 kN per unit strain,
+      working tension 111 x 6 / 25.4 = 26.22 N (ultimate 5338 x 6 / 25.4 = 1261 N before Gates' note 4, an 18 percent reduction
+      below 1/4 in width: 1034 N at 6 mm). stiffness is the clamped loop's at
+      the carriage, two spans in parallel, EA (1 / a + 1 / b), lowest at mid-travel, 4 EA / L with the 0.5 m travel as
+      the pulley-to-idler span L: 124.07 kN/m. Efficiency 0.98, US DOE Motor Systems Tip Sheet 5 for synchronous belts
+      (citing Gates). Ratio 20 teeth x 2 mm pitch = 40 mm/turn (the pulley datasheet's 12.70 mm pitch diameter gives pi
+      x 12.70 = 39.90 mm, 0.25 percent less). mass is not published for the set and stays the generic placeholder.
+    values:
+      mass: "0.05 kg"
+      ratio: "40 mm/turn"
+      efficiency: "0.98"
+      stiffness: "124.07 kN/m"
+      self_locking: false
+      max_tension: "26.22 N"
+    placeholders: [mass]

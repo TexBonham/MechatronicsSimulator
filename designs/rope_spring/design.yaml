@@ -1,0 +1,71 @@
+# Mass on a spring-damper (ACC-039): the 1 kg bob of the rope pendulum on one rope segment of the catalog rope
+# rope_3mm_steel_generic, rest length 1 m, hung straight down from the world origin: one segment is one axial
+# spring k = EA / L0 = 500 kN/m and damper c = 50 N s / L0 = 50 N s/m (ADR 0016 segment force) on the bob, which
+# carries the rope's lower half-mass (M = 1.0175 kg). Placed at the rest length (tension 0) and released, gravity
+# is the step: the static stretch is M g L0 / EA = 1.996335e-5 m, omega_n = sqrt(k / M) = 700.99964 rad/s,
+# zeta = c / (2 M omega_n) = 0.03504998. The rest length and the bob's placement are open parameters (rope_length,
+# bob_y = -rope_length) so a case can perturb the length, which scales both k and c by 1 / L0 (`--set` both); draft
+# for that reason. The bob is steel (steel_8_8_fastener); its mass is stated, so the material serves strength only.
+name: rope_spring
+version: 1.0.0
+source_hash: unset
+status: draft
+description: Bob on a one-segment rope, a mass on a spring-damper (ACC-039).
+open_parameters:
+  - name: rope_length
+    dimension: "[length]"
+    owed_by: reference fixture
+    note: Rest length L0 of the one-segment rope.
+    default: "1 m"
+  - name: bob_y
+    dimension: "[length]"
+    owed_by: reference fixture
+    note: Placement y of the bob, -L0 (released at the rest length).
+    default: "-1 m"
+environment:
+  gravity: [0 m/s**2, -9.81 m/s**2, 0 m/s**2]
+  ambient_temperature: 298.15 K
+bodies:
+  - name: bob
+    material: steel_8_8_fastener
+    process:
+      kind: extrusion
+    geometry:
+      kind: primitives
+      shapes:
+        - shape: sphere
+          position: [0 m, 0 m, 0 m]
+          radius: 0.02 m
+    mass_properties:
+      mass: 1 kg
+      com: [0 m, 0 m, 0 m]
+      inertia:
+        ixx: 1.6e-4 kg*m**2
+        iyy: 1.6e-4 kg*m**2
+        izz: 1.6e-4 kg*m**2
+joints:
+  - name: bob_free
+    type: free
+    parent: world
+    child: bob
+    placement:
+      position: [0 m, "${bob_y}", 0 m]
+    linear:
+      - {friction: 0 N, damping: 0 N*s/m, backlash: 0 m}
+      - {friction: 0 N, damping: 0 N*s/m, backlash: 0 m}
+      - {friction: 0 N, damping: 0 N*s/m, backlash: 0 m}
+    angular:
+      - {friction: 0 N*m, damping: 0 N*m*s/rad, backlash: 0 rad}
+      - {friction: 0 N*m, damping: 0 N*m*s/rad, backlash: 0 rad}
+      - {friction: 0 N*m, damping: 0 N*m*s/rad, backlash: 0 rad}
+ropes:
+  - name: line
+    part: rope_3mm_steel_generic
+    from:
+      body: world
+      point: [0 m, 0 m, 0 m]
+    to:
+      body: bob
+      point: [0 m, 0 m, 0 m]
+    segments: 1
+    rest_length: ${rope_length}

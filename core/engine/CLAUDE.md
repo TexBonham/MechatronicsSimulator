@@ -13,10 +13,14 @@ Namespace `mechsim::engine`; q (nq), v (nv). Eigen only, dense (ENG-001).
 | `step_health.hpp` | `StepHealth { max_constraint_drift, converged, iterations, time, step }` (ENG-026) |
 | `engine_error.hpp` | `EngineError(time, cause)`; `NonFiniteStateError`, `SolverNonConvergenceError`, `DriftError` (+`constraint_index()`), `InvalidModelError`, `InvalidConfigError` |
 | `spatial.hpp` | Featherstone 6-vectors (angular first), `Transform` B_X_A (`motion`, `force`, `inverse_*`, `then_from`), `inertia`, `cross_motion/force` |
-| `multibody_model.hpp` | `JointType`, `Joint`, `Body`, `LoopConstraint` (Point 3, Hinge 5 rows), `MultibodyModel`, `MultibodyConfig` |
+| `multibody_model.hpp` | `JointType`, `Joint`, `Body`, `LoopConstraint` (Point 3, Hinge 5 rows), `MultibodyModel`, `MultibodyConfig` (test seams `refuse_unstable_carried`, `carried_added_mass`, `carried_momentum`) |
 | `multibody_provider.hpp` | `MultibodyProvider`, output structs |
 | `transmission.hpp` | `Transmission` (belt, screw, gear), `TransmissionOutput`, `PowerFlow`, `couple` (derivation) |
-| `lumped_beam.hpp` | `BeamSpec`, `add_lumped_beam(model, spec, parent, position, orientation)`, `beam_point(beam, x)` (ENG-022) |
+| `collision.hpp` | `ShapeKind`, `shape_kind(name)` (unknown throws, ENG-017), `Shape`, `Pose`, `ContactPoint{point, normal a->b, depth}`, `Aabb`, `bounds`, `broad_phase`, `collide(a, pa, b, pb)`, `support` |
+| `contact.hpp` | `ContactParameters{K_n, C_n, mu}`, `MaterialPair`, `Geometry` (neutral sizes, body -1 world), `ContactModel{geometries, default, pairs, exclusions, slip_velocity 1e-4}`, `contact_force`, `WeldAttachment`, `PayloadOutput` (derivations in the header) |
+| `lumped_beam.hpp` | `BeamSpec`, `add_lumped_beam(model, spec, parent, position, orientation)` (registers `model.members`), `beam_point(beam, x)` (ENG-022) |
+| `member_loads.hpp` | `LumpedBeam` (+ `carried`), `member_nodes(beam)`, `MemberOutput` (start/end moment, force, `carried_deflection`, work and validity fields), `carried_ratio_limit`, `carried_window_periods`/`carried_window_bucket`, `member_end_loads` (ENG-030); `CarriedLoadOutput`, `load_nodes`, `carried_pair`, `carried_pair_at` (ENG-052, derivation in the header) |
+| `rope.hpp` | `Rope`, `RopeOutput`, `add_rope(model, rope, from_world, to_world)`, `rope_segment`, `validate_rope_parameters` (ENG-047, ADR 0016) |
 
 ## DynamicsProvider hooks
 
@@ -37,43 +41,198 @@ defaulted: `solve_constraints(t, h, q, system, v) -> iterations` (0), `project(q
 H by CRBA (lower triangle mirrored), c by RNEA (gravity as base acceleration).
 Joint springs (ENG-051): `Joint.stiffness/damping/rest` per v DOF (empty = none); diagonal K, D; f gets
 -K(q - rest) - D v; stiffness only on Revolute, Prismatic, Planar.
-Joints: Revolute 1/1, Prismatic 1/1, Fixed 0/0, Planar 3/3 [x, y, theta], Spherical 4/3, Free 7/6 [p, quat w-first];
+Joints: Revolute 1/1, Prismatic 1/1, Fixed 0/0, Planar 3/3 [x, y, theta], Spherical 4/3, Free 7/6 [p, quat w-first],
+Translation 3/3 [p] (rope nodes);
 spherical/free v in child coordinates; quaternions renormalized in `integrate_positions`.
+Joint limits (ENG-013, ruling 43): `Joint.lower/upper` (empty or 1 entry; Revolute, Prismatic only; -inf/+inf open;
+lower == upper locks; else InvalidModelError naming the body). Every row J = s e_k (s +1 lower, -1 upper), impulse >= 0,
+anticipatory s v >= -max(gap, 0) / h (gap at step start), after the loop rows in each sweep, joint order; a binding row sets
+v_k to its target exactly; no position projection for limits. Start coordinate past a bound by more than the drift
+threshold: InvalidModelError. `JointOutput.limit_force` = s lambda / h; `limit_overshoot` round-off pass.
+Joint friction (ENG-014, ruling 38): `Joint.friction` per DOF (Revolute, Prismatic, Planar), `add_joint_friction`:
+c = F / max(|v_start|, `friction_slip_threshold`), f -= c v, D += c; creep v_s L / F published as `friction_creep`.
+Drive (ENG-051, ruling 42): `set_joint_drive(joint, dof, rest, stiffness, damping)` stores `drive_*_` per DOF, added
+on top of the model spring by `add_joint_drives` (rest = end-of-step rest), persistent, no event;
+`clear_joint_drive(joint, dof)`. `JointOutput.scheme_decay` only on joints with a drive (ruling 44,
+`drive_omega_squared`: single DOF or a transmission pair's lower root); no mass-matrix work on undriven models.
 Constraints: block Gauss-Seidel (per-constraint pseudo-inverse of J A^-1 J^T) until `max|J v| <= velocity_tolerance`,
 cap `iteration_cap` (50) else `SolverNonConvergenceError`; then `projection_iterations` (3) Gauss-Newton
 min-norm steps; drift > `drift_threshold_m/_rad` (1e-6) throws `DriftError(t, cause, index)`.
 `step(integrator, state)`: steps, records `outputs()` (body pose and twists; joint `S^T f` and wrench; constraint
-impulse, force, errors; empty `contacts`), clears inputs.
+impulse, force, errors; `contacts`; `payloads`), clears inputs.
 Inputs: `set_generalized_forces(tau)`, `apply_body_wrench(body, torque, force)` world-aligned at the com.
 Also `constraint_errors(q)`, `body_states(q, v)`, `neutral_positions()`, `*_offset(b)`.
 Hooks write mutable `impulse_`/`error_`; single-threaded (ENG-023).
-Transmissions: Revolute shaft to Prismatic or (gear) Revolute output; K, D += k, c a b^T in contact.
+Transmissions: Revolute shaft to Prismatic or (gear) Revolute output; K, D += k, c a b^T in contact, a = [g_k, -1].
+Efficiency (ruling 47): gain n (1 + s_w alpha), s_w = min(|omega| / omega_s, 1), omega_s = `friction_slip_threshold`;
+explicit gain exact n / eta_f, n eta_b at and above omega_s; g_k = n always and the shaft gets implicit damping
+c = |alpha| n |F| / max(|omega|, omega_s) (larger loss at omega = 0), so the loss never adds energy (M3-E6). Static sag n F / K exact; creep tau_f = (n F (1 / eta_f - 1) /
+omega_s + D_d) / K, tau_b = (n F (1 - eta_b) / omega_s + D_d) / K. `Static` = shaft at exactly zero speed (or F = 0).
+E9 (header (iv), brief M3-X2i): `TransmissionOutput::efficiency_damping_ratio` = abs(omega_end) / max(abs(omega_start),
+omega_s) per step (0 without efficiency damping at the step start); above 2 only for a shaft leaving rest; lag bound
+in the header; the end-rate re-solve is milestone 4.
+Self-locking screw (ruling 48): `lock_rows_` from `evaluate` (transmission order), scalar row s omega >= 0 after the
+limit rows in `solve_constraints`, absent when the shaft's own torque T (tau, body wrenches, drive and model joint
+spring-damper) has T L > 0 (lowering: gain 0); two-sided only at omega == 0 with F = 0 and T = 0 (ruling 55); `TransmissionOutput::lock_torque` = s lambda / h; Locked when P >= 0 and T L >= 0
+(published load torque 0). `TransmissionCoupling`: `gain`, `stiffness_gain`, `shaft_damping`, `shaft_torque`, `lock`.
 `set_shaft_torque(i, tau)` (per step), `set_slip(i, s)` (persists), `slip(i)`, `transmission_states(q, v)`.
 `outputs().transmissions`, `transmission_states`: end state, step's drive (next step's pre-image); `shaft_load_torque`
 = g F, the torque the shaft must supply along its + axis (PHY-033; `couple()` keeps the applied sign -g F internally);
 `power_flow` not for per-step energy bookkeeping. Slip offsets move only in `step()`.
 
-## Section index, `src/multibody_provider.cpp`
+Members (ENG-030): `outputs().members` per `model.members`, support-on-member wrench at x = 0 and x = L, moments about
+the end point, member root frame axes, from the step's start state like `joints`.
+Carried joints (ENG-052, ruling 63): `LumpedBeam::carried` child bodies of the member's parent (validated at
+construction: in range, not a member body or roller, one member each). Load = -(previous step's `reaction_wrench`), the
+first step's from Newton-Euler at the start state with zero accelerations (`static_carried_loads`). Rerouted: only F . y
+and M_p . z (member frame, ruling 65); axial, out-of-plane and torsion stay on the parent. Lever rule onto `load_nodes`
+(x = 0: parent if clamped, pin segment if pinned; spring nodes; x = L: last segment tip), exact opposite on the parent
+at the same points, added in `applied_body_wrenches` (so `evaluate`, joint reactions and end loads see it). Explicit,
+one step lagged, not in K, D or H. `outputs().carried` per carried joint; `MemberOutput::carried_deflection` per member;
+`carried_generalized_forces(q)` for the energy oracle. Foot point off [0, L] by more than `drift_threshold_m`: InvalidModelError.
+Lag stability (brief M3-E7b, header Stability): at the first step, modes of K, M on the loop null space; per joint
+`CarriedLoadOutput::inverse_inertia`, `lag_ratio`, `lag_omega_h`, `lag_factor` (damped spectral radius,
+`lag_spectral_radius`; one mode `lag_growth_factor`, boundary `lag_stability_boundary` = (1 + x^2) / 2); undamped
+radius > 1 refused (InvalidModelError, ruling 67); `MultibodyConfig::refuse_unstable_carried` is a test seam only.
+Work and validity (brief M3-E7c, ruling 69, header Work and validity): per carrying member `MemberOutput::carried_work`
+(cumulative h Q_n . v_{n+1}), `carried_force`/`peak_carried_force`, `quasi_static_deflection`/`peak_quasi_static`
+(node compliances and gravity deflection from the elastic modes at load, `member_compliance_`), `dynamic_ratio`,
+`peak_ratio`, `unresolved` + `unresolved_time` above `carried_ratio_limit` = 2 (1 + `carried_validity_margin` 0.02);
+information only, nothing clamped. Definition (briefs M3-E7f, M3-E7g, rulings 74, 77, header Definition),
+member-wide over the load nodes: ratio = `relative_deflection` (max over nodes abs(d_a - g_a), `node_deflections`) /
+`window_quasi_static` = max(window peak of max over nodes abs(u_qs,a - g_a), `static_floor` = max over the travel of
+C(s) W, `carried_travel_floor_` at load, ruling 76; no travel for revolute, fixed, spherical or a cross-axis
+prismatic); `window_peak` before the floor; at the peak ratio `peak_position`, `peak_window_peak`,
+`peak_relative_deflection`; window N = ln 50 / (2 pi zeta) periods of the first loaded
+mode (node damping only; cap 100, undamped gets the cap), a fixed ring of 4 ceil(N) quarter-period buckets
+(`member_window_`); evaluated, and the window fed, from `MultibodyConfig::carried_evaluation_start` (s, default 0);
+`window_periods`, `window_steps` published; `peak_quasi_static` stays the largest abs(u_qs) since load.
+Carried mass (brief M3-E7d, ruling 70 b, header Carried mass): `mass_matrix` adds m_c G^T G per carried joint (G v the
+lever-weighted deflection rate at the foot point along member y relative to the parent, `carried_rate_row`; m_c the
+carried body's tree subtree, `carried_mass`), at the start-of-step configuration; no added weight, zero along the
+parent's rigid motion, no rotary inertia; its force -B q'' goes into the recorded reactions
+(`add_carried_inertia_wrenches`). `carried_mass_matrix(q)` for the energy oracle. Stability on the loaded modes:
+abs(r) <= 1/2, the refusal a guard. `MultibodyConfig::carried_added_mass` false (test seam only) is the E7c one-way pair.
+Momentum form (brief M3-E7e): a carriage whose s changed since the previous step's start adds -(B_n - B'_{n-1}) v_n / h
+(`add_carried_momentum_force`, B' at the previous s, `carried_previous_position_`, active only inside `step()`), and
+the reactions carry the momentum rate; a standing carriage is bit-identical; `carried_momentum` false is the E7d form.
+Mid-run changes (ENG-031 to 034), next step on, each listed in the next step's `outputs().events` (`ModelChange`):
+`set_spring_offset(member, node, offset)` (rest = built + offset), `set_spring_stiffness(member, node, k)`,
+`disable_constraint(c)` / `release_load(c)` (zero rows; twice throws), `release_rope(r)` (same path); `constraint_enabled`, `rope_attached`.
+Ropes (ENG-047, ADR 0016, rulings 14, 15): N segments, N - 1 Translation nodes, end half-masses on the end bodies;
+tension-only spring-dampers; K gets k n n^T + (T / d)(I - n n^T), D gets c n n^T for a segment taut by its law at the
+step start. Taut set (rope.hpp header, brief M3-E8, ruling 87): within a step a segment is taut exactly when its
+end-of-step length is >= rest; `step()` re-solves from the start with the set read from the end until two agree
+(cap `iteration_cap` solves, then `SolverNonConvergenceError`, state restored; `outputs().rope_passes`); a segment
+going taut in the step pulls k (d - l) affine, no damper until a step starts taut; a rope that stays taut: 1 pass, bit-identical;
+top attachment damping and friction (spherical joint torque, in D); `set_rope_rest_length(r, L)` (winch);
+`outputs().ropes` per segment tension, max, load end, `snatch_omega_h` = sqrt(EA / (L M)) h (flag above 0.2:
+first snatch peak about 15 % low); snap: end-of-step tension
+over `breaking_tension` releases `to_body` from the next step, event `RopeSnapped`, only in steps starting at or after
+`MultibodyConfig::rope_snap_evaluation_start` (s, default 0; document key `rope_snap_evaluation_start`); before it
+the exceedance is held, `RopeOutput::held_tension` the largest since load (INT-031, ruling 75).
+Ruling 21: swing and belt modes go through K, so they integrate as backward Euler: with x = omega h the mode loses
+(1 + x^2)^(-pi / atan x) of its amplitude per period (about pi x; 1 % at 1 ms for a 1 m pendulum) and runs x^2 / 3
+slow (1 % at 27 Hz at 1 kHz); `RopeOutput::scheme_decay` and `TransmissionOutput::scheme_decay` publish pi omega h
+for the adapter to record. Attachment friction regularised below `MultibodyConfig::friction_slip_threshold` (1e-4).
+Load releases (constraint, rope or payload weld, requested or by snap) go through one `release_load` path:
+`LoadReleased` + source. `outputs().events` is overwritten every step: a caller running several steps per tick
+collects the events after each step.
 
-| Section | Line |
-|---|---|
-| Helpers | 39 |
-| Construction | 262 |
-| Kinematics | 338 |
-| Dynamics | 405 |
-| Transmissions | 509 |
-| Constraints | 607 |
-| Inputs and outputs | 750 |
+## Collision and contact (ADR 0002, ENG-016 to ENG-021)
+
+Broad phase: all-pairs AABB in geometry order (plane unbounded). Narrow phase in-house, no library (ENG-018):
+closed forms for sphere-sphere, sphere-capsule, capsule-capsule, sphere-box and every shape against a plane (one
+contact per penetrating feature: box corners, hull vertices, capsule caps, 4 rim points per cylinder cap); GJK + EPA
+(`CollisionLimits`: tolerance 1e-12 m, GJK cap 64, EPA cap 128) for the rest, one contact. Point = midpoint of the
+witness points. Box-box and hull-hull carry one witness point (a box on a box tips; payload-on-floor uses the per-corner plane form), ruling 23. Empty = no contact only for a geometric answer (separated, touching,
+GJK separating within tolerance, flat Minkowski difference); GJK/EPA cap exhaustion or a degenerate EPA face before tolerance throws
+`SolverNonConvergenceError` (rethrown by `evaluate` with the step time).
+Provider: `set_contact_model(ContactModel)` validates (planes only on the world); `evaluate` adds per contact
+G^T F, G^T K_s G, G^T D_s G (G = J_b(p) - J_a(p)); same-body and excluded pairs skipped; `contacts(q, v)`;
+`outputs().contacts` at the step's start state, force on body a; joint outputs include contact and weld loads.
+Payload (ENG-035): `set_body_mass(b, m)` (inertia scaled), `set_attachment(body, carrier, attached, q, f = 1 kHz)`
+weld as implicit 6-DOF spring-damper at the payload com captured from q; `attachments()`, `outputs().payloads`.
+Attach and mass
+change push `PayloadAttached` / `PayloadMass` into the next step's `outputs().events`; release (attached false) goes
+through `release_load(Payload, body)`: `LoadReleased`, index the carrier left; no held weld throws.
 
 ## Lumped beam
 
-N segments, spring E I / l at each segment midpoint; clamped or pinned root, free or roller end.
+N segments, spring E I / l at each segment midpoint. `BeamEnds`: Cantilever (clamped root, free end),
+SimplySupported (pin segment at the root, `pinned_root`; point constraint onto a prismatic roller at x = L),
+Clamped (ruling 16; clamped root, and the roller constraint becomes a Hinge about the beam x axis: point plus two
+rotation rows, so the far stub moves with the roller; the axial slide stays free). Clamped-clamped midspan chain value
+P L^3 / (192 E I) (1 - 4 / N^2): -6.25 % at N = 8, so the 2 % references run at N = 16 (-1.56 %); first mode
++2.49 % at N = 8, +0.61 % at N = 16 (header derivation). `ConstraintOutput::torque` (world, on body_a) gives the
+clamped end moment in `MemberOutput::end_moment`. Clamped needs N >= `BeamSpec::min_clamped_segments` (8, ruling 31),
+else InvalidModelError; twist and axial slide at the clamped end stay free until ruling 23's six-row constraint (M4).
+Euler buckling (ENG-042): N = 8 critical load (2N / L)^2 E I sin^2(pi / 2N) = 0.9872 P_Euler.
 Planar bending about root z; two-axis bending plus torsion: next tier. Derivation in the header.
 
 ## Tests
 
-Unit: `mechsim_engine_tests`. Reference: `mechsim_engine_reference`, `ctest -L reference`.
+Unit: `mechsim_engine_tests`. Reference: `mechsim_engine_reference`, `ctest -L reference`. Contact helpers:
+`tests/contact_helpers.hpp`; energy oracle `tests/energy_helpers.hpp` (`mechanical_energy`); carried rigs and the
+lever-rule chain value `tests/carried_helpers.hpp`.
 
 ## Conventions
 
 SI, units per field (ENG-004) No threads, unordered containers or fast-math in the step path (ENG-023).
+
+## Section index
+
+| Section | File | Line |
+|---|---|---|
+| Shapes | src/collision.cpp | 16 |
+| Broad phase | src/collision.cpp | 180 |
+| Closed forms | src/collision.cpp | 243 |
+| GJK | src/collision.cpp | 415 |
+| EPA | src/collision.cpp | 583 |
+| Narrow phase | src/collision.cpp | 744 |
+| Helpers | src/multibody_provider.cpp | 43 |
+| Construction | src/multibody_provider.cpp | 304 |
+| Kinematics | src/multibody_provider.cpp | 399 |
+| Dynamics | src/multibody_provider.cpp | 471 |
+| Transmissions | src/multibody_provider.cpp | 712 |
+| Constraints | src/multibody_provider.cpp | 864 |
+| Members, ropes and model changes | src/multibody_provider.cpp | 1100 |
+| Inputs and outputs | src/multibody_provider.cpp | 2380 |
+| Work and validity | tests/test_carried_validity.cpp | 45 |
+| Two-member finding (ruling 69) | tests/test_carried_validity.cpp | 337 |
+| Loaded frequency and carried drive | tests/test_carried_validity.cpp | 465 |
+| Flag definition (rulings 74, 77) | tests/test_carried_validity.cpp | 522 |
+| ENG-016 detection | tests/test_contact.cpp | 31 |
+| ENG-017 unsupported geometry | tests/test_contact.cpp | 200 |
+| ENG-020 soft contact | tests/test_contact.cpp | 268 |
+| ENG-035 payload change | tests/test_contact.cpp | 396 |
+| Travel limits | tests/test_joint_limits.cpp | 74 |
+| Joint friction | tests/test_joint_limits.cpp | 508 |
+| Joint drive | tests/test_joint_limits.cpp | 651 |
+| Zero-stretch coupling and starts on a bound | tests/test_joint_limits.cpp | 965 |
+| ENG-019 closed-form contact set | tests/test_reference_contact.cpp | 38 |
+| ENG-021 rest and hard stop | tests/test_reference_contact.cpp | 185 |
+| Chain construction | tests/test_rope.cpp | 36 |
+| Tension law | tests/test_rope.cpp | 141 |
+| Attachment damping and friction | tests/test_rope.cpp | 190 |
+| Winch and slack | tests/test_rope.cpp | 245 |
+| Snap | tests/test_rope.cpp | 287 |
+| Snap evaluation start | tests/test_rope.cpp | 346 |
+| Snap evaluation start by step count | tests/test_rope.cpp | 459 |
+| Release and payload mass | tests/test_rope.cpp | 502 |
+| Settling and tolerances | tests/test_transmission_locking.cpp | 32 |
+| Belt efficiency | tests/test_transmission_locking.cpp | 117 |
+| Static sag and creep | tests/test_transmission_locking.cpp | 166 |
+| Self-locking screw | tests/test_transmission_locking.cpp | 278 |
+| Self-locking hold and lift | tests/test_transmission_locking.cpp | 323 |
+| Unloaded screw | tests/test_transmission_locking.cpp | 600 |
+| Models and settling bound | tests/test_transmissions.cpp | 33 |
+| Settling helpers | tests/test_transmissions.cpp | 51 |
+| Belt and screw statics | tests/test_transmissions.cpp | 129 |
+| Energy and efficiency | tests/test_transmissions.cpp | 233 |
+| Gear pair | tests/test_transmissions.cpp | 329 |
+| Slip | tests/test_transmissions.cpp | 399 |
+| Backlash | tests/test_transmissions.cpp | 480 |
+| Back-driving | tests/test_transmissions.cpp | 545 |
+| Repeatability and validation | tests/test_transmissions.cpp | 574 |
+| Invalid parameters | tests/test_transmissions.cpp | 606 |

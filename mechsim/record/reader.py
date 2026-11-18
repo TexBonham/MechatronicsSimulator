@@ -18,7 +18,18 @@ from numpy.typing import NDArray
 from mechsim.physics.neutral import PhysicsModel
 from mechsim.record.archive import RunArchive
 from mechsim.record.layout import CONTROLLER_STATE, NAMED_GROUPS, Recording
-from mechsim.testing.driver import MESSAGE_KIND, RecordedEvent, RunMetadata, RunReport, Series
+from mechsim.record.validity import VALIDITY_KEY, CarriedValidity, validity_from_json
+from mechsim.testing.driver import (
+    MATERIAL_OVERRIDES_KEY,
+    MESSAGE_KIND,
+    IntegrityResults,
+    MaterialOverridesRecord,
+    RecordedEvent,
+    RunMetadata,
+    RunReport,
+    Series,
+    members_from_json,
+)
 from mechsim.testing.runner import RunnerError
 
 OPERATOR_EVENT_KINDS = ("operator_status", "operator_command")
@@ -184,8 +195,14 @@ class RecordingView:
         labels: Mapping[str, str] | None = None,
         actuators: Mapping[str, str] | None = None,
         states: Mapping[str, str] | None = None,
+        validity: Sequence[CarriedValidity] = (),
+        first_springs: Sequence[int] | None = None,
     ) -> None:
         self.states = dict(states or {})
+        self.validity = tuple(validity)
+        self.first_springs: tuple[int, ...] | None = None
+        if first_springs is not None:
+            self.first_springs = tuple(int(value) for value in first_springs)
         self._labels = dict(labels or {})
         self.labels = self._labels
         self.actuators = dict(actuators or {})
@@ -379,13 +396,41 @@ class RecordArchiveReader:
                 tuple(json.loads(extra.get("sink_errors", "[]"))),
                 tuple(json.loads(extra.get("hook_errors", "[]"))),
                 approximations,
+                tuple(json.loads(extra.get("notes", "[]"))),
             ),
             bindings=tuple((item[0], item[1]) for item in json.loads(extra["bindings"])),
             control_rate=control_rate,
+            members=members_from_json(extra.get("members", "[]")),
+            material_overrides=_overrides(extra),
+            variation=_variation(extra.get("variation", "null")),
+            integrity=_integrity(extra),
+            physics_adapter=identity.physics_adapter,
         )
         labels = json.loads(extra.get("labels", "{}"))
         actuators = json.loads(extra.get("actuators", "{}"))
         states = json.loads(extra.get("states", "{}"))
+        validity: tuple[CarriedValidity, ...] = ()
+        if VALIDITY_KEY in extra:
+            validity = validity_from_json(extra[VALIDITY_KEY])
         return metadata, RecordingView(
-            recording, Kinematics.from_json(extra["kinematics"]), approximations, labels, actuators, states
+            recording, Kinematics.from_json(extra["kinematics"]), approximations, labels, actuators, states, validity
         )
+
+
+def _overrides(extra: dict[str, str]) -> MaterialOverridesRecord | None:
+    if MATERIAL_OVERRIDES_KEY not in extra:
+        return None
+    return MaterialOverridesRecord(extra[MATERIAL_OVERRIDES_KEY], extra[f"{MATERIAL_OVERRIDES_KEY}_sha256"])
+
+
+def _variation(text: str) -> tuple[tuple[str, str], ...] | None:
+    data = json.loads(text)
+    if data is None:
+        return None
+    return tuple((str(item[0]), str(item[1])) for item in data)
+
+
+def _integrity(extra: dict[str, str]) -> IntegrityResults | None:
+    if "integrity" not in extra:
+        return None
+    return IntegrityResults.from_json(extra["integrity"])

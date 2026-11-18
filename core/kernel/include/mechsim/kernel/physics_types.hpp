@@ -53,10 +53,32 @@ struct MemberEndLoads {
     Wrench end{};
 };
 
-// Rope tension after the step (PHY-004, REC-026).
+// Rope tension after the step (PHY-004, REC-026, ruling 40).
 struct RopeTension {
-    double tension = 0.0;  // N, >= 0
-    bool slack = false;
+    double tension = 0.0;      // N, >= 0, the load-end segment
+    double max_tension = 0.0;  // N, >= tension, the largest segment
+    bool slack = false;        // the load-end segment carries no tension
+};
+
+// A mid-run model change or rope snap that took effect in the tick (PHY-008, ruling 40), neutral indices.
+enum class ModelChangeKind : std::uint8_t {
+    SpringOffset,        // source Spring, index spring, value offset (m or rad)
+    SpringStiffness,     // source Spring, index spring, value stiffness (N/m or N m/rad)
+    ConstraintDisabled,  // source Constraint, index constraint
+    LoadReleased,        // source Constraint, Rope or Payload: index the constraint, rope or payload body; value the
+                         // carrier body a payload left
+    RopeSnapped,         // source Rope, index rope, value the tension that broke it (N)
+    PayloadAttached,     // source Payload, index payload body, value carrier body (-1 the world)
+    PayloadMass          // source Payload, index payload body, value mass (kg)
+};
+
+enum class ModelChangeSource : std::uint8_t { Spring, Constraint, Rope, Payload };
+
+struct ModelChangeEvent {
+    ModelChangeKind kind = ModelChangeKind::SpringOffset;
+    ModelChangeSource source = ModelChangeSource::Spring;
+    std::int64_t index = 0;
+    double value = 0.0;
 };
 
 // Direction of power through a transmission at the step (ENG-044): Static at zero shaft speed, Forward when the shaft
@@ -114,6 +136,9 @@ struct PhysicsOutputs {
     std::vector<double> joint_positions;
     std::vector<JointDriveTorque> joint_drive_torques;
     std::vector<PayloadState> payloads;  // one per payload the adapter maps, in its order
+    // The tick's model changes, each delivered in exactly one tick's outputs (ruling 40); recorded as events of kind
+    // model_change (ruling 26).
+    std::vector<ModelChangeEvent> model_changes;
 };
 
 struct BodyWrench {

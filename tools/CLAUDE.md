@@ -7,7 +7,7 @@ Stdlib Python checkers (3.12 floor), run by the tests and `tools/hooks/`.
 `python3 tools/check_imports.py [--root ROOT] [paths...]`. Parses with `ast`, dynamic imports included. Exit 1 on any violation, else 0.
 
 Rules (`RULES`):
-- `mujoco`: only under `mechsim/physics/mujoco/` (invariant 5)
+- `mujoco`, `mechsim.physics.mujoco`: forbidden anywhere (prefix `""`), the bridge retired (ADR 0004, PHY-026)
 - Qt, PySide, PyQt, OpenGL, tkinter, vispy, glfw, pygame, pyqtgraph: only under `mechsim/viewer/` (invariant 9)
 - `hppfcl`, `fcl`, `pycollision`: only under `tests/` (R-05)
 - `mechsim.viewer`: only under `mechsim/viewer/`, `mechsim/facade/` (the facade serves it, VIE-014; ruling 15) and `tests/` (invariant 9)
@@ -21,15 +21,15 @@ Rules (`RULES`):
 - `--root PATH`: repository root (default: parent of `tools/`)
 - Exit 0: clean. Exit 1: violations, or a stale matrix without `--write`. Exit 2: usage error.
 
-## Section index, `traceability.py`
+## Section index
 
 | Section | File | Line |
 |---|---|---|
-| Data model | `tools/traceability.py` | 40 |
-| File helpers | `tools/traceability.py` | 89 |
-| Spec parsing | `tools/traceability.py` | 129 |
-| Python citations | `tools/traceability.py` | 240 |
-| C++ citations | `tools/traceability.py` | 334 |
-| Checks | `tools/traceability.py` | 473 |
-| Matrix | `tools/traceability.py` | 518 |
-| CLI | `tools/traceability.py` | 592 |
+| Data model | traceability.py | 40 |
+| File helpers | traceability.py | 89 |
+| Spec parsing | traceability.py | 129 |
+| Python citations | traceability.py | 240 |
+| C++ citations | traceability.py | 334 |
+| Checks | traceability.py | 473 |
+| Matrix | traceability.py | 518 |
+| CLI | traceability.py | 592 |

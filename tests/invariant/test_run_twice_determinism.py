@@ -64,7 +64,7 @@ def test_rec_022_one_changed_value_is_detected(tmp_path: Path) -> None:
 @pytest.mark.req("REC-022")
 @pytest.mark.req("REC-023")
 def test_rec_022_real_run_twice_gives_identical_archives(tmp_path: Path) -> None:
-    """The real stack (P1 case file, builder, MuJoCo bridge, co-simulation kernel, recorder, archive) run twice with
+    """The real stack (P1 case file, builder, native adapter, co-simulation kernel, recorder, archive) run twice with
     the same design, case and seed gives byte-identical archives, coupling series included (invariant 4). The gantry
     G3 run is checked below."""
     case = ROOT / "test_cases" / "pendulum" / "P1_period.yaml"
@@ -83,7 +83,7 @@ def test_rec_022_real_run_twice_gives_identical_archives(tmp_path: Path) -> None
 @pytest.mark.req("REC-022")
 @pytest.mark.req("REC-023")
 def test_rec_022_gantry_g3_run_twice_gives_identical_archives(tmp_path: Path) -> None:
-    """G3 through the whole stack (gantry design, builder, MuJoCo bridge, kernel, signal layer, operator link, native
+    """G3 through the whole stack (gantry design, builder, native adapter, kernel, signal layer, operator link, native
     gantry firmware, recorder, archive) run twice gives byte-identical archives (invariant 4)."""
     case = ROOT / "test_cases" / "gantry" / "G3.yaml"
     first = run_case(case, core_services(), None, tmp_path / "first")

@@ -412,6 +412,20 @@ def test_conformance_fac_011(ws: ClientConnection, session: Session) -> None:
     assert_error(request(ws, "value_at", missing), "not_found", "FAC-011")
 
 
+@pytest.mark.req("VIE-010", "VIE-011")
+def test_conformance_overlays(ws: ClientConnection, session: Session) -> None:
+    """Member stress and swing angle overlays as additive requests on an open replay: P1 is rigid with no structural
+    members (an empty member list) and its link swings about the world origin; an unknown body is not_found."""
+    open_replay(ws, session)
+    stress = request(ws, "member_stress", {"run_id": RUN_ID}).answer["payload"]["result"]
+    assert (stress["unit"], stress["members"], len(stress["times"])) == ("Pa", [], 24400)
+    swing = request(ws, "swing_angle", {"run_id": RUN_ID, "load": "link", "attachment": "world"}).answer
+    result = swing["payload"]["result"]
+    assert (result["unit"], len(result["values"])) == ("rad", 24400)
+    missing = {"run_id": RUN_ID, "load": "nothing", "attachment": "world"}
+    assert_error(request(ws, "swing_angle", missing), "not_found", "VIE-011")
+
+
 # ===== Reports, errors, files (FAC-012, FAC-014, FAC-015, FAC-017) ======
 
 UNRUNNABLE = (ROOT / "test_cases" / "pendulum" / "P1_period.yaml").read_text(encoding="utf-8")
@@ -483,8 +497,63 @@ def test_conformance_fac_015(session: Session, tmp_path: Path) -> None:
     assert report.identical, report.first_difference
 
 
-@pytest.mark.req("FAC-013")
-@pytest.mark.xfail(strict=True, reason="stub")
-def test_conformance_fac_013() -> None:
-    """A client reads integrity results and the load-case export through protocol requests."""
-    raise NotImplementedError
+@pytest.mark.req("FAC-013", "INT-006", "INT-022")
+def test_conformance_fac_013(ws: ClientConnection, session: Session) -> None:
+    """A client reads integrity results and the load-case export through protocol requests: a native run of the
+    cantilever reference (a flexible member, node-pose deflection) gives through the protocol exactly the table the
+    integrity service computes directly on the archived recording, and the load case the export writes."""
+    # The cantilever's files live in the session root only for this test (FAC-010 lists the root's designs).
+    copied = (session.root / "designs" / "cantilever_beam", session.root / "test_cases" / "cantilever_beam")
+    shutil.copytree(ROOT / "designs" / "cantilever_beam", copied[0])
+    shutil.copytree(ROOT / "test_cases" / "cantilever_beam", copied[1])
+    try:
+        _integrity_through_the_protocol(ws, session)
+    finally:
+        for folder in copied:
+            shutil.rmtree(folder)
+
+
+def _integrity_through_the_protocol(ws: ClientConnection, session: Session) -> None:
+    from mechsim.integrity.export import load_case
+    from mechsim.integrity.service import IntegrityService
+    from mechsim.testing.core_driver import RecordArchiveReader, core_builder
+    from mechsim.testing.runner import prepare
+
+    case_path = "test_cases/cantilever_beam/B1_cantilever.yaml"
+    payload = {"design": "designs/cantilever_beam/design.yaml", "test_case": case_path, "seed": 0, "mode": "none"}
+    ran = request(ws, "run_case", payload).answer["payload"]["result"]
+    run_id = ran["run_id"]
+    replay = request(ws, "replay_open", {"archive": ran["archive"]}).answer
+    assert replay["kind"] == "ok"
+    table = request(ws, "integrity_results", {"run_id": run_id}).answer["payload"]["result"]
+    metadata, view = RecordArchiveReader().open(Path(ran["archive"]))
+    prepared = prepare(session.root / case_path, designs_root=session.root / "designs")
+    direct = IntegrityService(session.root / "designs")(core_builder(prepared.design, "native"), prepared.case, view)
+    assert direct is not None
+    bar = direct.member("bar")
+    assert bar.deflection > 0.0
+    assert "deflection_not_evaluated" not in bar.flags
+    assert table["run_id"] == run_id
+    assert table["members"] == [
+        {
+            "member": entry.member,
+            "peak_stress": entry.peak_stress,
+            "peak_stress_evaluated": True,
+            "peak_stress_time": entry.peak_stress_time,
+            "deflection": entry.deflection,
+            "deflection_evaluated": True,
+            "deflection_time": entry.deflection_time,
+            "safety_factor": entry.safety_factor,
+            "safety_factor_evaluated": True,
+            "safety_factor_time": entry.safety_factor_time,
+            "flags": list(entry.flags),
+            # No member is flagged in this run (ruling 69): the state is valid and carries no flag time.
+            "state": "valid",
+            "not_valid_from": None,
+        }
+        for entry in direct.members
+    ]
+    exported = load_case(view, metadata.members, metadata.design_name, metadata.design_version, metadata.run_id)
+    for file_format, text in (("json", exported.to_json()), ("csv", exported.to_csv())):
+        answer = request(ws, "load_case", {"run_id": run_id, "format": file_format}).answer["payload"]["result"]
+        assert answer["text"] == text

@@ -1,7 +1,8 @@
 # ADR 0014: MuJoCo bridge split between Python translation and C++ stepping
 
 Date: 2026-11-03
-Status: Accepted (owner ruling 2026-11-03)
+Status: Accepted (owner ruling 2026-11-03); the MuJoCo half retired with the bridge on 2026-11-15 (ADR 0004); the
+split stands for the native adapter
 Closes rulings: refines R-11 and ADR 0004 for the C++ core runtime (ADR 0005)
 Supersedes: ADR 0004, Decision table "Role 1: bridge" as to where the adapter runs; architecture doc layout entry
 `mechsim/physics/mujoco/ (bridge)` as the only location

@@ -37,7 +37,7 @@ def test_engine_binding_allowed_behind_native_adapter(source: str, location: str
 @pytest.mark.req("INV-005")
 @pytest.mark.parametrize("source", ENGINE_IMPORTS)
 @pytest.mark.parametrize(
-    "location", ["mechsim/builder/build.py", "mechsim/physics/mujoco/adapter.py", "mechsim/physics/neutral.py"]
+    "location", ["mechsim/builder/build.py", "mechsim/physics/chrono/adapter.py", "mechsim/physics/neutral.py"]
 )
 def test_engine_binding_rejected_elsewhere(source: str, location: str) -> None:
     violations = check_source(source, location)

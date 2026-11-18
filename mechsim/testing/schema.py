@@ -13,6 +13,7 @@ import json
 import math
 import re
 import sys
+from collections.abc import Collection, Iterable
 from pathlib import Path
 from typing import Annotated, Any, Literal
 
@@ -26,6 +27,7 @@ from pydantic import (
     GetJsonSchemaHandler,
     ValidationError,
     WithJsonSchema,
+    field_validator,
     model_validator,
 )
 from pydantic.json_schema import JsonSchemaValue
@@ -46,6 +48,7 @@ from mechsim.design.schema import (
     OpenValue,
     RepoPath,
     SemVer,
+    Senses,
     Time,
     iter_open_values,
     load_design,
@@ -65,12 +68,18 @@ ANY = "any"
 LENGTH = "[length]"
 ANGLE = "dimensionless"
 TIME = "[time]"
+FREQUENCY = "1 / [time]"
+# Statistics of an oscillating series (SCO-020, SCO-027, SCO-028): meaningless on a step or count quantity.
+SERIES_STATISTICS = ("period", "mean", "amplitude", "period_about_mean", "frequency_about_mean")
 
+# The body a case's initial payload is placed as at run time when no load cell senses it (`testing.core_driver`).
+CASE_PAYLOAD_BODY = "payload"
 CASE_ID_PATTERN = r"^[A-Z][A-Z0-9_]*[0-9]+$"
 _N = r"[a-z][a-z0-9_]*"
 QUANTITY_REF_PATTERN = (
     rf"^(signal:{_N}\.{_N}|pose:{_N}\.(x|y|z|roll|pitch|yaw)|joint:{_N}\.(position|velocity)"
-    rf"|rail:{_N}(\.voltage)?|state:{_N}|fault:{_N}|count:(message|state|fault)\.{_N})$"
+    rf"|rail:{_N}(\.voltage)?|state:{_N}|fault:{_N}|count:(message|state|fault)\.{_N}"
+    rf"|safety_factor:{_N}|deflection:{_N}|swing:{_N}\.{_N}(\.(x|y|z))?|missed_steps:{_N}|torque_margin:{_N})$"
 )
 EVENT_REF_PATTERN = rf"^(message|state|fault|event):{_N}$"
 INSTANCE_PREFIX = "instance:"
@@ -87,6 +96,20 @@ CaseId = Annotated[str, Field(pattern=CASE_ID_PATTERN)]
 QuantityRef = Annotated[str, Field(pattern=QUANTITY_REF_PATTERN)]
 EventRef = Annotated[str, Field(pattern=EVENT_REF_PATTERN)]
 ParameterPath = Annotated[str, Field(pattern=PARAMETER_PATH_PATTERN)]
+
+
+def case_payload_body(senses: Iterable[Senses | None], joints: Collection[str]) -> str:
+    """The body name a run gives the case payload (SCO-030; `testing.core_driver`): the payload the first load cell
+    reading one senses, by `payload` or by a `joint_reaction` that names no joint (ruling 24), in instance order;
+    else `CASE_PAYLOAD_BODY`. `senses` are the instances' senses in order, `joints` the model's joint names."""
+    for target in senses:
+        if target is None:
+            continue
+        if target.payload is not None:
+            return target.payload
+        if target.joint_reaction is not None and target.joint_reaction not in joints:
+            return target.joint_reaction
+    return CASE_PAYLOAD_BODY
 
 
 class CaseError(ValueError):
@@ -152,6 +175,12 @@ def parse_any_quantity(text: Any) -> Quantity:
     return Quantity(text, value, dimension)
 
 
+def si_unit(text: str) -> str:
+    """The SI base unit of a quantity's text, abbreviated as pint writes it ("kg * m ** 2 / s"); empty when the
+    quantity is a plain number."""
+    return format(_UNITS.Quantity(text.strip()).to_base_units().units, "~")
+
+
 def _amount(value: Any) -> Any:
     name = open_name(value)
     if name is not None:
@@ -206,6 +235,76 @@ class Rates(StrictModel):
             if isinstance(value, float) and value <= 0.0:
                 raise ValueError(f"{what} must be positive, got {value}")
         return self
+
+
+PhysicsAdapterName = Literal["native"]
+NATIVE_ADAPTER: PhysicsAdapterName = "native"
+DEFAULT_PHYSICS_ADAPTER: PhysicsAdapterName = NATIVE_ADAPTER
+PHYSICS_ADAPTERS: tuple[PhysicsAdapterName, ...] = (NATIVE_ADAPTER,)
+RETIRED_ADAPTERS = ("mujoco",)
+ADAPTER_SETTING = "physics.adapter"
+
+
+def adapter_refusal(adapter: str) -> str | None:
+    """Why `adapter` cannot run (TST-040, invariant 7): a retired adapter is named as retired, any other unknown name
+    lists the known ones; None for a known adapter."""
+    if adapter in PHYSICS_ADAPTERS:
+        return None
+    if adapter in RETIRED_ADAPTERS:
+        return (
+            f"{ADAPTER_SETTING} {adapter!r}: the MuJoCo bridge was retired (ADR 0004, milestone 3); "
+            f"use {NATIVE_ADAPTER!r}"
+        )
+    return f"{ADAPTER_SETTING} {adapter!r}: unknown adapter, expected one of {', '.join(PHYSICS_ADAPTERS)}"
+
+
+class PhysicsSettings(StrictModel):
+    """The run configuration's physics section (TST-040): `adapter` selects the physics adapter, `native` the only
+    one since the MuJoCo bridge was retired (ADR 0004); a case or `--set physics.adapter=mujoco` is refused naming
+    the retired adapter. `substeps` (TST-042, rulings 21, 49): engine steps per physics step, each h / substeps, the
+    control tick unchanged."""
+
+    adapter: PhysicsAdapterName = DEFAULT_PHYSICS_ADAPTER
+    substeps: int = Field(default=1, ge=1)
+
+    @field_validator("adapter", mode="before")
+    @classmethod
+    def _known_adapter(cls, value: object) -> object:
+        if isinstance(value, str):
+            refusal = adapter_refusal(value)
+            if refusal is not None:
+                raise ValueError(refusal)
+        return value
+
+
+class IntegritySettings(StrictModel):
+    """The case's integrity section (INT-026, ADR 0010 amendment, round 5 ruling 4): `halt_on_crossing` true ends
+    the run at the first tier 1 limit crossing, false lets it run to its end; the case fails on a crossing either
+    way (INT-025). Absent or empty: false; nothing else sets it (round 5 rulings 4, 50). `design_load_carried`
+    (TST-043) and `evaluate_from` (TST-044) shape the integrity results, never the run."""
+
+    def start_seconds(self) -> float:
+        """`evaluate_from` in s; an unresolved open value is a `ValueError` (a sweep resolves it before a run)."""
+        if not isinstance(self.evaluate_from, float):
+            raise ValueError(f"integrity.evaluate_from {self.evaluate_from!r}: not resolved")
+        return self.evaluate_from
+
+    halt_on_crossing: bool = Field(default=False, description="End the run at the first tier 1 crossing (INT-026).")
+    design_load_carried: bool = Field(
+        default=False,
+        description=(
+            "The run's loads already carry the design load (TST-043, INT-019, ruling 52): the post-run table applies "
+            "factor 1 and says so; false: the design's design-load rule scales the recorded loads."
+        ),
+    )
+    evaluate_from: Time = Field(
+        default=0.0,
+        ge=0.0,
+        description=(
+            "Time from which integrity results count (TST-044): peaks, safety factors and tier 1 crossings; a "
+            "crossing before it is recorded as an `integrity_before_evaluation` event and does not fail the case."
+        ),
+    )
 
 
 # ===== Initial state ===================================================
@@ -483,8 +582,12 @@ def reference_dimension(reference: str) -> str | None:
         if component in ("x", "y", "z"):
             return LENGTH
         return ANGLE
-    if kind in ("state", "fault", "count"):
+    if kind in ("state", "fault", "count", "safety_factor", "swing", "missed_steps"):
         return ANGLE
+    if kind == "torque_margin":
+        return "[mass] * [length] ** 2 / [time] ** 2"
+    if kind == "deflection":
+        return LENGTH
     if kind == "rail":
         if rest.endswith(".voltage"):
             return "[mass] * [length] ** 2 / [time] ** 3 / [current]"
@@ -505,7 +608,17 @@ class ValueCriterion(_Criterion):
 
     check: Literal["value"]
     quantity: QuantityRef
-    statistic: Literal["final", "minimum", "maximum", "peak_absolute", "period"]
+    statistic: Literal[
+        "final",
+        "minimum",
+        "maximum",
+        "peak_absolute",
+        "period",
+        "mean",
+        "amplitude",
+        "period_about_mean",
+        "frequency_about_mean",
+    ]
     comparison: Literal["below", "at_most", "above", "at_least", "within"]
     target: Amount | None = None
     limit: Amount | None = None
@@ -530,8 +643,10 @@ class ValueCriterion(_Criterion):
                 errors.append(f"comparison {self.comparison!r} needs a limit")
             if self.target is not None or self.relative_limit is not None:
                 errors.append(f"comparison {self.comparison!r} takes no target or relative_limit")
-        if self.statistic == "period" and self.quantity.split(":")[0] in ("state", "fault", "count"):
-            errors.append(f"statistic 'period' needs a series, not {self.quantity!r}")
+        if self.statistic in SERIES_STATISTICS and self.quantity.split(":")[0] in ("state", "fault", "count"):
+            errors.append(f"statistic {self.statistic!r} needs a series, not {self.quantity!r}")
+        if self.statistic == "mean" and (self.window is None or self.window.start is None):
+            errors.append("statistic 'mean' needs a window with a start (the stated final window, SCO-027)")
         expected = self.expected_dimension()
         for value, what in ((self.target, "target"), (self.limit, "limit")):
             error = _dimension_error(value, expected, what)
@@ -545,8 +660,10 @@ class ValueCriterion(_Criterion):
         return self
 
     def expected_dimension(self) -> str | None:
-        if self.statistic == "period":
+        if self.statistic in ("period", "period_about_mean"):
             return TIME
+        if self.statistic == "frequency_about_mean":
+            return FREQUENCY
         return reference_dimension(self.quantity)
 
     def limit_text(self) -> str:
@@ -747,7 +864,8 @@ class Variation(StrictModel):
 
 
 class Variations(StrictModel):
-    """Stored only: v1 runs use nominal values (Architecture doc, Seams reserved for the roadmap)."""
+    """`count` seeded variations (TST-026): variation k runs with its own integer seed, derived from the case seed
+    and k, which also draws each parameter's value about its nominal; rerun alone from that seed."""
 
     count: int = Field(ge=1)
     parameters: list[Variation] = Field(min_length=1)
@@ -775,6 +893,8 @@ class Case(StrictModel):
     controller_mode: Literal["native", "emulated"] | None = None
     seed: int = Field(ge=0, le=2**64 - 1)
     rates: Rates | None = None
+    physics: PhysicsSettings = Field(default_factory=PhysicsSettings)
+    integrity: IntegritySettings | None = None
     open_parameters: list[OpenParameter] = Field(default_factory=list)
     parameters: dict[str, str] = Field(
         default_factory=dict,
@@ -1014,10 +1134,23 @@ def _check_reference(
             rails = [rail.name for rail in design.power.rails]
         if rest.partition(".")[0] not in rails:
             errors.append(f"{path}: unknown power rail {rest.partition('.')[0]!r}")
+    if kind == "swing":
+        payload = case_payload_body(
+            (component.senses for component in design.components), {joint.name for joint in design.joints}
+        )
+        for body in rest.split(".")[:2]:
+            if body not in bodies and body != payload:
+                errors.append(f"{path}: unknown body {body!r}")
     if kind == "pose" and rest.partition(".")[0] not in bodies:
         errors.append(f"{path}: unknown body {rest.partition('.')[0]!r}")
     if kind == "joint" and rest.partition(".")[0] not in joints:
         errors.append(f"{path}: unknown joint {rest.partition('.')[0]!r}")
+    if kind in ("safety_factor", "deflection"):
+        members = {body.name for body in design.bodies if body.flexible is not None}
+        if rest not in members:
+            errors.append(f"{path}: {rest!r} is not a structural member (a body with flexible)")
+    if kind in ("missed_steps", "torque_margin") and rest not in {item.name for item in design.components}:
+        errors.append(f"{path}: unknown component {rest!r}")
     if kind == "message" and rest not in messages:
         errors.append(f"{path}: unknown operator message {rest!r}")
     if kind == "event" and design.firmware is None:
@@ -1065,8 +1198,8 @@ def _check_criterion(
         if expected is None:
             expected = _joint_reference_dimension(criterion.quantity, joints)
         if isinstance(criterion, ValueCriterion):
-            if criterion.statistic == "period":
-                expected = TIME
+            if criterion.statistic in ("period", "period_about_mean", "frequency_about_mean"):
+                expected = criterion.expected_dimension()
             values = [(criterion.target, "target"), (criterion.limit, "limit")]
         else:
             values = [(criterion.target, "target"), (criterion.band, "band")]
@@ -1123,6 +1256,8 @@ def _check_parameter(
         return
     current: Any = items[item_name]
     for field in fields:
+        if isinstance(current, (list, tuple)) and len(current) > 0:
+            current = current[0]
         if not isinstance(current, BaseModel) or field not in type(current).model_fields:
             errors.append(f"{path}: {parameter!r} does not name a design field")
             return
@@ -1147,11 +1282,18 @@ class SuiteFile(StrictModel):
     cases: list[RepoPath] = Field(min_length=1, description="test case files, relative to the suite file")
     baseline: RepoPath = Field(description="the regression baseline the suite is diffed against (TST-008)")
     note: str | None = Field(default=None, min_length=1)
+    sweeps: list[Sweep] = Field(
+        default_factory=list, description="sweeps run for every case of the suite, after the case's own (TST-007)"
+    )
+    variations: Variations | None = Field(
+        default=None, description="seeded variations for every case that defines none of its own (TST-007)"
+    )
 
     @model_validator(mode="after")
     def _unique(self) -> SuiteFile:
         errors: list[str] = []
         _duplicates(self.cases, "case file", errors)
+        _duplicates([sweep.parameter for sweep in self.sweeps], "sweep parameter", errors)
         _raise_if(errors)
         return self
 

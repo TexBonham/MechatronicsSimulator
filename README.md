@@ -19,7 +19,7 @@ mechsim/              Python package; one subpackage per module
   materials/          materials database, process rules, direction-dependent limits
   design/             design-file schema, loader, validation, CAD import (STEP, URDF)
   builder/            model builder: design file -> engine-neutral physics model, wiring, chip config
-  physics/            adapter package: mujoco/ (bridge), native/ (own engine binding), chrono/ (reserved)
+  physics/            adapter package: native/ (own engine binding), chrono/ (reserved); MuJoCo retired (ADR 0004)
   testing/            test-case schema, runner, fault fan-out, sweeps, regression
   record/             recorder, run archive (HDF5), CSV/JSON/MAT exports
   integrity/          mechanical integrity check plugins, safety factors, load-case export
@@ -44,8 +44,8 @@ docs/                 architecture and requirements docs
 
 ## Setup
 
-The stack builds and runs on Linux x86_64: MuJoCo 3.9.0 is pinned to its Linux x86_64 release archive and the
-extension loads `libmujoco.so` beside itself (`core/cmake/MuJoCo.cmake`). On Windows, WSL2 with Ubuntu 24.04 (clone
+The stack builds and runs on Linux x86_64; the extension ships no shared library beside itself (the MuJoCo bridge and
+its pinned release archive were retired on 2026-11-15, ADR 0004). On Windows, WSL2 with Ubuntu 24.04 (clone
 inside the Linux filesystem) follows the Linux steps unchanged; the native Windows build is the milestone 2 CI item
 (R1, Windows only; macOS stays out, open ruling 5) and is described below the table. The versions below are the ones
 milestone 1 was gated on.
@@ -67,13 +67,12 @@ workload (MSVC, plus the CMake 3.28+ and Ninja it bundles), Git and uv. Run ever
 PowerShell for VS 2022" (or after `vcvars64.bat`) so `cl`, `cmake` and `ninja` are on `PATH`; that includes `uv run
 pytest`, because the acceptance tier builds the firmware host library at run time (CTL-007). Use the presets
 `windows-debug` (Debug, no sanitizers: MSVC has no UBSan; no clang-tidy) and `windows-release` in place of
-`debug-sanitize` and `release`, and set `CMAKE_GENERATOR=Ninja` before `uv sync`. MuJoCo comes from its pinned Windows
-release archive and `mujoco.dll` is shipped beside the extension. `.gitattributes` keeps LF line endings on checkout, so
+`debug-sanitize` and `release`, and set `CMAKE_GENERATOR=Ninja` before `uv sync`. `.gitattributes` keeps LF line endings on checkout, so
 the design file's git blob hash (REC-014) matches Linux. The h5py, numpy and scipy wheels are self-contained on Windows;
 no system library is needed.
 
 Fetched at configure time, so the first build needs network access to github.com and PyPI: pybind11 v3.0.1, Eigen
-3.4.0, Catch2 v3.7.1, MuJoCo 3.9.0 (SHA-256 pinned), and the Python packages in `uv.lock` (numpy, scipy, pydantic 2,
+3.4.0, Catch2 v3.7.1, and the Python packages in `uv.lock` (numpy, scipy, pydantic 2,
 ruamel.yaml, pint, h5py, jsonschema, ruff, mypy, pytest). Nothing is installed system-wide by the build.
 
 First run, in order:

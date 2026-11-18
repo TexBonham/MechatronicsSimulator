@@ -72,6 +72,7 @@ Category = Literal[
     "joint",
     "payload",
     "end_effector",
+    "rope",
 ]
 EndEffectorEvent = Literal["attach", "release"]
 FailureMode = Literal["stuck", "noisy", "dropped", "forced_level"]
@@ -83,7 +84,11 @@ REQUIRED_BY_CATEGORY: dict[str, tuple[str, ...]] = {
     "sensor": ("resolution", "noise", "delay", "sample_rate"),
     "payload": ("mass",),
     "end_effector": ("capacity",),
+    "rope": ("axial_stiffness", "damping", "mass_per_length", "rest_length"),
 }
+# A catalog part carrying all of these is a member section a flexible body may take (LIB-030).
+SECTION_PARAMETERS: tuple[str, ...] = ("area", "second_moment", "length", "elastic_modulus", "density")
+ROPE_PARAMETERS: tuple[str, ...] = REQUIRED_BY_CATEGORY["rope"]
 ATTACH_MOUNT = "attach"
 ATTACH_CATEGORIES: tuple[str, ...] = ("payload", "end_effector")
 END_EFFECTOR_EVENTS: tuple[str, ...] = ("attach", "release")

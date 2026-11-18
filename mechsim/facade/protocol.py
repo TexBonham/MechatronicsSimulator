@@ -41,7 +41,7 @@ ErrorCode = Literal[
     "run_error",
     "internal",
 ]
-RunEndReason = Literal["end_time", "message", "controller_state", "max_duration", "run_error"]
+RunEndReason = Literal["end_time", "message", "controller_state", "max_duration", "run_error", "integrity_halt"]
 TimelineCategory = Literal["command", "fault", "safety_event", "criterion_failure"]
 
 
@@ -85,6 +85,10 @@ class RunCasePayload(StrictModel):
     test_case: NonEmptyText
     seed: int = Field(ge=0)
     mode: NonEmptyText = Field(description="Controller mode name.")
+    sets: dict[NonEmptyText, str] | None = Field(
+        default=None,
+        description="Run-configuration settings by dotted name, as `--set` gives them (TST-040), e.g. physics.adapter.",
+    )
 
 
 class RunSuitePayload(StrictModel):
@@ -144,6 +148,12 @@ class ValueAtPayload(StrictModel):
     run_id: RunId
     ref: NonEmptyText = Field(description="Record view reference: pose:, joint:, signal: or actuator:.")
     t: SimTime
+
+
+class SwingAnglePayload(StrictModel):
+    run_id: RunId
+    load: NonEmptyText = Field(description="The suspended load's body.")
+    attachment: NonEmptyText = Field(description="The body it hangs from, or world.")
 
 
 class ProbePayload(StrictModel):
@@ -325,6 +335,31 @@ class ProbeRequest(_Envelope):
     payload: ProbePayload
 
 
+class MemberStressRequest(_Envelope):
+    kind: Literal["member_stress"]
+    payload: ReplayRefPayload
+
+
+class IntegrityResultsRequest(_Envelope):
+    kind: Literal["integrity_results"]
+    payload: ReplayRefPayload
+
+
+class LoadCasePayload(StrictModel):
+    run_id: RunId = Field(description="An open replay's run id.")
+    format: Literal["csv", "json"] = Field(description="Load-case file format (FAC-013).")
+
+
+class LoadCaseRequest(_Envelope):
+    kind: Literal["load_case"]
+    payload: LoadCasePayload
+
+
+class SwingAngleRequest(_Envelope):
+    kind: Literal["swing_angle"]
+    payload: SwingAnglePayload
+
+
 class ReportRequest(_Envelope):
     kind: Literal["report"]
     payload: SuiteRefPayload
@@ -392,6 +427,10 @@ Message = Annotated[
     | GeometryRequest
     | ValueAtRequest
     | ProbeRequest
+    | MemberStressRequest
+    | SwingAngleRequest
+    | IntegrityResultsRequest
+    | LoadCaseRequest
     | ReportRequest
     | DiffRequest
     | ReadFileRequest

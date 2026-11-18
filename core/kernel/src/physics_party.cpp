@@ -1,6 +1,8 @@
 #include "mechsim/kernel/physics_party.hpp"
 
 #include <algorithm>
+#include <array>
+#include <charconv>
 #include <cmath>
 #include <cstddef>
 #include <memory>
@@ -24,6 +26,10 @@ PhysicsParty::PhysicsParty(std::unique_ptr<PhysicsAdapter> adapter, PhysicsParty
         throw std::invalid_argument("physics party: null adapter");
     }
     published_ = {config_.name + ".outputs"};
+    consumed_ = config_.inputs;
+    if (!config_.model_requests.empty()) {
+        consumed_.push_back(config_.model_requests);
+    }
 }
 
 std::string_view PhysicsParty::name() const {
@@ -43,7 +49,7 @@ std::span<const std::string> PhysicsParty::published() const {
 }
 
 std::span<const std::string> PhysicsParty::consumed() const {
-    return config_.inputs;
+    return consumed_;
 }
 
 namespace {
@@ -196,6 +202,9 @@ void PhysicsParty::apply_faults(SimTime t) {
 void PhysicsParty::read_inputs(const CouplingReader& inputs) {
     pending_ = PhysicsInputs{};
     has_pending_ = false;
+    if (!config_.model_requests.empty() && inputs.has_value(config_.model_requests)) {
+        requests_ = inputs.payload<ModelChangeRequests>(config_.model_requests);
+    }
     for (const std::string& source : config_.inputs) {
         if (!inputs.has_value(source)) {
             continue;
@@ -237,6 +246,7 @@ void PhysicsParty::step(SimTime t, Duration dt) {
                                 std::to_string(period_.count()) + " ticks)");
     }
     apply_faults(t);
+    apply_requests();
     if (has_pending_) {
         adapter_->set_inputs(pending_);
     }
@@ -253,6 +263,34 @@ void PhysicsParty::step(SimTime t, Duration dt) {
     }
 }
 
+void PhysicsParty::apply_requests() {
+    if (requests_.sequence <= applied_sequence_) {
+        return;
+    }
+    applied_sequence_ = requests_.sequence;
+    for (const ModelChangeRequest& request : requests_.requests) {
+        switch (request.kind) {
+            case ModelChangeKind::SpringOffset:
+                adapter_->set_spring_offset(request.index, request.value);
+                break;
+            case ModelChangeKind::SpringStiffness:
+                adapter_->set_spring_stiffness(request.index, request.value);
+                break;
+            case ModelChangeKind::ConstraintDisabled:
+                adapter_->disable_constraint(request.index);
+                break;
+            case ModelChangeKind::LoadReleased:
+                adapter_->release_load(request.index);
+                break;
+            case ModelChangeKind::RopeSnapped:
+            case ModelChangeKind::PayloadAttached:
+            case ModelChangeKind::PayloadMass:
+                throw KernelConfigError("physics party '" + config_.name + "': model change request '" +
+                                        config_.model_requests + "' carries a kind that is not a request (KER-028)");
+        }
+    }
+}
+
 void PhysicsParty::write_outputs(CouplingWriter& outputs) {
     outputs.set(published_[0], make_payload(adapter_->outputs(), std::string(physics_outputs_kind)));
 }
@@ -263,6 +301,60 @@ void PhysicsParty::record(TickRecord& row) const {
     row.physics = adapter_->outputs();
     row.events.insert(row.events.end(), pending_events_.begin(), pending_events_.end());
     pending_events_.clear();
+    if (row.physics.steps == recorded_changes_step_) {
+        return;
+    }
+    recorded_changes_step_ = row.physics.steps;
+    for (const ModelChangeEvent& change : row.physics.model_changes) {
+        row.events.push_back(RecordedEvent{row.time, std::string(model_change_source),
+                                           std::string(model_change_kind), model_change_detail(change)});
+    }
+}
+
+std::string model_change_detail(const ModelChangeEvent& change) {
+    std::string kind;
+    switch (change.kind) {
+        case ModelChangeKind::SpringOffset:
+            kind = "spring_offset";
+            break;
+        case ModelChangeKind::SpringStiffness:
+            kind = "spring_stiffness";
+            break;
+        case ModelChangeKind::ConstraintDisabled:
+            kind = "constraint_disabled";
+            break;
+        case ModelChangeKind::LoadReleased:
+            kind = "load_released";
+            break;
+        case ModelChangeKind::RopeSnapped:
+            kind = "rope_snapped";
+            break;
+        case ModelChangeKind::PayloadAttached:
+            kind = "payload_attached";
+            break;
+        case ModelChangeKind::PayloadMass:
+            kind = "payload_mass";
+            break;
+    }
+    std::string source;
+    switch (change.source) {
+        case ModelChangeSource::Spring:
+            source = "spring";
+            break;
+        case ModelChangeSource::Constraint:
+            source = "constraint";
+            break;
+        case ModelChangeSource::Rope:
+            source = "rope";
+            break;
+        case ModelChangeSource::Payload:
+            source = "payload";
+            break;
+    }
+    std::array<char, 32> buffer{};
+    const std::to_chars_result written = std::to_chars(buffer.data(), buffer.data() + buffer.size(), change.value);
+    return kind + " " + source + " " + std::to_string(change.index) + " value " +
+           std::string(buffer.data(), written.ptr);
 }
 
 PhysicsAdapter& PhysicsParty::adapter() noexcept {

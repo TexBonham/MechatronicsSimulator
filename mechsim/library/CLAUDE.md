@@ -26,20 +26,10 @@ Component types and shipped catalog (LIB). Schema `schemas/component.json` from 
 | `CatalogPart` | resolved part, SI floats; only via `CatalogPart.resolve(entry, type, overrides=None)` |
 | `CatalogFile.resolved_parts()` | every part resolved at file validation; `component_type(name)` lookup |
 
-## Section index
-
-| Section | File | Line |
-|---|---|---|
-| Parameters | schema.py | 106 |
-| Facets | schema.py | 197 |
-| ComponentType | schema.py | 270 |
-| CatalogPart | schema.py | 378 |
-| CatalogFile | schema.py | 548 |
-
 ## Rules
 
 - No default means required in every part whose tier includes the parameter.
-- Category `transmission` needs ratio, efficiency, stiffness, backlash, self_locking, slip (slip default 0).
+- Category `transmission` needs ratio, efficiency, stiffness, backlash, self_locking, slip (slip default 0); belt_pulley and lead_screw also take `damping_ratio` (tier compliant, default 0, LIB-035, ruling 78).
 - Category `sensor` needs resolution, noise, delay, sample_rate and at least one failure mode.
 - Categories `payload` (needs `mass`) and `end_effector` (needs `capacity` [mass], `events: [attach, release]`) both
   need an `attach` mount; only an end_effector lists `events` (LIB-031).
@@ -53,3 +43,18 @@ Component types and shipped catalog (LIB). Schema `schemas/component.json` from 
   tiers ideal, nonlinear), `load_cell_amplifier` (front_end; `out` binds to an adc_input pin), `imu` (sensor; analog
   output per axis until a serial peripheral mode exists), `brake` (safety; `brake_torque` is the holding torque; the
   joint it acts on is design data, `acts_on`, owed). C++ plugins for them owed by brief A2.
+- Milestone 3 structural types (LIB-020, LIB-030): `flexible_beam` (category body; `SECTION_PARAMETERS` area,
+  second_moment, length, elastic_modulus, density; mass from geometry; a design body takes the section by naming the
+  part), `hook` (end_effector; mounts attach and rope), `rope` (category rope; `ROPE_PARAMETERS` axial_stiffness,
+  damping (strain-rate, N s), mass_per_length, breaking_tension, rest_length are required; breaking_tension in tier
+  `breaking`). Plugins point at `mechsim.builder.structure`.
+
+## Section index
+
+| Section | File | Line |
+|---|---|---|
+| Parameters | schema.py | 111 |
+| Facets | schema.py | 202 |
+| ComponentType | schema.py | 275 |
+| CatalogPart | schema.py | 383 |
+| CatalogFile | schema.py | 553 |

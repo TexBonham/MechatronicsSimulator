@@ -9,9 +9,8 @@ from typing import Any
 import numpy as np
 import pytest
 
-from mechsim.testing.core_driver import CoreDriver, core_services
-from mechsim.testing.runner import Services, run_case
 from mechsim.testing.schema import ROOT
+from tests.conftest import CaseRuns
 
 
 def _toggles(series: Any, start: float, end: float) -> list[float]:
@@ -22,7 +21,7 @@ def _toggles(series: Any, start: float, end: float) -> list[float]:
 
 
 @pytest.mark.req("FW-025")
-def test_fw_025() -> None:
+def test_fw_025(case_runs: CaseRuns) -> None:
     """Reference design (gantry): the firmware shall send the "heartbeat" to the E-stop relay while running, so that
     a freeze lets the watchdog cut motor power.
 
@@ -31,13 +30,7 @@ def test_fw_025() -> None:
     freeze it toggles never; the watchdog (50 ms timeout, 10 ms cutoff delay) then drops the motor rail within
     50 + 10 + 10 ms (one period of slack for the last edge) of the freeze and not before it.
     """
-    driver = CoreDriver()
-    result = run_case(
-        ROOT / "test_cases" / "gantry" / "G8.yaml",
-        Services(lambda: driver, core_services().builder),
-        None,
-        None,
-    )
+    result, driver = case_runs.get(ROOT / "test_cases" / "gantry" / "G8.yaml")
     assert result.report is not None
     assert not result.report.errored, result.report.error
     heartbeat = driver.recording().series("signal:watchdog.heartbeat")

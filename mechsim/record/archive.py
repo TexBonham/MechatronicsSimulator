@@ -22,6 +22,7 @@ import numpy as np
 from numpy.typing import NDArray
 
 from mechsim.record.layout import (
+    BODY_SERIES,
     COLUMN_SERIES,
     CONSTRAINT_FORCE,
     CONTACT_ROW,
@@ -34,6 +35,7 @@ from mechsim.record.layout import (
     JOINT_FORCE,
     JOINT_POSITIONS,
     NAMED_GROUPS,
+    ROPE_MAX_TENSION,
     Columns,
     Recording,
     Series,
@@ -81,6 +83,12 @@ _DESIGN_FILE = "inputs/design_file"
 _TEST_CASE_FILE = "inputs/test_case_file"
 
 
+# An archive written before the attribute existed was a bridge run; archives of the retired bridge still read and
+# never need the engine (ruling 17, ADR 0004), so the reader keeps its name.
+DEFAULT_PHYSICS_ADAPTER = "mujoco"
+PHYSICS_ADAPTERS = ("mujoco", "native")
+
+
 # ===== Run records ==========================================================
 @dataclass(frozen=True)
 class RunIdentity:
@@ -100,6 +108,7 @@ class RunIdentity:
     tool_version: str
     design_file: bytes = b""
     test_case_file: bytes = b""
+    physics_adapter: str = DEFAULT_PHYSICS_ADAPTER
 
     def __post_init__(self) -> None:
         for what, text in (("design name", self.design_name), ("test case id", self.test_case_id)):
@@ -120,6 +129,8 @@ class RunIdentity:
             raise RecordError(f"seed {self.seed} is outside the unsigned 64-bit range (KER-012)")
         if self.controller_mode not in CONTROLLER_MODES:
             raise RecordError(f"controller mode {self.controller_mode!r} is not one of {CONTROLLER_MODES}")
+        if self.physics_adapter not in PHYSICS_ADAPTERS:
+            raise RecordError(f"physics adapter {self.physics_adapter!r} is not one of {PHYSICS_ADAPTERS}")
         check_rate(self.physics_rate, "physics rate")
         check_rate(self.control_rate, "control rate")
         check_text(self.tool_version, "tool version")
@@ -239,7 +250,7 @@ def write_archive(
     columns: Mapping[str, Columns] | None = None,
 ) -> None:
     """Write one run archive; an existing file at `path` is replaced. `extra` lands as root attrs `meta_<key>` in key
-    order: run metadata a caller keeps beside the identity (run id, end reason, bridge approximations). `columns`
+    order: run metadata a caller keeps beside the identity (run id, end reason, adapter approximations). `columns`
     labels index-column series (REC-018) over any labels the recording carries."""
     series_map = label_series(recording.series, columns or {})
     with h5py.File(path, "w", libver=("v110", "v110"), track_order=False) as h5:
@@ -257,6 +268,7 @@ def write_archive(
         attrs["test_case_hash"] = identity.test_case_hash
         attrs["seed"] = np.uint64(identity.seed)
         attrs["controller_mode"] = identity.controller_mode
+        attrs["physics_adapter"] = identity.physics_adapter
         attrs["base_rate"] = _rate(recording.base_rate)
         attrs["physics_rate"] = _rate(identity.physics_rate)
         attrs["control_rate"] = _rate(identity.control_rate)
@@ -278,6 +290,8 @@ def write_archive(
             dataset.attrs["axis"] = series.axis
             if name in (JOINT_FORCE, CONSTRAINT_FORCE):
                 dataset.attrs["counts"] = np.array(series.counts, dtype=np.int64)
+            if name in BODY_SERIES and len(series.names) > 0:
+                dataset.attrs["names"] = np.array(list(series.names), dtype=h5py.string_dtype())
             if name in COLUMN_SERIES:
                 dataset.attrs["names"] = np.array(list(series.names), dtype=h5py.string_dtype())
                 dataset.attrs["units"] = np.array(list(series.units), dtype=h5py.string_dtype())
@@ -349,6 +363,7 @@ class RunArchive:
             tool_version=_text(attrs["tool_version"]),
             design_file=self._file[_DESIGN_FILE][...].tobytes(),
             test_case_file=self._file[_TEST_CASE_FILE][...].tobytes(),
+            physics_adapter=_text(attrs.get("physics_adapter", DEFAULT_PHYSICS_ADAPTER)),
         )
         self.end = RunEnd(_text(attrs["end_outcome"]), int(attrs["end_time"]), int(attrs["end_ticks"]), fault)
         self.base_rate = _fraction(attrs["base_rate"])
@@ -528,9 +543,13 @@ class RunArchive:
                 strict=True,
             )
         )
+        tensions = at("physics/ropes/tension")
+        maxima = at(ROPE_MAX_TENSION)
+        if len(maxima) != len(tensions):
+            maxima = tensions
         ropes = tuple(
-            RopeTension(tension, slack)
-            for tension, slack in zip(at("physics/ropes/tension"), at("physics/ropes/slack"), strict=True)
+            RopeTension(tension, slack, maximum)
+            for tension, slack, maximum in zip(tensions, at("physics/ropes/slack"), maxima, strict=True)
         )
         transmissions = tuple(
             TransmissionState(slip, slipping, load, force, stretch, flow)

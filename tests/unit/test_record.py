@@ -630,7 +630,7 @@ def test_rec_023_no_wall_clock_in_archive(tmp_path: Path) -> None:
     with h5py.File(first, "r") as h5:
         expected = {
             "format", "format_version", "design_name", "design_version", "design_source_hash", "test_case_id",
-            "test_case_hash", "seed", "controller_mode", "base_rate", "physics_rate", "control_rate",
+            "test_case_hash", "seed", "controller_mode", "physics_adapter", "base_rate", "physics_rate", "control_rate",
             "repository_commit", "tool_version", "end_outcome", "end_time", "end_ticks", "series",
         }  # fmt: skip
         assert set(h5.attrs) == expected

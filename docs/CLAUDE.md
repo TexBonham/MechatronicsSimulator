@@ -2,16 +2,17 @@
 
 | Path | Holds |
 |---|---|
-| `Mechatronic Simulator — Architecture and Technology Recommendation.md` | Founding architecture doc; Decisions log rows 1-44; invariants; layout; Risks |
+| `Mechatronic Simulator — Architecture and Technology Recommendation.md` | Founding architecture doc; Decisions log rows 1-51; invariants; layout; Risks |
 | `Mechatronic Simulator — Requirements.md` | Gantry reference design, G1-G16, acceptance criteria, milestone plan |
 | `adr/` | Architecture decision records; index in `adr/README.md` |
 | `spec/` | One spec per module, numbered requirements (ADR 0008; written in phase 0b) |
 | `rulings/` | Planning rulings, the handoff records for ADRs |
-| `milestones.md` | Milestones 1-5, engine packages, MuJoCo retirement criteria, open values |
+| `milestones.md` | Milestones 1-5, engine packages, MuJoCo retirement criteria and record (retired 2026-11-15), open values |
 | `queue.md` | Dispatch queue and next brief |
 | `cost-log.md` | Session cost log; archive in `cost-log-archive.md` |
 | `briefs/` | Dispatch briefs of record, one folder per round (from round 3's integration wave) |
 | `gantry-team-inputs.md` | Every placeholder and open ruling owed by the gantry team, with the file it lives in |
+| `human-test.md` | The owner's hands-on walkthrough of the tool (commands, things to try, known results that are not defects) |
 
 Precedence: the Decisions log wins over the requirements doc; open items live in the architecture doc's Risks and open questions.
 
@@ -36,12 +37,6 @@ Process rulings W-01 to W-07 are not ADRs; they stay in `rulings/`.
 | Behavior changes | Cite requirement IDs; spec edit in the same commit |
 | Review | Stage review rejects behavior not covered by the spec as edited |
 
-Spec template layout: phase 0b.
-
 ## Writers
 
 Only the coordinating session writes `cost-log.md` and `queue.md` (W-05, W-07). Agents, worktrees and other machines never do. No `CLAUDE.md` holds cost-log rows.
-
-## Contracts
-
-Empty until phase 1.

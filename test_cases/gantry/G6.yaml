@@ -70,6 +70,8 @@ faults:
 end:
   at: 18 s
   max_duration: 18 s
+integrity:
+  evaluate_from: 1 s
 criteria:
   - name: lift_stopped
     check: value

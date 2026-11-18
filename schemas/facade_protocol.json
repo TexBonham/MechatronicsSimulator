@@ -276,6 +276,38 @@
       "title": "GeometryRequest",
       "type": "object"
     },
+    "IntegrityResultsRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "version": {
+          "const": 1,
+          "description": "Protocol version; the service accepts only its own version.",
+          "title": "Version",
+          "type": "integer"
+        },
+        "message_id": {
+          "minLength": 1,
+          "title": "Message Id",
+          "type": "string"
+        },
+        "kind": {
+          "const": "integrity_results",
+          "title": "Kind",
+          "type": "string"
+        },
+        "payload": {
+          "$ref": "#/$defs/ReplayRefPayload"
+        }
+      },
+      "required": [
+        "version",
+        "message_id",
+        "kind",
+        "payload"
+      ],
+      "title": "IntegrityResultsRequest",
+      "type": "object"
+    },
     "JsonValue": {},
     "ListDesignsPayload": {
       "additionalProperties": false,
@@ -351,6 +383,96 @@
         "payload"
       ],
       "title": "ListRunsRequest",
+      "type": "object"
+    },
+    "LoadCasePayload": {
+      "additionalProperties": false,
+      "properties": {
+        "run_id": {
+          "description": "An open replay's run id.",
+          "minLength": 1,
+          "title": "Run Id",
+          "type": "string"
+        },
+        "format": {
+          "description": "Load-case file format (FAC-013).",
+          "enum": [
+            "csv",
+            "json"
+          ],
+          "title": "Format",
+          "type": "string"
+        }
+      },
+      "required": [
+        "run_id",
+        "format"
+      ],
+      "title": "LoadCasePayload",
+      "type": "object"
+    },
+    "LoadCaseRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "version": {
+          "const": 1,
+          "description": "Protocol version; the service accepts only its own version.",
+          "title": "Version",
+          "type": "integer"
+        },
+        "message_id": {
+          "minLength": 1,
+          "title": "Message Id",
+          "type": "string"
+        },
+        "kind": {
+          "const": "load_case",
+          "title": "Kind",
+          "type": "string"
+        },
+        "payload": {
+          "$ref": "#/$defs/LoadCasePayload"
+        }
+      },
+      "required": [
+        "version",
+        "message_id",
+        "kind",
+        "payload"
+      ],
+      "title": "LoadCaseRequest",
+      "type": "object"
+    },
+    "MemberStressRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "version": {
+          "const": 1,
+          "description": "Protocol version; the service accepts only its own version.",
+          "title": "Version",
+          "type": "integer"
+        },
+        "message_id": {
+          "minLength": 1,
+          "title": "Message Id",
+          "type": "string"
+        },
+        "kind": {
+          "const": "member_stress",
+          "title": "Kind",
+          "type": "string"
+        },
+        "payload": {
+          "$ref": "#/$defs/ReplayRefPayload"
+        }
+      },
+      "required": [
+        "version",
+        "message_id",
+        "kind",
+        "payload"
+      ],
+      "title": "MemberStressRequest",
       "type": "object"
     },
     "OkPayload": {
@@ -694,6 +816,25 @@
           "minLength": 1,
           "title": "Mode",
           "type": "string"
+        },
+        "sets": {
+          "anyOf": [
+            {
+              "additionalProperties": {
+                "type": "string"
+              },
+              "propertyNames": {
+                "minLength": 1
+              },
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Run-configuration settings by dotted name, as `--set` gives them (TST-040), e.g. physics.adapter.",
+          "title": "Sets"
         }
       },
       "required": [
@@ -790,7 +931,8 @@
             "message",
             "controller_state",
             "max_duration",
-            "run_error"
+            "run_error",
+            "integrity_halt"
           ],
           "title": "Reason",
           "type": "string"
@@ -1152,6 +1294,68 @@
         "suite_id"
       ],
       "title": "SuiteRefPayload",
+      "type": "object"
+    },
+    "SwingAnglePayload": {
+      "additionalProperties": false,
+      "properties": {
+        "run_id": {
+          "description": "Run identifier assigned by the service.",
+          "minLength": 1,
+          "title": "Run Id",
+          "type": "string"
+        },
+        "load": {
+          "description": "The suspended load's body.",
+          "minLength": 1,
+          "title": "Load",
+          "type": "string"
+        },
+        "attachment": {
+          "description": "The body it hangs from, or world.",
+          "minLength": 1,
+          "title": "Attachment",
+          "type": "string"
+        }
+      },
+      "required": [
+        "run_id",
+        "load",
+        "attachment"
+      ],
+      "title": "SwingAnglePayload",
+      "type": "object"
+    },
+    "SwingAngleRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "version": {
+          "const": 1,
+          "description": "Protocol version; the service accepts only its own version.",
+          "title": "Version",
+          "type": "integer"
+        },
+        "message_id": {
+          "minLength": 1,
+          "title": "Message Id",
+          "type": "string"
+        },
+        "kind": {
+          "const": "swing_angle",
+          "title": "Kind",
+          "type": "string"
+        },
+        "payload": {
+          "$ref": "#/$defs/SwingAnglePayload"
+        }
+      },
+      "required": [
+        "version",
+        "message_id",
+        "kind",
+        "payload"
+      ],
+      "title": "SwingAngleRequest",
       "type": "object"
     },
     "TickBatchEvent": {
@@ -1535,8 +1739,11 @@
       "error": "#/$defs/ErrorResponse",
       "events": "#/$defs/EventsRequest",
       "geometry": "#/$defs/GeometryRequest",
+      "integrity_results": "#/$defs/IntegrityResultsRequest",
       "list_designs": "#/$defs/ListDesignsRequest",
       "list_runs": "#/$defs/ListRunsRequest",
+      "load_case": "#/$defs/LoadCaseRequest",
+      "member_stress": "#/$defs/MemberStressRequest",
       "ok": "#/$defs/OkResponse",
       "pause": "#/$defs/PauseRequest",
       "probe": "#/$defs/ProbeRequest",
@@ -1550,6 +1757,7 @@
       "scrub": "#/$defs/ScrubRequest",
       "step": "#/$defs/StepRequest",
       "subscribe_series": "#/$defs/SubscribeSeriesRequest",
+      "swing_angle": "#/$defs/SwingAngleRequest",
       "tick_batch": "#/$defs/TickBatchEvent",
       "timeline": "#/$defs/TimelineRequest",
       "timeline_event": "#/$defs/TimelineEventMessage",
@@ -1607,6 +1815,18 @@
     },
     {
       "$ref": "#/$defs/ProbeRequest"
+    },
+    {
+      "$ref": "#/$defs/MemberStressRequest"
+    },
+    {
+      "$ref": "#/$defs/SwingAngleRequest"
+    },
+    {
+      "$ref": "#/$defs/IntegrityResultsRequest"
+    },
+    {
+      "$ref": "#/$defs/LoadCaseRequest"
     },
     {
       "$ref": "#/$defs/ReportRequest"

@@ -105,3 +105,22 @@ parts:
       sample_rate: "80 Hz"
       overload_limit: "73.575 N"
     placeholders: [mass, capacity, sensitivity, excitation_voltage, resolution, sample_rate, overload_limit]
+  - name: tal220b_5kg
+    type: load_cell
+    tier: ideal
+    description: TAL220B 5 kg single-point (bar) load cell (sold by SparkFun as SEN-14729).
+    source: >-
+      REPLACEABLE sourced part (brief M3-GV; URLs in docs/gantry-team-inputs.md). TAL220B datasheet: rated output 1.0
+      +- 0.1 mV/V, excitation 3 to 10 V (5 V used, the HX711's AVDD for its +-20 mV range at gain 128), safe overload
+      120 percent FS, ultimate overload 150 percent FS (overload_limit, the absolute maximum: 1.5 x 49.05 N = 73.575 N),
+      capacity 5 kg = 49.05 N. sample_rate is the HX711's 80 SPS (RATE pin to DVDD; 10 SPS with RATE low), the chain's
+      converter rate. Not published here, kept as placeholders: mass, resolution.
+    values:
+      mass: "30 g"
+      capacity: "49.05 N"
+      sensitivity: "1.0e-3"
+      excitation_voltage: "5 V"
+      resolution: "0.01 N"
+      sample_rate: "80 Hz"
+      overload_limit: "73.575 N"
+    placeholders: [mass, resolution]

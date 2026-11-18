@@ -1,0 +1,157 @@
+# G16 (Requirements doc, Test cases, gantry suite): motor sizing. The rated load is lifted and carried across the
+# workspace with each axis motor in turn substituted by the NEMA 17 class part (sweeps of `instance:<motor>.part`,
+# LIB-017; the nominal run is the design's NEMA 23 on every axis). The case scores what the record can score: the
+# firmware's lost-step detection (`fault:encoder_mismatch`, FW-020: the axis encoder against the step count) stays
+# absent and every axis arrives within the 1 cm position accuracy (a lost full step moves the axis 0.2 mm). The report
+# carries per motor and part the missed steps (`missed_steps:<motor>`, SCO-031: the driver's step and dir pins against
+# the shaft's rotation, less the drive's lead) and the torque margin (`torque_margin:<motor>`, SCO-032: the part's curve
+# at the recorded shaft speed less the recorded shaft load torque, minimum and its time; brief M3-X2e). Their limits
+# are the physics, not tuning: a sizing case passes when no motor loses a step (the final count is 0 within a quarter
+# step, half a step identifying a whole count uniquely) and every margin stays positive. Both judge the span between
+# rest samples from the last rest at or before `integrity.evaluate_from` (1 s since brief M3-GV, 9 s before) to the final sample (ruling 93): the
+# lift belt starts unstretched and its release transient is milestone 4's static start, so the steps lost and the
+# least margin before that rest are a before-span note per motor in the report, not a verdict. The acceptance test keeps the a-priori demand below as its cross-check (ACC-031).
+#
+# Timeline (gantry team limits 2026-11-11: 0.05 m/s^2 ramps, 0.1 m/s cruise, 50 mm slow zones at 0.05 m/s; homing
+# 0.02 m/s): homing from 0.1 m on each axis is done by 5.25 s. Part (a), the lift: `lift` to 30 cm at 6 s, from the
+# homed 0 with the rated load on payload_rope: 0.3 m takes at most 0.3 / 0.05 + 2 = 8 s plus the 50 ms brake
+# release, done by 14.05 s. Part (b), the axes: target (40, 25) at 15 s from the homed origin; X 0.4 m takes at most
+# 0.4 / 0.05 + 2 = 10 s, done by 25 s; the run ends at 26 s.
+#
+# Demand per motor (belt drives, c = 0.04 m / 2 pi = 6.3662 mm the pulley radius, eta = 0.95 the belt efficiency
+# the native adapter applies as the steady gain n / eta, ruling 66; omega_c = v / c = 15.708 rad/s = 150 rpm at
+# the 0.1 m/s cruise, alpha = a / c = 7.854 rad/s^2 on the ramps):
+#   lift:  T = m_L (g + a) c / eta + D omega_c + J alpha, m_L every mass the lift belt raises (lift carriage, hook,
+#          the rope and its end fitting, the rated load 4.536 kg), D the part's viscous damping, J its rotor inertia;
+#   x, y:  T = (m a + F_f) c / eta + D omega_c + J alpha, m every mass the axis moves, F_f = 5 N the axis friction.
+# Available: the part's curve at 150 rpm, linear between its points: NEMA 17 0.38 N m, NEMA 23 1.205 N m. With
+# m_L about 4.95 kg the lift demands about 0.33 N m plus 0.031 (NEMA 17, D = 2e-3) or 0.126 (NEMA 23, D = 8e-3):
+# margins about +0.02 N m (NEMA 17) and +0.75 N m (NEMA 23); x and y demand under 0.2 N m on either part. Exact
+# figures: the acceptance test (ACC-031). Pull-out (SIG-033): the behavioral stepper drops steps when the drive
+# torque exceeds the curve at the shaft speed or the lead exceeds two step angles.
+# Parts since brief M3-GV (REPLACEABLE sourced parts): the nominal run is the StepperOnline 23HS22-2804S on every axis,
+# the sweep substitutes the 17HS19-2004S1; at 150 rpm their published curves give 0.76 and 0.4267 N m (linear between
+# the plotted 90 and 180 rpm points) where the derivation above read the placeholders' 1.205 and 0.38.
+id: G16
+title: Motor sizing sweep, NEMA 17 against NEMA 23 at the rated load
+design:
+  name: gantry
+  version: 0.1.0
+controller_mode: native
+seed: 16
+integrity:
+  evaluate_from: 1 s
+open_parameters:
+  - name: payload_mass
+    dimension: "[mass]"
+    owed_by: gantry team
+    note: Load on the rope; the design's rated load (10 lb, gantry team 2026-11-11).
+    default: "4.536 kg"
+initial_state:
+  joints:
+    - joint: x_axis
+      position: 0.1 m
+      velocity: 0 m/s
+    - joint: y_axis
+      position: 0.1 m
+      velocity: 0 m/s
+    - joint: lift_axis
+      position: 0.1 m
+      velocity: 0 m/s
+  controller:
+    state: not_homed
+  payload:
+    attached: true
+    body: hook
+    mass: ${payload_mass}
+commands:
+  - at: 0 s
+    message: home
+  - at: 6 s
+    message: lift
+    payload:
+      z: 30 cm
+  - at: 15 s
+    message: target
+    payload:
+      x: 40 cm
+      y: 25 cm
+end:
+  at: 26 s
+  max_duration: 26 s
+sweeps:
+  - parameter: instance:lift_motor.part
+    values: [stepperonline_17hs19_2004s1]
+  - parameter: instance:x_motor.part
+    values: [stepperonline_17hs19_2004s1]
+  - parameter: instance:y_motor.part
+    values: [stepperonline_17hs19_2004s1]
+criteria:
+  - name: ready_after_homing
+    check: event
+    event: state:ready
+    expect: present
+  - name: no_lost_steps_detected
+    check: event
+    event: fault:encoder_mismatch
+    expect: absent
+  - name: lifted
+    check: value
+    quantity: joint:lift_axis.position
+    statistic: final
+    comparison: within
+    target: 30 cm
+    limit: 1 cm
+  - name: arrived_x
+    check: value
+    quantity: joint:x_axis.position
+    statistic: final
+    comparison: within
+    target: 40 cm
+    limit: 1 cm
+  - name: arrived_y
+    check: value
+    quantity: joint:y_axis.position
+    statistic: final
+    comparison: within
+    target: 25 cm
+    limit: 1 cm
+  - name: missed_steps_lift_motor
+    check: value
+    quantity: missed_steps:lift_motor
+    statistic: final
+    comparison: within
+    target: "0"
+    limit: "0.25"
+  - name: torque_margin_lift_motor
+    check: value
+    quantity: torque_margin:lift_motor
+    statistic: minimum
+    comparison: above
+    limit: 0 N*m
+  - name: missed_steps_x_motor
+    check: value
+    quantity: missed_steps:x_motor
+    statistic: final
+    comparison: within
+    target: "0"
+    limit: "0.25"
+  - name: torque_margin_x_motor
+    check: value
+    quantity: torque_margin:x_motor
+    statistic: minimum
+    comparison: above
+    limit: 0 N*m
+  - name: missed_steps_y_motor
+    check: value
+    quantity: missed_steps:y_motor
+    statistic: final
+    comparison: within
+    target: "0"
+    limit: "0.25"
+  - name: torque_margin_y_motor
+    check: value
+    quantity: torque_margin:y_motor
+    statistic: minimum
+    comparison: above
+    limit: 0 N*m

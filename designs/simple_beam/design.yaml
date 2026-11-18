@@ -1,0 +1,47 @@
+# Simply supported beam (ACC-042, ACC-043): a 10 mm square steel bar (A = 1e-4 m^2, I = 8.3333e-10 m^4, L = 1 m, fibres
+# 5 mm) of steel_8_8_fastener (the shipped steel; E 205 GPa, rho 7850 kg/m^3 typical: E I = 170.833 N m^2, rho A =
+# 0.785 kg/m; its yield is the strength check's) pinned at the world origin, on a roller at x = 1 m, under its own
+# weight w = rho A g = 7.70085 N/m along -y, released straight at rest. Lumped chain of 8 segments (ruling 31). The
+# second moment is the open parameter bar_second_moment so a case can perturb the stiffness (`--set`); draft for that
+# reason.
+name: simple_beam
+version: 1.0.0
+source_hash: unset
+status: draft
+description: Steel bar pinned at one end, on a roller at the other, under its own weight (ACC-042, ACC-043).
+open_parameters:
+  - name: bar_second_moment
+    dimension: "[length] ** 4"
+    owed_by: reference fixture
+    note: Second moment of area of the 10 mm square bar, b^4 / 12; a case perturbs it to show its criteria catch a stiffness error.
+    default: "8.333333333333334e-10 m**4"
+environment:
+  gravity: [0 m/s**2, -9.81 m/s**2, 0 m/s**2]
+  ambient_temperature: 298.15 K
+bodies:
+  - name: bar
+    material: steel_8_8_fastener
+    process:
+      kind: extrusion
+    geometry:
+      kind: primitives
+      shapes:
+        - shape: box
+          position: [0.5 m, 0 m, 0 m]
+          size: [1 m, 0.01 m, 0.01 m]
+    flexible:
+      section:
+        area: 1e-4 m**2
+        second_moment: ${bar_second_moment}
+        fibre_y: 5 mm
+        fibre_z: 5 mm
+        length: 1 m
+      supports: [pinned, roller]
+      segments: 8
+joints:
+  - name: bar_mount
+    type: fixed
+    parent: world
+    child: bar
+    placement:
+      position: [0 m, 0 m, 0 m]

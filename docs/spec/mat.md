@@ -56,9 +56,21 @@ proposed <value>)".
 |---|---|---|
 | Shipped grades within each v1 material family (which aluminum alloys, fastener classes, bearing steels) | not set | owner |
 | Default spreads for printed materials (MAT-015) | not set | owner; team coupon tests to replace |
-| S-N curve interpolation scheme between data points | not set | materials brief, phase 1 |
+| S-N curve interpolation scheme between data points | log-log linear between adjacent points (round 5, brief M) | settled |
 | Temperature at which v1 lookups are evaluated while the thermal slot is constant (design ambient proposed) | not set | owner |
-| Strength axes model for printed parts (in-layer versus interlayer, or full orthotropic) | not set | owner |
+| Strength axes model for printed parts (in-layer versus interlayer, or full orthotropic) | placeholder (round 5 ruling 7): f = f_inter cos^2 theta + f_in sin^2 theta, theta the angle between loading and build direction | owner |
+
+## Lookup rules
+
+Implementation rules for the M3 rows; `mechsim/materials/CLAUDE.md` holds the API.
+
+| Rule | Rows |
+|---|---|
+| A temperature table multiplies min, typ and max alike; between points it is linear in temperature, a property without a table is temperature independent, a non-finite temperature is an error | MAT-006, MAT-007 |
+| A printed body's strength is the record's strength times the direction factor above, using the body's build direction (the material's own when the body gives no process); machined, molded and extrusion are isotropic; a printed process on a material without strength factors, or a non-printed process on a printed material, is an error | MAT-010, MAT-011 |
+| An S-N lookup at a cycle count outside the first to last point, or non-finite, is an error | MAT-012 |
+| An overrides file (`material_overrides:` mapping material name to overridden fields, each with a non-empty `source`) overrides a spread property by `value` (min = typ = max) or the full `min`, `typ`, `max`, the S-N curve by `points`, printed strength factors by `in_layer`, `interlayer`; a property override without `temperature_dependence` keeps the shipped table; an unknown material name is rejected with the file and the name | MAT-016, MAT-023 |
+| A design names its overrides file in `materials.overrides`; a run records the file's text under the metadata key `material_overrides` | MAT-017 |
 
 ## Out of scope
 

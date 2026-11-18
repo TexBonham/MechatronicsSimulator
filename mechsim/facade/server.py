@@ -64,6 +64,10 @@ REQUEST_KINDS = frozenset(
         "geometry",
         "value_at",
         "probe",
+        "member_stress",
+        "swing_angle",
+        "integrity_results",
+        "load_case",
         "report",
         "diff",
         "read_file",
@@ -179,6 +183,7 @@ def run_end_reason(summary: RunResultSummary) -> RunEndReason:
         "controller_state": "controller_state",
         "max_duration": "max_duration",
         "run_error": "run_error",
+        "integrity_halt": "integrity_halt",
     }
     if summary.end_reason is None or summary.end_reason not in reasons:
         return "run_error"
@@ -343,6 +348,12 @@ class FacadeServer:
             "geometry": lambda: self._call(lambda: facade.geometry(payload.run_id)),
             "value_at": lambda: self._call(lambda: facade.value_at(payload.run_id, payload.ref, payload.t)),
             "probe": lambda: self._call(lambda: facade.probe(payload.run_id, payload.probe, payload.name)),
+            "member_stress": lambda: self._call(lambda: facade.member_stress(payload.run_id)),
+            "swing_angle": lambda: self._call(
+                lambda: facade.swing_angle(payload.run_id, payload.load, payload.attachment)
+            ),
+            "integrity_results": lambda: self._call(lambda: facade.integrity_results(payload.run_id)),
+            "load_case": lambda: self._call(lambda: facade.load_case(payload.run_id, payload.format)),
             "report": lambda: self._call(lambda: facade.report(payload.suite_id)),
             "diff": lambda: self._call(lambda: facade.diff(payload.suite_id)),
             "read_file": lambda: self._call(lambda: facade.read_file(Path(payload.path))),
@@ -389,7 +400,7 @@ class FacadeServer:
             run_id = case.stem
             subscriptions: list[Subscription] = []
             try:
-                run_id = self.facade.run_id_of(case, design)
+                run_id = self.facade.run_id_of(case, design, payload.sets)
                 subscriptions = connection.live.pop(run_id, [])
             except FacadeError as error:
                 if error.field != "case":
@@ -399,7 +410,7 @@ class FacadeServer:
                 lambda: self.facade.run_case(
                     case,
                     design,
-                    None,
+                    payload.sets,
                     None,
                     False,
                     payload.seed,

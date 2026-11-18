@@ -1,0 +1,74 @@
+# Rope pendulum (ACC-037, ADR 0016 "Rope pendulum reference"): a 1 kg bob (sphere, radius 0.02 m, inertia
+# 2/5 m r^2 about its center) on a free joint, hung from the world origin by the catalog rope rope_3mm_steel_generic
+# (EA 500 kN, 0.035 kg/m, axial damping 50 N s) at its center of mass, rest length 1 m, 8 segments. Rope mass
+# m_r = 0.035 kg (m_r / M = 0.035, inside ADR 0016's 0.05). The bob is placed at the loaded length
+# L = L0 + g L0 (M + m_r / 2) / EA = 1.00001996335 m, released at rest from 0.02 rad: (L sin 0.02, -L cos 0.02). The rest length and the placement are open parameters (rope_length, bob_x, bob_y) so a
+# case can perturb the length (`--set` all three: a longer rope placed at its own loaded length); draft for that reason.
+name: rope_pendulum
+version: 1.0.0
+source_hash: unset
+status: draft
+description: Bob on a lumped rope from the world; the rope pendulum reference (ACC-037).
+open_parameters:
+  - name: rope_length
+    dimension: "[length]"
+    owed_by: reference fixture
+    note: Rest length L0 of the rope.
+    default: "1 m"
+  - name: bob_x
+    dimension: "[length]"
+    owed_by: reference fixture
+    note: Release x of the bob, L sin(0.02) at the loaded length L.
+    default: "0.019999065933715813 m"
+  - name: bob_y
+    dimension: "[length]"
+    owed_by: reference fixture
+    note: Release y of the bob, -L cos(0.02) at the loaded length L.
+    default: "-0.9998199660240408 m"
+environment:
+  gravity: [0 m/s**2, -9.81 m/s**2, 0 m/s**2]
+  ambient_temperature: 298.15 K
+bodies:
+  - name: bob
+    material: aluminium_6063_t5_extrusion
+    process:
+      kind: extrusion
+    geometry:
+      kind: primitives
+      shapes:
+        - shape: sphere
+          position: [0 m, 0 m, 0 m]
+          radius: 0.02 m
+    mass_properties:
+      mass: 1 kg
+      com: [0 m, 0 m, 0 m]
+      inertia:
+        ixx: 1.6e-4 kg*m**2
+        iyy: 1.6e-4 kg*m**2
+        izz: 1.6e-4 kg*m**2
+joints:
+  - name: bob_free
+    type: free
+    parent: world
+    child: bob
+    placement:
+      position: ["${bob_x}", "${bob_y}", 0 m]
+    linear:
+      - {friction: 0 N, damping: 0 N*s/m, backlash: 0 m}
+      - {friction: 0 N, damping: 0 N*s/m, backlash: 0 m}
+      - {friction: 0 N, damping: 0 N*s/m, backlash: 0 m}
+    angular:
+      - {friction: 0 N*m, damping: 0 N*m*s/rad, backlash: 0 rad}
+      - {friction: 0 N*m, damping: 0 N*m*s/rad, backlash: 0 rad}
+      - {friction: 0 N*m, damping: 0 N*m*s/rad, backlash: 0 rad}
+ropes:
+  - name: line
+    part: rope_3mm_steel_generic
+    from:
+      body: world
+      point: [0 m, 0 m, 0 m]
+    to:
+      body: bob
+      point: [0 m, 0 m, 0 m]
+    segments: 8
+    rest_length: ${rope_length}

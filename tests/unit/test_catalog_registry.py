@@ -8,13 +8,15 @@ from pathlib import Path
 import pytest
 
 from mechsim.library.registry import RegistryError, default_registry, load_registry
-from mechsim.library.schema import CATALOG_DIR
+from mechsim.library.schema import CATALOG_DIR, load_catalog_file
 
 SHIPPED_TYPES = [
     "belt_pulley",
     "brake",
     "end_effector",
     "estop_relay",
+    "flexible_beam",
+    "hook",
     "imu",
     "incremental_encoder",
     "lead_screw",
@@ -24,6 +26,7 @@ SHIPPED_TYPES = [
     "load_cell_amplifier",
     "payload",
     "power_supply",
+    "rope",
     "step_dir_driver",
     "stepper_behavioral",
     "uart_link",
@@ -41,9 +44,16 @@ def test_registry_loads_every_shipped_type_and_part() -> None:
     registry = load_registry()
     assert registry.type_names() == SHIPPED_TYPES
     assert "nema17_class_generic" in registry.part_names()
-    # One part per type, but stepper_behavioral ships two: the NEMA 17 and the NEMA 23 class (G16's sweep, ruling 31).
+    # Every part entry of every shipped catalog file is registered, once: the generic parts beside the sourced parts
+    # of brief M3-GV (counted from the files, ruling 99 (a)); every type ships at least one part.
     assert "nema23_class_generic" in registry.part_names()
-    assert len(registry.part_names()) == len(SHIPPED_TYPES) + 1
+    assert "extrusion_2020_500mm_generic" in registry.part_names()
+    entries = [
+        part.name for path in sorted(CATALOG_DIR.glob("*.yaml")) for part in load_catalog_file(path).resolved_parts()
+    ]
+    assert sorted(registry.part_names()) == sorted(entries)
+    assert len(set(entries)) == len(entries)
+    assert {registry.part(name).type for name in entries} == set(SHIPPED_TYPES)
     assert registry.part("nema17_class_generic").type == "stepper_behavioral"
     assert registry.component_type("limit_switch").category == "sensor"
 

@@ -13,7 +13,7 @@ from mechsim.builder.mass import apply, rotation
 from mechsim.builder.physics import element_kinds
 from mechsim.design.cad import ConvexHull as HullResult
 from mechsim.design.cad import MassPropertiesSI, StepImporter, StepImportResult
-from mechsim.design.schema import Design, shipped_materials
+from mechsim.design.schema import Design, load_design, shipped_materials
 from mechsim.library.registry import default_registry
 from mechsim.physics.neutral import (
     BeltPulley,
@@ -28,7 +28,7 @@ from mechsim.physics.neutral import (
     Sphere,
     from_yaml,
 )
-from tests.unit.test_builder_support import EXAMPLE, MATERIAL, filled_gantry, gantry, gantry_data, pendulum
+from tests.unit.test_builder_support import EXAMPLE, GANTRY, MATERIAL, filled_gantry, gantry, gantry_data, pendulum
 
 
 def _build(design: Design, **options: Any) -> BuildResult:
@@ -119,7 +119,8 @@ def test_joints_map_one_to_one_with_their_types() -> None:
     assert built == {joint.name: joint.type for joint in design.joints}
     x_axis = _body(model, "rail_y").joint
     assert x_axis is not None
-    assert x_axis.axis == (1.0, 0.0, 0.0)
+    # rail_y's frame has x along world y, y along world z (M3-X1d, ruling 65), so the world-x travel is its z.
+    assert x_axis.axis == (0.0, 0.0, 1.0)
     assert x_axis.linear[0].lower == 0.0
     assert x_axis.linear[0].upper == 1.0
     assert x_axis.linear[0].friction == 1.0
@@ -272,17 +273,30 @@ def test_contact_without_floor_gives_no_world_shape() -> None:
 @pytest.mark.req("BLD-014")
 @pytest.mark.req("BLD-018")
 def test_flexible_bodies_become_lumped_members() -> None:
-    model = _physics(filled_gantry())
+    result = _build(filled_gantry())
+    model = result.physics
+    assert model is not None
+    scales = {record.member: record for record in result.lumped}
     members = {member.name: member for member in model.lumped_members}
     rail_x = members["rail_x_beam"]
-    assert (rail_x.root, rail_x.end, rail_x.segments) == ("clamped", "free", 4)
+    assert (rail_x.root, rail_x.end, rail_x.segments) == ("clamped", "free", 16)
     rail_y = members["rail_y_beam"]
     assert (rail_y.root, rail_y.end, rail_y.segments) == ("pinned", "roller", 8)
     assert rail_x.parent == "rail_x"
     assert rail_x.structural_member == "rail_x"
     material = shipped_materials()[MATERIAL]
-    assert rail_x.section.elastic_modulus == material.youngs_modulus.typ
-    assert rail_x.section.density == material.density.typ
+    record = scales["rail_x_beam"]
+    assert record.calibrated
+    assert record.stiffness_scale is not None
+    assert record.mass_scale is not None
+    # BLD-019: the lumped section carries the calibrated E and rho; the member list keeps the material's (BLD-009).
+    assert rail_x.section.elastic_modulus == pytest.approx(
+        material.youngs_modulus.typ * record.stiffness_scale, rel=1e-15
+    )
+    assert rail_x.section.density == pytest.approx(material.density.typ * record.mass_scale, rel=1e-15)
+    member = next(item for item in model.structural_members if item.name == "rail_x")
+    assert member.section.elastic_modulus == material.youngs_modulus.typ
+    assert member.section.density == material.density.typ
     assert rail_x.section.area == 1e-4
     assert rail_x.section.second_moment_of_area == 1e-8
     assert rail_x.section.length == 1.0
@@ -291,11 +305,11 @@ def test_flexible_bodies_become_lumped_members() -> None:
 @pytest.mark.req("BLD-018")
 def test_declared_segment_count_overrides_the_default() -> None:
     data = gantry_data()
-    data["bodies"][2]["flexible"]["segments"] = 6
-    data["bodies"][1]["flexible"]["segments"] = 4
+    data["bodies"][2]["flexible"]["segments"] = 12
+    data["bodies"][1]["flexible"]["segments"] = 10
     members = {member.name: member for member in _physics(filled_gantry(data)).lumped_members}
-    assert members["rail_y_beam"].segments == 6
-    assert members["rail_x_beam"].segments == 4
+    assert members["rail_y_beam"].segments == 12
+    assert members["rail_x_beam"].segments == 10
 
 
 @pytest.mark.req("BLD-014")
@@ -307,13 +321,20 @@ def test_lumped_record_follows_the_engine_segment_rule() -> None:
     e, rho = material.youngs_modulus.typ, material.density.typ
     records = {record.member: record for record in result.lumped}
     rail_x = records["rail_x_beam"]
-    assert rail_x.segment_length == 0.25
-    assert rail_x.node_stiffness == pytest.approx(e * 1e-8 / 0.25, rel=1e-15)
-    assert rail_x.spans == (0.25, 0.25, 0.25, 0.125)
+    assert rail_x.stiffness_scale is not None
+    assert rail_x.mass_scale is not None
+    e, rho = e * rail_x.stiffness_scale, rho * rail_x.mass_scale
+    assert rail_x.segment_length == 0.0625
+    assert rail_x.node_stiffness == pytest.approx(e * 1e-8 / 0.0625, rel=1e-15)
+    assert rail_x.spans == (0.0625,) * 15 + (0.03125,)
     for span, mass in zip(rail_x.spans, rail_x.masses, strict=True):
         assert mass == pytest.approx(rho * 1e-4 * span, rel=1e-15)
-    assert math.fsum(rail_x.masses) == pytest.approx(rho * 1e-4 * (1.0 - 0.125), rel=1e-14)
+    assert math.fsum(rail_x.masses) == pytest.approx(rho * 1e-4 * (1.0 - 0.03125), rel=1e-14)
     rail_y = records["rail_y_beam"]
+    assert rail_y.stiffness_scale is not None
+    assert rail_y.mass_scale is not None
+    e = material.youngs_modulus.typ * rail_y.stiffness_scale
+    rho = material.density.typ * rail_y.mass_scale
     assert rail_y.segments == 8
     assert rail_y.node_stiffness == pytest.approx(e * 1e-8 / 0.1, rel=1e-14)
     assert len(rail_y.spans) == 9
@@ -328,6 +349,7 @@ def test_lumped_record_follows_the_engine_segment_rule() -> None:
 def test_single_segment_beam() -> None:
     data = gantry_data()
     data["bodies"][1]["flexible"]["segments"] = 1
+    del data["bodies"][1]["flexible"]["calibration"]
     record = next(item for item in _build(filled_gantry(data)).lumped if item.member == "rail_x_beam")
     assert record.spans == (0.5,)
 
@@ -349,7 +371,7 @@ def test_structural_members_record_section_material_and_supports() -> None:
 
 
 @pytest.mark.parametrize(
-    "supports", [["clamped", "clamped"], ["roller", "free"], ["free", "free"], ["pinned", "pinned"]]
+    "supports", [["pinned", "clamped"], ["roller", "free"], ["free", "free"], ["pinned", "pinned"]]
 )
 def test_support_pair_without_a_lumped_form_fails(supports: list[str]) -> None:
     data = gantry_data()
@@ -363,23 +385,29 @@ def test_support_pair_without_a_lumped_form_fails(supports: list[str]) -> None:
 
 @pytest.mark.req("BLD-005")
 def test_belts_become_neutral_transmissions() -> None:
-    """Catalog ratio is travel per shaft turn in SI m/rad: belt pulley radius = 40 mm / 2 pi on every axis, the lift
-    included (gantry team 2026-11-11: no lead screw)."""
-    model = _physics(filled_gantry())
+    """Catalog ratio is travel per shaft turn in SI m/rad: belt pulley radius = the ratio's SI
+    value (40 mm per 2 pi rad) on every axis, the lift
+    included (gantry team 2026-11-11: no lead screw). Ratio, efficiency, stiffness and backlash are the values of the
+    catalog part the design names on each belt (ruling 99 (a): read from the data, never a literal)."""
+    design = filled_gantry()
+    model = _physics(design)
+    registry = default_registry()
+    parts = {item.name: registry.part(item.part).values for item in design.components if item.type == "belt_pulley"}
+    assert sorted(parts) == ["lift_belt", "x_belt", "y_belt"]
     transmissions = {item.name: item for item in model.transmissions}
     belt = transmissions["x_belt"]
     assert isinstance(belt, BeltPulley)
     assert (belt.shaft_joint, belt.driven_joint) == ("x_motor_spin", "x_axis")
-    assert belt.pulley_radius == pytest.approx(0.04 / (2.0 * math.pi), rel=1e-15)
-    assert belt.efficiency == 0.95
-    assert belt.stiffness == 100000.0
-    assert belt.backlash == 0.0
+    assert belt.pulley_radius == pytest.approx(parts["x_belt"]["ratio"], rel=1e-15)
+    assert belt.efficiency == parts["x_belt"]["efficiency"]
+    assert belt.stiffness == parts["x_belt"]["stiffness"]
+    assert belt.backlash == parts["x_belt"].get("backlash", 0.0)
     assert transmissions["y_belt"].driven_joint == "y_axis"
     lift = transmissions["lift_belt"]
     assert isinstance(lift, BeltPulley)
     assert (lift.shaft_joint, lift.driven_joint) == ("lift_motor_spin", "lift_axis")
-    assert lift.pulley_radius == pytest.approx(0.04 / (2.0 * math.pi), rel=1e-15)
-    assert lift.backlash == 0.0
+    assert lift.pulley_radius == pytest.approx(parts["lift_belt"]["ratio"], rel=1e-15)
+    assert lift.backlash == parts["lift_belt"].get("backlash", 0.0)
     assert not any(isinstance(item, LeadScrew) for item in model.transmissions)
 
 
@@ -459,7 +487,21 @@ def test_step_body_cross_checks_and_takes_the_hulls() -> None:
     assert hook.mass == 2.0
     assert len(hook.shapes) == 1
     assert isinstance(hook.shapes[0], ConvexHull)
-    assert result.notes == ()
+    rope_note = (
+        "rope 'payload_rope': its to end is case payload 'payload'; not emitted until the case places the payload "
+        "(BLD-032)"
+    )
+    plane = "gravity entirely outside its bending plane"
+    damping = "(DES-047, BLD-040, ruling 78)"
+    others = [
+        note for note in result.notes if "is an approximation" not in note and plane not in note and damping not in note
+    ]
+    assert others == [rope_note]
+    assert [note.split("'")[1] for note in result.notes if damping in note] == ["rail_x", "rail_y"]
+    approximations = [note for note in result.notes if "is an approximation" in note]
+    assert [note.split("'")[1] for note in approximations] == ["rail_x", "rail_y"]
+    # The fixture's placements carry no rotation, so both rails' frames are the world's, z along gravity (BLD-038).
+    assert [note.split("'")[1] for note in result.notes if plane in note] == ["rail_x", "rail_y"]
 
 
 def test_step_body_mass_mismatch_fails() -> None:
@@ -496,10 +538,19 @@ def test_shipped_gantry_builds_rigid_on_its_placeholder_geometry() -> None:
     assert list(result.pending) == sorted(set(result.pending))
 
 
-def test_shipped_gantry_flexible_build_fails_on_clamped_clamped_rail_x() -> None:
-    """Documents the gap: the neutral lumped beam has no clamped-clamped form until milestone 3."""
-    failures = _failures(gantry())
-    assert any("flexible body 'rail_x': supports (clamped, clamped)" in failure for failure in failures)
+@pytest.mark.req("BLD-018")
+def test_shipped_gantry_flexible_build_maps_clamped_clamped_rail_x(tmp_path: Path) -> None:
+    """Ruling 16: the neutral lumped beam has a clamped far end; rail_x gets sixteen segments (ruling 31). The
+    shipped calibration is the open `${rail_calibration}`; it is bound here to the design's own default."""
+    text = GANTRY.read_text(encoding="utf-8").replace(
+        "${rail_calibration}", "{source: hand, load: 100 N, deflection: 1 mm, first_natural_frequency: 50 Hz}"
+    )
+    bound = tmp_path / "design.yaml"
+    bound.write_text(text, encoding="utf-8")
+    result = _build(load_design(bound))
+    assert result.physics is not None
+    members = {member.structural_member: member for member in result.physics.lumped_members}
+    assert (members["rail_x"].end, members["rail_x"].segments) == ("clamped", 16)
 
 
 def test_open_physics_value_keeps_physics_pending() -> None:
@@ -534,7 +585,9 @@ def test_rigid_build_needs_no_calibration_and_accepts_any_supports() -> None:
     rigid = _build(filled_gantry(data), rigid_members=True)
     assert rigid.physics is not None
     assert [(s.at, s.condition) for s in rigid.members[0].supports] == [(0.0, "clamped"), (1.0, "clamped")]
-    assert any("supports (clamped, clamped)" in failure for failure in _failures(filled_gantry(data)))
+    data["bodies"][1]["flexible"]["supports"] = ["pinned", "clamped"]
+    assert _build(filled_gantry(data), rigid_members=True).physics is not None
+    assert any("supports (pinned, clamped)" in failure for failure in _failures(filled_gantry(data)))
 
 
 def test_module_instances_follow_the_tick_order() -> None:

@@ -3,15 +3,6 @@
 import pytest
 
 
-@pytest.mark.req("TST-026")
-@pytest.mark.xfail(strict=True, reason="stub")
-def test_tst_026() -> None:
-    """The test runner shall run seeded randomized variations of a case, each variation recorded with its
-    own integer seed so that it can be rerun alone with an identical result.
-    """
-    raise NotImplementedError
-
-
 @pytest.mark.req("TST-029")
 @pytest.mark.xfail(strict=True, reason="stub")
 def test_tst_029() -> None:

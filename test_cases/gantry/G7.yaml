@@ -80,6 +80,8 @@ faults:
 end:
   at: 30 s
   max_duration: 30 s
+integrity:
+  evaluate_from: 1 s
 criteria:
   - name: power_cut
     check: value

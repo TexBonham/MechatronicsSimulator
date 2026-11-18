@@ -6,18 +6,19 @@ types. `reader.py` imports `mechsim.testing.driver` and `.runner` types (no cycl
 
 | File | Holds |
 |---|---|
-| `tick.py` | `TickRecord` and physics structs, frozen mirror of `core/kernel/.../tick_record.hpp` (incl. `coupling`: `CouplingSample(name, kind, value, digest)`, kinds none/real/integer/flag/payload; `PhysicsOutputs.joint_positions`, `joint_drive_torques` (`JointDriveTorque(joint, torque)`), `payloads` (`PayloadState(body, carrier, attached, force)`, carrier `WORLD_BODY` = -1 once released)); `RecordError` |
-| `layout.py` | `FIXED_SERIES` (path, unit, axis, dtype) canonical order; `COLUMN_SERIES`, `Columns(names, units)`, `label_series`; `Series` (+ `names`, `units`), `Recording`; `seconds()` |
-| `stream.py` | `Recorder(base_rate, columns=None)`: `write_row`, `subscribe(cb) -> int`, `unsubscribe`, `recording()`, `flush(path, identity, end)` |
-| `archive.py` | `RunIdentity` (controller_mode native, emulated, none), `RunEnd`, `RunFault`, `write_archive(path, identity, end, recording, extra, columns)` (`extra` -> root attrs `meta_<key>`, read back as `RunArchive.extra`), `RunArchive(path)` reader, `coupling()`, `records()` replay, `repository_commit`, `tool_version` |
+| `tick.py` | `TickRecord` and physics structs, frozen mirror of `core/kernel/.../tick_record.hpp` (incl. `coupling`: `CouplingSample(name, kind, value, digest)`, kinds none/real/integer/flag/payload; `PhysicsOutputs.joint_positions`, `joint_drive_torques` (`JointDriveTorque(joint, torque)`), `payloads` (`PayloadState(body, carrier, attached, force)`, carrier `WORLD_BODY` = -1 once released); `RopeTension(tension = load end, slack, max_tension)`); `RecordError` |
+| `layout.py` | `FIXED_SERIES` (path, unit, axis, dtype) canonical order; `BODY_SERIES` (the four `physics/bodies/*`, attr `names` only when named); `MEMBER_SERIES`, `ROPE_SERIES` (`ROPE_TENSION`, slack, `ROPE_MAX_TENSION`); `COLUMN_SERIES`, `Columns(names, units)`, `label_series`; `Series` (+ `names`, `units`), `Recording`; `seconds()` |
+| `stream.py` | `Recorder(base_rate, columns=None, bodies=())` (`bodies` names the body series' columns, count checked at the first row): `write_row`, `subscribe(cb) -> int`, `unsubscribe`, `recording()`, `flush(path, identity, end)` |
+| `archive.py` | `RunIdentity` (controller_mode native, emulated, none; physics_adapter mujoco (archives of the retired bridge still read), native), `RunEnd`, `RunFault`, `write_archive(path, identity, end, recording, extra, columns)` (`extra` -> root attrs `meta_<key>`, read back as `RunArchive.extra`), `RunArchive(path)` reader, `coupling()`, `records()` replay, `repository_commit`, `tool_version` |
 | `export.py` | `export_csv`, `export_json`, `export_mat(archive, path, names)`; index-column series exported with per-column names and units (`series[name] [unit]`, JSON `names`/`units`, MAT `series_columns`/`series_column_units`) |
-| `reader.py` | Engine-free read side (ruling 17; nothing from `mechsim._core`): `Kinematics`/`JointKinematics` (`of(model)`, `to_json`, `from_json`), `RecordingView` (the `RecordView` scoring and replay read: `pose:`, `joint:`, `actuator:`, `signal:` refs, events by the label table), `RecordArchiveReader.open(path) -> (RunMetadata, RecordingView)`, `DriverError`; re-exported by `testing/core_driver.py` |
+| `reader.py` | Engine-free read side (ruling 17; nothing from `mechsim._core`): `Kinematics`/`JointKinematics` (`of(model)`, `to_json`, `from_json`), `RecordingView` (+ `validity`, `first_springs`; the `RecordView` scoring and replay read: `pose:`, `joint:`, `actuator:`, `signal:` refs, events by the label table), `RecordArchiveReader.open(path) -> (RunMetadata, RecordingView)` (metadata `members`, `material_overrides`, `variation`, `integrity` from the extras), `DriverError`; re-exported by `testing/core_driver.py` |
+| `validity.py` | `CarriedValidity(member, flagged, since, ratio, work)` (`reason()`, `covers(t)`: flagged and t > since), `flagged(records)`, `validity_json`/`validity_from_json`, `VALIDITY_KEY` = `carried_validity`, `NOT_VALID_KIND` = `integrity_not_valid`, `NOT_VALID_FLAG` = `not_valid` (rulings 69, 72) |
 | `compare.py` | `archives_identical(a, b) -> Report(identical, content_identical, first_difference)` |
 
 ## Archive layout (format version 2; reader accepts 1 and 2)
 
 - Root attrs: format, format_version, design_name/version/source_hash, test_case_id/hash, seed (uint64),
-  controller_mode, base/physics/control_rate (int64 [num, den]), repository_commit, tool_version, end_outcome,
+  controller_mode, physics_adapter (`mujoco`, `native`; absent reads `mujoco`, TST-040; new runs write `native` only), base/physics/control_rate (int64 [num, den]), repository_commit, tool_version, end_outcome,
   end_time, end_ticks, fault_party/time/cause on run_error, `series` (canonical names).
 - `time/tick`, `time/seconds`, `physics/...`, `signals/{pins,rails,actuator_efforts}/<name>` (group attr `names`),
   `controller/state` (index into `controller/state_names`), `events` (row, tick, seconds, source, kind, detail),
@@ -30,7 +31,14 @@ types. `reader.py` imports `mechsim.testing.driver` and `.runner` types (no cycl
   a drive on a joint outside the positions, or two on one joint, is a `RecordError`; replay returns drives in joint
   order (REC-027). Transmission `slip` (C's field) is `physics/transmissions/slip` (m or rad, one column per
   transmission). Per payload: `physics/payloads/{body, carrier (int64, -1 world), attached, force (N, 3)}`.
-- Index-column series (`layout.COLUMN_SERIES`: transmissions, joint positions, drive torques, payloads) carry
+- Structural (REC-004, REC-026): `physics/members/{start,end}_{moment,force}` ([rows, members, 3]) and
+  `physics/ropes/{tension (load end), slack, max_tension}` ([rows, ropes]); columns named by `model_columns` (lumped
+  member's `structural_member` or name; rope name). A format 2 archive without `max_tension` replays `tension`.
+- Integrity events (REC-010): source and kind `integrity`, detail `IntegrityCrossing.detail()` (canonical JSON
+  `limit, member, quantity, tier, value`). Extras written by `RecordArchiver`: `members` (`members_json`),
+  `variation` (JSON or null), `material_overrides` + `material_overrides_sha256` (when the design names a file),
+  `integrity` (`IntegrityResults.to_json`, when attached), `carried_validity` (`validity_json`, when the run has a carrying member; `CoreDriver.carried_validity`), read back onto `RecordingView.validity`.
+- Index-column series (`layout.COLUMN_SERIES`: members, ropes, transmissions, joint positions, drive torques, payloads) carry
   dataset attrs `names` and `units` (per column, REC-018) from `Columns(names, units)` the driver builds from the
   neutral model: `Recorder(base_rate, columns)` (counts checked at the first row) or
   `write_archive(..., columns=)` (overrides). Without them `names` and `units` are empty and `unit` is the
@@ -53,9 +61,12 @@ types. `reader.py` imports `mechsim.testing.driver` and `.runner` types (no cycl
 
 | Section | File | Line |
 |---|---|---|
-| Run records | archive.py | 84 |
-| Repository and tool identity | archive.py | 156 |
-| HDF5 helpers | archive.py | 178 |
-| Writer | archive.py | 232 |
-| Value conversions | archive.py | 293 |
-| Reader | archive.py | 321 |
+| Run records | archive.py | 92 |
+| Repository and tool identity | archive.py | 167 |
+| HDF5 helpers | archive.py | 189 |
+| Writer | archive.py | 243 |
+| Value conversions | archive.py | 307 |
+| Reader | archive.py | 335 |
+| Kinematics | reader.py | 44 |
+| Record view | reader.py | 184 |
+| Archive reader | reader.py | 353 |

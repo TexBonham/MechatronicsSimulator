@@ -4,20 +4,6 @@
 import pytest
 
 
-@pytest.mark.req("VIE-010")
-@pytest.mark.xfail(strict=True, reason="stub")
-def test_vie_010() -> None:
-    """The replay shall overlay member stress on the structural members."""
-    raise NotImplementedError
-
-
-@pytest.mark.req("VIE-011")
-@pytest.mark.xfail(strict=True, reason="stub")
-def test_vie_011() -> None:
-    """The replay shall overlay the swing angle of suspended loads."""
-    raise NotImplementedError
-
-
 @pytest.mark.req("VIE-013")
 @pytest.mark.xfail(strict=True, reason="stub")
 def test_vie_013() -> None:

@@ -1,0 +1,95 @@
+# Rope (LIB-020): the ADR 0016 element, a lumped chain of point masses joined by tension-only springs. Axial
+# stiffness EA (N), strain-rate damping (N s; a segment of length l gets EA / l and damping / l), mass per length,
+# an optional breaking tension (tier 2 snap, its own tier; absent, the rope never snaps, ruling 19), rest length and
+# the top end fitting's mass (the shackle a case payload's rope hangs from, default 1 g, LIB-020).
+# A design names a part in `ropes` (BLD-032). Part values are placeholders.
+types:
+  - name: rope
+    version: 1.0.0
+    category: rope
+    description: Tension-only rope or cable, lumped as a chain of point masses.
+    parameters:
+      - name: axial_stiffness
+        dimension: "[mass] * [length] / [time] ** 2"
+        minimum: "0 N"
+        minimum_exclusive: true
+      - name: damping
+        dimension: "[mass] * [length] / [time]"
+        minimum: "0 N*s"
+      - name: mass_per_length
+        dimension: "[mass] / [length]"
+        minimum: "0 kg/m"
+        minimum_exclusive: true
+      - name: breaking_tension
+        dimension: "[mass] * [length] / [time] ** 2"
+        minimum: "0 N"
+        minimum_exclusive: true
+      - name: rest_length
+        dimension: "[length]"
+        minimum: "0 m"
+        minimum_exclusive: true
+      - name: end_fitting_mass
+        dimension: "[mass]"
+        minimum: "0 kg"
+        minimum_exclusive: true
+        default: "1 g"
+    tiers:
+      - name: ideal
+        parameters: [axial_stiffness, damping, mass_per_length, rest_length, end_fitting_mass]
+      - name: breaking
+        parameters: [breaking_tension]
+    mechanical:
+      mass:
+        source: geometry
+      mounts:
+        - name: from
+          kind: clamp
+          offset: ["0 mm", "0 mm", "0 mm"]
+        - name: to
+          kind: clamp
+          offset: ["0 mm", "0 mm", "0 mm"]
+    electrical:
+      pins: []
+    ratings:
+      absolute_maximums:
+        - name: breaking_tension
+          parameter: breaking_tension
+    thermal:
+      held_constant: true
+      temperature: "298.15 K"
+    plugin:
+      python: mechsim.builder.structure:rope_element
+parts:
+  - name: rope_3mm_steel_generic
+    type: rope
+    tier: breaking
+    description: 3 mm galvanized steel wire rope, 0.3 m.
+    source: placeholder values, no datasheet assigned
+    values:
+      axial_stiffness: "500 kN"
+      damping: "50 N*s"
+      mass_per_length: "0.035 kg/m"
+      breaking_tension: "5 kN"
+      rest_length: "0.3 m"
+      end_fitting_mass: "1 g"
+    placeholders: [axial_stiffness, damping, mass_per_length, breaking_tension, rest_length, end_fitting_mass]
+  - name: rope_1_16in_7x19_304
+    type: rope
+    tier: breaking
+    description: 1/16 in (1.59 mm) 7x19 AISI 302/304 stainless steel wire rope, 0.3 m.
+    source: >-
+      REPLACEABLE sourced part (brief M3-GV; URLs in docs/gantry-team-inputs.md). 7x19 stainless steel cable table,
+      1/16 in: nominal breaking strength 480 lb (2135 N, AISI 302/304), weight 0.75 lb per 100 ft (0.011161 kg/m).
+      Axial stiffness from Lexco's wire rope stretch guide, elastic stretch E (percent of length) = W G / D^2 with G =
+      0.0000162 for 7x19 302/304 stainless (W lb, D in): EA = 100 D^2 / G = 100 x 0.0625^2 / 1.62e-5 = 24113 lbf =
+      107.26 kN. Not published, kept as the generic part's placeholders: the strain-rate damping, the rest length (the
+      design's rope, 0.3 m) and the end fitting's mass (no stainless swivel snap hook or shackle datasheet with a mass
+      could be fetched).
+    values:
+      axial_stiffness: "107.26 kN"
+      damping: "50 N*s"
+      mass_per_length: "0.011161 kg/m"
+      breaking_tension: "2135 N"
+      rest_length: "0.3 m"
+      end_fitting_mass: "1 g"
+    placeholders: [damping, rest_length, end_fitting_mass]

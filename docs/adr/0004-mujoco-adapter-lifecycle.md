@@ -1,7 +1,8 @@
 # ADR 0004: MuJoCo adapter as bridge and differential oracle, then retired
 
 Date: 2026-11-02
-Status: Accepted
+Status: Accepted; decision implemented 2026-11-15, the adapter retired (owner gate decision 1b; brief M3-RM; status
+edit confirmed by the owner 2026-11-17)
 Closes rulings: R-11
 Supersedes: Architecture doc, Technology recommendation verdict "MuJoCo for v1"; Repository starting point, "replay in
 MuJoCo's viewer" for milestone 1 (replay per ADR 0006 and ADR 0007)
@@ -30,7 +31,18 @@ beyond the analytical suite.
 - Fixed baselines are kept as YAML scoring summaries in git; the archives themselves stay out of git (ADR 0012, D4).
 - After retirement, MuJoCo is no longer a runtime dependency.
 
+## Retirement (2026-11-15)
+- The owner retired the adapter at the milestone 3 gate (decision 1b, condition met when brief M3-X2i landed).
+  Criterion 1 met (PHY-023). Criterion 2 decided by the owner: the four G10 misses of record (`stall_fault`,
+  `slip_fault`, a compliant-against-rigid x belt difference at the homing latch; `stall_rehomed`,
+  `slip_carriage_stopped` their consequences) stand as the record (PHY-024), and the efficiency-damping release
+  artefact is bounded and published per run, its end-rate form milestone 4 item E9.
+- Removed by brief M3-RM: `core/physics/mujoco/`, `core/cmake/MuJoCo.cmake`, `mechsim/physics/mujoco/`, the libmujoco
+  install in the wheel, the bridge tests and the `mujoco` value of `physics.adapter`, which is now refused with an
+  error naming the retired adapter. The fixed baselines under `test_cases/*/bridge_baselines/` stay (PHY-025). No
+  MuJoCo import or include is allowed anywhere (PHY-011, PHY-026: the import checker, the CI include step and the
+  invariant tier). History of the stepping adapter: `core/physics/HISTORY.md`.
+
 ## Open items
-- Which engine carries milestone 3 if the retirement criteria are not met by then: not ruled; this ADR's reading is
-  that the MuJoCo adapter continues until they are.
+- Which engine carries milestone 3 if the retirement criteria are not met by then: moot, retired at the gate.
 - Status of the Chrono adapter reserved in the architecture doc: not ruled.

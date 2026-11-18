@@ -34,7 +34,15 @@ ENGINE_MODULES = ("mechsim._core_ext.engine", "mechsim._core.engine", "mechsim.p
 
 def test_rule_table_covers_every_boundary() -> None:
     covered = {module for rule in RULES for module in rule.modules}
-    assert covered == {"mujoco", "mechsim.viewer", "tests", *QT_MODULES, *ORACLE_MODULES, *ENGINE_MODULES}
+    assert covered == {
+        "mujoco",
+        "mechsim.physics.mujoco",
+        "mechsim.viewer",
+        "tests",
+        *QT_MODULES,
+        *ORACLE_MODULES,
+        *ENGINE_MODULES,
+    }
 
 
 # ===== mujoco =========================================================================================================
@@ -42,15 +50,10 @@ def test_rule_table_covers_every_boundary() -> None:
 
 @pytest.mark.parametrize(
     "location",
-    ["mechsim/physics/mujoco/adapter.py", "mechsim/physics/mujoco/__init__.py", "mechsim/physics/mujoco/sub/deep.py"],
-)
-def test_mujoco_allowed_in_adapter(tmp_path: Path, location: str) -> None:
-    assert violations_for(tmp_path, location, "import mujoco\n") == []
-
-
-@pytest.mark.parametrize(
-    "location",
     [
+        "mechsim/physics/mujoco/adapter.py",
+        "mechsim/physics/mujoco/__init__.py",
+        "mechsim/physics/mujoco/sub/deep.py",
         "mechsim/physics/native/adapter.py",
         "mechsim/physics/__init__.py",
         "mechsim/physics/mujoco_extra/x.py",
@@ -62,13 +65,26 @@ def test_mujoco_allowed_in_adapter(tmp_path: Path, location: str) -> None:
         "physics/mujoco/x.py",
     ],
 )
-def test_mujoco_forbidden_outside_adapter(tmp_path: Path, location: str) -> None:
+def test_mujoco_forbidden_anywhere_after_retirement(tmp_path: Path, location: str) -> None:
+    """PHY-026, PHY-011: the bridge was retired (ADR 0004); MuJoCo is imported nowhere, its old adapter location
+    included."""
     result = violations_for(tmp_path, location, "import mujoco\n")
     assert len(result) == 1
     assert result[0].path == location
     assert result[0].line == 1
     assert "'mujoco'" in result[0].message
-    assert "mechsim/physics/mujoco/" in result[0].message
+    assert "forbidden anywhere" in result[0].message
+    assert "retired" in result[0].message
+
+
+@pytest.mark.parametrize(
+    "source",
+    ["from mechsim.physics.mujoco import translate\n", "import mechsim.physics.mujoco.prepare\n"],
+)
+def test_retired_bridge_package_forbidden_anywhere(tmp_path: Path, source: str) -> None:
+    result = violations_for(tmp_path, "tests/unit/test_x.py", source)
+    assert len(result) == 1
+    assert "forbidden anywhere" in result[0].message
 
 
 # ===== Qt and display =================================================================================================
@@ -349,10 +365,10 @@ def test_explicit_file_path(tmp_path: Path) -> None:
 
 
 def test_explicit_subdirectory_keeps_root_relative_locations(tmp_path: Path) -> None:
-    write(tmp_path, "mechsim/physics/mujoco/a.py", "import mujoco\n")
-    write(tmp_path, "mechsim/physics/native/b.py", "import mujoco\n")
-    result = check_paths([tmp_path / "mechsim" / "physics"], tmp_path)
-    assert [v.path for v in result] == ["mechsim/physics/native/b.py"]
+    write(tmp_path, "mechsim/viewer/a.py", "import PySide6\n")
+    write(tmp_path, "mechsim/physics/b.py", "import PySide6\n")
+    result = check_paths([tmp_path / "mechsim"], tmp_path)
+    assert [v.path for v in result] == ["mechsim/physics/b.py"]
 
 
 def test_missing_path_is_a_violation(tmp_path: Path) -> None:
@@ -382,7 +398,7 @@ def test_violation_format() -> None:
 
 
 def test_main_returns_zero_when_clean(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
-    write(tmp_path, "mechsim/physics/mujoco/a.py", "import mujoco\n")
+    write(tmp_path, "mechsim/viewer/a.py", "import PySide6\n")
     assert main(["--root", str(tmp_path)]) == 0
     assert capsys.readouterr().out == ""
 

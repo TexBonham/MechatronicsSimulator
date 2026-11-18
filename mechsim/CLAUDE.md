@@ -8,7 +8,7 @@ One subpackage per module (R-14, ADR 0005). Python 3.12, uv, ruff, mypy strict (
 | `materials/` | Materials database, process rules, direction-dependent limits | MAT |
 | `design/` | Design-file schema, loader, validation, CAD import (STEP, URDF) | DES |
 | `builder/` | Design file to engine-neutral physics model, wiring, chip config (ADR 0003) | BLD |
-| `physics/` | Adapters: `mujoco/` (bridge), `native/` (own engine binding), `chrono/` (reserved in the architecture doc, not created; ADR 0004 open item) | PHY |
+| `physics/` | Adapters: `native/` (own engine binding; the MuJoCo bridge retired, ADR 0004), `chrono/` (reserved in the architecture doc, not created; ADR 0004 open item) | PHY |
 | `testing/` | Test-case schema, runner, fault fan-out, sweeps, regression | TST |
 | `record/` | Recorder, HDF5 run archive, CSV/JSON/MAT exports | REC |
 | `integrity/` | Mechanical integrity check plugins, safety factors, load-case export (ADR 0009) | INT |
@@ -23,7 +23,7 @@ Physics adapters: everything under `physics/`. Only the neutral model crosses in
 
 | Import | Allowed only in |
 |---|---|
-| MuJoCo | `physics/mujoco/` |
+| MuJoCo | Nowhere (retired, ADR 0004; `tools/check_imports.py`, PHY-026) |
 | Qt, display libraries | `viewer/` (invariant 9) |
 | Reference collision library | Tests only (ADR 0002) |
 | pint | Load-time parsing; never the tick loop (L5) |
@@ -55,5 +55,14 @@ Checked by the invariant tier's import-boundary test.
 | `physics/` | `physics/CLAUDE.md` |
 | `testing/` | `testing/CLAUDE.md`; real driver `testing/core_driver.py`: `CoreDriver`, `RecordingView`, `RecordArchiver`, `RecordArchiveReader`, `core_builder`, `core_services`; core parties from a build `testing/core_wiring.py` |
 | `record/` | `record/CLAUDE.md` |
+| `integrity/` | `integrity/CLAUDE.md`; runner hook `integrity.service.IntegrityService`, config `integrity.yaml` beside the design |
 | `scoring/` | `scoring/CLAUDE.md` |
 | `facade/` | `facade/CLAUDE.md` |
+
+## Section index
+
+| Section | File | Line |
+|---|---|---|
+| validate | cli.py | 39 |
+| run, suite, replay | cli.py | 64 |
+| serve | cli.py | 127 |

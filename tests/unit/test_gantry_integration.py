@@ -199,22 +199,26 @@ def test_builder_maps_senses_and_torque_curve() -> None:
     assert (encoder.joint, encoder.position, encoder.reversed) == ("y_axis", None, False)
     assert instances["x_motor"].senses is None
     curve = instances["x_motor"].torque_speed
-    assert curve[0] == (0.0, pytest.approx(1.26))
-    assert curve[1][0] == pytest.approx(300.0 * 2.0 * np.pi / 60.0)
+    # The catalog part the design names on x_motor, its published curve in SI (ruling 99 (a): read from the data).
+    published = default_registry().part(instances["x_motor"].part).torque_speed_curve
+    assert published is not None
+    assert curve[0] == (0.0, pytest.approx(published[0].torque))
+    assert curve[1][0] == pytest.approx(published[1].speed)
 
 
 @pytest.mark.req("BLD-035")
 def test_switch_position_reads_along_the_joint_from_its_neutral_placement() -> None:
-    """The layer reads the child body origin in the parent frame: placement (0.1, 0, 0.04) plus q along +x, so a switch
-    at joint coordinate q sits at 0.1 + q in the reading (DES-043 positions are joint coordinates)."""
+    """The layer reads the child body origin in the parent frame: placement (0, 0.1, 0.04) plus q along +x (rail_x's
+    frame starts at the rail's root end, M3-X1a), so a switch at joint coordinate q sits at q in the reading (DES-043
+    positions are joint coordinates)."""
     build = core_builder(prepare(G3).design)
     assert build.physics is not None
     places, dofs = core_wiring.joint_places(build.physics)
     instances = {instance.name: instance for instance in build.wiring.instances}
     params = core_wiring.component_parameters(instances["x_max_switch"], places, build.physics)
-    assert params["position"] == pytest.approx(0.6)
+    assert params["position"] == pytest.approx(0.5)
     assert params["actuate_above"] is True
-    assert places["x_axis"].offset == pytest.approx(0.1)
+    assert places["x_axis"].offset == pytest.approx(0.0)
     assert dofs == sum(1 for name in ("x_axis", "y_axis", "lift_axis")) + 3 + 3
 
 

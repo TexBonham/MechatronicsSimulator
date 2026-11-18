@@ -154,6 +154,9 @@ py::object coupling_to_python(const CouplingValue& value) {
     if (const auto* p = payload_if<signals::OperatorCommands>(payload)) {
         return py::cast(*p);
     }
+    if (const auto* p = payload_if<kernel::ModelChangeRequests>(payload)) {
+        return py::cast(*p);
+    }
     throw std::invalid_argument("coupling payload '" + std::string(payload->kind()) + "' has no Python form");
 }
 
@@ -395,7 +398,8 @@ void bind_cosim(py::module_& m) {
         .def_readwrite("name", &kernel::PhysicsPartyConfig::name)
         .def_readwrite("rate", &kernel::PhysicsPartyConfig::rate)
         .def_readwrite("inputs", &kernel::PhysicsPartyConfig::inputs)
-        .def_readwrite("drift", &kernel::PhysicsPartyConfig::drift);
+        .def_readwrite("drift", &kernel::PhysicsPartyConfig::drift)
+        .def_readwrite("model_requests", &kernel::PhysicsPartyConfig::model_requests);
     py::class_<kernel::PhysicsParty, kernel::Party, py::smart_holder>(
         m, "PhysicsParty", "A loaded PhysicsAdapter as the physics party (KER-016); takes ownership of the adapter.")
         .def(py::init<std::unique_ptr<kernel::PhysicsAdapter>, kernel::PhysicsPartyConfig>(), py::arg("adapter"),

@@ -63,6 +63,8 @@ commands:
 end:
   at: 20 s
   max_duration: 20 s
+integrity:
+  evaluate_from: 1 s
 criteria:
   - name: no_step_pulses_x
     check: value

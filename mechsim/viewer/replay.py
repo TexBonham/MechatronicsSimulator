@@ -24,7 +24,9 @@ class CursorState:
 
 
 class ReplayCursor:
-    """Starts paused at the first recorded sample; every position is a recorded sample index."""
+    """Starts paused at the first recorded sample; every position is a recorded sample index. Playback keeps a
+    continuous play time beside the index, so time `advance` moves past the shown sample is carried, not dropped
+    (VIE-009); scrub and step set it to the time asked or the sample reached."""
 
     def __init__(self, times: Sequence[float]) -> None:
         if len(times) == 0:
@@ -32,6 +34,7 @@ class ReplayCursor:
         self._times = tuple(float(value) for value in times)
         self._index = 0
         self._paused = True
+        self._play = self._times[0]
 
     @property
     def times(self) -> tuple[float, ...]:
@@ -43,9 +46,12 @@ class ReplayCursor:
     def scrub(self, t: float) -> CursorState:
         """The latest recorded sample at or before t; a time before the first sample lands on the first."""
         _check_time(t, "scrub time")
-        position = bisect.bisect_right(self._times, t) - 1
-        self._index = max(position, 0)
+        self._seek(t)
         return self.state()
+
+    def _seek(self, t: float) -> None:
+        self._play = min(max(t, self._times[0]), self._times[-1])
+        self._index = max(bisect.bisect_right(self._times, self._play) - 1, 0)
 
     def pause(self, paused: bool) -> CursorState:
         self._paused = paused
@@ -57,6 +63,7 @@ class ReplayCursor:
             self._index = min(self._index + 1, len(self._times) - 1)
         else:
             self._index = max(self._index - 1, 0)
+        self._play = self._times[self._index]
         return self.state()
 
     def advance(self, dt: float) -> CursorState:
@@ -64,7 +71,8 @@ class ReplayCursor:
         _check_time(dt, "advance interval")
         if self._paused:
             return self.state()
-        return self.scrub(self._times[self._index] + dt)
+        self._seek(self._play + dt)
+        return self.state()
 
 
 def _check_time(value: float, what: str) -> None:

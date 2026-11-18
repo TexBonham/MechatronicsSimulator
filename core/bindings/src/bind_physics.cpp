@@ -2,23 +2,46 @@
 #include <pybind11/stl.h>
 
 #include <cstddef>
+#include <memory>
 #include <span>
 #include <string>
+#include <tuple>
 #include <utility>
 #include <vector>
 
 #include "bindings.hpp"
 #include "factories.hpp"
+#include "mechsim/engine/member_loads.hpp"
+#include "mechsim/integrity/validity.hpp"
 #include "mechsim/kernel/physics_adapter.hpp"
 #include "mechsim/kernel/physics_types.hpp"
 #include "mechsim/kernel/time.hpp"
-#include "mechsim/physics/mujoco/mujoco_adapter.hpp"
+#include "mechsim/physics/native/native_adapter.hpp"
 
 namespace py = pybind11;
 
 namespace mechsim::bindings {
 
 namespace {
+
+// The native adapter's live carried-load flag as the integrity party's neutral validity source (rulings 75, 79): the
+// physics side fills it, so the integrity package and its binding include no adapter header (invariant 5).
+class CarriedValidity final : public integrity::ValiditySource {
+public:
+    explicit CarriedValidity(std::shared_ptr<const physics::native::CarriedRecord> record)
+        : record_(std::move(record)) {}
+
+    [[nodiscard]] bool not_valid(std::size_t member) const override {
+        if (member >= record_->members.size()) {
+            throw integrity::ValidityError("validity of member " + std::to_string(member) + ": the engine's record holds " +
+                                           std::to_string(record_->members.size()) + " members");
+        }
+        return record_->members[member].unresolved;
+    }
+
+private:
+    std::shared_ptr<const physics::native::CarriedRecord> record_;
+};
 
 using kernel::PhysicsAdapter;
 
@@ -77,6 +100,7 @@ private:
 
 void bind_types(py::module_& m) {
     m.attr("kWorldBody") = kernel::kWorldBody;
+    m.attr("CARRIED_RATIO_LIMIT") = engine::carried_ratio_limit;
     py::class_<kernel::Wrench>(m, "Wrench")
         .def(py::init<>())
         .def_readwrite("moment", &kernel::Wrench::moment)
@@ -109,7 +133,27 @@ void bind_types(py::module_& m) {
     py::class_<kernel::RopeTension>(m, "RopeTension")
         .def(py::init<>())
         .def_readwrite("tension", &kernel::RopeTension::tension)
+        .def_readwrite("max_tension", &kernel::RopeTension::max_tension)
         .def_readwrite("slack", &kernel::RopeTension::slack);
+    py::enum_<kernel::ModelChangeKind>(m, "ModelChangeKind")
+        .value("SpringOffset", kernel::ModelChangeKind::SpringOffset)
+        .value("SpringStiffness", kernel::ModelChangeKind::SpringStiffness)
+        .value("ConstraintDisabled", kernel::ModelChangeKind::ConstraintDisabled)
+        .value("LoadReleased", kernel::ModelChangeKind::LoadReleased)
+        .value("RopeSnapped", kernel::ModelChangeKind::RopeSnapped)
+        .value("PayloadAttached", kernel::ModelChangeKind::PayloadAttached)
+        .value("PayloadMass", kernel::ModelChangeKind::PayloadMass);
+    py::enum_<kernel::ModelChangeSource>(m, "ModelChangeSource")
+        .value("Spring", kernel::ModelChangeSource::Spring)
+        .value("Constraint", kernel::ModelChangeSource::Constraint)
+        .value("Rope", kernel::ModelChangeSource::Rope)
+        .value("Payload", kernel::ModelChangeSource::Payload);
+    py::class_<kernel::ModelChangeEvent>(m, "ModelChangeEvent", "A tick's model change or rope snap (ruling 40).")
+        .def(py::init<>())
+        .def_readwrite("kind", &kernel::ModelChangeEvent::kind)
+        .def_readwrite("source", &kernel::ModelChangeEvent::source)
+        .def_readwrite("index", &kernel::ModelChangeEvent::index)
+        .def_readwrite("value", &kernel::ModelChangeEvent::value);
     py::enum_<kernel::PowerFlow>(m, "PowerFlow")
         .value("Static", kernel::PowerFlow::Static)
         .value("Forward", kernel::PowerFlow::Forward)
@@ -163,7 +207,8 @@ void bind_types(py::module_& m) {
         .def_readwrite("transmissions", &kernel::PhysicsOutputs::transmissions)
         .def_readwrite("joint_positions", &kernel::PhysicsOutputs::joint_positions)
         .def_readwrite("joint_drive_torques", &kernel::PhysicsOutputs::joint_drive_torques)
-        .def_readwrite("payloads", &kernel::PhysicsOutputs::payloads);
+        .def_readwrite("payloads", &kernel::PhysicsOutputs::payloads)
+        .def_readwrite("model_changes", &kernel::PhysicsOutputs::model_changes);
     py::class_<kernel::BodyWrench>(m, "BodyWrench")
         .def(py::init<>())
         .def_readwrite("body", &kernel::BodyWrench::body)
@@ -208,11 +253,104 @@ void bind_adapter(py::module_& m) {
         .def("set_transmission_slip", &PhysicsAdapter::set_transmission_slip, py::arg("transmission"),
              py::arg("fraction"));
 
-    py::class_<physics::mujoco::MujocoAdapter, PhysicsAdapter, py::smart_holder>(
-        m, "MujocoAdapter", "MuJoCo behind the PhysicsAdapter interface (PHY-014, ADR 0014); load the translation's MJCF.")
+    py::class_<physics::native::DrivenSchemeDecayRecord, py::smart_holder>(
+        m, "DrivenSchemeDecayRecord", "The native run's largest scheme decay per driven joint, shared; outlives the adapter.")
+        .def(
+            "values",
+            [](const physics::native::DrivenSchemeDecayRecord& record) {
+                std::vector<std::pair<std::size_t, double>> out;
+                out.reserve(record.values.size());
+                for (const physics::native::DrivenSchemeDecay& d : record.values) {
+                    out.emplace_back(d.joint, d.decay);
+                }
+                return out;
+            },
+            "A copy: [(joint, decay)] in joint order.");
+
+    py::class_<physics::native::EfficiencyDampingRecord, py::smart_holder>(
+        m, "EfficiencyDampingRecord",
+        "Per transmission, the native run's largest efficiency damping ratio above the factor 2 and its time (E9).")
+        .def(
+            "values",
+            [](const physics::native::EfficiencyDampingRecord& record) {
+                std::vector<std::tuple<std::size_t, double, double>> out;
+                out.reserve(record.values.size());
+                for (const physics::native::EfficiencyDamping& d : record.values) {
+                    out.emplace_back(d.transmission, d.ratio, d.time);
+                }
+                return out;
+            },
+            "A copy: [(transmission, largest ratio, time s)] in transmission order.");
+
+    py::class_<physics::native::CarriedRecord, py::smart_holder>(
+        m, "CarriedRecord",
+        "The native run's carried-joint deflection, lag stability, work and validity per member, shared (ENG-052).")
+        .def(
+            "values",
+            [](const physics::native::CarriedRecord& record) {
+                std::vector<std::tuple<double, double, double, double, double, double, double, double, bool, double,
+                                       double, double, double, double>>
+                    out;
+                out.reserve(record.members.size());
+                for (const physics::native::CarriedMemberRecord& r : record.members) {
+                    out.emplace_back(r.deflection, r.lag_ratio, r.lag_omega_h, r.lag_factor, r.work, r.peak_force,
+                                     r.peak_quasi_static, r.peak_ratio, r.unresolved, r.unresolved_time,
+                                     r.peak_position, r.static_floor, r.peak_window_peak, r.peak_relative_deflection);
+                }
+                return out;
+            },
+            "A copy: [(largest deflection m, lag ratio r, omega h, largest per-step factor, the pair's work J, "
+            "largest rerouted force N, largest quasi-static deflection m, largest dynamic ratio, unresolved, "
+            "unresolved from s, at the peak ratio: foot position m, floor m, window peak m, largest nodal deflection "
+            "relative to the own-weight shape m)] per member (ENG-052, briefs M3-E7c, M3-E7g).")
+        .def(
+            "validity_source",
+            [](const std::shared_ptr<physics::native::CarriedRecord>& record) {
+                return std::shared_ptr<integrity::ValiditySource>(std::make_shared<CarriedValidity>(record));
+            },
+            "This record's live flag as the integrity party's neutral validity source (rulings 75, 79): a member index "
+            "outside the record is an error.");
+
+    py::class_<physics::native::NativeAdapter, PhysicsAdapter, py::smart_holder>(
+        m, "NativeAdapter", "The own engine behind the PhysicsAdapter interface (PHY-020); load the native translation.")
         .def(py::init<>())
-        .def("integrator", &physics::mujoco::MujocoAdapter::integrator)
-        .def("timestep", &physics::mujoco::MujocoAdapter::timestep);
+        .def("integrator", &physics::native::NativeAdapter::integrator)
+        .def("timestep", &physics::native::NativeAdapter::timestep)
+        .def(
+            "driven_scheme_decay",
+            [](const physics::native::NativeAdapter& adapter) {
+                std::vector<std::pair<std::size_t, double>> out;
+                for (const physics::native::DrivenSchemeDecay& d : adapter.driven_scheme_decay()) {
+                    out.emplace_back(d.joint, d.decay);
+                }
+                return out;
+            },
+            "Per driven joint (neutral index, joint order): the largest scheme decay pi omega h of the run (rulings "
+            "44, 45).")
+        .def(
+            "scheme_decay_record",
+            [](const physics::native::NativeAdapter& adapter) {
+                return std::const_pointer_cast<physics::native::DrivenSchemeDecayRecord>(adapter.scheme_decay_record());
+            },
+            "The same values as a shared record: take it before PhysicsParty takes the adapter, read it after the run.")
+        .def(
+            "efficiency_damping_record",
+            [](const physics::native::NativeAdapter& adapter) {
+                return std::const_pointer_cast<physics::native::EfficiencyDampingRecord>(
+                    adapter.efficiency_damping_record());
+            },
+            "Per transmission whose frozen efficiency damping removed more than twice its loss in some step (E9): "
+            "take it before PhysicsParty takes the adapter, read it after the run.")
+        .def(
+            "carried_record",
+            [](const physics::native::NativeAdapter& adapter) {
+                return std::const_pointer_cast<physics::native::CarriedRecord>(adapter.carried_record());
+            },
+            "Per member: the run's largest carried deflection and the lag's stability at load, as a shared record: "
+            "take it before PhysicsParty takes the adapter, read it after the run (ENG-052, PHY-035).")
+        .def("carried_deflection", &physics::native::NativeAdapter::carried_deflection,
+             "Per member (document order): the largest carried-joint deflection of any engine step since load, m "
+             "(ENG-052, PHY-035).");
 
     py::class_<kernel::NullPhysicsAdapter, PhysicsAdapter, py::smart_holder>(m, "NullPhysicsAdapter")
         .def(py::init<>())

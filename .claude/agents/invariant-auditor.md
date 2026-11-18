@@ -36,7 +36,7 @@ Mark each pass, fail or n/a, with evidence for every fail.
 - [ ] 2. Nothing design-specific in code. The gantry exists only under designs/, test\_cases/ and firmware/. A requirement that can only be met by special-casing a design is a gap in the library and is flagged, not patched.
 - [ ] 3. Data files are the source of truth. Every YAML file validates against its schema; SI units internally, units explicit in files; the GUI editor, when it exists, writes the same files.
 - [ ] 4. Determinism. The same design, test case, seed and controller mode give an identical recording. Any source of nondeterminism is seeded or removed.
-- [ ] 5. Engines and emulators stay behind adapters. No MuJoCo or Renode type crosses the mechsim/physics/ adapter boundary or the core/controller/ runtime boundary; the engine-neutral physics model (ADR 0003) is the only thing that crosses into an adapter.
+- [ ] 5. Engines and emulators stay behind adapters. No engine (own engine) or Renode type crosses the mechsim/physics/ adapter boundary or the core/controller/ runtime boundary; the engine-neutral physics model (ADR 0003) is the only thing that crosses into an adapter. MuJoCo was retired (ADR 0004): any MuJoCo import or include anywhere is a finding (PHY-026; `tools/check_imports.py`).
 - [ ] 6. Fidelity tiers are additive. Adding a higher tier to a component never changes the lower tier's results.
 - [ ] 7. Failures are errors. Solver drift, solver failure and emulator faults end the run with a report; they never produce silent numbers.
 - [ ] 8. The board interface is the only coupling to firmware. Firmware application code includes the interface header and nothing else from the simulator or any vendor HAL.

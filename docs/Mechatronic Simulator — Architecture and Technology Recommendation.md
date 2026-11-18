@@ -63,6 +63,10 @@ These rulings were made in the planning session of Nov 1, 2026 and are the basis
 | 45 | Own-engine integrator | Semi-implicit Euler with implicit springs and contacts, post-step projection, projected Gauss-Seidel with a fixed cap, Newmark reserved as a later tier, four lumped-beam segments by default (docs/adr/0013-own-engine-integrator.md). | No |
 | 46 | MuJoCo bridge location | Neutral-model-to-MJCF translation stays in Python; MuJoCo stepping runs in C++ inside the core behind the PhysicsAdapter interface (docs/adr/0014-mujoco-bridge-split.md). | Yes |
 | 47 | Facade protocol | JSON messages over WebSocket with binary frames for time series, versioned, localhost-bound (docs/adr/0015-facade-protocol.md). | No |
+| 48 | Rope model | A rope is a lumped chain of point masses joined by tension-only spring-dampers (slack below rest length, EA and mass from the catalog part, rest length changed at run time, snap releases the load over the breaking tension); the gantry payload hangs on one rope from the hook; the rigid pendulum stays (docs/adr/0016-rope-model.md; proposed, owner reviews). | No |
+| 49 | Tier 2 failure split | Milestone 3: yield offset and rope snap; milestone 4: buckling collapse and fastener break (docs/adr/0010-mid-run-structural-failure.md, amendment 2026-11-11; round 5 ruling 3). | No |
+| 50 | Halt on an integrity crossing | Test-case field integrity.halt_on_crossing, default false; the case fails on a crossing either way (docs/adr/0010-mid-run-structural-failure.md, amendment 2026-11-11; round 5 ruling 4). | No |
+| 51 | MuJoCo bridge retired | Owner gate decision 1b, 2026-11-15: the MuJoCo adapter is removed (core and Python packages, the fetch, the wheel library, the `mujoco` value of `physics.adapter`, now refused by name); the fixed bridge baselines stay as the comparison of record; no MuJoCo import or include anywhere (docs/adr/0004-mujoco-adapter-lifecycle.md, Retirement; brief M3-RM). | No |
 
 ## System overview
 

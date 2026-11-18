@@ -1,0 +1,347 @@
+#include "mechsim/integrity/integrity_party.hpp"
+
+#include <algorithm>
+#include <array>
+#include <charconv>
+#include <cmath>
+#include <cstddef>
+#include <limits>
+#include <memory>
+#include <span>
+#include <string>
+#include <string_view>
+#include <utility>
+#include <vector>
+
+#include "mechsim/integrity/beam.hpp"
+#include "mechsim/integrity/limits.hpp"
+#include "mechsim/kernel/coupling.hpp"
+#include "mechsim/kernel/physics_party.hpp"
+#include "mechsim/kernel/physics_types.hpp"
+
+namespace mechsim::integrity {
+
+namespace {
+
+std::string shortest(double value) {
+    std::array<char, 32> buffer{};
+    const std::to_chars_result written = std::to_chars(buffer.data(), buffer.data() + buffer.size(), value);
+    return {buffer.data(), written.ptr};
+}
+
+std::string quoted(const std::string& text) {
+    std::string out = "\"";
+    for (const char c : text) {
+        if (c == '"' || c == '\\') {
+            out.push_back('\\');
+        }
+        out.push_back(c);
+    }
+    out.push_back('"');
+    return out;
+}
+
+}  // namespace
+
+std::string crossing_detail(const Crossing& crossing) {
+    return R"({"limit": )" + shortest(crossing.limit) + R"(, "member": )" + quoted(crossing.element) +
+           R"(, "quantity": )" + quoted(crossing.quantity) + R"(, "tier": 1, "value": )" + shortest(crossing.value) +
+           "}";
+}
+
+IntegrityParty::IntegrityParty(Limits limits, IntegrityPartyConfig config, std::shared_ptr<IntegrityTrace> trace)
+    : limits_(std::move(limits)), config_(std::move(config)), trace_(std::move(trace)) {
+    if (trace_ == nullptr) {
+        trace_ = std::make_shared<IntegrityTrace>();
+    }
+    if (config_.physics_outputs.empty()) {
+        throw LimitsError("integrity party '" + config_.name + "': no physics outputs name");
+    }
+    for (const MemberLimits& member : limits_.members) {
+        if (member.supports.empty()) {
+            throw LimitsError("member '" + member.name + "': no supports");
+        }
+    }
+    consumed_ = {config_.physics_outputs};
+    if (limits_.yield_offset) {
+        published_ = {config_.name + ".model_requests"};
+    }
+    members_.assign(limits_.members.size(), MemberState{});
+    fastenings_.assign(limits_.fastenings.size(), FasteningState{});
+    trace_->peak_stress.assign(limits_.members.size(), 0.0);
+    if (!limits_.stress) {
+        trace_->peak_stress.assign(limits_.members.size(), std::numeric_limits<double>::quiet_NaN());
+    }
+    trace_->peak_deflection.assign(limits_.members.size(), 0.0);
+    for (std::size_t m = 0; m < limits_.members.size(); ++m) {
+        if (!limits_.members[m].nodes.has_value()) {
+            trace_->peak_deflection[m] = std::numeric_limits<double>::quiet_NaN();
+        }
+    }
+    trace_->min_buckling_margin.assign(limits_.members.size(), std::numeric_limits<double>::infinity());
+    trace_->peak_fastener_load.assign(limits_.fastenings.size(), 0.0);
+    trace_->hogging_bound.assign(limits_.members.size(), 0.0);
+    trace_->hogging_read.assign(limits_.members.size(), 0.0);
+}
+
+std::string_view IntegrityParty::name() const {
+    return config_.name;
+}
+
+kernel::Rate IntegrityParty::nominal_rate() const {
+    return config_.rate;
+}
+
+kernel::PartyRole IntegrityParty::role() const {
+    return kernel::PartyRole::integrity;
+}
+
+std::span<const std::string> IntegrityParty::published() const {
+    return published_;
+}
+
+std::span<const std::string> IntegrityParty::consumed() const {
+    return consumed_;
+}
+
+void IntegrityParty::start(const kernel::Rate& /*base_rate*/) {}
+
+void IntegrityParty::read_inputs(const kernel::CouplingReader& inputs) {
+    has_outputs_ = inputs.has_value(config_.physics_outputs);
+    if (has_outputs_) {
+        outputs_ = inputs.payload<kernel::PhysicsOutputs>(config_.physics_outputs);
+    }
+}
+
+void IntegrityParty::cross(kernel::SimTime t, const std::string& element, std::string_view quantity, double value,
+                           double limit) {
+    Crossing crossing{t, element, std::string(quantity), value, limit};
+    pending_events_.push_back(kernel::RecordedEvent{t, std::string(event_source), std::string(event_kind),
+                                                    crossing_detail(crossing)});
+    trace_->crossings.push_back(std::move(crossing));
+    if (config_.halt_on_crossing) {
+        halted_ = true;
+    }
+}
+
+void IntegrityParty::crossed(kernel::SimTime t, bool counts, bool not_valid, bool& counted, bool& early,
+                             const std::string& element, std::string_view quantity, double value, double limit) {
+    if (counts && not_valid) {
+        if (!counted) {
+            counted = true;
+            Crossing crossing{t, element, std::string(quantity), value, limit};
+            pending_events_.push_back(kernel::RecordedEvent{t, std::string(event_source), std::string(not_valid_kind),
+                                                            crossing_detail(crossing)});
+            trace_->not_valid.push_back(std::move(crossing));
+        }
+        return;
+    }
+    if (counts) {
+        if (!counted) {
+            counted = true;
+            cross(t, element, quantity, value, limit);
+        }
+        return;
+    }
+    if (early) {
+        return;
+    }
+    early = true;
+    Crossing crossing{t, element, std::string(quantity), value, limit};
+    pending_events_.push_back(kernel::RecordedEvent{t, std::string(event_source), std::string(before_evaluation_kind),
+                                                    crossing_detail(crossing)});
+    trace_->before_evaluation.push_back(std::move(crossing));
+}
+
+void IntegrityParty::apply_offset(const kernel::ModelChangeRequest& request) {
+    for (std::size_t m = 0; m < limits_.members.size(); ++m) {
+        const MemberLimits& member = limits_.members[m];
+        if (request.kind != kernel::ModelChangeKind::SpringOffset || !member.nodes.has_value() ||
+            request.index < member.first_spring ||
+            request.index >= member.first_spring + member.segments) {
+            continue;
+        }
+        std::vector<double>& offsets = members_[m].offsets;
+        if (offsets.empty()) {
+            offsets.assign(member.segments, 0.0);
+        }
+        offsets[request.index - member.first_spring] = request.value;
+    }
+}
+
+void IntegrityParty::yield(const MemberLimits& member, const kernel::MemberEndLoads& loads, MemberState& state) {
+    const double l = member.segment_length;
+    std::size_t spring = member.first_spring;
+    double moment = start_node_moment(loads.start, l);
+    double* peak = &state.start_peak;
+    if (std::abs(loads.end.moment[2]) > std::abs(loads.start.moment[2])) {
+        spring = member.first_spring + member.segments - 1;
+        moment = end_node_moment(loads.end, l);
+        peak = &state.end_peak;
+    }
+    if (!(std::abs(moment) > *peak)) {
+        return;
+    }
+    *peak = std::abs(moment);
+    const double yield_moment = member.yield_strength * member.i_z / member.c_y;
+    if (!(*peak > yield_moment)) {
+        return;
+    }
+    double offset = (*peak - yield_moment) / member.node_stiffness;
+    if (moment < 0.0) {
+        offset = -offset;
+    }
+    const kernel::ModelChangeRequest request{kernel::ModelChangeKind::SpringOffset, spring, offset};
+    requests_.requests.push_back(request);
+    trace_->requests.push_back(request);
+    new_requests_ = true;
+}
+
+void IntegrityParty::step(kernel::SimTime t, kernel::Duration dt) {
+    if (!has_outputs_) {
+        return;
+    }
+    const kernel::SimTime stamp = t + dt;
+    const bool counts = !(stamp < config_.evaluate_from);
+    for (const kernel::ModelChangeRequest& request : requests_.requests) {
+        apply_offset(request);
+    }
+    requests_.requests.clear();
+    if (limits_.bodies.has_value() && outputs_.bodies.size() != limits_.bodies.value()) {
+        throw LimitsError("integrity: physics publishes " + std::to_string(outputs_.bodies.size()) +
+                          " bodies, the limits table expects " + std::to_string(limits_.bodies.value()) +
+                          " (the run's bodies plus member nodes, INT-006)");
+    }
+    std::vector<bool> flagged(limits_.members.size(), false);
+    if (validity_) {
+        for (std::size_t m = 0; m < limits_.members.size(); ++m) {
+            flagged[m] = validity_->not_valid(limits_.members[m].index);
+        }
+    }
+    for (std::size_t m = 0; m < limits_.members.size(); ++m) {
+        const MemberLimits& member = limits_.members[m];
+        if (member.index >= outputs_.members.size()) {
+            throw LimitsError("member '" + member.name + "': physics publishes " +
+                              std::to_string(outputs_.members.size()) + " members");
+        }
+        const kernel::MemberEndLoads& loads = outputs_.members[member.index];
+        MemberState& state = members_[m];
+        if (limits_.stress) {
+            std::vector<CarriedAt> current;
+            if (member.nodes.has_value() && member.nodes.value().carries) {
+                current = carried_at(outputs_.bodies, outputs_.joints, member);
+            }
+            if (!state.has_carried) {
+                state.carried = current;
+                state.has_carried = true;
+            }
+            const double stress = peak_normal_stress(loads, outputs_.bodies, member, state.offsets, state.carried);
+            if (counts) {
+                hogging(m, loads, state);
+            }
+            state.carried = std::move(current);
+            if (counts) {
+                trace_->peak_stress[m] = std::max(trace_->peak_stress[m], stress);
+            }
+            if (stress > member.allowable_stress) {
+                crossed(stamp, counts, flagged[m], state.stress, state.early_stress, member.name, stress_quantity, stress,
+                        member.allowable_stress);
+            }
+        }
+        const double load = compression(loads);
+        if (load > 0.0) {
+            const double margin = critical_load(member) / load;
+            if (counts) {
+                trace_->min_buckling_margin[m] = std::min(trace_->min_buckling_margin[m], margin);
+            }
+            if (limits_.buckling && margin < limits_.minimum_safety_factor) {
+                crossed(stamp, counts, flagged[m], state.buckling, state.early_buckling, member.name, buckling_quantity, margin,
+                        limits_.minimum_safety_factor);
+            }
+        }
+        if (limits_.deflection && member.nodes.has_value()) {
+            const double deflection = node_deflection(outputs_.bodies, member);
+            if (counts) {
+                trace_->peak_deflection[m] = std::max(trace_->peak_deflection[m], deflection);
+            }
+            if (member.deflection_limit.has_value() && deflection > member.deflection_limit.value()) {
+                crossed(stamp, counts, flagged[m], state.deflection, state.early_deflection, member.name, deflection_quantity,
+                        deflection, member.deflection_limit.value());
+            }
+        }
+        if (limits_.yield_offset && counts) {
+            yield(member, loads, state);
+        }
+    }
+    for (std::size_t f = 0; f < limits_.fastenings.size(); ++f) {
+        const FasteningLimits& fastening = limits_.fastenings[f];
+        if (fastening.joint >= outputs_.joints.size()) {
+            throw LimitsError("fastening '" + fastening.name + "': physics publishes " +
+                              std::to_string(outputs_.joints.size()) + " joints");
+        }
+        const kernel::Vec3& force = outputs_.joints[fastening.joint].reaction.force;
+        const double magnitude = std::sqrt(force[0] * force[0] + force[1] * force[1] + force[2] * force[2]);
+        if (counts) {
+            trace_->peak_fastener_load[f] = std::max(trace_->peak_fastener_load[f], magnitude);
+        }
+        if (limits_.fastener && magnitude > fastening.load_limit) {
+            bool held = false;
+            if (fastening.member.has_value()) {
+                held = flagged[fastening.member.value()];
+            }
+            crossed(stamp, counts, held, fastenings_[f].counted, fastenings_[f].early, fastening.name, fastener_quantity,
+                    magnitude, fastening.load_limit);
+        }
+    }
+}
+
+void IntegrityParty::write_outputs(kernel::CouplingWriter& outputs) {
+    if (published_.empty()) {
+        return;
+    }
+    if (new_requests_ || !written_) {
+        if (new_requests_) {
+            ++requests_.sequence;
+        }
+        outputs.set(published_[0], kernel::make_payload(requests_, std::string(kernel::model_requests_kind)));
+        written_ = true;
+        new_requests_ = false;
+    }
+}
+
+void IntegrityParty::on_fault(const kernel::PartyFault& /*fault*/) noexcept {}
+
+bool IntegrityParty::finished() const {
+    return halted_;
+}
+
+void IntegrityParty::record(kernel::TickRecord& row) const {
+    row.events.insert(row.events.end(), pending_events_.begin(), pending_events_.end());
+    pending_events_.clear();
+}
+
+const IntegrityTrace& IntegrityParty::trace() const noexcept {
+    return *trace_;
+}
+
+void IntegrityParty::watch_validity(std::shared_ptr<const ValiditySource> source) {
+    validity_ = std::move(source);
+}
+
+// Ruling 79 (mechsim/integrity/beam.py `hogging_rows`, the strength check's line): a carried couple above the couple
+// floor applied at a foot point inside a hogging stretch records the member's bound and the largest read magnitude.
+void IntegrityParty::hogging(std::size_t m, const kernel::MemberEndLoads& loads, const MemberState& state) {
+    const MemberLimits& member = limits_.members[m];
+    if (!member.nodes.has_value() || !hogs(member, state.carried)) {
+        return;
+    }
+    const std::vector<double> moments = node_moments(outputs_.bodies, member, state.offsets);
+    double largest = 0.0;
+    for (const CarriedMoment& read : carried_reads(loads, moments, member, state.carried).reads) {
+        largest = std::max(largest, std::abs(read.value));
+    }
+    trace_->hogging_bound[m] = member.nodes.value().hogging_bound;
+    trace_->hogging_read[m] = std::max(trace_->hogging_read[m], largest);
+}
+
+}  // namespace mechsim::integrity

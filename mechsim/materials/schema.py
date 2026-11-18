@@ -195,7 +195,7 @@ class SNPoint(StrictModel):
         return value
 
 
-def _sn_monotone(value: list[SNPoint]) -> list[SNPoint]:
+def sn_monotone(value: list[SNPoint]) -> list[SNPoint]:
     _strictly_increasing([point.cycles for point in value], "S-N cycles")
     for earlier, later in itertools.pairwise(value):
         if later.stress_amplitude > earlier.stress_amplitude:
@@ -255,6 +255,19 @@ class MoldedProcess(StrictModel):
 
 # ===== Material ========================================================
 
+SPREAD_PROPERTIES: tuple[str, ...] = (
+    "density",
+    "youngs_modulus",
+    "poissons_ratio",
+    "yield_strength",
+    "ultimate_strength",
+    "shear_strength",
+    "thermal_conductivity",
+    "specific_heat",
+    "thermal_expansion",
+    "max_service_temperature",
+)
+
 
 class Material(StrictModel):
     """Root of a file under `mechsim/materials/data/`."""
@@ -284,7 +297,7 @@ class Material(StrictModel):
     @field_validator("sn_curve")
     @classmethod
     def _sn(cls, value: list[SNPoint]) -> list[SNPoint]:
-        return _sn_monotone(value)
+        return sn_monotone(value)
 
 
 def yaml_loader() -> YAML:

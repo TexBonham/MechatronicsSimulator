@@ -26,7 +26,31 @@ jobs:
       - name: Types
         run: uv run mypy
       - name: Tests
-        run: uv run pytest
+        # The long-run tests (the acceptance checks of G2 to G16, the G16 sweep, PHY-016 on the bridge, ACC-037, the
+        # G1 to G16 batch, PHY-023's re-run of the reference tier) run in python-long only. Measured on the WSL runner
+        # 2026-11-14 (brief M3-X2e): 1328 s for this set, on a machine shared with other runs (1299 s in M3-X2d with
+        # PHY-023's 191 s still in it); it still runs G1, G3 and G8 end to end on native, G7 on the bridge and the
+        # pendulum.
+        run: uv run pytest -m "not long_run"
+
+  python-long:
+    # The long-run marker (pyproject.toml): measured 3705 s on the WSL runner 2026-11-14 (brief M3-X2d), the G1 to G16
+    # batch (ACC-036) 1289 s of it; PHY-023 (191 s) joined it in brief M3-X2e, about 3900 s.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+      - name: Install C++ toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends cmake ninja-build g++
+      - name: Sync environment
+        run: uv sync --locked
+      - name: Long-run tests
+        run: uv run pytest -m long_run
 
   python-windows:
     runs-on: windows-2022
@@ -51,4 +75,6 @@ jobs:
       - name: Types
         run: uv run mypy
       - name: Tests
-        run: uv run pytest
+        # Long-run tests excluded (python-long runs them); the same set as the python job (1299 s measured on Linux,
+        # brief M3-X2d): G1, G3 and G8 end to end on native, G7 on the bridge, the pendulum.
+        run: uv run pytest -m "not long_run"

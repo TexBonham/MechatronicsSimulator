@@ -29,12 +29,12 @@ private:
 // What the builder hands an adapter once per run.
 struct PreparedModel {
     std::string neutral_model_json;  // the neutral physics model document; each adapter parses it (invariant 3)
-    std::string engine_artifact;     // MJCF text for the MuJoCo stepping adapter (ADR 0014); empty for native
+    std::string engine_artifact;     // an engine-specific artifact; no shipped adapter takes one, native refuses one
     std::string design_version;      // the design's semver string, kept for reports
 };
 
-// One stepping interface for every engine (PHY-001, ADR 0014): core/physics/native/ over core/engine/, and
-// core/physics/mujoco/ over MuJoCo's C API. No engine type appears here (invariant 5, PHY-011, PHY-012).
+// One stepping interface for every engine (PHY-001, ADR 0014): core/physics/native/ over core/engine/. No engine
+// type appears here (invariant 5, PHY-011, PHY-012).
 //
 // Contract:
 // - supported_elements() lists the neutral-model element kinds the adapter maps, so the builder refuses an

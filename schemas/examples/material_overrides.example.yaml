@@ -1,0 +1,23 @@
+# Worked example of a material overrides file (MAT-016, MAT-017). A design references it with
+# `materials.overrides: <path>`; shipped files under mechsim/materials/data/ stay untouched.
+description: Coupon results for the printed brackets.
+material_overrides:
+  pla_printed:
+    yield_strength:
+      source: coupon test 2026-11-01
+      min: "28 MPa"
+      typ: "34 MPa"
+      max: "38 MPa"
+    density:
+      source: weighed print 2026-11-01
+      value: "1210 kg/m**3"
+    strength_factors:
+      source: coupon test 2026-11-01, Z and XY bars
+      in_layer: 0.8
+      interlayer: 0.4
+  steel_8_8_fastener:
+    sn_curve:
+      source: supplier datasheet rev C
+      points:
+        - {cycles: 1e4, stress_amplitude: "320 MPa"}
+        - {cycles: 2e6, stress_amplitude: "60 MPa"}

@@ -163,6 +163,7 @@ py::dict physics_dict(const kernel::PhysicsOutputs& physics) {
     for (const kernel::RopeTension& rope : physics.ropes) {
         py::dict entry;
         entry["tension"] = rope.tension;
+        entry["max_tension"] = rope.max_tension;
         entry["slack"] = rope.slack;
         ropes.append(entry);
     }

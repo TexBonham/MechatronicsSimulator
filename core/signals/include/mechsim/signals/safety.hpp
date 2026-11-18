@@ -92,7 +92,7 @@ struct BrakeParams {
     double release_delay = 0.0;  // s
     bool power_off_engaged = true;
     double damping = 0.0;  // N m s/rad of the drive while engaged
-    // A0, the joint's inverse inertia (MuJoCo dof_invweight0) from the wiring; absent: the default stiffness.
+    // A0, the joint's inverse inertia (dof_invweight0) from the wiring; absent: the default stiffness.
     std::optional<double> inverse_inertia;
 };
 

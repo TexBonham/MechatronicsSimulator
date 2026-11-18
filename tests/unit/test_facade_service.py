@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import ast
 import hashlib
+import math
 from collections.abc import Callable, Sequence
+from dataclasses import replace
 from fractions import Fraction
 from pathlib import Path
 from typing import Any
@@ -14,11 +16,13 @@ import pytest
 from mechsim.facade.decimate import bucket_select, decimate
 from mechsim.facade.live import Batch, LiveDriver, Subscription
 from mechsim.facade.service import Facade, FacadeError, FacadeServices
+from mechsim.record.archive import write_archive
 from mechsim.record.layout import PINS, Recording
+from mechsim.record.stream import Recorder
 from mechsim.record.tick import TickRecord
-from mechsim.testing.driver import EndSpec, RunConfig, RunReport, Series
+from mechsim.testing.driver import EndSpec, MemberSection, RunConfig, RunMetadata, RunReport, Series
 from mechsim.testing.runner import Services
-from tests.unit.test_record_support import synthetic_rows
+from tests.unit.test_record_support import finished, identity, synthetic_rows
 from tests.unit.test_runner_fakes import (
     MACHINE_CASE,
     FakeArchiver,
@@ -26,6 +30,7 @@ from tests.unit.test_runner_fakes import (
     FakeBuilder,
     InMemoryFakeDriver,
     Row,
+    recording_from,
     unrun_baseline,
     write_case,
     write_designs,
@@ -92,10 +97,12 @@ def test_the_facade_is_python_in_mechsim_facade_and_runs_on_the_core_binding() -
     from mechsim.facade.service import default_services
     from mechsim.testing.core_driver import CoreDriver
 
+    # FAC-009: the facade service is Python in mechsim/facade/ and runs on the core binding: its default runner makes
+    # a CoreDriver, which drives the pybind11 extension.
     services = default_services()
     assert Facade.__module__ == "mechsim.facade.service"
     assert services.runner is not None
-    assert services.runner.driver is CoreDriver
+    assert isinstance(services.runner.driver(), CoreDriver)
     assert isinstance(services.live, CoreLiveWiring)
     assert "mechsim._core" in CoreDriver.run.__globals__["core"].__name__
 
@@ -170,6 +177,79 @@ def test_a_requested_seed_or_mode_must_be_the_cases_own(tmp_path: Path) -> None:
         facade.run_case(case, sets=SETS, mode="emulated")
     assert "mode emulated requested, the case runs mode native" in raised.value.message
     assert facade.run_id_of(case) == "M1-seed7"
+
+
+@pytest.mark.req("TST-040", "FAC-010")
+def test_run_id_of_follows_the_adapter_identity_rule(tmp_path: Path) -> None:
+    facade = Facade(fake_services(tmp_path))
+    case = write_case(tmp_path / "cases", MACHINE_CASE)
+    assert facade.run_id_of(case) == "M1-seed7"
+    assert facade.run_id_of(case, sets={"physics.adapter": "native"}) == "M1-seed7"
+    assert facade.run_id_of(case, sets={"other": "1"}) == "M1-seed7"
+    with pytest.raises(FacadeError) as raised:
+        facade.run_id_of(case, sets={"physics.adapter": "bullet"})
+    assert raised.value.code == "validation_failed"
+    with pytest.raises(FacadeError, match="the MuJoCo bridge was retired") as retired:
+        facade.run_id_of(case, sets={"physics.adapter": "mujoco"})
+    assert retired.value.code == "validation_failed"
+    bridge = write_case(tmp_path / "bridge", MACHINE_CASE + "physics:\n  adapter: mujoco\n")
+    with pytest.raises(FacadeError, match="the MuJoCo bridge was retired"):
+        facade.run_id_of(bridge)
+    assert raised.value.field == "physics.adapter"
+    assert "bullet" in raised.value.message
+
+
+class _StopError(Exception):
+    pass
+
+
+class _RecordingFacade(Facade):
+    """The real run id rule; `run_case` records what the server passes and stops before running."""
+
+    def __init__(self, services: FacadeServices) -> None:
+        super().__init__(services)
+        self.ids: list[str] = []
+        self.sets: list[Any] = []
+
+    def run_id_of(self, case: Path, design: Path | None = None, sets: Any = None) -> str:
+        run_id = super().run_id_of(case, design, sets)
+        self.ids.append(run_id)
+        return run_id
+
+    def run_case(self, case: Path, design: Path | None = None, sets: Any = None, *args: Any, **kwargs: Any) -> Any:
+        self.sets.append(sets)
+        raise _StopError
+
+
+def _server_run(tmp_path: Path, payload: dict[str, Any]) -> _RecordingFacade:
+    import asyncio
+
+    from mechsim.facade.protocol import RunCasePayload
+    from mechsim.facade.server import FacadeServer, _Connection
+
+    facade = _RecordingFacade(fake_services(tmp_path))
+    server = FacadeServer(facade, "token")
+    case = write_case(tmp_path / "cases", MACHINE_CASE)
+    body = {"design": str(tmp_path / "designs" / "machine" / "design.yaml"), "test_case": str(case), "seed": 7}
+    request = RunCasePayload.model_validate({**body, "mode": "none", **payload})
+
+    async def run() -> None:
+        connection = _Connection(None, asyncio.Queue())  # type: ignore[arg-type]
+        with pytest.raises(_StopError):
+            await server._run_case(connection, "r1", request)
+
+    asyncio.run(run())
+    return facade
+
+
+@pytest.mark.req("TST-040", "FAC-005")
+def test_the_run_request_sets_reach_the_run_id_through_the_server(tmp_path: Path) -> None:
+    native = _server_run(tmp_path / "native", {"sets": {"physics.adapter": "native"}})
+    assert native.ids == ["M1-seed7"]
+    assert native.sets == [{"physics.adapter": "native"}]
+    default = _server_run(tmp_path / "default", {})
+    assert default.ids == ["M1-seed7"]
+    assert default.sets == [None]
 
 
 @pytest.mark.req("FAC-010", "FAC-012")
@@ -346,6 +426,7 @@ def test_decimation_rejects_an_empty_window_or_zero_points() -> None:
 class _RecordingView:
     def __init__(self, recording: Recording) -> None:
         self._recording = recording
+        self.validity: tuple[Any, ...] = ()
 
     def times(self) -> Sequence[float]:
         return [float(t) for t in self._recording.series["time/seconds"].values]
@@ -519,3 +600,91 @@ def test_files_are_read_and_written_only_as_valid_designs_and_cases(tmp_path: Pa
     with pytest.raises(FacadeError) as raised:
         facade.read_file(Path("designs/none.yaml"))
     assert raised.value.code == "not_found"
+
+
+# ===== Overlays (VIE-010, VIE-011) and the cursor's carried time (VIE-009) ===
+
+
+class _OverlayReader:
+    """An archive reader whose view carries the structural rows' recording and a hanging load's poses."""
+
+    def __init__(self, members: tuple[MemberSection, ...]) -> None:
+        self.members = members
+
+    def open(self, path: Path) -> tuple[RunMetadata, Any]:
+        from tests.unit.test_record_structural import TICKS, _columns, _row
+
+        recorder = Recorder(Fraction(1000), _columns())
+        for tick in range(TICKS):
+            recorder.write_row(_row(tick))
+        times = [tick / 1000.0 for tick in range(TICKS)]
+        angles = [0.01 * tick for tick in range(TICKS)]
+        poses = {
+            "pose:hook.x": [0.0] * TICKS,
+            "pose:hook.y": [0.0] * TICKS,
+            "pose:hook.z": [2.0] * TICKS,
+            "pose:load.x": [math.sin(a) for a in angles],
+            "pose:load.y": [0.0] * TICKS,
+            "pose:load.z": [2.0 - math.cos(a) for a in angles],
+        }
+        view = recording_from(times, poses, "m")
+        view.recording = recorder.recording()  # type: ignore[attr-defined]
+        report = RunReport("end_time", TICKS - 1, Fraction(1000))
+        metadata = RunMetadata("S1-seed0", "S1", "machine", "0.1.0", "a", "b", 0, None, None, report)
+        return replace(metadata, members=self.members), view
+
+
+# Rectangle w = 0.02 m (z), h = 0.04 m (y): I_z = w h^3 / 12, I_y = h w^3 / 12, c_y = 0.02 m, c_z = 0.01 m.
+I_Z, I_Y = 0.02 * 0.04**3 / 12.0, 0.04 * 0.02**3 / 12.0
+SECTIONS = (
+    MemberSection("rail_x", "petg_printed", 8e-4, I_Z, 0.5, I_Y, 0.02, 0.01),
+    MemberSection("rail_y", "petg_printed", 8e-4, I_Z, 0.5, I_Y, 0.015, 0.01),
+)
+
+
+def _overlay_facade(tmp_path: Path, members: tuple[MemberSection, ...] = SECTIONS) -> Facade:
+    tmp_path.mkdir(parents=True, exist_ok=True)
+    archive = tmp_path / "S1-seed0.h5"
+    write_archive(archive, identity(design_file=b""), finished(6), Recorder(Fraction(1000)).recording())
+    facade = Facade(FacadeServices(reader=_OverlayReader(members)))
+    facade.replay_open(archive)
+    return facade
+
+
+@pytest.mark.req("VIE-010")
+def test_the_facade_serves_member_stress_per_member_over_time(tmp_path: Path) -> None:
+    result = _overlay_facade(tmp_path).member_stress("S1-seed0")
+    assert (result.run_id, result.unit, result.times) == ("S1-seed0", "Pa", [0.0, 0.001, 0.002, 0.003, 0.004, 0.005])
+    assert [entry.member for entry in result.members] == ["rail_x", "rail_y"]
+    # Member 0 at tick t: start force (0, t, 0.5), start moment (t, 2 t, -1): N = 0, sigma = 2 t c_z / I_y + c_y / I_z.
+    expected = [2.0 * t * 0.01 / I_Y + 0.02 / I_Z for t in range(6)]
+    assert result.members[0].start == pytest.approx(expected, rel=1e-12)
+    assert (result.members[1].fibre_y, result.members[1].fibre_z) == (0.015, 0.01)
+    with pytest.raises(FacadeError) as raised:
+        _overlay_facade(tmp_path / "short", SECTIONS[:1]).member_stress("S1-seed0")
+    assert (raised.value.code, raised.value.requirement_id) == ("not_found", "VIE-010")
+
+
+@pytest.mark.req("VIE-011")
+def test_the_facade_serves_the_swing_angle_of_a_load(tmp_path: Path) -> None:
+    facade = _overlay_facade(tmp_path)
+    result = facade.swing_angle("S1-seed0", "load", "hook")
+    # The load hangs 1 m below the hook at angle 0.01 t rad; the archived design file is empty, so down is -z.
+    assert (result.load, result.attachment, result.unit) == ("load", "hook", "rad")
+    assert result.values == pytest.approx([0.01 * t for t in range(6)], abs=1e-12)
+    with pytest.raises(FacadeError) as raised:
+        facade.swing_angle("S1-seed0", "load", "crane")
+    assert (raised.value.code, raised.value.requirement_id, raised.value.field) == ("not_found", "VIE-011", "load")
+    (tmp_path / "S1-seed0.h5").write_bytes(b"not an hdf5 file")
+    with pytest.raises(FacadeError) as raised:
+        facade.swing_angle("S1-seed0", "load", "hook")
+    assert (raised.value.code, raised.value.field) == ("not_found", "run_id")
+    assert "cannot read the design from the archive" in raised.value.message
+
+
+@pytest.mark.req("VIE-009")
+def test_the_facade_cursor_carries_leftover_play_time(tmp_path: Path) -> None:
+    facade = _overlay_facade(tmp_path)
+    facade.pause("S1-seed0", False)
+    assert facade.advance("S1-seed0", 0.0006).index == 0
+    assert facade.advance("S1-seed0", 0.0006).index == 1

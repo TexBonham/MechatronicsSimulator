@@ -14,13 +14,15 @@ from typing import Any
 
 from pydantic import ValidationError
 
-from mechsim.builder import mass
+from mechsim.builder import mass, structure
 from mechsim.builder.result import LumpedRecord
+from mechsim.builder.structure import CalibrationScales
 from mechsim.design.cad import MassPropertiesSI, StepImporter, cross_check_mass
 from mechsim.design.schema import (
     WORLD,
     AngularDof,
     Body,
+    Calibration,
     ComponentInstance,
     Design,
     FlexibleMember,
@@ -32,17 +34,42 @@ from mechsim.design.schema import (
     StepGeometry,
     iter_open_values,
     open_name,
+    section_part_values,
 )
 from mechsim.library.registry import Registry, RegistryError
 from mechsim.materials.schema import Material
-from mechsim.physics.neutral import LumpedMember, PhysicsModel, StructuralMember
+from mechsim.physics.driven import driven_mass
+from mechsim.physics.neutral import LumpedMember, PhysicsModel, Rope, StructuralMember
 from mechsim.schema_base import format_errors
 
 FLOOR_MATERIAL = "floor"
 LUMPED_SUFFIX = "_beam"
 TRANSMISSION_TYPES = ("belt_pulley", "lead_screw")
 LUMPED_ROOTS = ("clamped", "pinned")
-LUMPED_ENDS = ("free", "roller")
+
+
+def clamped_calibration(
+    segments: int,
+    length: float,
+    flexural_rigidity: float,
+    mass_per_length: float,
+    load: float,
+    deflection: float,
+    frequency_hz: float,
+) -> CalibrationScales:
+    """BLD-019 on a clamped-clamped member (ruling 32, N >= 16): E I scaled so the chain's midspan deflection under
+    `load` equals `deflection`, then the mass so its first mode equals `frequency_hz` (as `structure.calibrate`)."""
+    stiffness_scale = (
+        structure.member_deflection("clamped", "clamped", segments, length, flexural_rigidity, load, 0.5 * length)
+        / deflection
+    )
+    omega = structure.loaded_first_frequency(
+        "clamped", "clamped", segments, length, flexural_rigidity * stiffness_scale, mass_per_length
+    )
+    return CalibrationScales(stiffness_scale, (omega / (2.0 * math.pi * frequency_hz)) ** 2)
+
+
+LUMPED_ENDS = ("free", "roller", "clamped")
 
 
 @dataclass
@@ -160,11 +187,101 @@ def _check_supports(design: Design, collector: Collector) -> None:
     for body in design.bodies:
         if body.flexible is not None:
             root, end = body.flexible.supports
-            if root not in LUMPED_ROOTS or end not in LUMPED_ENDS:
+            clamped_end_on_pin = end == "clamped" and root != "clamped"
+            if root not in LUMPED_ROOTS or end not in LUMPED_ENDS or clamped_end_on_pin:
                 collector.failures.append(
                     f"flexible body '{body.name}': supports ({root}, {end}) have no lumped beam; the neutral model "
-                    f"takes a root in {LUMPED_ROOTS} and an end in {LUMPED_ENDS}"
+                    f"takes a root in {LUMPED_ROOTS} and an end in {LUMPED_ENDS}, a clamped end with a clamped root"
                 )
+
+
+# Rounding of a placement's rotation (a w-first quaternion of 1 / sqrt 2 entries is not exact) moves a travel end by
+# about 1e-16 m; a span end is reached when within this.
+TRAVEL_TOLERANCE = 1e-9
+
+
+def _check_carried_travel(design: Design, registry: Registry, collector: Collector) -> None:
+    """A carried joint's origin projects onto the member's span [0, L] over its whole travel (ENG-052, BLD-037).
+
+    The member frame is the flexible body's frame (the lumped chain's root, x along the member). A fixed, revolute
+    or spherical joint's origin is its placement; a prismatic joint's moves along its axis between its limits (an
+    open side is unbounded travel); planar and free joints have no bounded travel. Skipped while a value is open."""
+    joints = {joint.name: joint for joint in design.joints}
+    for body in design.bodies:
+        flexible = body.flexible
+        if flexible is None or len(flexible.carries) == 0:
+            continue
+        section = flexible.section
+        if section is None:
+            values = section_part_values(body, registry)
+            if values is None:
+                continue
+            length = values["length"]
+        elif isinstance(section.length, OpenValue):
+            continue
+        else:
+            length = _f(section.length)
+        for name in flexible.carries:
+            joint = joints.get(name)
+            if joint is None or isinstance(joint.placement, OpenValue) or isinstance(joint.axis, OpenValue):
+                continue
+            label = f"flexible body '{body.name}': carried joint '{name}'"
+            origin = _floats(joint.placement.position)
+            ends = [origin[0]]
+            if joint.type in ("planar", "free"):
+                collector.failures.append(f"{label}: a {joint.type} joint has no bounded travel along the member")
+                continue
+            if joint.type == "prismatic" and joint.axis is not None:
+                direction = mass.apply(mass.rotation(joint.placement.orientation), [float(v) for v in joint.axis])
+                along = direction[0]
+                limits = joint.linear[0].limits
+                if limits is None or isinstance(limits.lower, OpenValue) or isinstance(limits.upper, OpenValue):
+                    if abs(along) > 0.0:
+                        collector.failures.append(
+                            f"{label}: travel along the member is unbounded (no limits); the span is [0, {length}] m"
+                        )
+                    continue
+                ends = [origin[0] + along * _f(limits.lower), origin[0] + along * _f(limits.upper)]
+            low = min(ends)
+            high = max(ends)
+            if low < -TRAVEL_TOLERANCE or high > length + TRAVEL_TOLERANCE:
+                collector.failures.append(
+                    f"{label}: origin travels over x in [{low:.6g}, {high:.6g}] m, outside the member's span "
+                    f"[0, {length:.6g}] m by {max(-low, high - length):.6g} m (ENG-052)"
+                )
+
+
+PLANE_TOLERANCE = 1e-9
+
+
+def _check_bending_plane(design: Design, ordered: list[tuple[Body, Joint]], collector: Collector) -> None:
+    """A note per horizontal flexible member (frame x normal to gravity at the reference configuration) whose bending
+    plane, the frame's x-y plane, gravity misses entirely (gravity along the frame z): the lumped chain bends about
+    its frame z only, so such a member cannot sag (BLD-038, ruling 65). Tolerance on unit vectors: PLANE_TOLERANCE."""
+    gravity = _floats(design.environment.gravity)
+    magnitude = math.sqrt(sum(value * value for value in gravity))
+    if magnitude == 0.0:
+        return
+    down = tuple(value / magnitude for value in gravity)
+    poses: dict[str, tuple[mass.Vector, mass.Quaternion]] = {WORLD: (mass.ORIGIN, mass.IDENTITY)}
+    for body, joint in ordered:
+        placement = joint.placement
+        if isinstance(placement, OpenValue):
+            raise TypeError("open placement reached the bending-plane check")
+        poses[body.name] = mass.compose(poses[joint.parent], _floats(placement.position), placement.orientation)
+        if body.flexible is None:
+            continue
+        frame = mass.rotation(poses[body.name][1])
+        along = sum(frame[row][0] * down[row] for row in range(3))
+        in_plane = sum(frame[row][1] * down[row] for row in range(3))
+        if abs(along) > PLANE_TOLERANCE or abs(in_plane) > PLANE_TOLERANCE:
+            continue
+        collector.notes.append(
+            f"flexible body '{body.name}': horizontal, with gravity entirely outside its bending plane (along its "
+            "frame z at the reference configuration); the lumped member bends about its frame z only, so it cannot "
+            "sag under its weight or vertical loads: state the frame with y vertical for vertical bending (BLD-038, "
+            "ruling 65)"
+        )
 
 
 def _check_bindings(design: Design, registry: Registry, collector: Collector) -> None:
@@ -373,9 +490,12 @@ def _check_overlap(
 # ===== Lumped members ===================================================
 
 
-def lumped_record(body: str, member: LumpedMember, flexible: FlexibleMember) -> LumpedRecord:
+def lumped_record(
+    body: str, member: LumpedMember, flexible: FlexibleMember, scales: CalibrationScales | None
+) -> LumpedRecord:
     """Segment layout per `core/engine` lumped beam: N segments of l = L / N, springs E I / l at segment midpoints;
-    rigid spans node to node, a clamped root leaving [0, l/2] on the parent, a pinned root adding [0, l/2]."""
+    rigid spans node to node, a clamped root leaving [0, l/2] on the parent, a pinned root adding [0, l/2]. The
+    member's section is the calibrated one; `scales` are the calibration factors (BLD-019), None when uncalibrated."""
     section = member.section
     count = member.segments
     segment = section.length / count
@@ -385,72 +505,301 @@ def lumped_record(body: str, member: LumpedMember, flexible: FlexibleMember) -> 
     calibration = flexible.calibration
     if isinstance(calibration, OpenValue):
         raise TypeError("open calibration reached the lumped build")
-    return LumpedRecord(
-        member=member.name,
-        body=body,
-        segments=count,
-        segment_length=segment,
-        node_stiffness=section.elastic_modulus * section.second_moment_of_area / segment,
-        spans=tuple(spans),
-        masses=tuple(section.density * section.area * span for span in spans),
-        calibration_source=calibration.source,
-        calibration_load=_f(calibration.load),
-        calibration_deflection=_f(calibration.deflection),
-        calibration_frequency=_f(calibration.first_natural_frequency),
-    )
-
-
-def _section(flexible: FlexibleMember, material: Material) -> dict[str, str]:
-    return {
-        "elastic_modulus": _q(material.youngs_modulus.typ, "Pa"),
-        "second_moment_of_area": _q(_f(flexible.section.second_moment), "m**4"),
-        "density": _q(material.density.typ, "kg/m**3"),
-        "area": _q(_f(flexible.section.area), "m**2"),
-        "length": _q(_f(flexible.section.length), "m"),
+    record: dict[str, Any] = {
+        "member": member.name,
+        "body": body,
+        "segments": count,
+        "segment_length": segment,
+        "node_stiffness": section.elastic_modulus * section.second_moment_of_area / segment,
+        "spans": tuple(spans),
+        "masses": tuple(section.density * section.area * span for span in spans),
+        "calibrated": scales is not None,
+        "first_frequency": structure.loaded_first_frequency(
+            member.root,
+            member.end,
+            count,
+            section.length,
+            section.elastic_modulus * section.second_moment_of_area,
+            section.density * section.area,
+        ),
+        "node_damping": member.node_damping,
     }
+    if flexible.damping_ratio is not None:
+        record["damping_ratio"] = _f(flexible.damping_ratio)
+    if calibration is not None and scales is not None:
+        record["calibration_source"] = calibration.source
+        record["calibration_load"] = _f(calibration.load)
+        record["calibration_deflection"] = _f(calibration.deflection)
+        record["calibration_frequency"] = _f(calibration.first_natural_frequency)
+        record["stiffness_scale"] = scales.stiffness_scale
+        record["mass_scale"] = scales.mass_scale
+    return LumpedRecord(**record)
 
 
-def _flexible(body: Body, material: Material) -> tuple[dict[str, Any], dict[str, Any]]:
-    """The lumped member and the structural member list entry of a flexible body."""
+def member_constants(body: Body, material: Material, registry: Registry) -> dict[str, float]:
+    """E, I, rho, A, L of a flexible body: the design section with the body's material, else its catalog part's
+    section and material constants (LIB-030)."""
+    flexible = body.flexible
+    if flexible is None:
+        raise TypeError("rigid body passed as flexible")
+    if flexible.section is None:
+        values = section_part_values(body, registry)
+        if values is None:
+            raise TypeError(f"flexible body '{body.name}' has neither a section nor a section part")
+        return {
+            "elastic_modulus": values["elastic_modulus"],
+            "second_moment_of_area": values["second_moment"],
+            "density": values["density"],
+            "area": values["area"],
+            "length": values["length"],
+        }
+    area, moment = flexible.section.area_and_moment()
+    constants = {
+        "elastic_modulus": material.youngs_modulus.typ,
+        "second_moment_of_area": moment,
+        "density": material.density.typ,
+        "area": area,
+        "length": _f(flexible.section.length),
+    }
+    properties = flexible.section.properties()
+    if properties is not None:
+        constants.update(
+            {
+                "second_moment_y": properties.second_moment_y,
+                "fibre_y": properties.fibre_y,
+                "fibre_z": properties.fibre_z,
+                "torsion_constant": properties.torsion_constant,
+                "shear_area_y": properties.shear_area_y,
+                "shear_area_z": properties.shear_area_z,
+            }
+        )
+        return constants
+    axes = flexible.section.bending_axes()
+    if axes is not None:
+        i_y, _, c_y, c_z = axes
+        constants.update({"second_moment_y": i_y, "fibre_y": c_y, "fibre_z": c_z})
+    return constants
+
+
+SECTION_UNITS = {
+    "elastic_modulus": "Pa",
+    "second_moment_of_area": "m**4",
+    "density": "kg/m**3",
+    "area": "m**2",
+    "length": "m",
+    "second_moment_y": "m**4",
+    "fibre_y": "m",
+    "fibre_z": "m",
+    "torsion_constant": "m**4",
+    "shear_area_y": "m**2",
+    "shear_area_z": "m**2",
+}
+
+
+def _section(constants: Mapping[str, float]) -> dict[str, str]:
+    return {name: _q(constants[name], unit) for name, unit in SECTION_UNITS.items() if name in constants}
+
+
+def _flexible(
+    body: Body, material: Material, design: Design, registry: Registry, collector: Collector, rigid: bool
+) -> tuple[dict[str, Any], dict[str, Any], CalibrationScales | None]:
+    """The lumped member (calibrated, BLD-019), the structural member list entry (true section, BLD-008, BLD-009)
+    and the calibration scales of a flexible body."""
     flexible = body.flexible
     if flexible is None:
         raise TypeError("rigid body passed as flexible")
     root, end = flexible.supports
+    constants = member_constants(body, material, registry)
+    lumped_constants = dict(constants)
+    scales: CalibrationScales | None = None
+    calibration = flexible.calibration
+    segments = structure.default_segments(root, end)
+    if "segments" in flexible.model_fields_set:
+        segments = flexible.segments
+    minimum = structure.calibration_min_segments(root, end)
+    lumped_form = root in LUMPED_ROOTS and end in ("free", "roller")
+    if rigid:
+        scales = None
+    elif isinstance(calibration, Calibration) and segments < minimum:
+        collector.failures.append(
+            f"flexible body '{body.name}': calibrated member has {segments} segments; calibration needs at least "
+            f"{minimum} for supports ({root}, {end}) (the 2 percent tolerance holds for N >= 8, and N >= 16 "
+            "clamped-clamped, rulings 20 and 32; BLD-018, BLD-019)"
+        )
+    elif isinstance(calibration, Calibration) and root == "clamped" and end == "clamped":
+        scales = clamped_calibration(
+            segments,
+            constants["length"],
+            constants["elastic_modulus"] * constants["second_moment_of_area"],
+            constants["density"] * constants["area"],
+            _f(calibration.load),
+            _f(calibration.deflection),
+            _f(calibration.first_natural_frequency),
+        )
+        lumped_constants["elastic_modulus"] *= scales.stiffness_scale
+        lumped_constants["density"] *= scales.mass_scale
+        collector.notes.extend(structure.approximation_notes(body.name, scales))
+    elif isinstance(calibration, Calibration) and not lumped_form:
+        collector.notes.append(
+            f"flexible body '{body.name}': supports ({root}, {end}) have no calibration chain layout yet (owed, "
+            "ruling 16); its calibration data is not applied (BLD-019)"
+        )
+    elif isinstance(calibration, Calibration):
+        chain = structure.chain_layout(root, end, segments, constants["length"])
+        try:
+            scales = structure.calibrate(
+                chain,
+                constants["elastic_modulus"] * constants["second_moment_of_area"],
+                constants["density"] * constants["area"],
+                _f(calibration.load),
+                _f(calibration.deflection),
+                _f(calibration.first_natural_frequency),
+            )
+        except structure.ChainError as error:
+            collector.failures.append(f"flexible body '{body.name}': calibration failed: {error} (BLD-019)")
+        else:
+            lumped_constants["elastic_modulus"] *= scales.stiffness_scale
+            lumped_constants["density"] *= scales.mass_scale
+            collector.notes.extend(structure.approximation_notes(body.name, scales))
+    elif calibration is None:
+        collector.notes.append(
+            f"flexible body '{body.name}': no calibration data; the lumped beam uses its section and material as is "
+            "(BLD-019)"
+        )
     member: dict[str, Any] = {
         "name": body.name + LUMPED_SUFFIX,
         "parent": body.name,
         "position": _v(mass.ORIGIN, "m"),
-        "section": _section(flexible, material),
+        "section": _section(lumped_constants),
         "root": root,
         "end": end,
         "structural_member": body.name,
     }
-    if "segments" in flexible.model_fields_set:
-        member["segments"] = flexible.segments
-    length = _f(flexible.section.length)
+    if len(flexible.carries) > 0:
+        child_of = {joint.name: joint.child for joint in design.joints}
+        member["carries"] = [child_of[name] for name in flexible.carries]
+    member["segments"] = segments
+    length = constants["length"]
     supports = [{"at": _q(0.0, "m"), "condition": root}]
     if end != "free":
         supports.append({"at": _q(length, "m"), "condition": end})
     structural = {
         "name": body.name,
-        "section": _section(flexible, material),
+        "section": _section(constants),
         "material": material.name,
         "supports": supports,
         "fasteners": [fastener.model_dump(mode="json") for fastener in body.fasteners],
+        "mounts": structure.member_mounts(body, design),
     }
-    return member, structural
+    return member, structural, scales
+
+
+def _number(text: str) -> float:
+    return float(text.split()[0])
+
+
+def _subtree_mass(bodies: Sequence[Mapping[str, Any]], root: str) -> float:
+    """Mass of `root` and its descendants; `bodies` lists every parent before its children."""
+    names = {root}
+    total = 0.0
+    for entry in bodies:
+        if entry["name"] in names or entry["parent"] in names:
+            names.add(entry["name"])
+            total += _number(entry["mass"])
+    return total
+
+
+def _member_damping(
+    lumped: list[dict[str, Any]],
+    flexible_bodies: Mapping[str, tuple[Body, CalibrationScales | None]],
+    bodies: Sequence[Mapping[str, Any]],
+    collector: Collector,
+) -> None:
+    """Each lumped member's node damping from its design damping ratio (BLD-040, DES-047, ruling 78), c = 2 zeta k /
+    omega_1 (`structure.node_damping`, derived there) on the calibrated chain, with a note stating it, its time
+    constant and, for a carrying member, the realised ratio at the lowest loaded first mode over the span; an
+    undamped member gets a note that its ringing is set by the scheme."""
+    for member in lumped:
+        body = flexible_bodies[member["name"]][0]
+        flexible = body.flexible
+        if flexible is None:
+            raise TypeError("rigid body in the lumped members")
+        ratio = 0.0
+        stated = "absent"
+        if flexible.damping_ratio is not None:
+            ratio = _f(flexible.damping_ratio)
+            stated = "0"
+        if ratio == 0.0:
+            collector.notes.append(
+                f"flexible body '{body.name}': undamped (damping_ratio {stated}); its ringing is removed only by the "
+                "integration scheme's own decay, which depends on the step, so its dynamic response does not "
+                "converge as the step is refined (DES-047, BLD-040, ruling 78)"
+            )
+            continue
+        section = member["section"]
+        flexural = _number(section["elastic_modulus"]) * _number(section["second_moment_of_area"])
+        per_length = _number(section["density"]) * _number(section["area"])
+        length = _number(section["length"])
+        segments = int(member["segments"])
+        root, end = member["root"], member["end"]
+        omega = structure.loaded_first_frequency(root, end, segments, length, flexural, per_length)
+        stiffness = flexural * segments / length
+        damping = structure.node_damping(ratio, omega, stiffness)
+        member["node_damping"] = _q(damping, "N*m*s/rad")
+        text = (
+            f"flexible body '{body.name}': damping ratio {ratio!r} of the first bending mode as stiffness-proportional "
+            f"node damping c = 2 zeta k / omega_1 = {damping:.6g} N m s/rad (k = E I / l = {stiffness:.6g} N m/rad, "
+            f"omega_1 = {omega:.6g} rad/s the unloaded chain's first mode), time constant 1 / (zeta omega_1) = "
+            f"{1.0 / (ratio * omega):.6g} s; higher modes n get zeta omega_n / omega_1"
+        )
+        carried = sum(_subtree_mass(bodies, name) for name in member.get("carries", []))
+        if carried > 0.0:
+            lowest, at = structure.lowest_carried_frequency(root, end, segments, length, flexural, per_length, carried)
+            realised = ratio * lowest / omega
+            text += (
+                f"; its carried mass {carried:.6g} kg lowers the first mode to {lowest:.6g} rad/s at worst (foot at "
+                f"{at:.6g} m), so the realised ratio there is zeta omega_c / omega_1 = {realised:.6g}, time constant "
+                f"{1.0 / (realised * lowest):.6g} s"
+            )
+        collector.notes.append(text + " (DES-047, BLD-040, ruling 78)")
 
 
 # ===== Transmissions and signals ========================================
 
 
+def transmission_damping(ratio: float, stiffness: float, driven_mass: float) -> float:
+    """The output damper D that gives a compliant transmission's driven mode the damping ratio `ratio` (BLD-041,
+    ruling 78).
+
+    Derivation: with the shaft held, the driven subtree (mass m along a prismatic output, inertia about a revolute
+    one) on the coupling's spring k and damper D at the output obeys m x'' + D x' + k x = 0, omega = sqrt(k / m) and
+    D = 2 zeta m omega, so D = 2 zeta sqrt(k m); its free decay has the logarithmic decrement 2 pi zeta /
+    sqrt(1 - zeta^2) and the time constant 1 / (zeta omega) = 2 m / D. m is the driven mass the native translation's
+    mode line uses (ruling 45; its subtree's bodies and member chains, `driven.driven_mass`); a body added at run
+    time raises it, so the realised ratio is D / (2 sqrt(k m_run)), which the run's damping line prints."""
+    return 2.0 * ratio * math.sqrt(stiffness * driven_mass)
+
+
+def transmission_values(component: ComponentInstance, registry: Registry) -> Mapping[str, Any]:
+    """The transmission instance's part values with its concrete overrides (the build's and the run line's one source
+    of its stated `damping_ratio`, BLD-041); raises RegistryError."""
+    concrete = {key: value for key, value in component.overrides.items() if open_name(value) is None}
+    return registry.resolve_part(component.part, concrete).values
+
+
 def _transmission(
-    component: ComponentInstance, registry: Registry, child_joints: dict[str, Joint], collector: Collector
-) -> dict[str, Any] | None:
+    component: ComponentInstance,
+    registry: Registry,
+    child_joints: dict[str, Joint],
+    collector: Collector,
+) -> tuple[dict[str, Any], float, str] | None:
+    """The neutral transmission entry without its damping, its stated damping ratio and its driven body (the damping
+    needs the driven mass, counted on the validated model, `_damped`)."""
     kind = registry.component_type(component.type)
     shaft_mounts = {mount.name for mount in kind.mechanical.mounts if mount.kind == "shaft"}
     shaft: str | None = None
     driven: str | None = None
+    driven_body = ""
     for binding in component.mechanical:
         if binding.mount in shaft_mounts and isinstance(binding.joint, str):
             shaft = binding.joint
@@ -458,13 +807,13 @@ def _transmission(
             joint = child_joints.get(binding.body)
             if joint is not None:
                 driven = joint.name
+                driven_body = joint.child
     label = f"transmission '{component.name}'"
     if shaft is None or driven is None:
         collector.failures.append(f"{label}: needs a shaft joint and a driven body on a joint (BLD-005)")
         return None
-    concrete = {key: value for key, value in component.overrides.items() if open_name(value) is None}
     try:
-        values = registry.resolve_part(component.part, concrete).values
+        values = transmission_values(component, registry)
     except RegistryError as error:
         collector.failures.append(f"{label}: {error} (BLD-027)")
         return None
@@ -482,12 +831,31 @@ def _transmission(
         "stiffness": _q(float(values["stiffness"]), "N/m"),
         "backlash": _q(float(values.get("backlash", 0.0)), "m"),
     }
+    ratio_value = float(values.get("damping_ratio", 0.0))
+    if not 0.0 <= ratio_value < 1.0:
+        collector.failures.append(
+            f"{label}: damping_ratio {ratio_value!r}: a modal damping ratio in [0, 1) (LIB-035, BLD-041)"
+        )
+        return None
     if component.type == "belt_pulley":
         entry["pulley_radius"] = _q(ratio, "m")
     else:
         entry["lead"] = _q(ratio * 2.0 * math.pi, "m")
         entry["self_locking"] = bool(values["self_locking"])
-    return entry
+    return entry, ratio_value, driven_body
+
+
+def _damped(model: PhysicsModel, data: dict[str, Any], stated: Sequence[tuple[float, str]]) -> PhysicsModel:
+    """The model with each damped transmission's D = 2 zeta sqrt(k m) (BLD-041), m the driven mass the native
+    translation's mode line uses (`driven.driven_mass`: the driven subtree's bodies and the member chains rooted in
+    it, the mass the engine moves with the driven joint); unchanged when no ratio is above 0."""
+    if all(ratio == 0.0 for ratio, _ in stated):
+        return model
+    for entry, (ratio, driven_body) in zip(data["transmissions"], stated, strict=True):
+        if ratio > 0.0:
+            stiffness = _number(entry["stiffness"])
+            entry["damping"] = _q(transmission_damping(ratio, stiffness, driven_mass(model, driven_body)), "N*s/m")
+    return PhysicsModel.model_validate(data)
 
 
 def _rotor_inertias(design: Design, registry: Registry) -> dict[str, tuple[float, list[str]]]:
@@ -599,6 +967,8 @@ def element_kinds(model: PhysicsModel) -> list[tuple[str, str]]:
         elements.append(("lumped_member", member.name))
     for transmission in model.transmissions:
         elements.append((f"transmission.{transmission.type}", transmission.name))
+    for rope in model.ropes:
+        elements.append(("rope", rope.name))
     return elements
 
 
@@ -623,17 +993,20 @@ def build_physics(
     _check_bindings(design, registry, collector)
     if not rigid_members:
         _check_supports(design, collector)
+        _check_carried_travel(design, registry, collector)
     rotors = _rotor_inertias(design, registry)
     _check_one_actuator_per_shaft(rotors, collector)
     _check_rotor_bodies(design, rotors, collector)
     if len(collector.pending) > 0 or len(collector.failures) > 0:
         return empty
+    if not rigid_members:
+        _check_bending_plane(design, ordered, collector)
     child_joints = {joint.child: joint for joint in design.joints}
     bodies: list[dict[str, Any]] = []
     shapes: dict[str, list[dict[str, Any]]] = {}
     lumped: list[dict[str, Any]] = []
     structural: list[dict[str, Any]] = []
-    flexible_bodies: dict[str, Body] = {}
+    flexible_bodies: dict[str, tuple[Body, CalibrationScales | None]] = {}
     for body, joint in ordered:
         material = materials[_name(body.material)]
         geometry = body.geometry
@@ -666,11 +1039,12 @@ def build_physics(
         if body.catalog_part is not None:
             bodies[-1]["catalog_part"] = body.catalog_part.part
         if body.flexible is not None:
-            member, entry = _flexible(body, material)
+            member, entry, scales = _flexible(body, material, design, registry, collector, rigid_members)
             structural.append(entry)
             if not rigid_members:
                 lumped.append(member)
-                flexible_bodies[member["name"]] = body
+                flexible_bodies[member["name"]] = (body, scales)
+    _member_damping(lumped, flexible_bodies, bodies, collector)
     contact = design.environment.contact
     exclusions: set[tuple[str, str]] = set()
     data: dict[str, Any] = {
@@ -685,6 +1059,8 @@ def build_physics(
             "pose_bodies": [body.name for body, _joint_entry in ordered],
         },
         "structural_members": structural,
+        "ropes": _ropes(design, registry, collector),
+        "fastenings": structure.fastenings(design),
     }
     if contact is not None:
         exclusions = {(min(pair), max(pair)) for pair in contact.exclusions}
@@ -712,6 +1088,7 @@ def build_physics(
                     "material": FLOOR_MATERIAL,
                 }
             ]
+    stated: list[tuple[float, str]] = []
     for component in design.components:
         if registry.has_type(component.type) and registry.component_type(component.type).category == "transmission":
             if component.type not in TRANSMISSION_TYPES:
@@ -721,12 +1098,13 @@ def build_physics(
                 continue
             transmission = _transmission(component, registry, child_joints, collector)
             if transmission is not None:
-                data["transmissions"].append(transmission)
+                data["transmissions"].append(transmission[0])
+                stated.append(transmission[1:])
     _check_overlap(ordered, shapes, exclusions, collector)
     if len(collector.failures) > 0:
         return empty
     try:
-        model = PhysicsModel.model_validate(data)
+        model = _damped(PhysicsModel.model_validate(data), data, stated)
     except ValidationError as error:
         collector.failures.extend(f"physics model: {message}" for message in format_errors(error))
         return empty
@@ -739,10 +1117,36 @@ def build_physics(
             return empty
     records: list[LumpedRecord] = []
     for lumped_member in model.lumped_members:
-        flexible = flexible_bodies[lumped_member.name]
+        flexible, scales = flexible_bodies[lumped_member.name]
         if flexible.flexible is not None:
-            records.append(lumped_record(flexible.name, lumped_member, flexible.flexible))
+            records.append(lumped_record(flexible.name, lumped_member, flexible.flexible, scales))
     return PhysicsOutput(model, model.structural_members, tuple(records))
+
+
+def _ropes(design: Design, registry: Registry, collector: Collector) -> list[dict[str, Any]]:
+    """Ropes with both ends on bodies, as neutral lumped chains (BLD-032); a rope ending at a case payload is
+    noted and left to the case (the payload is placed at run time)."""
+    out: list[dict[str, Any]] = []
+    for rope in design.ropes:
+        element = structure.rope_element(rope, registry.part(rope.part).values)
+        if element is None:
+            collector.notes.append(
+                f"rope '{rope.name}': its to end is case payload '{rope.to_end.payload}'; not emitted until the case "
+                "places the payload (BLD-032)"
+            )
+            continue
+        out.append(element)
+    return out
+
+
+def payload_ropes(design: Design, registry: Registry) -> tuple[Rope, ...]:
+    """The neutral rope of each design rope ending at a case payload, for the run to hang its payload on (BLD-032)."""
+    out: list[Rope] = []
+    for rope in design.ropes:
+        element = structure.payload_rope_element(rope, registry.part(rope.part).values)
+        if element is not None:
+            out.append(Rope.model_validate(element))
+    return tuple(out)
 
 
 def _name(value: str | OpenValue) -> str:

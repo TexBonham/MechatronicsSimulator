@@ -75,6 +75,13 @@
           "title": "Backlash",
           "type": "string"
         },
+        "damping": {
+          "default": "0.0 N*s/m",
+          "description": "Quantity with an explicit unit of dimension [mass]/[time]; SI unit N*s/m",
+          "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s|$)",
+          "title": "Damping",
+          "type": "string"
+        },
         "driven_joint": {
           "pattern": "^[a-z][a-z0-9_]*$",
           "title": "Driven Joint",
@@ -744,6 +751,49 @@
       "title": "DesignRef",
       "type": "object"
     },
+    "Fastening": {
+      "additionalProperties": false,
+      "description": "A mount (a fixed design joint, `joint` names it) or a fastener set holding `body_b` on `body_a`, addressable\nby its index in `PhysicsModel.fastenings` so a modeled failure can disable it (BLD-031). Fastening names are\ntheir own namespace: a mount takes its joint's name.",
+      "properties": {
+        "body_a": {
+          "pattern": "^[a-z][a-z0-9_]*$",
+          "title": "Body A",
+          "type": "string"
+        },
+        "body_b": {
+          "pattern": "^[a-z][a-z0-9_]*$",
+          "title": "Body B",
+          "type": "string"
+        },
+        "joint": {
+          "pattern": "^[a-z][a-z0-9_]*$",
+          "title": "Joint",
+          "type": "string"
+        },
+        "kind": {
+          "enum": [
+            "mount",
+            "fastener"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "name": {
+          "pattern": "^[a-z][a-z0-9_]*$",
+          "title": "Name",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "kind",
+        "body_a",
+        "body_b",
+        "joint"
+      ],
+      "title": "Fastening",
+      "type": "object"
+    },
     "GearPair": {
       "additionalProperties": false,
       "description": "Revolute shaft to revolute driven joint; `ratio` is shaft angle over driven angle, its sign the direction.",
@@ -753,6 +803,13 @@
           "description": "Quantity with an explicit unit of dimension angle; SI unit rad",
           "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s|$)",
           "title": "Backlash",
+          "type": "string"
+        },
+        "damping": {
+          "default": "0.0 N*m*s/rad",
+          "description": "Quantity with an explicit unit of dimension torque*time/angle; SI unit N*m*s/rad",
+          "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s|$)",
+          "title": "Damping",
           "type": "string"
         },
         "driven_joint": {
@@ -1106,6 +1163,13 @@
           "title": "Backlash",
           "type": "string"
         },
+        "damping": {
+          "default": "0.0 N*s/m",
+          "description": "Quantity with an explicit unit of dimension [mass]/[time]; SI unit N*s/m",
+          "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s|$)",
+          "title": "Damping",
+          "type": "string"
+        },
         "driven_joint": {
           "pattern": "^[a-z][a-z0-9_]*$",
           "title": "Driven Joint",
@@ -1231,12 +1295,22 @@
     },
     "LumpedMember": {
       "additionalProperties": false,
-      "description": "Multi-segment lumped beam (R-13) rooted on `parent` at the given placement, along the root frame's x axis.\n\n`segments` defaults to 4, or 8 for a pinned root with a roller end (ENG-040).",
+      "description": "Multi-segment lumped beam (R-13) rooted on `parent` at the given placement, along the root frame's x axis.\n\n`segments` defaults to 8, and to 16 for a clamped-clamped member (rulings 17 and 31: the chain's clamped-clamped\ndeflection error is -4 / N^2). A clamped far end (ruling 16) locks the end rotation and the transverse\ntranslation; it needs a clamped root.",
       "properties": {
+        "carries": {
+          "default": [],
+          "items": {
+            "pattern": "^[a-z][a-z0-9_]*$",
+            "type": "string"
+          },
+          "title": "Carries",
+          "type": "array"
+        },
         "end": {
           "enum": [
             "free",
-            "roller"
+            "roller",
+            "clamped"
           ],
           "title": "End",
           "type": "string"
@@ -1324,7 +1398,7 @@
           "$ref": "#/$defs/Section"
         },
         "segments": {
-          "default": 4,
+          "default": 8,
           "minimum": 1,
           "title": "Segments",
           "type": "integer"
@@ -1558,6 +1632,130 @@
       "title": "PointConstraint",
       "type": "object"
     },
+    "Rope": {
+      "additionalProperties": false,
+      "description": "Lumped rope chain (ADR 0016, BLD-032): `segments` point-mass segments between a point of `from_body` and a\npoint of `to_body` (anchors in each body frame; \"world\" allowed), tension-only springs EA / l with strain-rate\ndamping `damping` / l per segment of rest length l = rest_length / segments, mass per length, and an optional\nbreaking tension (absent: the rope never snaps, ruling 19).",
+      "properties": {
+        "axial_stiffness": {
+          "description": "Quantity with an explicit unit of dimension force; SI unit N",
+          "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s|$)",
+          "title": "Axial Stiffness",
+          "type": "string"
+        },
+        "breaking_tension": {
+          "anyOf": [
+            {
+              "description": "Quantity with an explicit unit of dimension force; SI unit N",
+              "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s|$)",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Breaking Tension"
+        },
+        "damping": {
+          "description": "Quantity with an explicit unit of dimension [mass]*[length]/[time]; SI unit N*s",
+          "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s|$)",
+          "title": "Damping",
+          "type": "string"
+        },
+        "from_body": {
+          "pattern": "^[a-z][a-z0-9_]*$",
+          "title": "From Body",
+          "type": "string"
+        },
+        "from_point": {
+          "maxItems": 3,
+          "minItems": 3,
+          "prefixItems": [
+            {
+              "description": "Quantity with an explicit unit of dimension [length]; SI unit m",
+              "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s|$)",
+              "type": "string"
+            },
+            {
+              "description": "Quantity with an explicit unit of dimension [length]; SI unit m",
+              "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s|$)",
+              "type": "string"
+            },
+            {
+              "description": "Quantity with an explicit unit of dimension [length]; SI unit m",
+              "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s|$)",
+              "type": "string"
+            }
+          ],
+          "title": "From Point",
+          "type": "array"
+        },
+        "mass_per_length": {
+          "description": "Quantity with an explicit unit of dimension [mass]/[length]; SI unit kg/m",
+          "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s|$)",
+          "title": "Mass Per Length",
+          "type": "string"
+        },
+        "name": {
+          "pattern": "^[a-z][a-z0-9_]*$",
+          "title": "Name",
+          "type": "string"
+        },
+        "rest_length": {
+          "description": "Quantity with an explicit unit of dimension [length]; SI unit m",
+          "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s|$)",
+          "title": "Rest Length",
+          "type": "string"
+        },
+        "segments": {
+          "minimum": 1,
+          "title": "Segments",
+          "type": "integer"
+        },
+        "to_body": {
+          "pattern": "^[a-z][a-z0-9_]*$",
+          "title": "To Body",
+          "type": "string"
+        },
+        "to_point": {
+          "maxItems": 3,
+          "minItems": 3,
+          "prefixItems": [
+            {
+              "description": "Quantity with an explicit unit of dimension [length]; SI unit m",
+              "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s|$)",
+              "type": "string"
+            },
+            {
+              "description": "Quantity with an explicit unit of dimension [length]; SI unit m",
+              "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s|$)",
+              "type": "string"
+            },
+            {
+              "description": "Quantity with an explicit unit of dimension [length]; SI unit m",
+              "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s|$)",
+              "type": "string"
+            }
+          ],
+          "title": "To Point",
+          "type": "array"
+        }
+      },
+      "required": [
+        "name",
+        "from_body",
+        "from_point",
+        "to_body",
+        "to_point",
+        "segments",
+        "axial_stiffness",
+        "damping",
+        "mass_per_length",
+        "rest_length"
+      ],
+      "title": "Rope",
+      "type": "object"
+    },
     "RunConfig": {
       "additionalProperties": false,
       "description": "Engine-neutral run configuration the kernel needs; defaults per ADR 0013 and the engine contract.\n\nThe engine currently takes one constraint velocity tolerance; the native adapter maps both fields onto it.",
@@ -1625,7 +1823,7 @@
     },
     "Section": {
       "additionalProperties": false,
-      "description": "Member section and material constants: E, I, rho, A, L.",
+      "description": "Member section and material constants: E, I (about the member z axis, bending along y), rho, A, L; and, for a\nsection given by its shape (ruling 25), the second moment about y, the extreme-fibre distances along y and z, the\ntorsion constant and the shear areas along y and z (member frame: x along the member).",
       "properties": {
         "area": {
           "description": "Quantity with an explicit unit of dimension [length]**2; SI unit m**2",
@@ -1645,6 +1843,34 @@
           "title": "Elastic Modulus",
           "type": "string"
         },
+        "fibre_y": {
+          "anyOf": [
+            {
+              "description": "Quantity with an explicit unit of dimension [length]; SI unit m",
+              "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s|$)",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Fibre Y"
+        },
+        "fibre_z": {
+          "anyOf": [
+            {
+              "description": "Quantity with an explicit unit of dimension [length]; SI unit m",
+              "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s|$)",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Fibre Z"
+        },
         "length": {
           "description": "Quantity with an explicit unit of dimension [length]; SI unit m",
           "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s|$)",
@@ -1656,6 +1882,62 @@
           "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s|$)",
           "title": "Second Moment Of Area",
           "type": "string"
+        },
+        "second_moment_y": {
+          "anyOf": [
+            {
+              "description": "Quantity with an explicit unit of dimension [length]**4; SI unit m**4",
+              "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s|$)",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Second Moment Y"
+        },
+        "shear_area_y": {
+          "anyOf": [
+            {
+              "description": "Quantity with an explicit unit of dimension [length]**2; SI unit m**2",
+              "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s|$)",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Shear Area Y"
+        },
+        "shear_area_z": {
+          "anyOf": [
+            {
+              "description": "Quantity with an explicit unit of dimension [length]**2; SI unit m**2",
+              "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s|$)",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Shear Area Z"
+        },
+        "torsion_constant": {
+          "anyOf": [
+            {
+              "description": "Quantity with an explicit unit of dimension [length]**4; SI unit m**4",
+              "pattern": "^\\s*[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?(\\s|$)",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Torsion Constant"
         }
       },
       "required": [
@@ -1805,6 +2087,15 @@
           "title": "Material",
           "type": "string"
         },
+        "mounts": {
+          "default": [],
+          "items": {
+            "pattern": "^[a-z][a-z0-9_]*$",
+            "type": "string"
+          },
+          "title": "Mounts",
+          "type": "array"
+        },
         "name": {
           "pattern": "^[a-z][a-z0-9_]*$",
           "title": "Name",
@@ -1909,6 +2200,14 @@
     "design": {
       "$ref": "#/$defs/DesignRef"
     },
+    "fastenings": {
+      "default": [],
+      "items": {
+        "$ref": "#/$defs/Fastening"
+      },
+      "title": "Fastenings",
+      "type": "array"
+    },
     "gravity": {
       "maxItems": 3,
       "minItems": 3,
@@ -1938,6 +2237,14 @@
         "$ref": "#/$defs/LumpedMember"
       },
       "title": "Lumped Members",
+      "type": "array"
+    },
+    "ropes": {
+      "default": [],
+      "items": {
+        "$ref": "#/$defs/Rope"
+      },
+      "title": "Ropes",
       "type": "array"
     },
     "run": {

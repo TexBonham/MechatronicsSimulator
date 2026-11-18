@@ -1,7 +1,8 @@
-"""Native adapter skeleton (PHY-020, a later brief): the single Python entry to the own engine's binding.
+"""Native adapter (PHY-020): the single Python entry to the own engine's binding.
 
-Invariant 5: ``mechsim._core_ext.engine`` is imported only from ``mechsim/physics/native/`` (and tests); this module
-re-exports what the adapter will translate the neutral model into and nothing else yet.
+Invariant 5: ``mechsim._core_ext.engine`` is imported only from ``mechsim/physics/native/`` (and tests). Stepping
+is the C++ ``NativeAdapter`` (``make_physics_adapter("native")``); this package translates the neutral model
+(``translate``, ``prepare``) and re-exports the engine types tests drive directly.
 """
 
 from mechsim.physics.native._engine import engine

@@ -7,7 +7,6 @@ tests under core/.
 import gc
 import math
 import sys
-from pathlib import Path
 from typing import Any
 
 import numpy as np
@@ -311,7 +310,7 @@ def test_adapter_misuse_raises_adapter_error() -> None:
         adapter.load(core.PreparedModel(), core.Rate(1000))
     with pytest.raises(core.AdapterError, match="spring 3"):
         adapter.set_spring_offset(3, 0.1)
-    with pytest.raises(ValueError, match="unknown physics adapter 'nope'; known: mujoco, null"):
+    with pytest.raises(ValueError, match="unknown physics adapter 'nope'; known: native, null"):
         core.make_physics_adapter("nope")
 
 
@@ -1114,63 +1113,3 @@ def test_engine_transmission_publishes_the_shaft_supply_sign() -> None:
     assert states[0].shaft_load_torque == out.shaft_load_torque
     provider.set_slip(0, 0.25)
     assert provider.slip(0) == 0.25
-
-
-PENDULUM_EXAMPLE = Path(__file__).resolve().parents[2] / "schemas" / "examples" / "physics_model.pendulum.yaml"
-
-
-@pytest.mark.req("PHY-014")
-@pytest.mark.req("KER-019")
-@pytest.mark.req("KER-016")
-def test_mujoco_pendulum_through_a_physics_party_matches_the_small_angle_closed_form() -> None:
-    # Closed form: a 9 N m torque for the one step ending at 2 ms gives the rod v1 = h tau / (I + h D) (the damping is
-    # implicit in the step), I = m L^2 / 3 about the pivot. Semi-implicit Euler then puts q = h v1 at 2 ms, which is
-    # the free damped motion theta = v1 / omega_d exp(-zeta omega0 s) sin(omega_d s), s = t - 1 ms, started at 1 ms.
-    # Amplitude 0.02 rad: the sin(theta) term departs from small angle by theta^2 / 6 ~ 7e-5; the scheme's phase error
-    # over 100 steps is (omega0 h)^2 / 24 per radian, ~1e-6. Both are far inside the brief's 1 percent.
-    from mechsim.physics import neutral
-    from mechsim.physics.mujoco import translate as mj
-
-    model = neutral.from_yaml(PENDULUM_EXAMPLE.read_text(encoding="utf-8"))
-    translation = mj.translate_report(model)
-    # The pendulum maps exactly: no approximation, no omission to report.
-    assert translation.report == ()
-    adapter = core.make_physics_adapter("mujoco")
-    assert isinstance(adapter, core.MujocoAdapter)
-    prepared = core.PreparedModel(model.model_dump_json(), translation.mjcf, model.design.version)
-    adapter.load(prepared, core.Rate(1000))
-    assert adapter.integrator() == "implicitfast"
-    assert adapter.timestep() == 0.001
-
-    h, tau, mass, length, damping, gravity = 0.001, 9.0, 1.0, 0.5, 0.04520785330006282, 9.81
-    inertia = mass * length**2 / 3.0
-    omega0 = math.sqrt(mass * gravity * 0.5 * length / inertia)
-    zeta = damping / (2.0 * inertia * omega0)
-    omega_d = omega0 * math.sqrt(1.0 - zeta * zeta)
-    v1 = h * tau / (inertia + h * damping)
-
-    class Kick(RecordingParty):
-        def published(self) -> list[str]:
-            return ["kick.forces"]
-
-        def write_outputs(self, outputs: Any) -> None:
-            forces = core.PhysicsInputs()
-            forces.generalized_forces = [tau if len(self._log) == 2 else 0.0]
-            outputs.set("kick.forces", forces)
-
-    config = core.PhysicsPartyConfig()
-    config.inputs = ["kick.forces"]
-    kernel = core.CoSimKernel(core.RunConfig())
-    kernel.register_party(core.PhysicsParty(adapter, config))
-    kernel.register_party(Kick("kick", []))
-    sink = core.InMemoryRecorderSink()
-    report = kernel.run(core.EndCondition(core.Seconds(100, 1000)), sink)
-    assert report.outcome == core.RunOutcome.end_condition_met
-    rows = sink.drain()
-    assert len(rows) == 100
-    w, _, _, z = rows[-1].physics.bodies[0].orientation
-    angle = 2.0 * math.atan2(z, w) + math.pi / 2.0
-    s = 0.1 - h
-    closed_form = v1 / omega_d * math.exp(-zeta * omega0 * s) * math.sin(omega_d * s)
-    print(f"pendulum at 100 ms: closed form {closed_form} rad, measured {angle} rad")
-    assert abs(angle - closed_form) <= 0.01 * abs(closed_form)

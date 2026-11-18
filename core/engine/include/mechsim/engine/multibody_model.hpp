@@ -6,6 +6,8 @@
 #include <string>
 #include <vector>
 
+#include "mechsim/engine/member_loads.hpp"
+#include "mechsim/engine/rope.hpp"
 #include "mechsim/engine/transmission.hpp"
 
 namespace mechsim::engine {
@@ -17,7 +19,8 @@ namespace mechsim::engine {
 //   Planar    3; 3  [x, y, theta]: translation x u + y w in the plane normal to axis, then rotation theta about it
 //   Spherical 4; 3  q unit quaternion [w, x, y, z]; v angular velocity in child coordinates, rad/s
 //   Free      7; 6  q [p (m, parent joint frame), quaternion]; v [omega; velocity of child origin], child coordinates
-enum class JointType : std::uint8_t { Revolute, Prismatic, Fixed, Planar, Spherical, Free };
+//   Translation 3; 3  q p (m, parent joint frame); v its rate; no rotation (rope nodes, ENG-047)
+enum class JointType : std::uint8_t { Revolute, Prismatic, Fixed, Planar, Spherical, Free, Translation };
 
 // The joint frame is placed in the parent body frame; at zero joint coordinates the child body frame equals it.
 // Joint springs and dampers (ENG-051), per velocity DOF, each empty (none) or sized to the joint's velocity count:
@@ -32,6 +35,15 @@ struct Joint {
     Eigen::VectorXd stiffness;  // finite, >= 0; N/m or N m/rad
     Eigen::VectorXd damping;    // finite, >= 0; N s/m or N m s/rad
     Eigen::VectorXd rest;       // finite; rest coordinates, m or rad; empty is zero
+    // Travel limits (ENG-013), Revolute and Prismatic only, each empty (none) or one entry: one-sided rows in the
+    // velocity pass, active once the coordinate has reached the bound, zero restitution; the position projection
+    // returns a coordinate that passed the bound to it. -inf / +inf leaves that side open; lower == upper locks.
+    Eigen::VectorXd lower;      // not NaN, not +inf; m or rad
+    Eigen::VectorXd upper;      // not NaN, not -inf, >= lower; m or rad
+    // Coulomb friction magnitude per velocity DOF (ENG-014, ruling 38), Revolute, Prismatic, Planar; empty is none:
+    // an implicit damping friction / max(|v_start|, friction_slip_threshold) frozen at the step's start rate, so a
+    // load L below it creeps at friction_slip_threshold L / friction.
+    Eigen::VectorXd friction;   // finite, >= 0; N or N m
 };
 
 struct Body {
@@ -63,6 +75,8 @@ struct MultibodyModel {
     std::vector<Body> bodies;
     std::vector<LoopConstraint> constraints;
     std::vector<Transmission> transmissions;  // ENG-043 to ENG-046, ENG-048
+    std::vector<LumpedBeam> members;          // ENG-030; add_lumped_beam registers each beam
+    std::vector<Rope> ropes;                  // ENG-047; add_rope registers each rope
     Eigen::Vector3d gravity = Eigen::Vector3d(0.0, 0.0, -9.81);  // world frame, m/s^2
 };
 
@@ -74,6 +88,7 @@ struct MultibodyConfig {
     static constexpr double default_drift_threshold_m = 1e-6;      // ENG-024
     static constexpr double default_drift_threshold_rad = 1e-6;    // ENG-024
     static constexpr double default_unit_tolerance = 1e-12;        // |norm^2 - 1| of axes and quaternions
+    static constexpr double default_friction_slip_threshold = 1e-4;  // rad/s; Coulomb friction regularisation
 
     int iteration_cap = default_iteration_cap;                       // >= 1
     double velocity_tolerance = default_velocity_tolerance;          // finite, > 0
@@ -81,6 +96,30 @@ struct MultibodyConfig {
     double drift_threshold_m = default_drift_threshold_m;            // finite, > 0
     double drift_threshold_rad = default_drift_threshold_rad;        // finite, > 0
     double unit_tolerance = default_unit_tolerance;                  // finite, > 0
+    // Below this relative rate Coulomb friction (the rope attachment's and the joints') acts as the viscous damping
+    // friction / threshold, so D stays bounded at zero rate; at and above it the torque is the full Coulomb value.
+    double friction_slip_threshold = default_friction_slip_threshold;  // finite, > 0
+    // Test seam only (brief M3-E7b): false runs a carried joint whose lagged load path grows instead of refusing it,
+    // so a test can measure the growth the derivation in member_loads.hpp predicts. Never set by an adapter.
+    bool refuse_unstable_carried = true;
+    // Test seam only (brief M3-E7d): false leaves the carried mass out of the member's inertia (the E7 to E7c one-way
+    // pair), so a test can compare the loaded member with the unloaded one and still reach the lag's refusal, which
+    // the carried mass puts out of reach of a single mode (member_loads.hpp, Carried mass). Never set by an adapter.
+    bool carried_added_mass = true;
+    // Test seam only (brief M3-E7e): false holds the carried block in the velocity form of brief M3-E7d (no momentum
+    // carried across the carriage's travel), so a test can show a standing carriage steps bit-identically either way
+    // and a moving one differently. Never set by an adapter.
+    bool carried_momentum = true;
+    // The carried-load validity flag's evaluation start, s (ENG-052, member_loads.hpp, Definition (d)): the ratio and
+    // the flag are evaluated, and the window filled, from the first step starting at or after it. The adapter sets
+    // it from the model document's carried_evaluation_start (PHY-035).
+    double carried_evaluation_start = 0.0;
+    // The rope snap's evaluation start, s (ENG-047, INT-031, ruling 75; rope.hpp, Snap): a step starting before it
+    // does not release a load whose tension exceeds the breaking tension (a release from slack or straight can double
+    // the static tension, which is not a load case); it publishes the exceedance as RopeOutput::held_tension. From the
+    // first step starting at or after it the snap is unchanged. The adapter sets it from the model document's
+    // rope_snap_evaluation_start; 0 (default) is the behaviour before the key.
+    double rope_snap_evaluation_start = 0.0;
 };
 
 }  // namespace mechsim::engine

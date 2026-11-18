@@ -36,7 +36,8 @@
             "body",
             "joint",
             "payload",
-            "end_effector"
+            "end_effector",
+            "rope"
           ],
           "title": "Category",
           "type": "string"
