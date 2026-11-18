@@ -40,8 +40,8 @@ CI on the landing commit 3e1cd90: green on all three workflows and every job, co
 2 h 37 min, the Windows debug test step 2 h 18 min; noted under Next item 2). Round closed at d7c4c5f (cost rows
 archived: 150 rows, about 19.9M tokens; contract files swept; this queue); the owner confirmed every close item on
 2026-11-17 and ruled the milestone 4 questions (M4-1 to M4-9, below the gate report). The PR to main is deferred: the
-PR to main opens 2026-11-17; after it merges, a branch off main carries the owner's hands-on test, whose
-findings feed the round 6 plan. Briefs of record
+PR #7 merged 2026-11-18 at d619725 (merge commit). The owner's hands-on test runs on `wip/06-human-test`, cut from
+that head, with `docs/human-test.md` as the instructions; its findings feed the round 6 plan. Briefs of record
 in `docs/briefs/round-05/`; worktrees `../MechatronicsSimulator-05-<letter>`. Round 4's rulings and gate report
 are below for reference; round 4's cost rows are in `docs/cost-log-archive.md`.
 

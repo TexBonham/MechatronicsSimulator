@@ -1,6 +1,7 @@
 # Hands-on test of the tool (owner, after the round 5 close)
 
-Branch `round/05-milestone-3` at or after d7c4c5f. Every command runs from the repository root. The first command
+Branch `wip/06-human-test`, cut from main at d619725 (PR #7, milestone 3 landed 2026-11-18); fixes from the test land
+on this branch. Every command runs from the repository root. The first command
 after a pull rebuilds the extension once (about 20 s warm, 5 min cold); later commands do not. Findings go to the
 coordinating session in any form; they feed the round 6 plan before the PR to main opens.
 
